@@ -8,7 +8,8 @@ use rpc::mayastor::v1::{
     BdevRequest,
     BdevResponse,
     BdevRpc,
-    Bdevs,
+    Kind,
+    ListBdevResponse,
     Null,
     NullableString,
     ShareRequest,
@@ -59,18 +60,18 @@ impl BdevRpc for BdevService {
     async fn list(
         &self,
         request: Request<NullableString>,
-    ) -> GrpcResult<Bdevs> {
+    ) -> GrpcResult<ListBdevResponse> {
         let rx = rpc_submit::<_, _, NexusBdevError>(async {
             let mut bdevs = Vec::new();
             let name = request.into_inner().kind;
 
-            if let Some(rpc::mayastor::v1::Kind::Value(name)) = name {
+            if let Some(Kind::Value(name)) = name {
                 Bdev::lookup_by_name(&name).map(|bdev| bdevs.push(bdev.into()));
             } else {
                 Bdev::bdev_first().into_iter().for_each(|bdev| bdevs.push(bdev.into()));
             }
 
-            Ok(Bdevs {
+            Ok(ListBdevResponse {
                 bdevs,
             })
         })?;
@@ -114,7 +115,7 @@ impl BdevRpc for BdevService {
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
             .map_err(Status::from)
-            .map(|_| Ok(Response::new(Null {})))?
+            .map(|_| Ok(Response::new(Null::from(()))))?
     }
 
     #[instrument(level = "debug", err)]
@@ -172,7 +173,7 @@ impl BdevRpc for BdevService {
             if let Some(bdev) = Bdev::lookup_by_name(&name) {
                 let _ = bdev.unshare().await?;
             }
-            Ok(Null {})
+            Ok(Null::from(()))
         })?;
 
         rx.await

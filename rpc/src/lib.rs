@@ -30,10 +30,14 @@ pub mod mayastor {
 
         // dont export the raw pb generated code
         mod pb {
-            /// covert from Null {} message for the unit type
+            use prost_types::NullValue::NullValue;
+
+            /// covert to protobuf NullValue message
             impl From<()> for Null {
                 fn from(_: ()) -> Self {
-                    Self {}
+                    Self {
+                        null: NullValue,
+                    }
                 }
             }
 
@@ -47,7 +51,7 @@ pub mod mayastor {
             NullableString,
             BdevRequest,
             BdevResponse,
-            Bdevs,
+            ListBdevResponse,
             JsonRpcRequest,
             JsonRpcResponse,
             Null,

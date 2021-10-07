@@ -5,10 +5,20 @@ use crate::grpc::GrpcResult;
 use ::rpc::mayastor::{json_rpc_server::JsonRpc, JsonRpcReply, JsonRpcRequest};
 use jsonrpc::error::Error;
 use tonic::{Request, Response};
+use std::borrow::Cow;
 
 #[derive(Debug)]
 pub struct JsonRpcSvc {
-    pub rpc_addr: String,
+    // FIXME: using a static lifetime here is not ideal
+    rpc_addr: Cow<'static, str>,
+}
+
+impl JsonRpcSvc {
+    pub fn new(rpc_addr: Cow<'static, str>) -> Self {
+        Self {
+            rpc_addr,
+        }
+    }
 }
 
 #[tonic::async_trait]

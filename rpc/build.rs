@@ -26,11 +26,24 @@ fn main() {
         .compile(
             &[
                 "mayastor-api/protobuf/mayastor.proto",
-                "mayastor-api/protobuf/v1/mayastor.proto",
             ],
             &["mayastor-api/protobuf"],
         )
         .unwrap_or_else(|e| {
             panic!("mayastor protobuf compilation failed: {}", e)
+        });
+
+    tonic_build::configure()
+        .file_descriptor_set_path(&reflection_descriptor)
+        .build_server(true)
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .compile(
+            &[
+                "mayastor-api/protobuf/v1/mayastor.proto",
+            ],
+            &["mayastor-api/protobuf/v1"],
+        )
+        .unwrap_or_else(|e| {
+            panic!("mayastor v1 protobuf compilation failed: {}", e)
         });
 }

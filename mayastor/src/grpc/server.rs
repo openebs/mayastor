@@ -1,12 +1,26 @@
-use crate::grpc::mayastor_grpc::MayastorSvc;
+use crate::grpc::{
+    bdev_grpc::BdevSvc,
+    json_grpc::JsonRpcSvc,
+    mayastor_grpc::MayastorSvc,
+};
 
-use crate::grpc::{bdev::v1::BdevService, json::v1::JsonService};
+use crate::grpc::{
+    bdev::v1::BdevService,
+    json::v1::JsonService,
+};
 
-use rpc::mayastor::{mayastor_server::MayastorServer as MayastorRpcServer, v1};
+use rpc::mayastor::{
+    bdev_rpc_server::BdevRpcServer,
+    json_rpc_server::JsonRpcServer,
+    mayastor_server::MayastorServer as MayastorRpcServer,
+    v1,
+};
 
 use std::time::Duration;
 use tonic::transport::Server;
 use tracing::trace;
+use std::borrow::Cow;
+
 pub struct MayastorGrpcServer;
 
 impl MayastorGrpcServer {
@@ -15,16 +29,15 @@ impl MayastorGrpcServer {
         rpc_addr: String,
     ) -> Result<(), ()> {
         info!("gRPC server configured at address {}", endpoint);
-        let rpc_addr = rpc_addr.clone();
+        let  address = Cow::from(rpc_addr);
         let svc = Server::builder()
             .add_service(MayastorRpcServer::new(MayastorSvc::new(
                 Duration::from_millis(4),
             )))
+            .add_service(BdevRpcServer::new(BdevSvc::new()))
             .add_service(v1::BdevRpcServer::new(BdevService::new()))
-            .add_service(rpc::mayastor::v1::BdevRpcServer::new(
-                BdevService::new(),
-            ))
-            .add_service(v1::JsonRpcServer::new(JsonService::new(rpc_addr)))
+            .add_service(JsonRpcServer::new(JsonRpcSvc::new(address.clone())))
+            .add_service(v1::JsonRpcServer::new(JsonService::new(address.clone())))
             .serve(endpoint);
 
         match svc.await {
