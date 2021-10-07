@@ -1,47 +1,110 @@
 #![allow(clippy::vec_box)]
 
+use futures::{future::Future, FutureExt};
 use std::pin::Pin;
 
-use futures::{future::Future, FutureExt};
-
-use crate::{
-    core::{Bdev, Share},
-    jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
-};
-
-pub mod nexus_bdev;
-pub mod nexus_bdev_children;
-pub mod nexus_bdev_rebuild;
-pub mod nexus_bdev_snapshot;
+mod nexus_bdev;
+mod nexus_bdev_children;
+mod nexus_bdev_rebuild;
+mod nexus_bdev_snapshot;
 mod nexus_channel;
-pub(crate) mod nexus_child;
-pub mod nexus_instances;
-pub mod nexus_io;
-pub mod nexus_label;
-pub mod nexus_metadata;
-pub mod nexus_module;
-pub mod nexus_nbd;
-pub mod nexus_persistence;
-pub mod nexus_share;
+mod nexus_child;
+mod nexus_instances;
+mod nexus_io;
+mod nexus_label;
+mod nexus_metadata;
+mod nexus_module;
+mod nexus_nbd;
+mod nexus_persistence;
+mod nexus_share;
 
-pub use nexus_instances::NexusInstances;
+pub use nexus_bdev::{
+    nexus_create,
+    nexus_create_v2,
+    Error,
+    Nexus,
+    NexusNvmeParams,
+    NexusState,
+    NexusStatus,
+    NexusTarget,
+    VerboseError,
+};
+pub(crate) use nexus_bdev::{
+    CreateChild,
+    CreateRebuild,
+    OpenChild,
+    RebuildJobNotFound,
+    RebuildOperation,
+    RemoveRebuildJob,
+    ShareIscsiNexus,
+    ShareNbdNexus,
+    ShareNvmfNexus,
+    UnshareNexus,
+    NEXUS_PRODUCT_ID,
+};
+pub(crate) use nexus_channel::{
+    fault_nexus_child,
+    DrEvent,
+    NexusChannel,
+    NexusChannelInner,
+};
+pub use nexus_child::{
+    lookup_nexus_child,
+    ChildError,
+    ChildState,
+    NexusChild,
+    Reason,
+};
+pub use nexus_instances::{
+    nexus_iter,
+    nexus_iter_mut,
+    nexus_lookup,
+    nexus_lookup_mut,
+    NexusInstances,
+};
+pub(crate) use nexus_io::{nexus_submit_io, NexusBio, NioCtx};
+pub use nexus_label::{GptEntry, GptGuid, GptHeader};
+pub(crate) use nexus_label::{LabelError, NexusLabel};
+pub(crate) use nexus_metadata::MetaDataError;
+pub use nexus_metadata::{
+    MetaDataChildEntry,
+    MetaDataIndex,
+    MetaDataObject,
+    NexusMetaData,
+};
+pub(crate) use nexus_module::{NexusModule, NEXUS_MODULE_NAME};
+pub(crate) use nexus_nbd::{NbdDisk, NbdError};
+pub(crate) use nexus_persistence::PersistOp;
+pub use nexus_persistence::{ChildInfo, NexusInfo};
 
+/// TODO
 #[derive(Deserialize)]
 struct NexusShareArgs {
+    /// TODO
     name: String,
+    /// TODO
     protocol: String,
+    /// TODO
     cntlid_min: u16,
+    /// TODO
     cntlid_max: u16,
 }
 
+/// TODO
 #[derive(Serialize)]
 struct NexusShareReply {
+    /// TODO
     uri: String,
 }
 
 /// public function which simply calls register module
 pub fn register_module() {
     nexus_module::register_module();
+
+    use crate::{
+        core::{Bdev, Share},
+        jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
+    };
 
     jsonrpc_register(
         "nexus_share",
@@ -105,7 +168,7 @@ pub fn register_module() {
 /// so that a possible remove event from SPDK also results in bdev removal
 pub async fn nexus_children_to_destroying_state() {
     info!("setting all nexus children to destroying state...");
-    for nexus in NexusInstances::as_ref().iter() {
+    for nexus in nexus_iter() {
         for child in nexus.children.iter() {
             child.set_state(nexus_child::ChildState::Destroying);
         }

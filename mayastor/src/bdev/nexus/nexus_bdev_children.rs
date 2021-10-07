@@ -28,28 +28,24 @@ use std::cmp::min;
 use futures::future::join_all;
 use snafu::ResultExt;
 
+use super::{
+    fault_nexus_child,
+    nexus_iter_mut,
+    ChildState,
+    CreateChild,
+    DrEvent,
+    Error,
+    Nexus,
+    NexusChild,
+    NexusState,
+    NexusStatus,
+    OpenChild,
+    Reason,
+    VerboseError,
+};
+
 use crate::{
-    bdev::{
-        device_create,
-        device_destroy,
-        device_lookup,
-        nexus::{
-            nexus_bdev::{
-                CreateChild,
-                Error,
-                Nexus,
-                NexusState,
-                NexusStatus,
-                OpenChild,
-            },
-            nexus_channel,
-            nexus_channel::DrEvent,
-            nexus_child::{ChildState, NexusChild},
-            NexusInstances,
-        },
-        Reason,
-        VerboseError,
-    },
+    bdev::{device_create, device_destroy, device_lookup},
     core::{
         DeviceEventHandler,
         DeviceEventListener,
@@ -449,10 +445,7 @@ impl Nexus {
         for mut child in children {
             match child.open(size) {
                 Ok(name) => {
-                    info!(
-                        "{}: successfully opened child {}",
-                        self.name, name
-                    );
+                    info!("{}: successfully opened child {}", self.name, name);
                     self.register_child_event_listener(&mut child);
                 }
                 Err(error) => {
@@ -633,8 +626,8 @@ impl DeviceEventHandler for Nexus {
             }
             DeviceEventType::AdminCommandCompletionFailed => {
                 let cn = &dev_name;
-                for nexus in NexusInstances::as_mut().iter_mut() {
-                    if nexus_channel::fault_nexus_child(nexus, cn) {
+                for nexus in nexus_iter_mut() {
+                    if fault_nexus_child(nexus, cn) {
                         info!(
                             "{}: retiring child {} in response to admin command completion failure event",
                             nexus.name,

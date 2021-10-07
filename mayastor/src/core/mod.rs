@@ -55,7 +55,7 @@ pub use spdk::{
 };
 pub use thread::Mthread;
 
-use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
+use crate::{subsys::NvmfError, target::iscsi};
 
 #[macro_use]
 pub mod singleton;
@@ -245,7 +245,9 @@ pub async fn device_monitor() {
             match w {
                 Command::RemoveDevice(nexus, child) => {
                     let rx = handle.spawn_local(async move {
-                        if let Some(n) = nexus_lookup(&nexus) {
+                        if let Some(n) =
+                            crate::bdev::nexus::nexus_lookup_mut(&nexus)
+                        {
                             if let Err(e) = n.destroy_child(&child).await {
                                 error!(?e, "destroy child failed");
                             }

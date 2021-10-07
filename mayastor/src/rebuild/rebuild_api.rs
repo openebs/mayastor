@@ -7,7 +7,7 @@ use futures::channel::oneshot;
 use snafu::Snafu;
 
 use crate::{
-    bdev::VerboseError,
+    bdev::nexus::VerboseError,
     core::{BlockDeviceDescriptor, CoreError, Descriptor, DmaError},
     nexus_uri::NexusBdevError,
 };

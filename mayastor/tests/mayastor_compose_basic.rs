@@ -1,5 +1,8 @@
 use mayastor::{
-    bdev::{device_lookup, nexus_create, nexus_lookup},
+    bdev::{
+        device_lookup,
+        nexus::{nexus_create, nexus_lookup_mut},
+    },
     core::{Bdev, MayastorCliArgs},
     nexus_uri::bdev_create,
 };
@@ -66,7 +69,7 @@ async fn compose_up_down() {
                 .await
                 .unwrap();
 
-            let nexus = nexus_lookup("foo").unwrap();
+            let nexus = nexus_lookup_mut("foo").unwrap();
 
             // Get NVMf device names for all nexus children for further lookup.
             children

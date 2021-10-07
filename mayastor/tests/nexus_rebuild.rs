@@ -5,7 +5,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use tracing::error;
 
 use mayastor::{
-    bdev::{device_open, nexus_lookup},
+    bdev::{device_open, nexus_lookup_mut},
     core::{MayastorCliArgs, Mthread},
     rebuild::{RebuildJob, RebuildState},
 };
@@ -101,7 +101,7 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
 }
 
 async fn nexus_share() -> String {
-    let nexus = nexus_lookup(nexus_name()).unwrap();
+    let nexus = nexus_lookup_mut(nexus_name()).unwrap();
     let device = common::device_path_from_uri(
         &nexus
             .share(ShareProtocolNexus::NexusNbd, None)
@@ -120,7 +120,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let replica_name = new_replica.to_string();
         let complete = ms
             .spawn(async move {
-                let nexus = nexus_lookup(nexus_name()).unwrap();
+                let nexus = nexus_lookup_mut(nexus_name()).unwrap();
                 let state = nexus.get_rebuild_state(&replica_name).await;
 
                 match state {
@@ -154,7 +154,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let src_hdl = src_desc.into_handle().unwrap();
         let dst_hdl = dst_desc.into_handle().unwrap();
 
-        let nexus = nexus_lookup(nexus_name()).unwrap();
+        let nexus = nexus_lookup_mut(nexus_name()).unwrap();
         let mut src_buf = src_hdl.dma_malloc(nexus.size()).unwrap();
         let mut dst_buf = dst_hdl.dma_malloc(nexus.size()).unwrap();
 
@@ -207,7 +207,7 @@ async fn rebuild_replica() {
 
     ms.spawn(async move {
         nexus_create(NEXUS_SIZE, NUM_CHILDREN, true).await;
-        let nexus = nexus_lookup(nexus_name()).unwrap();
+        let nexus = nexus_lookup_mut(nexus_name()).unwrap();
         nexus.add_child(&get_dev(NUM_CHILDREN), true).await.unwrap();
 
         for child in 0 .. NUM_CHILDREN {
@@ -285,14 +285,14 @@ async fn rebuild_replica() {
     wait_for_replica_rebuild(&get_dev(0), &get_dev(NUM_CHILDREN + 1)).await;
 
     ms.spawn(async move {
-        let nexus = nexus_lookup(nexus_name()).unwrap();
+        let nexus = nexus_lookup_mut(nexus_name()).unwrap();
 
         nexus.remove_child(&get_dev(NUM_CHILDREN)).await.unwrap();
         nexus
             .remove_child(&get_dev(NUM_CHILDREN + 1))
             .await
             .unwrap();
-        nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
+        nexus_lookup_mut(nexus_name()).unwrap().destroy().await.unwrap();
         test_fini();
     })
     .await;

@@ -6,7 +6,7 @@ use std::{
 use bincode::serialize_into;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, GptEntry, GptHeader},
+    bdev::nexus::{nexus_create, nexus_lookup_mut, GptEntry, GptHeader},
     core::{
         mayastor_env_stop,
         DmaBuf,
@@ -124,7 +124,7 @@ async fn make_nexus() {
 
 // compare what is written
 async fn label_child() {
-    let nexus = nexus_lookup("gpt_nexus").unwrap();
+    let nexus = nexus_lookup_mut("gpt_nexus").unwrap();
     let child = &mut nexus.children[0];
     let hdl = child.get_io_handle().unwrap();
 

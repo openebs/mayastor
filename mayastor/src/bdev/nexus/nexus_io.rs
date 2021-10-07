@@ -9,29 +9,27 @@ use nix::errno::Errno;
 use spdk::BdevIo;
 use spdk_sys::{spdk_bdev_io, spdk_io_channel};
 
-use crate::{
-    bdev::{
-        nexus::{
-            nexus_bdev::NEXUS_PRODUCT_ID,
-            nexus_channel::{NexusChannel, NexusChannelInner},
-            nexus_instances::nexus_lookup,
-        },
-        Nexus,
-        NexusStatus,
-    },
-    core::{
-        BlockDevice,
-        BlockDeviceHandle,
-        CoreError,
-        Cores,
-        GenericStatusCode,
-        IoCompletionStatus,
-        IoStatus,
-        IoType,
-        Mthread,
-        NvmeCommandStatus,
-        Reactors,
-    },
+use super::{
+    nexus_lookup_mut,
+    Nexus,
+    NexusChannel,
+    NexusChannelInner,
+    NexusStatus,
+    NEXUS_PRODUCT_ID,
+};
+
+use crate::core::{
+    BlockDevice,
+    BlockDeviceHandle,
+    CoreError,
+    Cores,
+    GenericStatusCode,
+    IoCompletionStatus,
+    IoStatus,
+    IoType,
+    Mthread,
+    NvmeCommandStatus,
+    Reactors,
 };
 
 #[repr(transparent)]
@@ -523,7 +521,7 @@ impl NexusBio {
 
     /// Retire a child for this nexus.
     async fn child_retire(nexus_name: String, device: String) {
-        if let Some(nexus) = nexus_lookup(&nexus_name) {
+        if let Some(nexus) = nexus_lookup_mut(&nexus_name) {
             warn!(?nexus, ?device, "retiring child");
 
             if let Err(e) = nexus.child_retire(device.clone()).await {

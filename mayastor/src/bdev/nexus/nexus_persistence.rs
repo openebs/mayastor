@@ -1,8 +1,5 @@
-use crate::{
-    bdev::{nexus::nexus_child::NexusChild, ChildState, Nexus},
-    persistent_store::PersistentStore,
-    sleep::mayastor_sleep,
-};
+use super::{ChildState, Nexus, NexusChild};
+use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 

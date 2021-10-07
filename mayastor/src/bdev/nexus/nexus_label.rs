@@ -71,14 +71,9 @@ use serde::{
 use snafu::{ResultExt, Snafu};
 use uuid::{self, Uuid};
 
-use crate::{
-    bdev::nexus::{
-        nexus_bdev::Nexus,
-        nexus_child::NexusChild,
-        nexus_metadata::{MetaDataError, NexusMetaData},
-    },
-    core::{BlockDeviceHandle, CoreError, DmaBuf, DmaError},
-};
+use super::{MetaDataError, Nexus, NexusChild, NexusMetaData};
+
+use crate::core::{BlockDeviceHandle, CoreError, DmaBuf, DmaError};
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {

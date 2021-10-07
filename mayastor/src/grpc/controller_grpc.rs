@@ -1,6 +1,6 @@
 use crate::{
     bdev::{
-        nexus::nexus_bdev,
+        nexus,
         NvmeController,
         NvmeControllerState,
         NVME_CONTROLLERS,
@@ -65,7 +65,7 @@ impl From<BlockDeviceIoStats> for rpc::NvmeControllerIoStats {
 }
 
 pub async fn controller_stats() -> GrpcResult<rpc::StatNvmeControllersReply> {
-    let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+    let rx = rpc_submit::<_, _, nexus::Error>(async move {
         let mut res: Vec<rpc::NvmeControllerStats> = Vec::new();
         let controllers = NVME_CONTROLLERS.controllers();
         for name in controllers.iter() {
@@ -114,7 +114,7 @@ pub async fn controller_stats() -> GrpcResult<rpc::StatNvmeControllersReply> {
 }
 
 pub async fn list_controllers() -> GrpcResult<rpc::ListNvmeControllersReply> {
-    let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+    let rx = rpc_submit::<_, _, nexus::Error>(async move {
         let controllers = NVME_CONTROLLERS
             .controllers()
             .iter()

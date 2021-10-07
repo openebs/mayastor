@@ -34,7 +34,7 @@
 //!    let now = SystemTime::now();
 //!    let mut object = MetaDataObject::new();
 //!    object.children.push(MetaDataChildEntry {
-//!        guid: Guid::new_random(),
+//!        guid: GptGuid::new_random(),
 //!        state: 0,
 //!    });
 //!    object.generation = 1;
@@ -57,13 +57,13 @@ use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 
-use crate::{
-    bdev::nexus::{
-        nexus_child::NexusChild,
-        nexus_label::{GptGuid as Guid, NexusLabel},
-    },
-    core::{CoreError, DmaBuf, DmaError},
+use super::{
+    NexusChild,
+    GptGuid,
+    NexusLabel,
 };
+
+use crate::core::{CoreError, DmaBuf, DmaError};
 
 #[derive(Debug, Snafu)]
 pub enum MetaDataError {
@@ -121,7 +121,7 @@ pub enum MetaDataError {
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct MetaDataChildEntry {
-    pub guid: Guid,
+    pub guid: GptGuid,
     pub state: u16,
 }
 
@@ -288,8 +288,8 @@ pub struct MetaDataIndex {
     pub signature: [u8; 8],
     pub index_size: u32,
     pub self_checksum: u32,
-    pub parent: Guid,
-    pub guid: Guid,
+    pub parent: GptGuid,
+    pub guid: GptGuid,
     pub generation: u64,
     pub timestamp: u128,
     pub self_lba: u64,
@@ -335,8 +335,8 @@ impl MetaDataIndex {
     }
 
     pub fn new(
-        parent: Guid,
-        guid: Guid,
+        parent: GptGuid,
+        guid: GptGuid,
         index_lba: u64,
         total_entries: u64,
     ) -> MetaDataIndex {

@@ -13,7 +13,7 @@
 use clap::{App, AppSettings, Arg, ArgMatches};
 use futures::FutureExt;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors, Share},
     grpc,
     logger,
@@ -57,7 +57,7 @@ async fn create_nexus(args: &ArgMatches<'_>) {
         .await
         .unwrap();
 
-    let nexus = nexus_lookup(NEXUS).unwrap();
+    let nexus = nexus_lookup_mut(NEXUS).unwrap();
     nexus.share_nvmf(None).await.unwrap();
 }
 

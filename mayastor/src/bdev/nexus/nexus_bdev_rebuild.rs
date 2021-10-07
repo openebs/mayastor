@@ -7,23 +7,21 @@ use rpc::mayastor::{
     RebuildStatsReply,
 };
 
+use super::{
+    nexus_lookup_mut,
+    ChildState,
+    CreateRebuild,
+    DrEvent,
+    Error,
+    Nexus,
+    Reason,
+    RebuildJobNotFound,
+    RebuildOperation,
+    RemoveRebuildJob,
+    VerboseError,
+};
+
 use crate::{
-    bdev::{
-        nexus::{
-            nexus_bdev::{
-                CreateRebuild,
-                Error,
-                Nexus,
-                RebuildJobNotFound,
-                RebuildOperation,
-                RemoveRebuildJob,
-            },
-            nexus_instances::nexus_lookup,
-            nexus_channel::DrEvent,
-            nexus_child::{ChildState, Reason},
-        },
-        VerboseError,
-    },
     core::Reactors,
     rebuild::{
         ClientOperations,
@@ -330,7 +328,7 @@ impl Nexus {
     async fn notify_rebuild(nexus: String, job: String) {
         info!("nexus {} received notify_rebuild from job {}", nexus, job);
 
-        if let Some(nexus) = nexus_lookup(&nexus) {
+        if let Some(nexus) = nexus_lookup_mut(&nexus) {
             if let Err(e) = nexus.on_rebuild_update(job).await {
                 error!(
                     "Failed to complete the rebuild with error {}",

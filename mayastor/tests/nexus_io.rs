@@ -1,7 +1,12 @@
 //! Nexus IO tests for multipath NVMf, reservation, and write-zeroes
 use common::bdev_io;
 use mayastor::{
-    bdev::{nexus_create, nexus_create_v2, nexus_lookup, NexusNvmeParams},
+    bdev::nexus::{
+        nexus_create,
+        nexus_create_v2,
+        nexus_lookup_mut,
+        NexusNvmeParams,
+    },
     core::MayastorCliArgs,
     lvs::Lvs,
 };
@@ -190,7 +195,7 @@ async fn nexus_io_multipath() {
             .await
             .unwrap();
             // publish nexus on local node over nvmf
-            nexus_lookup(&name)
+            nexus_lookup_mut(&name)
                 .unwrap()
                 .share(ShareProtocolNexus::NexusNvmf, None)
                 .await
@@ -231,7 +236,7 @@ async fn nexus_io_multipath() {
     mayastor
         .spawn(async move {
             // set nexus on local node ANA state to non-optimized
-            nexus_lookup(&nexus_name)
+            nexus_lookup_mut(&nexus_name)
                 .unwrap()
                 .set_ana_state(NvmeAnaState::NvmeAnaNonOptimizedState)
                 .await

@@ -7,6 +7,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::{
+    bdev::nexus,
+    core::{nvme_admin_opc, Bdev, Reactors},
+    lvs::Lvol,
+};
+
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -16,12 +22,6 @@ use spdk_sys::{
     spdk_nvme_status,
     spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
     spdk_nvmf_request,
-};
-
-use crate::{
-    bdev::nexus::nexus_module,
-    core::{nvme_admin_opc, Bdev, Reactors},
-    lvs::Lvol,
 };
 
 #[derive(Clone)]
@@ -104,7 +104,7 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     }
 
     let bd = Bdev::from(bdev);
-    if bd.driver() == nexus_module::NEXUS_NAME {
+    if bd.driver() == nexus::NEXUS_MODULE_NAME {
         // Received command on a published Nexus
         set_snapshot_time(unsafe {
             &mut *spdk_sys::spdk_nvmf_request_get_cmd(req)

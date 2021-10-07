@@ -3,21 +3,18 @@ use snafu::ResultExt;
 
 use rpc::mayastor::ShareProtocolNexus;
 
-use crate::{
-    bdev::nexus::{
-        nexus_bdev::{
-            Error,
-            Nexus,
-            NexusTarget,
-            ShareIscsiNexus,
-            ShareNbdNexus,
-            ShareNvmfNexus,
-            UnshareNexus,
-        },
-        nexus_nbd::NbdDisk,
-    },
-    core::{Protocol, Share},
+use super::{
+    Error,
+    NbdDisk,
+    Nexus,
+    NexusTarget,
+    ShareIscsiNexus,
+    ShareNbdNexus,
+    ShareNvmfNexus,
+    UnshareNexus,
 };
+
+use crate::core::{Protocol, Share};
 
 #[async_trait(? Send)]
 ///

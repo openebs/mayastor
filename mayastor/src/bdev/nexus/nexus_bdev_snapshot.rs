@@ -2,11 +2,9 @@
 
 use rpc::mayastor::CreateSnapshotReply;
 
-use crate::{
-    bdev::nexus::nexus_bdev::{Error, Nexus},
-    core::BdevHandle,
-    lvs::Lvol,
-};
+use super::{Error, Nexus};
+
+use crate::{core::BdevHandle, lvs::Lvol};
 
 impl Nexus {
     /// Create a snapshot on all children

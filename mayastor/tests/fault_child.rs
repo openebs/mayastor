@@ -1,5 +1,5 @@
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, Reason},
+    bdev::nexus::{nexus_create, nexus_lookup_mut, Reason},
     core::MayastorCliArgs,
 };
 
@@ -17,7 +17,7 @@ async fn fault_child() {
         nexus_create(NEXUS_NAME, NEXUS_SIZE, None, &[CHILD_1.to_string()])
             .await
             .unwrap();
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         // child will stay in a degraded state because we are not rebuilding
         nexus.add_child(CHILD_2, true).await.unwrap();
         // it should not be possible to fault the only healthy child

@@ -16,7 +16,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_module::NEXUS_NAME,
+    bdev::nexus::NEXUS_MODULE_NAME,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
 };
 
@@ -58,7 +58,7 @@ impl Descriptor {
     ///
     /// Conversely, Preexisting writers will not be downgraded.
     pub fn claim(&self) -> bool {
-        match BdevModule::find_by_name(NEXUS_NAME) {
+        match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
             Ok(m) => match m.claim_bdev(&self.0.bdev(), &self.0) {
                 Ok(_) => true,
                 Err(_) => false,
@@ -72,7 +72,7 @@ impl Descriptor {
 
     /// unclaim a bdev previously claimed by NEXUS_MODULE
     pub(crate) fn unclaim(&self) {
-        match BdevModule::find_by_name(NEXUS_NAME) {
+        match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
             Ok(m) => {
                 match m.release_bdev(&self.0.bdev()) {
                     Err(err) => error!("{}", err),

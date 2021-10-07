@@ -13,7 +13,7 @@ use snafu::ResultExt;
 use spdk_sys::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE};
 
 use crate::{
-    bdev::{device_open, VerboseError},
+    bdev::{device_open, nexus::VerboseError},
     core::{
         Bdev,
         BlockDevice,

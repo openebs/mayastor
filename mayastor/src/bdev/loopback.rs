@@ -7,7 +7,7 @@ use url::Url;
 use crate::{
     bdev::{
         dev::reject_unknown_parameters,
-        lookup_nexus_child,
+        nexus::lookup_nexus_child,
         util::uri,
         CreateDestroy,
         GetName,

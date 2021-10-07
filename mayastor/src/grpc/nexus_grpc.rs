@@ -1,14 +1,20 @@
 //! Helpers related to nexus grpc methods.
 
-use ::rpc::mayastor as rpc;
+use rpc::mayastor as rpc;
 use std::convert::From;
 use uuid::Uuid;
 
 use crate::{
-    bdev::nexus::{
-        NexusInstances,
-        nexus_bdev::{Error, Nexus, NexusStatus},
-        nexus_child::{ChildState, NexusChild, Reason},
+    bdev::{
+        nexus,
+        nexus::{
+            nexus_lookup_mut,
+            ChildState,
+            Nexus,
+            NexusChild,
+            NexusStatus,
+            Reason,
+        },
     },
     core::{Protocol, Share},
     rebuild::RebuildJob,
@@ -117,10 +123,10 @@ fn name_to_uuid(name: &str) -> &str {
 
 /// Convert the UUID to a nexus name in the form of "nexus-{uuid}".
 /// Return error if the UUID is not valid.
-pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
+pub fn uuid_to_name(uuid: &str) -> Result<String, nexus::Error> {
     match Uuid::parse_str(uuid) {
         Ok(uuid) => Ok(format!("nexus-{}", uuid.to_hyphenated().to_string())),
-        Err(_) => Err(Error::InvalidUuid {
+        Err(_) => Err(nexus::Error::InvalidUuid {
             uuid: uuid.to_owned(),
         }),
     }
@@ -129,15 +135,15 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
 /// Look up a nexus by name first (if created by nexus_create_v2) then by its
 /// uuid prepending "nexus-" prefix.
 /// Return error if nexus not found.
-pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
-    if let Some(nexus) = NexusInstances::as_mut().lookup_mut(uuid) {
+pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, nexus::Error> {
+    if let Some(nexus) = nexus_lookup_mut(uuid) {
         Ok(nexus)
     } else {
         let name = uuid_to_name(uuid)?;
-        if let Some(nexus) = NexusInstances::as_mut().lookup_mut(&name) {
+        if let Some(nexus) = nexus_lookup_mut(&name) {
             Ok(nexus)
         } else {
-            Err(Error::NexusNotFound {
+            Err(nexus::Error::NexusNotFound {
                 name: uuid.to_owned(),
             })
         }
@@ -149,7 +155,7 @@ pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
 /// So we implement it as a separate function.
 pub async fn nexus_add_child(
     args: rpc::AddChildNexusRequest,
-) -> Result<rpc::Child, Error> {
+) -> Result<rpc::Child, nexus::Error> {
     let n = nexus_lookup(&args.uuid)?;
     // TODO: do not add child if it already exists (idempotency)
     // For that we need api to check existence of child by name (not uri that
@@ -159,7 +165,7 @@ pub async fn nexus_add_child(
 }
 
 /// Idempotent destruction of the nexus.
-pub async fn nexus_destroy(uuid: &str) -> Result<(), Error> {
+pub async fn nexus_destroy(uuid: &str) -> Result<(), nexus::Error> {
     if let Ok(n) = nexus_lookup(uuid) {
         let result = n.destroy().await;
         if result.is_ok() {

@@ -26,7 +26,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_bdev::Nexus,
+    bdev::nexus::Nexus,
     core::{Bdev, CoreError, Mthread, Protocol, Share},
     ffihelper::{
         cb_arg,

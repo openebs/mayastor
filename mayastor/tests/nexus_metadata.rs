@@ -1,10 +1,10 @@
 use std::{process::Command, time::SystemTime};
 
 use mayastor::{
-    bdev::{
+    bdev::nexus::{
         nexus_create,
-        nexus_lookup,
-        Guid,
+        nexus_lookup_mut,
+        GptGuid as Guid,
         MetaDataChildEntry,
         MetaDataIndex,
         MetaDataObject,
@@ -53,7 +53,7 @@ async fn make_nexus() {
 }
 
 async fn read_write_metadata() {
-    let nexus = nexus_lookup("metadata_nexus").unwrap();
+    let nexus = nexus_lookup_mut("metadata_nexus").unwrap();
     let child = &mut nexus.children[0];
 
     let mut data: Vec<MetaDataObject> = Vec::new();

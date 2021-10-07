@@ -5,21 +5,12 @@ use futures::{channel::mpsc, SinkExt, StreamExt};
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
+use url::Url;
+
+use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent, GptGuid, VerboseError};
 
 use crate::{
-    bdev::{
-        device_create,
-        device_destroy,
-        device_lookup,
-        nexus::{
-            NexusInstances,
-            nexus_channel::DrEvent,
-            nexus_child::ChildState::Faulted,
-        },
-        nexus_lookup,
-        Guid,
-        VerboseError,
-    },
+    bdev::{device_create, device_destroy, device_lookup},
     core::{
         nvme_reservation_acquire_action,
         nvme_reservation_register_action,
@@ -36,12 +27,12 @@ use crate::{
     nexus_uri::NexusBdevError,
     persistent_store::PersistentStore,
     rebuild::{ClientOperations, RebuildJob},
-    spdk_sys::{
-        spdk_nvme_registered_ctrlr_extended_data,
-        spdk_nvme_reservation_status_extended_data,
-    },
 };
-use url::Url;
+
+use spdk_sys::{
+    spdk_nvme_registered_ctrlr_extended_data,
+    spdk_nvme_reservation_status_extended_data,
+};
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {
@@ -93,6 +84,7 @@ pub enum ChildError {
     },
 }
 
+/// TODO
 #[derive(Debug, Serialize, PartialEq, Deserialize, Eq, Copy, Clone)]
 pub enum Reason {
     /// no particular reason for the child to be in this state
@@ -172,7 +164,7 @@ pub struct NexusChild {
     pub prev_state: AtomicCell<ChildState>,
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
-    pub guid: Guid,
+    pub guid: GptGuid,
     pub metadata_index_lba: u64,
     /// Name of the child is the URI used to create it.
     /// Note that block device name can differ from it!
@@ -271,7 +263,7 @@ impl NexusChild {
         }
 
         let desc = dev.open(true).map_err(|source| {
-            self.set_state(Faulted(Reason::CantOpen));
+            self.set_state(ChildState::Faulted(Reason::CantOpen));
             ChildError::OpenChild {
                 source,
             }
@@ -632,7 +624,7 @@ impl NexusChild {
             state = self.prev_state.load();
         }
         match state {
-            ChildState::Open | Faulted(Reason::OutOfSync) => {
+            ChildState::Open | ChildState::Faulted(Reason::OutOfSync) => {
                 // Change the state of the child to ensure it is taken out of
                 // the I/O path when the nexus is reconfigured.
                 self.set_state(ChildState::Closed)
@@ -659,7 +651,7 @@ impl NexusChild {
         if state != ChildState::Faulted(Reason::IoError) {
             let nexus_name = self.parent.clone();
             Reactor::block_on(async move {
-                match nexus_lookup(&nexus_name) {
+                match nexus_lookup_mut(&nexus_name) {
                     Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
                     None => error!("Nexus {} not found", nexus_name),
                 }
@@ -709,7 +701,7 @@ impl NexusChild {
             state: AtomicCell::new(ChildState::Init),
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
-            guid: Guid::from(uuid::Uuid::nil()),
+            guid: GptGuid::from(uuid::Uuid::nil()),
             metadata_index_lba: 0,
         }
     }
@@ -782,14 +774,14 @@ impl NexusChild {
     pub fn match_device_name(&self, bdev_name: &str) -> bool {
         match &self.device {
             Some(d) => d.device_name() == bdev_name,
-            None => false
+            None => false,
         }
     }
 }
 
 /// Looks up a child based on the underlying block device name.
 pub fn lookup_nexus_child(bdev_name: &str) -> Option<&mut NexusChild> {
-    for nexus in NexusInstances::as_mut().iter_mut() {
+    for nexus in nexus_iter_mut() {
         if let Some(c) = nexus.lookup_child_mut(bdev_name) {
             return Some(c);
         }

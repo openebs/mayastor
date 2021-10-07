@@ -2,7 +2,7 @@
 extern crate assert_matches;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, ChildState, Reason},
+    bdev::nexus::{nexus_create, nexus_lookup_mut, ChildState, Reason},
     core::MayastorCliArgs,
 };
 
@@ -45,7 +45,7 @@ async fn add_child() {
 
     // Test adding a child to an unshared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .add_child(BDEVNAME2, false)
             .await
@@ -62,7 +62,7 @@ async fn add_child() {
 
     // Test removing a child from an unshared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .remove_child(BDEVNAME2)
             .await
@@ -73,7 +73,7 @@ async fn add_child() {
 
     // Share nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .share(rpc::mayastor::ShareProtocolNexus::NexusIscsi, None)
             .await
@@ -83,7 +83,7 @@ async fn add_child() {
 
     // Test adding a child to a shared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .add_child(BDEVNAME2, false)
             .await
@@ -100,7 +100,7 @@ async fn add_child() {
 
     // Test removing a child from a shared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .remove_child(BDEVNAME2)
             .await
@@ -111,7 +111,7 @@ async fn add_child() {
 
     // Unshare nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .unshare_nexus()
             .await

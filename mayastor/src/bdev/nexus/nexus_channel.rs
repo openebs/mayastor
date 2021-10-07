@@ -2,10 +2,9 @@
 //! IO is driven by means of so called channels.
 use std::{ffi::c_void, fmt::Debug};
 
-use crate::{
-    bdev::{nexus::nexus_child::ChildState, Nexus, Reason},
-    core::{BlockDeviceHandle, Cores, Mthread},
-};
+use super::{ChildState, Nexus, Reason};
+
+use crate::core::{BlockDeviceHandle, Cores, Mthread};
 
 /// io channel, per core
 #[repr(C)]

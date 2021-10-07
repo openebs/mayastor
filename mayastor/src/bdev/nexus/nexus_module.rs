@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::{NexusInstances, nexus_io::NioCtx};
+use super::{NioCtx, nexus_iter};
 
 use spdk::{
     BdevModule,
@@ -13,17 +13,17 @@ use spdk::{
 };
 
 /// Name for Nexus Bdev module name.
-pub const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
+pub(crate) const NEXUS_MODULE_NAME: &str = "NEXUS_CAS_MODULE";
 
 /// TODO
 #[derive(Debug)]
-pub struct NexusModule {}
+pub(crate) struct NexusModule {}
 
 impl NexusModule {
     /// Returns Nexus Bdev module instance.
     /// Panics if the Nexus module was not registered.
     pub fn current() -> BdevModule {
-        match BdevModule::find_by_name(NEXUS_NAME) {
+        match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
             Ok(m) => m,
             Err(err) => panic!("{}", err),
         }
@@ -42,7 +42,6 @@ impl WithModuleFini for NexusModule {
     /// TODO
     fn module_fini() {
         info!("Unloading Nexus CAS Module");
-        NexusInstances::as_mut().clear();
     }
 }
 
@@ -60,7 +59,7 @@ impl WithModuleConfigJson for NexusModule {
     /// you should not have any iSCSI create related calls that
     /// construct children in the config file.
     fn config_json(w: JsonWriteContext) -> i32 {
-        NexusInstances::as_ref().iter().for_each(|nexus| {
+        nexus_iter().for_each(|nexus| {
             let uris = nexus
                 .children
                 .iter()
@@ -88,7 +87,7 @@ impl WithModuleConfigJson for NexusModule {
 impl BdevModuleBuild for NexusModule {}
 
 pub fn register_module() {
-    NexusModule::builder(NEXUS_NAME)
+    NexusModule::builder(NEXUS_MODULE_NAME)
         .with_module_init()
         .with_module_fini()
         .with_module_ctx_size()
