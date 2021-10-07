@@ -18,6 +18,7 @@ use spdk_sys::{
     spdk_nvme_ns_cmd_read,
     spdk_nvme_ns_cmd_readv,
     spdk_nvme_ns_cmd_write,
+    spdk_nvme_ns_cmd_write_zeroes,
     spdk_nvme_ns_cmd_writev,
 };
 
@@ -887,8 +888,56 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        // Write zeroes are done through unmap.
-        self.unmap_blocks(offset_blocks, num_blocks, cb, cb_arg)
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
+
+        // Make sure channel allows I/O
+        check_channel_for_io(
+            IoType::WriteZeros,
+            inner,
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let bio = alloc_nvme_io_ctx(
+            IoType::WriteZeros,
+            NvmeIoCtx {
+                cb,
+                cb_arg,
+                iov: std::ptr::null_mut() as *mut iovec, // No I/O vec involved.
+                iovcnt: 0,
+                iovpos: 0,
+                iov_offset: 0,
+                channel,
+                op: IoType::WriteZeros,
+                num_blocks,
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let rc = unsafe {
+            spdk_nvme_ns_cmd_write_zeroes(
+                self.ns.as_ptr(),
+                inner.qpair.as_mut().unwrap().as_ptr(),
+                offset_blocks,
+                num_blocks as u32,
+                Some(nvme_io_done),
+                bio as *mut c_void,
+                self.prchk_flags,
+            )
+        };
+
+        if rc < 0 {
+            Err(CoreError::WriteZeroesDispatch {
+                source: Errno::from_i32(-rc),
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        } else {
+            inner.account_io();
+            Ok(())
+        }
     }
 
     async fn create_snapshot(&self) -> Result<u64, CoreError> {
