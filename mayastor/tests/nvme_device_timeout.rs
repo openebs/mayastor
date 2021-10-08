@@ -11,14 +11,13 @@ use mayastor::{
         BlockDevice,
         BlockDeviceHandle,
         DeviceTimeoutAction,
-        DmaBuf,
         IoCompletionStatus,
         MayastorCliArgs,
     },
     subsys::{Config, NvmeBdevOpts},
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
-use spdk_rs::IoVec;
+use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
 

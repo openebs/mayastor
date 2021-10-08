@@ -8,9 +8,10 @@ use snafu::Snafu;
 
 use crate::{
     bdev::nexus::VerboseError,
-    core::{BlockDeviceDescriptor, CoreError, Descriptor, DmaError},
+    core::{BlockDeviceDescriptor, CoreError, Descriptor},
     nexus_uri::NexusBdevError,
 };
+use spdk_rs::DmaError;
 
 use super::rebuild_impl::*;
 

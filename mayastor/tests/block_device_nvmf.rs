@@ -9,7 +9,6 @@ use mayastor::{
         BlockDevice,
         BlockDeviceHandle,
         DeviceEventType,
-        DmaBuf,
         IoCompletionStatus,
         MayastorCliArgs,
     },
@@ -27,7 +26,7 @@ use std::{
     },
 };
 
-use spdk_rs::IoVec;
+use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
 use mayastor::core::DeviceEventListener;

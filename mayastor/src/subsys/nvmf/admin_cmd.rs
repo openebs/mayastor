@@ -9,31 +9,34 @@ use std::{
 
 use crate::{
     bdev::nexus,
-    core::{nvme_admin_opc, Bdev, Reactors},
+    core::{Bdev, Reactors},
     lvs::Lvol,
 };
 
-use spdk_rs::libspdk::{
-    nvme_cmd_cdw10_get,
-    nvme_cmd_cdw10_get_val,
-    nvme_cmd_cdw11_get,
-    nvme_cmd_cdw11_get_val,
-    nvme_status_get,
-    spdk_bdev,
-    spdk_bdev_desc,
-    spdk_bdev_io,
-    spdk_io_channel,
-    spdk_nvme_cmd,
-    spdk_nvme_cpl,
-    spdk_nvme_status,
-    spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
-    spdk_nvmf_request,
-    spdk_nvmf_request_get_bdev,
-    spdk_nvmf_request_get_cmd,
-    spdk_nvmf_request_get_response,
-    spdk_nvmf_request_get_subsystem,
-    spdk_nvmf_set_custom_admin_cmd_hdlr,
-    spdk_nvmf_subsystem_get_max_nsid,
+use spdk_rs::{
+    libspdk::{
+        nvme_cmd_cdw10_get,
+        nvme_cmd_cdw10_get_val,
+        nvme_cmd_cdw11_get,
+        nvme_cmd_cdw11_get_val,
+        nvme_status_get,
+        spdk_bdev,
+        spdk_bdev_desc,
+        spdk_bdev_io,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+        spdk_nvme_cpl,
+        spdk_nvme_status,
+        spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
+        spdk_nvmf_request,
+        spdk_nvmf_request_get_bdev,
+        spdk_nvmf_request_get_cmd,
+        spdk_nvmf_request_get_response,
+        spdk_nvmf_request_get_subsystem,
+        spdk_nvmf_set_custom_admin_cmd_hdlr,
+        spdk_nvmf_subsystem_get_max_nsid,
+    },
+    nvme_admin_opc,
 };
 
 #[derive(Clone)]

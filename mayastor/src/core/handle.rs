@@ -8,29 +8,26 @@ use futures::channel::oneshot;
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk_rs::libspdk::{
-    spdk_bdev_desc,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_nvme_admin_passthru_ro,
-    spdk_bdev_read,
-    spdk_bdev_reset,
-    spdk_bdev_write,
-    spdk_bdev_write_zeroes,
-    spdk_io_channel,
-    spdk_nvme_cmd,
+use spdk_rs::{
+    libspdk::{
+        spdk_bdev_desc,
+        spdk_bdev_free_io,
+        spdk_bdev_io,
+        spdk_bdev_nvme_admin_passthru_ro,
+        spdk_bdev_read,
+        spdk_bdev_reset,
+        spdk_bdev_write,
+        spdk_bdev_write_zeroes,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+    },
+    nvme_admin_opc,
+    DmaBuf,
+    DmaError,
 };
 
 use crate::{
-    core::{
-        nvme_admin_opc,
-        Bdev,
-        CoreError,
-        Descriptor,
-        DmaBuf,
-        DmaError,
-        IoChannel,
-    },
+    core::{Bdev, CoreError, Descriptor, IoChannel},
     ffihelper::cb_arg,
     subsys,
 };

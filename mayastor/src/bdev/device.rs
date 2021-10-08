@@ -12,20 +12,25 @@ use async_trait::async_trait;
 use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
 
-use spdk_rs::libspdk::{
-    iovec,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_reset,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_write_zeroes_blocks,
-    spdk_bdev_writev_blocks,
+use spdk_rs::{
+    libspdk::{
+        iovec,
+        spdk_bdev_free_io,
+        spdk_bdev_io,
+        spdk_bdev_readv_blocks,
+        spdk_bdev_reset,
+        spdk_bdev_unmap_blocks,
+        spdk_bdev_write_zeroes_blocks,
+        spdk_bdev_writev_blocks,
+    },
+    nvme_admin_opc,
+    DmaBuf,
+    DmaError,
+    IoType,
 };
 
 use crate::core::{
     mempool::MemoryPool,
-    nvme_admin_opc,
     Bdev,
     BdevHandle,
     BlockDevice,
@@ -37,16 +42,12 @@ use crate::core::{
     DeviceEventListener,
     DeviceEventType,
     DeviceIoController,
-    DmaBuf,
-    DmaError,
     IoCompletionCallback,
     IoCompletionCallbackArg,
     IoCompletionStatus,
     NvmeCommandStatus,
     NvmeStatus,
 };
-
-use spdk_rs::IoType;
 
 /// TODO
 type DeviceListenerMap = HashMap<String, Vec<DeviceEventListener>>;

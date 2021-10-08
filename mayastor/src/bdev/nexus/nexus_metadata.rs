@@ -57,13 +57,9 @@ use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 
-use super::{
-    NexusChild,
-    GptGuid,
-    NexusLabel,
-};
-
-use crate::core::{CoreError, DmaBuf, DmaError};
+use super::{GptGuid, NexusChild, NexusLabel};
+use crate::core::CoreError;
+use spdk_rs::{DmaBuf, DmaError};
 
 #[derive(Debug, Snafu)]
 pub enum MetaDataError {

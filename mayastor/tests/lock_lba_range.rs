@@ -13,7 +13,6 @@ use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
         Bdev,
-        DmaBuf,
         IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -22,7 +21,7 @@ use mayastor::{
         Reactors,
     },
 };
-
+use spdk_rs::DmaBuf;
 pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";

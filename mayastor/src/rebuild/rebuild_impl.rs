@@ -10,7 +10,10 @@ use futures::{
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
 
-use spdk_rs::libspdk::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE};
+use spdk_rs::{
+    libspdk::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE},
+    DmaBuf,
+};
 
 use crate::{
     bdev::{device_open, nexus::VerboseError},
@@ -19,7 +22,6 @@ use crate::{
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
-        DmaBuf,
         RangeContext,
         Reactors,
     },

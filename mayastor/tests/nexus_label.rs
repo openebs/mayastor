@@ -9,12 +9,13 @@ use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, GptEntry, GptHeader},
     core::{
         mayastor_env_stop,
-        DmaBuf,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
     },
 };
+
+use spdk_rs::DmaBuf;
 
 const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";

@@ -11,9 +11,6 @@ pub use block_device::{
     BlockDeviceDescriptor,
     BlockDeviceHandle,
     BlockDeviceIoStats,
-    DeviceEventHandler,
-    DeviceEventListener,
-    DeviceEventType,
     DeviceIoController,
     DeviceTimeoutAction,
     IoCompletionCallback,
@@ -25,6 +22,11 @@ pub use block_device::{
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
+pub use device_events::{
+    DeviceEventHandler,
+    DeviceEventListener,
+    DeviceEventType,
+};
 pub use env::{
     mayastor_env_stop,
     MayastorCliArgs,
@@ -39,14 +41,6 @@ pub use runtime::spawn;
 pub use share::{Protocol, Share};
 pub use spdk_rs::{
     cpu_cores,
-    nvme_admin_opc,
-    nvme_nvm_opcode,
-    nvme_reservation_acquire_action,
-    nvme_reservation_register_action,
-    nvme_reservation_register_cptpl,
-    nvme_reservation_type,
-    DmaBuf,
-    DmaError,
     GenericStatusCode,
     IoStatus,
     IoType,
@@ -63,6 +57,7 @@ mod bdev;
 mod block_device;
 mod channel;
 mod descriptor;
+mod device_events;
 mod env;
 mod handle;
 mod io_device;
@@ -235,6 +230,7 @@ pub enum IoCompletionStatus {
 pub static PAUSING: AtomicUsize = AtomicUsize::new(0);
 pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
 
+/// TODO
 pub async fn device_monitor() {
     let handle = Mthread::get_init();
     let mut interval = tokio::time::interval(Duration::from_millis(10));

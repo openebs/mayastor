@@ -12,10 +12,12 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Bdev, Cores, Descriptor, DmaBuf, IoChannel, Mthread},
+    core::{Bdev, Cores, Descriptor, IoChannel, Mthread},
     ffihelper::pair,
     nexus_uri::bdev_create,
 };
+
+use spdk_rs::{DmaBuf};
 
 #[derive(Debug, Copy, Clone)]
 pub enum IoType {

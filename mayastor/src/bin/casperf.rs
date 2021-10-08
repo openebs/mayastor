@@ -9,7 +9,6 @@ use mayastor::{
         Bdev,
         Cores,
         Descriptor,
-        DmaBuf,
         IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -20,14 +19,17 @@ use mayastor::{
     nexus_uri::bdev_create,
     subsys::Config,
 };
-use spdk_rs::libspdk::{
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_read,
-    spdk_bdev_write,
-    spdk_poller,
-    spdk_poller_register,
-    spdk_poller_unregister,
+use spdk_rs::{
+    libspdk::{
+        spdk_bdev_free_io,
+        spdk_bdev_io,
+        spdk_bdev_read,
+        spdk_bdev_write,
+        spdk_poller,
+        spdk_poller_register,
+        spdk_poller_unregister,
+    },
+    DmaBuf,
 };
 
 #[derive(Debug)]

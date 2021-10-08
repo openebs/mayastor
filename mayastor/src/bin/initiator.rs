@@ -19,7 +19,6 @@ use mayastor::{
         mayastor_env_stop,
         Bdev,
         CoreError,
-        DmaError,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
@@ -30,6 +29,7 @@ use mayastor::{
     subsys,
     subsys::Config,
 };
+use spdk_rs::DmaError;
 
 unsafe extern "C" fn run_static_initializers() {
     spdk_rs::libspdk::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)

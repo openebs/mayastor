@@ -5,22 +5,28 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 
-use spdk_rs::libspdk::{
-    iovec,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_nvme_cmd,
-    spdk_nvme_cpl,
-    nvme_cmd_cdw10_get,
-    spdk_nvme_ctrlr_cmd_admin_raw,
-    spdk_nvme_ctrlr_cmd_io_raw,
-    spdk_nvme_dsm_range,
-    spdk_nvme_ns_cmd_dataset_management,
-    spdk_nvme_ns_cmd_read,
-    spdk_nvme_ns_cmd_readv,
-    spdk_nvme_ns_cmd_write,
-    spdk_nvme_ns_cmd_write_zeroes,
-    spdk_nvme_ns_cmd_writev,
+use spdk_rs::{
+    libspdk::{
+        iovec,
+        nvme_cmd_cdw10_get,
+        spdk_get_io_channel,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+        spdk_nvme_cpl,
+        spdk_nvme_ctrlr_cmd_admin_raw,
+        spdk_nvme_ctrlr_cmd_io_raw,
+        spdk_nvme_dsm_range,
+        spdk_nvme_ns_cmd_dataset_management,
+        spdk_nvme_ns_cmd_read,
+        spdk_nvme_ns_cmd_readv,
+        spdk_nvme_ns_cmd_write,
+        spdk_nvme_ns_cmd_write_zeroes,
+        spdk_nvme_ns_cmd_writev,
+    },
+    nvme_admin_opc,
+    nvme_nvm_opcode,
+    DmaBuf,
+    DmaError,
 };
 
 use crate::{
@@ -40,13 +46,9 @@ use crate::{
     },
     core::{
         mempool::MemoryPool,
-        nvme_admin_opc,
-        nvme_nvm_opcode,
         BlockDevice,
         BlockDeviceHandle,
         CoreError,
-        DmaBuf,
-        DmaError,
         GenericStatusCode,
         IoCompletionCallback,
         IoCompletionCallbackArg,

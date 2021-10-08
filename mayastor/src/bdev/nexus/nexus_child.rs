@@ -12,15 +12,10 @@ use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent, GptGuid, VerboseError};
 use crate::{
     bdev::{device_create, device_destroy, device_lookup},
     core::{
-        nvme_reservation_acquire_action,
-        nvme_reservation_register_action,
-        nvme_reservation_register_cptpl,
-        nvme_reservation_type,
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
         CoreError,
-        DmaError,
         Reactor,
         Reactors,
     },
@@ -29,9 +24,16 @@ use crate::{
     rebuild::{ClientOperations, RebuildJob},
 };
 
-use spdk_rs::libspdk::{
-    spdk_nvme_registered_ctrlr_extended_data,
-    spdk_nvme_reservation_status_extended_data,
+use spdk_rs::{
+    libspdk::{
+        spdk_nvme_registered_ctrlr_extended_data,
+        spdk_nvme_reservation_status_extended_data,
+    },
+    nvme_reservation_acquire_action,
+    nvme_reservation_register_action,
+    nvme_reservation_register_cptpl,
+    nvme_reservation_type,
+    DmaError,
 };
 
 #[derive(Debug, Snafu)]

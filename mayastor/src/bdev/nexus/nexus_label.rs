@@ -73,7 +73,9 @@ use uuid::{self, Uuid};
 
 use super::{MetaDataError, Nexus, NexusChild, NexusMetaData};
 
-use crate::core::{BlockDeviceHandle, CoreError, DmaBuf, DmaError};
+use crate::core::{BlockDeviceHandle, CoreError};
+
+use spdk_rs::{DmaBuf, DmaError};
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {
