@@ -46,13 +46,15 @@ use futures::{
 };
 use once_cell::sync::OnceCell;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_cpuset_get_cpu,
     spdk_env_thread_launch_pinned,
     spdk_env_thread_wait_all,
     spdk_thread,
     spdk_thread_get_cpumask,
     spdk_thread_lib_init_ext,
+    spdk_thread_op,
+    SPDK_THREAD_OP_NEW,
 };
 
 use crate::core::{CoreError, Cores, Mthread};
@@ -149,24 +151,24 @@ impl Reactors {
     }
 
     /// advertise what scheduling options we support
-    extern "C" fn can_op(op: spdk_sys::spdk_thread_op) -> bool {
-        matches!(op, spdk_sys::SPDK_THREAD_OP_NEW)
+    extern "C" fn can_op(op: spdk_thread_op) -> bool {
+        matches!(op, SPDK_THREAD_OP_NEW)
     }
 
     /// do the advertised scheduling option
     extern "C" fn do_op(
         thread: *mut spdk_thread,
-        op: spdk_sys::spdk_thread_op,
+        op: spdk_thread_op,
     ) -> i32 {
         match op {
-            spdk_sys::SPDK_THREAD_OP_NEW => Self::schedule(thread),
+            SPDK_THREAD_OP_NEW => Self::schedule(thread),
             _ => -1,
         }
     }
 
     /// schedule a thread in here, we should make smart choices based
     /// on load etc, right now we schedule to the current core.
-    fn schedule(thread: *mut spdk_sys::spdk_thread) -> i32 {
+    fn schedule(thread: *mut spdk_thread) -> i32 {
         let mask = unsafe { spdk_thread_get_cpumask(thread) };
         let scheduled = Reactors::iter().any(|r| {
             if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {

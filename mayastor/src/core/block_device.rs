@@ -2,7 +2,7 @@ use crate::core::{CoreError, DmaBuf, DmaError, IoCompletionStatus, IoType};
 use async_trait::async_trait;
 use merge::Merge;
 use nix::errno::Errno;
-use spdk_sys::iovec;
+use spdk_rs::IoVec;
 use std::{cell::RefCell, os::raw::c_void, rc::Rc};
 use uuid::Uuid;
 
@@ -255,7 +255,7 @@ pub trait BlockDeviceHandle {
     /// TODO
     fn readv_blocks(
         &self,
-        iov: *mut iovec,
+        iov: *mut IoVec,
         iovcnt: i32,
         offset_blocks: u64,
         num_blocks: u64,
@@ -266,7 +266,7 @@ pub trait BlockDeviceHandle {
     /// TODO
     fn writev_blocks(
         &self,
-        iov: *mut iovec,
+        iov: *mut IoVec,
         iovcnt: i32,
         offset_blocks: u64,
         num_blocks: u64,
@@ -307,7 +307,7 @@ pub trait BlockDeviceHandle {
     /// TODO
     async fn nvme_admin(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError>;
 
@@ -357,7 +357,7 @@ pub trait BlockDeviceHandle {
     /// TODO
     async fn io_passthru(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
         _buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         Err(CoreError::NvmeIoPassthruDispatch {

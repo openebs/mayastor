@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     iovec,
     spdk_bdev_free_io,
     spdk_bdev_io,
@@ -46,7 +46,7 @@ use crate::core::{
     NvmeStatus,
 };
 
-use spdk::IoType;
+use spdk_rs::IoType;
 
 /// TODO
 type DeviceListenerMap = HashMap<String, Vec<DeviceEventListener>>;
@@ -139,22 +139,22 @@ impl SpdkBlockDevice {
 
     /// Called by spdk when there is an asynchronous bdev event i.e. removal.
     pub(crate) fn bdev_event_callback(
-        event: spdk::BdevEvent,
-        bdev: spdk::Bdev<()>,
+        event: spdk_rs::BdevEvent,
+        bdev: spdk_rs::Bdev<()>,
     ) {
         let dev = SpdkBlockDevice::new(Bdev::new(bdev));
 
         // Translate SPDK events into common device events.
         let event = match event {
-            spdk::BdevEvent::Remove => {
+            spdk_rs::BdevEvent::Remove => {
                 info!("Received remove event for Bdev '{}'", dev.device_name());
                 DeviceEventType::DeviceRemoved
             }
-            spdk::BdevEvent::Resize => {
+            spdk_rs::BdevEvent::Resize => {
                 warn!("Received resize event for Bdev '{}'", dev.device_name());
                 DeviceEventType::DeviceResized
             }
-            spdk::BdevEvent::MediaManagement => {
+            spdk_rs::BdevEvent::MediaManagement => {
                 warn!(
                     "Received media management event for Bdev '{}'",
                     dev.device_name()
@@ -615,7 +615,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
     /// NVMe commands are not applicable for non-NVMe devices.
     async fn nvme_admin(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
         _buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         Err(CoreError::NvmeAdminDispatch {

@@ -1,4 +1,4 @@
-use spdk_sys::{self, spdk_nvme_cpl};
+use spdk_rs::libspdk::{spdk_nvme_cpl};
 
 use crate::core::NvmeCommandStatus;
 

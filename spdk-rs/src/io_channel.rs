@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
-use spdk_sys::{
+use crate::libspdk::{
     spdk_io_channel,
-    spdk_io_channel_get_ctx_hpl,
+    spdk_rs_io_channel_get_ctx,
     spdk_io_channel_iter,
     spdk_io_channel_iter_get_channel,
 };
@@ -19,7 +19,7 @@ impl<ChannelData> IoChannel<ChannelData> {
     /// owns.
     pub fn channel_data(&self) -> &ChannelData {
         unsafe {
-            &*(spdk_io_channel_get_ctx_hpl(self.inner.as_ptr())
+            &*(spdk_rs_io_channel_get_ctx(self.inner.as_ptr())
                 as *mut ChannelData)
         }
     }
@@ -28,7 +28,7 @@ impl<ChannelData> IoChannel<ChannelData> {
     /// channel owns.
     pub fn channel_data_mut(&mut self) -> &mut ChannelData {
         unsafe {
-            &mut *(spdk_io_channel_get_ctx_hpl(self.inner.as_ptr())
+            &mut *(spdk_rs_io_channel_get_ctx(self.inner.as_ptr())
                 as *mut ChannelData)
         }
     }

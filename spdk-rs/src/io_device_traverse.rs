@@ -1,11 +1,14 @@
 use std::{marker::PhantomData, os::raw::c_void};
 
-use crate::{IoChannel, IoDevice};
-use spdk_sys::{
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_ctx,
+use crate::{
+    libspdk::{
+        spdk_for_each_channel,
+        spdk_for_each_channel_continue,
+        spdk_io_channel_iter,
+        spdk_io_channel_iter_get_ctx,
+    },
+    IoChannel,
+    IoDevice,
 };
 
 /// TODO

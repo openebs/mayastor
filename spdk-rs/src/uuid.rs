@@ -3,7 +3,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use spdk_sys::{spdk_uuid, spdk_uuid_copy, spdk_uuid_generate};
+use crate::libspdk::{spdk_uuid, spdk_uuid_copy, spdk_uuid_generate};
 
 /// Wrapper for SPDK UUID.
 pub struct Uuid {

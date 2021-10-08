@@ -1,4 +1,4 @@
-use spdk_sys::{
+use crate::libspdk::{
     spdk_cpuset,
     spdk_cpuset_set_cpu,
     spdk_cpuset_zero,

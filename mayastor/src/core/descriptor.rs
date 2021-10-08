@@ -6,13 +6,14 @@ use std::{
 
 use futures::channel::oneshot;
 
-use spdk::BdevModule;
-
-use spdk_sys::{
-    bdev_lock_lba_range,
-    bdev_unlock_lba_range,
-    spdk_bdev_desc,
-    spdk_bdev_get_io_channel,
+use spdk_rs::{
+    libspdk::{
+        bdev_lock_lba_range,
+        bdev_unlock_lba_range,
+        spdk_bdev_desc,
+        spdk_bdev_get_io_channel,
+    },
+    BdevModule,
 };
 
 use crate::{
@@ -26,11 +27,11 @@ use crate::{
 /// is. Typically, the target, exporting the bdev will claim the device. In the
 /// case of the nexus, we do not claim the children for exclusive access to
 /// allow for the rebuild to happen across multiple cores.
-pub struct Descriptor(spdk::BdevDesc<()>);
+pub struct Descriptor(spdk_rs::BdevDesc<()>);
 
 impl Descriptor {
     /// TODO
-    pub(crate) fn new(d: spdk::BdevDesc<()>) -> Self {
+    pub(crate) fn new(d: spdk_rs::BdevDesc<()>) -> Self {
         Self(d)
     }
 

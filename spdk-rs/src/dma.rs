@@ -10,7 +10,7 @@ use std::{
 
 use snafu::Snafu;
 
-use spdk_sys::{
+use crate::libspdk::{
     spdk_dma_free,
     spdk_zmalloc,
     SPDK_ENV_LCORE_ID_ANY,

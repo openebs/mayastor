@@ -1,6 +1,6 @@
-use std::{ffi::CStr, ptr::NonNull};
+use crate::libspdk::{spdk_get_thread, spdk_thread, spdk_thread_get_name};
 
-use spdk_sys::{spdk_get_thread, spdk_thread, spdk_thread_get_name};
+use std::{ffi::CStr, ptr::NonNull};
 
 /// Wrapper for `spdk_thread`.
 pub struct Thread {

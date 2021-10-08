@@ -4,16 +4,17 @@ use std::{
     time::Duration,
 };
 
-use crate::ffihelper::IntoCString;
-
-use spdk_sys::{
-    spdk_poller,
-    spdk_poller_fn,
-    spdk_poller_pause,
-    spdk_poller_register,
-    spdk_poller_register_named,
-    spdk_poller_resume,
-    spdk_poller_unregister,
+use crate::{
+    ffihelper::IntoCString,
+    libspdk::{
+        spdk_poller,
+        spdk_poller_fn,
+        spdk_poller_pause,
+        spdk_poller_register,
+        spdk_poller_register_named,
+        spdk_poller_resume,
+        spdk_poller_unregister,
+    },
 };
 
 /// A structure for poller context.

@@ -10,8 +10,7 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{
-    self,
+use spdk_rs::libspdk::{
     bdev_nvme_create,
     bdev_nvme_delete,
     spdk_nvme_host_id,
@@ -168,7 +167,7 @@ impl NvmeCreateContext {
             );
         }
 
-        trid.trtype = spdk_sys::SPDK_NVME_TRANSPORT_PCIE;
+        trid.trtype = spdk_rs::libspdk::SPDK_NVME_TRANSPORT_PCIE;
 
         let hostid = spdk_nvme_host_id::default();
 

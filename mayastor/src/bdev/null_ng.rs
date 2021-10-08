@@ -1,6 +1,6 @@
 use std::{cell::RefCell, marker::PhantomData};
 
-use spdk::{
+use spdk_rs::{
     BdevIo,
     BdevModule,
     BdevModuleBuild,

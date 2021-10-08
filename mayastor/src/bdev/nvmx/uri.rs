@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use controller::options::NvmeControllerOpts;
 use poller::Poller;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_opts,
@@ -146,7 +146,8 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
                     value: value.to_string(),
                 },
             )? {
-                prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
+                prchk_flags |=
+                    spdk_rs::libspdk::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
             }
         }
 
@@ -158,7 +159,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
                     value: value.to_string(),
                 },
             )? {
-                prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
+                prchk_flags |= spdk_rs::libspdk::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
             }
         }
 

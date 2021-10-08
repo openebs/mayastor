@@ -2,23 +2,22 @@ use std::{ffi::CString, marker::PhantomData, ptr::NonNull};
 
 use crate::{
     ffihelper::{AsStr, IntoCString},
+    libspdk::{
+        spdk_bdev_module,
+        spdk_bdev_module___bdev_module_internal_fields,
+        spdk_bdev_module_claim_bdev,
+        spdk_bdev_module_list_add,
+        spdk_bdev_module_list_find,
+        spdk_json_write_ctx,
+    },
     Bdev,
     BdevBuilder,
     BdevDesc,
     BdevModuleIter,
     BdevOps,
     JsonWriteContext,
-    SpdkResult,
     SpdkError,
-};
-
-use spdk_sys::{
-    spdk_bdev_module,
-    spdk_bdev_module___bdev_module_internal_fields,
-    spdk_bdev_module_claim_bdev,
-    spdk_bdev_module_list_add,
-    spdk_bdev_module_list_find,
-    spdk_json_write_ctx,
+    SpdkResult,
 };
 
 /// Wrapper for SPDK Bdev module structure.

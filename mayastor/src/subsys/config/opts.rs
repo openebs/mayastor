@@ -6,10 +6,11 @@ use std::ptr::copy_nonoverlapping;
 
 use serde::{Deserialize, Serialize};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     bdev_nvme_get_opts,
     bdev_nvme_set_opts,
     iscsi_opts_copy,
+    spdk_bdev_get_opts,
     spdk_bdev_nvme_opts,
     spdk_bdev_opts,
     spdk_bdev_set_opts,
@@ -345,7 +346,7 @@ impl GetOpts for BdevOpts {
     fn get(&self) -> Self {
         let opts = spdk_bdev_opts::default();
         unsafe {
-            spdk_sys::spdk_bdev_get_opts(
+            spdk_bdev_get_opts(
                 &opts as *const _ as *mut spdk_bdev_opts,
                 std::mem::size_of::<spdk_bdev_opts>() as u64,
             )

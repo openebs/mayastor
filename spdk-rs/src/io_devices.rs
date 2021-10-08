@@ -3,11 +3,9 @@ use std::{
     ptr,
 };
 
-use crate::ffihelper::IntoCString;
-
-use spdk_sys::{
-    spdk_io_device_register,
-    spdk_io_device_unregister,
+use crate::{
+    ffihelper::IntoCString,
+    libspdk::{spdk_io_device_register, spdk_io_device_unregister},
 };
 
 /// Abstraction over SPDK concept of I/O device.

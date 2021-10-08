@@ -86,7 +86,7 @@ impl CreateDestroy for Uring {
         let name = self.get_name();
 
         if let Ok(mut bdev) =
-            spdk::Bdev::<()>::create_uring_bdev(&name, &name, self.blk_size)
+            spdk_rs::Bdev::<()>::create_uring_bdev(&name, &name, self.blk_size)
         {
             if let Some(uuid) = self.uuid {
                 unsafe { bdev.set_uuid(uuid.into()) };

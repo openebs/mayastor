@@ -1,5 +1,9 @@
-use spdk_sys::{create_aio_bdev, vbdev_error_create, vbdev_error_inject_error};
-pub use spdk_sys::{SPDK_BDEV_IO_TYPE_READ, SPDK_BDEV_IO_TYPE_WRITE};
+use spdk_rs::libspdk::{
+    create_aio_bdev,
+    vbdev_error_create,
+    vbdev_error_inject_error,
+};
+pub use spdk_rs::libspdk::{SPDK_BDEV_IO_TYPE_READ, SPDK_BDEV_IO_TYPE_WRITE};
 
 // constant used by the vbdev_error module but not exported
 pub const VBDEV_IO_FAILURE: u32 = 1;

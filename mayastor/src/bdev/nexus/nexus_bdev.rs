@@ -21,7 +21,6 @@ use tonic::{Code, Status};
 
 use super::{
     nexus_lookup,
-    NexusModule,
     nexus_submit_io,
     ChildError,
     ChildState,
@@ -34,6 +33,7 @@ use super::{
     NexusChild,
     NexusInfo,
     NexusInstances,
+    NexusModule,
     PersistOp,
 };
 
@@ -55,7 +55,7 @@ use crate::{
     subsys::{NvmfError, NvmfSubsystem},
 };
 
-use spdk::{
+use spdk_rs::{
     BdevIo,
     BdevOps,
     ChannelTraverseStatus,
@@ -65,7 +65,7 @@ use spdk::{
     JsonWriteContext,
 };
 
-use spdk_sys::spdk_bdev;
+use spdk_rs::libspdk::spdk_bdev;
 
 pub static NVME_MIN_CNTLID: u16 = 1;
 pub static NVME_MAX_CNTLID: u16 = 0xffef;
@@ -524,7 +524,7 @@ impl Nexus {
         uuid: Option<&str>,
         nvme_params: NexusNvmeParams,
         child_bdevs: Option<&[String]>,
-    ) -> spdk::Bdev<Nexus> {
+    ) -> spdk_rs::Bdev<Nexus> {
         let n = Nexus {
             name: name.to_string(),
             child_count: 0,
@@ -577,7 +577,7 @@ impl Nexus {
 
     /// Makes the UUID of the underlying Bdev of this nexus.
     /// Generates a new UUID if specified uuid is None (or invalid).
-    fn make_uuid(name: &str, uuid: Option<&str>) -> spdk::Uuid {
+    fn make_uuid(name: &str, uuid: Option<&str>) -> spdk_rs::Uuid {
         match uuid {
             Some(s) => match uuid::Uuid::parse_str(s) {
                 Ok(u) => {
@@ -596,7 +596,7 @@ impl Nexus {
             }
         }
 
-        let u = spdk::Uuid::generate();
+        let u = spdk_rs::Uuid::generate();
         info!("using generated UUID {} for nexus {}", u, name);
         u
     }
@@ -649,7 +649,7 @@ impl Nexus {
     /// Once this function is called, the device is visible and can
     /// be used for IO.
     async fn register_instance(
-        bdev: &mut spdk::Bdev<Nexus>,
+        bdev: &mut spdk_rs::Bdev<Nexus>,
     ) -> Result<(), Error> {
         let nex = bdev.data_mut();
         assert_eq!(*nex.state.lock(), NexusState::Init);

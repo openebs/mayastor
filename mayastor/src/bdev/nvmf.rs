@@ -11,12 +11,15 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{
-    self,
+use spdk_rs::libspdk::{
     bdev_nvme_create,
     bdev_nvme_delete,
     spdk_nvme_host_id,
     spdk_nvme_transport_id,
+    SPDK_NVME_IO_FLAGS_PRCHK_GUARD,
+    SPDK_NVME_IO_FLAGS_PRCHK_REFTAG,
+    SPDK_NVME_TRANSPORT_TCP,
+    SPDK_NVMF_ADRFAM_IPV4,
 };
 
 use crate::{
@@ -87,7 +90,7 @@ impl TryFrom<&Url> for Nvmf {
                     value: value.to_string(),
                 },
             )? {
-                prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
+                prchk_flags |= SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
             }
         }
 
@@ -99,7 +102,7 @@ impl TryFrom<&Url> for Nvmf {
                     value: value.to_string(),
                 },
             )? {
-                prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
+                prchk_flags |= SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
             }
         }
 
@@ -298,8 +301,8 @@ impl NvmeCreateContext {
             );
         }
 
-        trid.trtype = spdk_sys::SPDK_NVME_TRANSPORT_TCP;
-        trid.adrfam = spdk_sys::SPDK_NVMF_ADRFAM_IPV4;
+        trid.trtype = SPDK_NVME_TRANSPORT_TCP;
+        trid.adrfam = SPDK_NVMF_ADRFAM_IPV4;
 
         let hostid = spdk_nvme_host_id::default();
 

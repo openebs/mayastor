@@ -16,7 +16,7 @@ use std::{
 };
 use sysfs::parse_value;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nbd_disk_find_by_nbd_path,
     spdk_nbd_disk,
     spdk_nbd_get_path,

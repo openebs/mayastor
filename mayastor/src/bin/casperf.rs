@@ -20,11 +20,13 @@ use mayastor::{
     nexus_uri::bdev_create,
     subsys::Config,
 };
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_bdev_free_io,
+    spdk_bdev_io,
     spdk_bdev_read,
     spdk_bdev_write,
     spdk_poller,
+    spdk_poller_register,
     spdk_poller_unregister,
 };
 
@@ -84,7 +86,7 @@ thread_local! {
 impl Job {
     /// io completion callback
     extern "C" fn io_completion(
-        bdev_io: *mut spdk_sys::spdk_bdev_io,
+        bdev_io: *mut spdk_bdev_io,
         success: bool,
         arg: *mut std::ffi::c_void,
     ) {
@@ -387,7 +389,7 @@ fn main() {
 
         unsafe {
             PERF_TICK.with(|p| {
-                *p.borrow_mut() = NonNull::new(spdk_sys::spdk_poller_register(
+                *p.borrow_mut() = NonNull::new(spdk_poller_register(
                     Some(perf_tick),
                     std::ptr::null_mut(),
                     1_000_000,

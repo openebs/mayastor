@@ -6,7 +6,7 @@ use std::{
 
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nvmf_tgt_accept,
     spdk_env_get_core_count,
     spdk_nvmf_listen_opts,

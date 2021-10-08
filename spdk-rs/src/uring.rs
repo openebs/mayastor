@@ -18,7 +18,7 @@ where
         block_len: u32,
     ) -> SpdkResult<Self> {
         let r = unsafe {
-            ::spdk_sys::create_uring_bdev(
+            crate::libspdk::create_uring_bdev(
                 name.into_cstring().as_ptr(),
                 filename.into_cstring().as_ptr(),
                 block_len,
@@ -40,6 +40,6 @@ where
         complete_cb: extern "C" fn(*mut c_void, i32),
         ctx: *mut c_void,
     ) {
-        ::spdk_sys::delete_uring_bdev(self.as_ptr(), Some(complete_cb), ctx)
+        crate::libspdk::delete_uring_bdev(self.as_ptr(), Some(complete_cb), ctx)
     }
 }

@@ -10,10 +10,10 @@ nix-shell --arg nospdk true
 
 The above results in a shell where there is no SPDK. In order to develop in an
 environment like this, it is assumed that you will have a local checkout of SPDK
-within the spdk-sys directory.
+within the spdk-rs directory.
 
 ```
-cd ${workspace}/spdk-sys
+cd ${workspace}/spdk-rs
 git clone https://github.com/openebs/spdk
 cd spdk
 git checkout vYY.mm.x-mayastor

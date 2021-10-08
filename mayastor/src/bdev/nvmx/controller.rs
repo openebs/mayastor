@@ -13,7 +13,7 @@ use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_async_event_completion,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
@@ -1000,7 +1000,7 @@ pub(crate) fn connected_attached_cb(
 pub(crate) mod options {
     use std::{mem::size_of, ptr::copy_nonoverlapping};
 
-    use spdk_sys::{
+    use spdk_rs::libspdk::{
         spdk_nvme_ctrlr_get_default_ctrlr_opts,
         spdk_nvme_ctrlr_opts,
     };
@@ -1145,7 +1145,7 @@ pub(crate) mod transport {
 
     use libc::c_void;
 
-    use spdk_sys::spdk_nvme_transport_id;
+    use spdk_rs::libspdk::spdk_nvme_transport_id;
 
     pub struct NvmeTransportId(spdk_nvme_transport_id);
 

@@ -11,7 +11,7 @@ use nix::errno::Errno;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{create_malloc_disk, delete_malloc_disk};
+use spdk_rs::libspdk::{create_malloc_disk, delete_malloc_disk, spdk_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
@@ -147,7 +147,7 @@ impl CreateDestroy for Malloc {
         let cname = self.name.clone().into_cstring();
 
         let errno = unsafe {
-            let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
+            let mut bdev: *mut spdk_bdev = std::ptr::null_mut();
             create_malloc_disk(
                 &mut bdev,
                 cname.as_ptr(),

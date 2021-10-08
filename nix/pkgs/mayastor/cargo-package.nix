@@ -49,7 +49,7 @@ let
     "mbus-api"
     "nvmeadm"
     "rpc"
-    "spdk-sys"
+    "spdk-rs"
     "sysfs"
   ];
   buildProps = rec {

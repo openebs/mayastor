@@ -1,4 +1,5 @@
 use crate::{
+    libspdk::{spdk_bdev_io, spdk_bdev_io_get_nvme_status},
     nvme::StatusCodeType::{
         CommandSpecificStatus,
         GenericCommandStatus,
@@ -6,9 +7,7 @@ use crate::{
         Reserved,
         VendorSpecific,
     },
-    // Bio,
 };
-use spdk_sys::{spdk_bdev_io, spdk_bdev_io_get_nvme_status};
 
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum StatusCodeType {
@@ -154,14 +153,7 @@ impl From<*mut spdk_bdev_io> for NvmeStatus {
         let mut sct: i32 = 0;
         let mut sc: i32 = 0;
 
-        unsafe {
-            spdk_bdev_io_get_nvme_status(
-                b,
-                &mut cdw0,
-                &mut sct,
-                &mut sc,
-            )
-        }
+        unsafe { spdk_bdev_io_get_nvme_status(b, &mut cdw0, &mut sct, &mut sc) }
 
         Self {
             cdw0,

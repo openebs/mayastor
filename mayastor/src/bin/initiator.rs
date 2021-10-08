@@ -32,7 +32,7 @@ use mayastor::{
 };
 
 unsafe extern "C" fn run_static_initializers() {
-    spdk_sys::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)
+    spdk_rs::libspdk::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)
 }
 
 #[used]

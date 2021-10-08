@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_ns,
     spdk_nvme_ns_get_extended_sector_size,
     spdk_nvme_ns_get_md_size,
@@ -28,7 +28,7 @@ impl NvmeNamespace {
     }
 
     pub fn uuid(&self) -> uuid::Uuid {
-        spdk::Uuid::legacy_from_ptr(unsafe {
+        spdk_rs::Uuid::legacy_from_ptr(unsafe {
             spdk_nvme_ns_get_uuid(self.0.as_ptr())
         })
         .into()

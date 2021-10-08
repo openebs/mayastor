@@ -5,13 +5,15 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{SpdkResult, SpdkError};
-
-use spdk_sys::{
-    spdk_json_write_array_end,
-    spdk_json_write_ctx,
-    spdk_json_write_named_array_begin,
-    spdk_json_write_val_raw,
+use crate::{
+    libspdk::{
+        spdk_json_write_array_end,
+        spdk_json_write_ctx,
+        spdk_json_write_named_array_begin,
+        spdk_json_write_val_raw,
+    },
+    SpdkError,
+    SpdkResult,
 };
 
 /// Wrapper for SPDK JSON write context.

@@ -139,20 +139,21 @@ impl CreateDestroy for Null {
 
         let cname = self.name.clone().into_cstring();
 
-        let opts = spdk_sys::spdk_null_bdev_opts {
+        let opts = spdk_rs::libspdk::spdk_null_bdev_opts {
             name: cname.as_ptr(),
             uuid: std::ptr::null(),
             num_blocks: self.num_blocks,
             block_size: self.blk_size,
             md_size: 0,
             md_interleave: false,
-            dif_type: spdk_sys::SPDK_DIF_DISABLE,
+            dif_type: spdk_rs::libspdk::SPDK_DIF_DISABLE,
             dif_is_head_of_md: false,
         };
 
         let errno = unsafe {
-            let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
-            spdk_sys::bdev_null_create(&mut bdev, &opts)
+            let mut bdev: *mut spdk_rs::libspdk::spdk_bdev =
+                std::ptr::null_mut();
+            spdk_rs::libspdk::bdev_null_create(&mut bdev, &opts)
         };
 
         if errno != 0 {
@@ -188,7 +189,7 @@ impl CreateDestroy for Null {
             bdev.as_mut().remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
-                spdk_sys::bdev_null_delete(
+                spdk_rs::libspdk::bdev_null_delete(
                     bdev.as_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),

@@ -236,15 +236,15 @@ The basic steps are:
 
 ```
 git submodule update --init --recursive
-sudo ./spdk-sys/spdk/scripts/pkgdep
-./spdk-sys/build.sh --enable-debug --without-isal --with-rdma \
+sudo ./spdk-rs/spdk/scripts/pkgdep
+./spdk-rs/build.sh --enable-debug --without-isal --with-rdma \
             --with-internal-vhost-lib --disable-tests \
             --with-crypto
 ```
-At this point you will have a .so file in `spdk-sys/build` you can leave it there and set the run path flag for rustc to find it:
+At this point you will have a .so file in `spdk-rs/build` you can leave it there and set the run path flag for rustc to find it:
 
 ```
-export RUSTFLAGS="-C link-args=-Wl,-rpath=$(pwd)/spdk-sys/build"
+export RUSTFLAGS="-C link-args=-Wl,-rpath=$(pwd)/spdk-rs/build"
 ```
 
 Or, you can copy over the .so to `/usr/local/lib` or something similar.

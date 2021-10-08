@@ -55,7 +55,7 @@ mkShell {
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
     ${pkgs.lib.optionalString (nospdk)
-    ''export RUSTFLAGS="-C link-args=-Wl,-rpath,$(pwd)/spdk-sys/spdk"''}
+    ''export RUSTFLAGS="-C link-args=-Wl,-rpath,$(pwd)/spdk-rs/spdk"''}
     ${pkgs.lib.optionalString (nospdk) "echo"}
 
     echo 'Hint: use rustup tool.'

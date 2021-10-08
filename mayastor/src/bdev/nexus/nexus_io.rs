@@ -6,8 +6,10 @@ use std::{
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk::BdevIo;
-use spdk_sys::{spdk_bdev_io, spdk_io_channel};
+use spdk_rs::{
+    libspdk::{spdk_bdev_io, spdk_io_channel},
+    BdevIo,
+};
 
 use super::{
     nexus_lookup_mut,
@@ -77,7 +79,7 @@ pub struct NioCtx {
     /// intermediate status of the IO
     status: IoStatus,
     /// a reference to  our channel
-    channel: spdk::IoChannel<NexusChannel>,
+    channel: spdk_rs::IoChannel<NexusChannel>,
     /// the IO must fail regardless of when it completes
     must_fail: bool,
 }
@@ -115,8 +117,8 @@ impl NexusBio {
     /// helper function to wrap the raw pointers into new types. From here we
     /// should not be dealing with any raw pointers.
     pub fn nexus_bio_setup(
-        channel: spdk::IoChannel<NexusChannel>,
-        io: spdk::BdevIo<Nexus>,
+        channel: spdk_rs::IoChannel<NexusChannel>,
+        io: spdk_rs::BdevIo<Nexus>,
     ) -> Self {
         // NexusBio::nexus_bio_setup(channel.legacy_as_ptr(),
         // io.legacy_as_ptr())

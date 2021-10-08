@@ -6,7 +6,7 @@
 use std::{ffi::CStr, os::raw::c_char};
 
 use ::rpc::mayastor as rpc;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,

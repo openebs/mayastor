@@ -1,22 +1,21 @@
-use std::{marker::PhantomData, ptr::NonNull};
+use std::{marker::PhantomData, os::raw::c_void, ptr::NonNull};
 
 use crate::{
     ffihelper::{errno_error, ErrnoResult, IntoCString},
+    libspdk::{
+        spdk_bdev,
+        spdk_bdev_close,
+        spdk_bdev_desc,
+        spdk_bdev_desc_get_bdev,
+        spdk_bdev_event_type,
+        spdk_bdev_open_ext,
+        SPDK_BDEV_EVENT_MEDIA_MANAGEMENT,
+        SPDK_BDEV_EVENT_REMOVE,
+        SPDK_BDEV_EVENT_RESIZE,
+    },
     Bdev,
     BdevOps,
 };
-use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
-    spdk_bdev_event_type,
-    spdk_bdev_open_ext,
-    SPDK_BDEV_EVENT_MEDIA_MANAGEMENT,
-    SPDK_BDEV_EVENT_REMOVE,
-    SPDK_BDEV_EVENT_RESIZE,
-};
-use std::os::raw::c_void;
 
 /// Wrapper for `spdk_bdev_desc`.
 #[derive(Debug)]
@@ -98,8 +97,8 @@ where
     //     unsafe { self.inner.as_ref() }
     // }
 
-    // /// Returns a mutable reference to the underlying `spdk_bdev_desc` structure.
-    // pub(crate) fn as_mut(&mut self) -> &mut spdk_bdev_desc {
+    // /// Returns a mutable reference to the underlying `spdk_bdev_desc`
+    // structure. pub(crate) fn as_mut(&mut self) -> &mut spdk_bdev_desc {
     //     unsafe { self.inner.as_mut() }
     // }
 

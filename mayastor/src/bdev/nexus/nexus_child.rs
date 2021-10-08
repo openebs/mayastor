@@ -29,7 +29,7 @@ use crate::{
     rebuild::{ClientOperations, RebuildJob},
 };
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_registered_ctrlr_extended_data,
     spdk_nvme_reservation_status_extended_data,
 };

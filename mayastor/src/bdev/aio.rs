@@ -6,7 +6,7 @@ use nix::errno::Errno;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{bdev_aio_delete, create_aio_bdev};
+use spdk_rs::libspdk::{bdev_aio_delete, create_aio_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},

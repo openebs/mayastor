@@ -1,7 +1,7 @@
 use std::{os::raw::c_void, ptr::NonNull};
 
 use crate::ffihelper::IntoCString;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_for_each_channel,
     spdk_for_each_channel_continue,
     spdk_io_channel,
@@ -11,10 +11,15 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
+
+/// TODO
 #[derive(Debug)]
 pub struct IoDevice(NonNull<c_void>);
 
+/// TODO
 type IoDeviceCreateCb = unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32;
+
+/// TODO
 type IoDeviceDestroyCb = unsafe extern "C" fn(*mut c_void, *mut c_void);
 
 /// Abstraction around SPDK I/O device, which hides low-level SPDK

@@ -2,7 +2,7 @@
 
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nvme_qpair_abort_reqs,
     spdk_io_channel,
     spdk_nvme_ctrlr_alloc_io_qpair,

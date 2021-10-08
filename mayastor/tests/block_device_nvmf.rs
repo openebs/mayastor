@@ -27,7 +27,7 @@ use std::{
     },
 };
 
-use spdk_sys::{self, iovec};
+use spdk_rs::IoVec;
 
 pub mod common;
 use mayastor::core::DeviceEventListener;
@@ -301,7 +301,7 @@ async fn nvmf_io_stats() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -370,7 +370,7 @@ async fn nvmf_io_stats() {
             );
 
             let mut ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 dma_buf: create_io_buffer(alignment, 6 * BUF_SIZE, IO_PATTERN),
                 handle,
             };
@@ -544,7 +544,7 @@ async fn nvmf_device_readv_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         iovcnt: i32,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
@@ -604,7 +604,7 @@ async fn nvmf_device_readv_test() {
 
             // Create a buffer with the guard pattern.
             let mut io_ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 iovcnt: 1,
                 dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
                 handle,
@@ -711,7 +711,7 @@ async fn nvmf_device_writev_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -746,7 +746,7 @@ async fn nvmf_device_writev_test() {
             assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
             let mut ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 dma_buf: create_io_buffer(alignment, BUF_SIZE, IO_PATTERN),
                 handle,
             };
@@ -882,7 +882,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iovs: *mut iovec,
+        iovs: *mut IoVec,
         buffers: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -906,11 +906,11 @@ async fn nvmf_device_readv_iovs_test() {
             let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
 
             // Allocate phsycally continous memory for storing raw I/O vectors.
-            let l = Layout::array::<iovec>(IOVCNT).unwrap();
-            let iovs = unsafe { std::alloc::alloc(l) } as *mut iovec;
+            let l = Layout::array::<IoVec>(IOVCNT).unwrap();
+            let iovs = unsafe { std::alloc::alloc(l) } as *mut IoVec;
 
             for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
-                let mut iov = iovec::default();
+                let mut iov = IoVec::default();
                 let buf = create_io_buffer(alignment, *s, GUARD_PATTERN);
 
                 iov.iov_base = *buf;
@@ -1044,7 +1044,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iovs: *mut iovec,
+        iovs: *mut IoVec,
         buffers: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -1065,11 +1065,11 @@ async fn nvmf_device_writev_iovs_test() {
             let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
 
             // Allocate phsycally continous memory for storing raw I/O vectors.
-            let l = Layout::array::<iovec>(IOVCNT).unwrap();
-            let iovs = unsafe { std::alloc::alloc(l) } as *mut iovec;
+            let l = Layout::array::<IoVec>(IOVCNT).unwrap();
+            let iovs = unsafe { std::alloc::alloc(l) } as *mut IoVec;
 
             for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
-                let mut iov = iovec::default();
+                let mut iov = IoVec::default();
                 let buf = create_io_buffer(alignment, *s, IO_PATTERN);
 
                 iov.iov_base = *buf;
@@ -1497,7 +1497,7 @@ async fn nvmf_reset_abort_io() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         iovcnt: i32,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
@@ -1615,7 +1615,7 @@ async fn nvmf_reset_abort_io() {
             DEVICE_NAME.set(name.clone()).unwrap();
 
             let mut io_ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 iovcnt: 1,
                 dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
                 handle,

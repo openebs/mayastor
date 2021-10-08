@@ -14,6 +14,6 @@
  *
  * \return a pointer to the context buffer.
  */
-void *spdk_io_channel_get_ctx_hpl(struct spdk_io_channel *ch);
+void *spdk_rs_io_channel_get_ctx(struct spdk_io_channel *ch);
 
 #endif // MAYASTOR_SPDK_HELPER_H

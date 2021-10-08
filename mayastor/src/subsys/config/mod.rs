@@ -12,7 +12,7 @@ use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_json_write_ctx,
     spdk_json_write_val_raw,
     spdk_subsystem,

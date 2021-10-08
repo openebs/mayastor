@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_poller,
     spdk_poller_pause,
     spdk_poller_register,

@@ -9,16 +9,18 @@ use crate::{
     BdevOps,
 };
 
-use crate::ffihelper::{errno_result_from_i32, ErrnoResult};
-use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_get_device_stat,
-    spdk_bdev_io_stat,
-    spdk_bdev_unregister,
+use crate::{
+    ffihelper::{errno_result_from_i32, ErrnoResult},
+    libspdk::{
+        spdk_bdev,
+        spdk_bdev_get_device_stat,
+        spdk_bdev_io_stat,
+        spdk_bdev_unregister,
+    },
 };
 
 /// TODO
-pub type BdevStats = ::spdk_sys::spdk_bdev_io_stat;
+pub type BdevStats = spdk_bdev_io_stat;
 
 impl<BdevData> Bdev<BdevData>
 where

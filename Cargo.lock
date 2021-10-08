@@ -1582,8 +1582,7 @@ dependencies = [
  "serde_yaml",
  "signal-hook",
  "snafu",
- "spdk",
- "spdk-sys",
+ "spdk-rs",
  "structopt",
  "sysfs",
  "tokio",
@@ -2613,25 +2612,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "spdk"
+name = "spdk-rs"
 version = "0.1.0"
 dependencies = [
+ "bindgen 0.59.1",
+ "cc",
  "futures",
  "nix",
  "serde",
  "serde_json",
  "snafu",
- "spdk-sys",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "spdk-sys"
-version = "0.1.0"
-dependencies = [
- "bindgen 0.59.1",
- "cc",
 ]
 
 [[package]]

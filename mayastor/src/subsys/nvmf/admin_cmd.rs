@@ -13,15 +13,27 @@ use crate::{
     lvs::Lvol,
 };
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
+    nvme_cmd_cdw10_get,
+    nvme_cmd_cdw10_get_val,
+    nvme_cmd_cdw11_get,
+    nvme_cmd_cdw11_get_val,
+    nvme_status_get,
     spdk_bdev,
     spdk_bdev_desc,
+    spdk_bdev_io,
     spdk_io_channel,
     spdk_nvme_cmd,
     spdk_nvme_cpl,
     spdk_nvme_status,
     spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
     spdk_nvmf_request,
+    spdk_nvmf_request_get_bdev,
+    spdk_nvmf_request_get_cmd,
+    spdk_nvmf_request_get_response,
+    spdk_nvmf_request_get_subsystem,
+    spdk_nvmf_set_custom_admin_cmd_hdlr,
+    spdk_nvmf_subsystem_get_max_nsid,
 };
 
 #[derive(Clone)]
@@ -30,7 +42,7 @@ pub struct NvmeCpl(pub(crate) NonNull<spdk_nvme_cpl>);
 impl NvmeCpl {
     /// Returns the NVMe status
     pub(crate) fn status(&mut self) -> &mut spdk_nvme_status {
-        unsafe { &mut *spdk_sys::nvme_status_get(self.0.as_mut()) }
+        unsafe { &mut *nvme_status_get(self.0.as_mut()) }
     }
 }
 
@@ -42,7 +54,7 @@ impl NvmfReq {
     pub(crate) fn response(&self) -> NvmeCpl {
         NvmeCpl(
             NonNull::new(unsafe {
-                &mut *spdk_sys::spdk_nvmf_request_get_response(self.0.as_ptr())
+                &mut *spdk_nvmf_request_get_response(self.0.as_ptr())
             })
             .unwrap(),
         )
@@ -64,8 +76,8 @@ pub fn set_snapshot_time(cmd: &mut spdk_nvme_cmd) -> u64 {
         .unwrap()
         .as_secs();
     unsafe {
-        *spdk_sys::nvme_cmd_cdw10_get(&mut *cmd) = now as u32;
-        *spdk_sys::nvme_cmd_cdw11_get(&mut *cmd) = (now >> 32) as u32;
+        *nvme_cmd_cdw10_get(&mut *cmd) = now as u32;
+        *nvme_cmd_cdw11_get(&mut *cmd) = (now >> 32) as u32;
     }
     now as u64
 }
@@ -76,14 +88,14 @@ pub fn set_snapshot_time(cmd: &mut spdk_nvme_cmd) -> u64 {
 extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     debug!("nvmf_create_snapshot_hdlr {:?}", req);
 
-    let subsys = unsafe { spdk_sys::spdk_nvmf_request_get_subsystem(req) };
+    let subsys = unsafe { spdk_nvmf_request_get_subsystem(req) };
     if subsys.is_null() {
         debug!("subsystem is null");
         return -1;
     }
 
     /* Only process this request if it has exactly one namespace */
-    if unsafe { spdk_sys::spdk_nvmf_subsystem_get_max_nsid(subsys) } != 1 {
+    if unsafe { spdk_nvmf_subsystem_get_max_nsid(subsys) } != 1 {
         debug!("multiple namespaces");
         return -1;
     }
@@ -93,9 +105,7 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     let mut desc: *mut spdk_bdev_desc = std::ptr::null_mut();
     let mut ch: *mut spdk_io_channel = std::ptr::null_mut();
     let rc = unsafe {
-        spdk_sys::spdk_nvmf_request_get_bdev(
-            1, req, &mut bdev, &mut desc, &mut ch,
-        )
+        spdk_nvmf_request_get_bdev(1, req, &mut bdev, &mut desc, &mut ch)
     };
     if rc != 0 {
         /* No bdev found for this namespace. Continue. */
@@ -106,18 +116,16 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     let bd = Bdev::from(bdev);
     if bd.driver() == nexus::NEXUS_MODULE_NAME {
         // Received command on a published Nexus
-        set_snapshot_time(unsafe {
-            &mut *spdk_sys::spdk_nvmf_request_get_cmd(req)
-        });
+        set_snapshot_time(unsafe { &mut *spdk_nvmf_request_get_cmd(req) });
         unsafe {
             spdk_nvmf_bdev_ctrlr_nvme_passthru_admin(bdev, desc, ch, req, None)
         }
     } else if let Ok(lvol) = Lvol::try_from(bd) {
         // Received command on a shared replica (lvol)
-        let cmd = unsafe { spdk_sys::spdk_nvmf_request_get_cmd(req) };
+        let cmd = unsafe { spdk_nvmf_request_get_cmd(req) };
         let snapshot_time = unsafe {
-            spdk_sys::nvme_cmd_cdw10_get_val(cmd) as u64
-                | (spdk_sys::nvme_cmd_cdw11_get_val(cmd) as u64) << 32
+            nvme_cmd_cdw10_get_val(cmd) as u64
+                | (nvme_cmd_cdw11_get_val(cmd) as u64) << 32
         };
         let snapshot_name =
             Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
@@ -133,14 +141,10 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     }
 }
 
-pub fn create_snapshot(
-    lvol: Lvol,
-    cmd: &spdk_sys::spdk_nvme_cmd,
-    io: *mut spdk_sys::spdk_bdev_io,
-) {
+pub fn create_snapshot(lvol: Lvol, cmd: &spdk_nvme_cmd, io: *mut spdk_bdev_io) {
     let snapshot_time = unsafe {
-        spdk_sys::nvme_cmd_cdw10_get_val(&*cmd) as u64
-            | (spdk_sys::nvme_cmd_cdw11_get_val(&*cmd) as u64) << 32
+        nvme_cmd_cdw10_get_val(&*cmd) as u64
+            | (nvme_cmd_cdw11_get_val(&*cmd) as u64) << 32
     };
     let snapshot_name = Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
     // Blobfs operations must be on md_thread
@@ -152,7 +156,7 @@ pub fn create_snapshot(
 /// Register custom NVMe admin command handler
 pub fn setup_create_snapshot_hdlr() {
     unsafe {
-        spdk_sys::spdk_nvmf_set_custom_admin_cmd_hdlr(
+        spdk_nvmf_set_custom_admin_cmd_hdlr(
             nvme_admin_opc::CREATE_SNAPSHOT,
             Some(nvmf_create_snapshot_hdlr),
         );

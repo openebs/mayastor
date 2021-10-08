@@ -8,7 +8,7 @@ use std::{ffi::CStr, os::raw::c_char};
 use ::rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
 
-use spdk_sys::{spdk_lvol, vbdev_lvol_get_from_bdev};
+use spdk_rs::libspdk::{spdk_lvol, vbdev_lvol_get_from_bdev};
 
 use crate::{core::Bdev, subsys::NvmfError, target};
 
@@ -235,8 +235,9 @@ impl Iterator for ReplicaIter {
         loop {
             let maybe_bdev = match &mut self.bdev {
                 Some(bdev) => {
-                    let ptr =
-                        unsafe { spdk_sys::spdk_bdev_next(bdev.as_ptr()) };
+                    let ptr = unsafe {
+                        spdk_rs::libspdk::spdk_bdev_next(bdev.as_ptr())
+                    };
                     if !ptr.is_null() {
                         Some(Bdev::from(ptr))
                     } else {

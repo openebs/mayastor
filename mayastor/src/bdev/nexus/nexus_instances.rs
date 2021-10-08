@@ -2,7 +2,7 @@ use crate::{
     bdev::{nexus::nexus_module::NexusModule, Nexus},
     core::singleton::{Singleton, SingletonCell},
 };
-use spdk::{BdevModuleIter, Thread};
+use spdk_rs::{BdevModuleIter, Thread};
 use std::ptr::NonNull;
 
 /// TODO

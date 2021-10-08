@@ -29,26 +29,26 @@ impl ParseCallbacks for MacroCallback {
 fn build_wrapper() {
     cc::Build::new()
         .include("spdk/include")
-        .file("logwrapper.c")
+        .file("spdk_rs_helpers/logwrapper.c")
         .compile("logwrapper");
     cc::Build::new()
         .include("spdk/include")
         .include(".")
-        .file("nvme_helper.c")
+        .file("spdk_rs_helpers/nvme_helper.c")
         .compile("nvme_helper");
     cc::Build::new()
         .include("spdk/include")
         .include(".")
-        .file("spdk_helper.c")
+        .file("spdk_rs_helpers/spdk_helper.c")
         .compile("spdk_helper");
 }
 
 fn main() {
     #![allow(unreachable_code)]
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    panic!("spdk-sys crate is only for x86_64 (Nehalem or later) and aarch64 (with crypto) ISAs.");
+    panic!("spdk-rs crate is only for x86_64 (Nehalem or later) and aarch64 (with crypto) ISAs.");
     #[cfg(not(target_os = "linux"))]
-    panic!("spdk-sys crate works only on linux");
+    panic!("spdk-rs crate works only on linux");
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = PathBuf::from(&out_dir);

@@ -6,14 +6,23 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::{nvme::NvmeStatus, Bdev, BdevOps, IoStatus, IoType};
-
-use spdk_sys::{
-    spdk_bdev_io,
-    spdk_bdev_io_complete,
-    spdk_bdev_io_get_buf,
-    spdk_io_channel,
+use crate::{
+    libspdk::{
+        spdk_bdev_io,
+        spdk_bdev_io_complete,
+        spdk_bdev_io_get_buf,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+    },
+    nvme::NvmeStatus,
+    Bdev,
+    BdevOps,
+    IoStatus,
+    IoType,
 };
+
+/// TODO
+pub type IoVec = crate::libspdk::iovec;
 
 /// Wrapper for SPDK `spdk_bdev_io` data structure.
 pub struct BdevIo<BdevData>
@@ -77,7 +86,7 @@ where
     /// TODO
     /// get a raw pointer to the base of the iov
     #[inline]
-    pub fn iovs(&self) -> *mut spdk_sys::iovec {
+    pub fn iovs(&self) -> *mut IoVec {
         unsafe { self.as_ref().u.bdev.iovs }
     }
 
@@ -164,7 +173,7 @@ where
     /// TODO
     /// NVMe passthru command
     #[inline]
-    pub fn nvme_cmd(&self) -> spdk_sys::spdk_nvme_cmd {
+    pub fn nvme_cmd(&self) -> spdk_nvme_cmd {
         unsafe { self.as_ref().u.nvme_passthru.cmd }
     }
 

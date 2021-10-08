@@ -37,7 +37,7 @@ pub use io_device::IoDevice;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
-pub use spdk::{
+pub use spdk_rs::{
     cpu_cores,
     nvme_admin_opc,
     nvme_nvm_opcode,

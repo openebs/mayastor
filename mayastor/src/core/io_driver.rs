@@ -3,8 +3,9 @@ use futures::channel::oneshot;
 use rand::Rng;
 use std::{ptr::NonNull, sync::Mutex};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_bdev_free_io,
+    spdk_bdev_io,
     spdk_bdev_read,
     spdk_bdev_reset,
     spdk_bdev_write,
@@ -180,7 +181,7 @@ pub struct Job {
 
 impl Job {
     extern "C" fn io_completion(
-        bdev_io: *mut spdk_sys::spdk_bdev_io,
+        bdev_io: *mut spdk_bdev_io,
         success: bool,
         arg: *mut std::ffi::c_void,
     ) {

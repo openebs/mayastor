@@ -9,7 +9,7 @@ use std::{
 use futures::channel::oneshot;
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
     nvmf_subsystem_set_cntlid_range,

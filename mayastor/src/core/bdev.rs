@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use nix::errno::Errno;
 use snafu::ResultExt;
 
-use spdk_sys::spdk_bdev;
+use spdk_rs::libspdk::spdk_bdev;
 
 use crate::{
     bdev::SpdkBlockDevice,
@@ -33,7 +33,7 @@ use crate::{
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
 #[derive(Clone)]
-pub struct Bdev(spdk::Bdev<()>);
+pub struct Bdev(spdk_rs::Bdev<()>);
 
 #[async_trait(? Send)]
 impl Share for Bdev {
@@ -132,7 +132,7 @@ impl Share for Bdev {
 
 impl Bdev {
     /// TODO
-    pub(crate) fn new(b: spdk::Bdev<()>) -> Self {
+    pub(crate) fn new(b: spdk_rs::Bdev<()>) -> Self {
         Self(b)
     }
 
@@ -141,7 +141,7 @@ impl Bdev {
         if bdev.is_null() {
             None
         } else {
-            Some(Self(spdk::Bdev::<()>::legacy_from_ptr(bdev)))
+            Some(Self(spdk_rs::Bdev::<()>::legacy_from_ptr(bdev)))
         }
     }
 
@@ -153,13 +153,13 @@ impl Bdev {
 
     /// TODO
     #[allow(dead_code)]
-    pub(crate) fn as_ref(&self) -> &spdk::Bdev<()> {
+    pub(crate) fn as_ref(&self) -> &spdk_rs::Bdev<()> {
         &self.0
     }
 
     /// TODO
     #[allow(dead_code)]
-    pub(crate) fn as_mut(&mut self) -> &mut spdk::Bdev<()> {
+    pub(crate) fn as_mut(&mut self) -> &mut spdk_rs::Bdev<()> {
         &mut self.0
     }
 
@@ -181,7 +181,7 @@ impl Bdev {
     /// A Bdev can be opened multiple times resulting in a new descriptor for
     /// each call.
     pub fn open(&self, read_write: bool) -> Result<Descriptor, CoreError> {
-        match spdk::BdevDesc::<()>::open(
+        match spdk_rs::BdevDesc::<()>::open(
             self.name(),
             read_write,
             SpdkBlockDevice::bdev_event_callback,
@@ -205,7 +205,7 @@ impl Bdev {
 
     /// lookup a bdev by its name
     pub fn lookup_by_name(name: &str) -> Option<Bdev> {
-        spdk::Bdev::<()>::lookup_by_name(name).map(|bdev| Self::new(bdev))
+        spdk_rs::Bdev::<()>::lookup_by_name(name).map(|bdev| Self::new(bdev))
     }
 
     /// returns the block_size of the underlying device
@@ -291,7 +291,7 @@ impl Bdev {
     }
 }
 
-pub struct BdevIter(::spdk::BdevGlobalIter<()>);
+pub struct BdevIter(spdk_rs::BdevGlobalIter<()>);
 
 impl IntoIterator for Bdev {
     type Item = Bdev;
@@ -311,7 +311,7 @@ impl Iterator for BdevIter {
 
 impl BdevIter {
     pub fn new() -> Self {
-        BdevIter(::spdk::Bdev::<()>::iter_all())
+        BdevIter(spdk_rs::Bdev::<()>::iter_all())
     }
 }
 

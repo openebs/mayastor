@@ -8,7 +8,7 @@ use futures::channel::oneshot;
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_bdev_desc,
     spdk_bdev_free_io,
     spdk_bdev_io,
@@ -18,6 +18,7 @@ use spdk_sys::{
     spdk_bdev_write,
     spdk_bdev_write_zeroes,
     spdk_io_channel,
+    spdk_nvme_cmd,
 };
 
 use crate::{
@@ -252,7 +253,7 @@ impl BdevHandle {
     /// create a snapshot, only works for nvme bdev
     /// returns snapshot time as u64 seconds since Unix epoch
     pub async fn create_snapshot(&self) -> Result<u64, CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
         let now = subsys::set_snapshot_time(&mut cmd);
         debug!("Creating snapshot at {}", now);
@@ -266,17 +267,17 @@ impl BdevHandle {
         &self,
         mut buffer: &mut DmaBuf,
     ) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::IDENTIFY.into());
         cmd.nsid = 0xffffffff;
         // Controller Identifier
-        unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
+        unsafe { *spdk_rs::libspdk::nvme_cmd_cdw10_get(&mut cmd) = 1 };
         self.nvme_admin(&cmd, Some(&mut buffer)).await
     }
 
     /// sends an NVMe Admin command, only for read commands without buffer
     pub async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(opcode.into());
         self.nvme_admin(&cmd, None).await
     }
@@ -284,12 +285,12 @@ impl BdevHandle {
     /// sends the specified NVMe Admin command, only read commands
     pub async fn nvme_admin(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_nvme_cmd,
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         trace!("Sending nvme_admin {}", nvme_cmd.opc());
         let (s, r) = oneshot::channel::<bool>();
-        // Use the spdk-sys variant spdk_bdev_nvme_admin_passthru that
+        // Use the spdk-rs variant spdk_bdev_nvme_admin_passthru that
         // assumes read commands
         let errno = unsafe {
             spdk_bdev_nvme_admin_passthru_ro(

@@ -1,7 +1,11 @@
-use crate::{Bdev, BdevModule, BdevOps};
-
-use spdk_sys::{spdk_bdev, spdk_bdev_first, spdk_bdev_module, spdk_bdev_next};
 use std::marker::PhantomData;
+
+use crate::{
+    libspdk::{spdk_bdev, spdk_bdev_first, spdk_bdev_module, spdk_bdev_next},
+    Bdev,
+    BdevModule,
+    BdevOps,
+};
 
 impl<BdevData> Bdev<BdevData>
 where

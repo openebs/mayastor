@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::{NioCtx, nexus_iter};
 
-use spdk::{
+use spdk_rs::{
     BdevModule,
     BdevModuleBuild,
     JsonWriteContext,

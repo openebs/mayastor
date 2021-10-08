@@ -3,9 +3,8 @@ use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, ptr::NonNull};
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
-
 use rpc::mayastor::CreatePoolRequest;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
