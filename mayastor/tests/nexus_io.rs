@@ -1,9 +1,11 @@
-//! Multipath NVMf and reservation tests
+//! Nexus IO tests for multipath NVMf, reservation, and write-zeroes
 use common::bdev_io;
 use mayastor::{
     bdev::{nexus_create, nexus_create_v2, nexus_lookup, NexusNvmeParams},
     core::MayastorCliArgs,
+    lvs::Lvs,
 };
+use once_cell::sync::OnceCell;
 use rpc::mayastor::{
     CreateNexusRequest,
     CreateNexusV2Request,
@@ -26,6 +28,17 @@ static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
 static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
+
+static DISKNAME1: &str = "/tmp/disk1.img";
+static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
+static DISKNAME2: &str = "/tmp/disk2.img";
+static BDEVNAME2: &str = "aio:///host/tmp/disk2.img?blk_size=512";
+
+static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
+
+fn get_ms() -> &'static MayastorTest<'static> {
+    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
+}
 
 fn nvme_connect(
     target_addr: &str,
@@ -112,7 +125,7 @@ fn nvme_disconnect_nqn(nqn: &str) {
 #[tokio::test]
 #[ignore]
 /// Create the same nexus on both nodes with a replica on 1 node as their child.
-async fn nexus_multipath() {
+async fn nexus_io_multipath() {
     std::env::set_var("NEXUS_NVMF_ANA_ENABLE", "1");
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
     // create a new composeTest
@@ -161,7 +174,7 @@ async fn nexus_multipath() {
         .await
         .unwrap();
 
-    let mayastor = MayastorTest::new(MayastorCliArgs::default());
+    let mayastor = get_ms();
     let ip0 = hdls[0].endpoint.ip();
     let nexus_name = format!("nexus-{}", UUID);
     let name = nexus_name.clone();
@@ -319,7 +332,7 @@ async fn nexus_multipath() {
 /// Create another nexus with the same remote replica as its child, verifying
 /// that the write exclusive, all registrants reservation has also been
 /// registered by the new nexus.
-async fn nexus_resv_acquire() {
+async fn nexus_io_resv_acquire() {
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
     std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
     let test = Builder::new()
@@ -369,7 +382,7 @@ async fn nexus_resv_acquire() {
         .await
         .unwrap();
 
-    let mayastor = MayastorTest::new(MayastorCliArgs::default());
+    let mayastor = get_ms();
     let ip0 = hdls[0].endpoint.ip();
     let resv_key = 0xabcd_ef00_1234_5678;
     mayastor
@@ -485,8 +498,111 @@ async fn nexus_resv_acquire() {
             bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
                 .await
                 .expect("reads should succeed");
+
+            nexus_lookup(&NXNAME.to_string())
+                .unwrap()
+                .destroy()
+                .await
+                .unwrap();
         })
         .await;
 
     nvme_disconnect_nqn(&rep_nqn);
+}
+
+#[tokio::test]
+/// Create a nexus with a local and a remote replica.
+/// Verify that write-zeroes does actually write zeroes.
+async fn nexus_io_write_zeroes() {
+    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
+    common::truncate_file(DISKNAME1, 64 * 1024);
+    common::truncate_file(DISKNAME2, 64 * 1024);
+
+    let test = Builder::new()
+        .name("nexus_io_write_zeroes_test")
+        .network("10.1.0.0/16")
+        .add_container_bin(
+            "ms1",
+            composer::Binary::from_dbg("mayastor")
+                .with_bind("/tmp", "/host/tmp"),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let mut hdls = test.grpc_handles().await.unwrap();
+
+    // create a pool on remote node
+    hdls[0]
+        .mayastor
+        .create_pool(CreatePoolRequest {
+            name: POOL_NAME.to_string(),
+            disks: vec![BDEVNAME2.to_string()],
+        })
+        .await
+        .unwrap();
+
+    // create replica, shared over nvmf
+    hdls[0]
+        .mayastor
+        .create_replica(CreateReplicaRequest {
+            uuid: UUID.to_string(),
+            pool: POOL_NAME.to_string(),
+            size: 32 * 1024 * 1024,
+            thin: false,
+            share: 1,
+        })
+        .await
+        .unwrap();
+
+    let mayastor = get_ms();
+    let ip0 = hdls[0].endpoint.ip();
+    let nexus_name = format!("nexus-{}", UUID);
+    let name = nexus_name.clone();
+    mayastor
+        .spawn(async move {
+            // Create local pool and replica
+            Lvs::create_or_import(CreatePoolRequest {
+                name: POOL_NAME.to_string(),
+                disks: vec![BDEVNAME1.to_string()],
+            })
+            .await
+            .unwrap();
+
+            let pool = Lvs::lookup(POOL_NAME).unwrap();
+            pool.create_lvol(&UUID.to_string(), 32 * 1024 * 1024, None, true)
+                .await
+                .unwrap();
+
+            // create nexus on local node with 2 children, local and remote
+            nexus_create(
+                &name,
+                32 * 1024 * 1024,
+                Some(UUID),
+                &[
+                    format!("loopback:///{}", UUID),
+                    format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID),
+                ],
+            )
+            .await
+            .unwrap();
+
+            bdev_io::write_some(&name, 0, 0xff).await.unwrap();
+            // Read twice to ensure round-robin read from both replicas
+            bdev_io::read_some(&name, 0, 0xff)
+                .await
+                .expect("read should return block of 0xff");
+            bdev_io::read_some(&name, 0, 0xff)
+                .await
+                .expect("read should return block of 0xff");
+            bdev_io::write_zeroes_some(&name, 0, 512).await.unwrap();
+            bdev_io::read_some(&name, 0, 0)
+                .await
+                .expect("read should return block of 0");
+            bdev_io::read_some(&name, 0, 0)
+                .await
+                .expect("read should return block of 0");
+        })
+        .await;
 }

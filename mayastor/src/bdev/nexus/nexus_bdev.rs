@@ -1055,10 +1055,11 @@ impl Nexus {
     /// io type. Break the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
     pub fn io_is_supported(&self, io_type: IoType) -> bool {
-        self.children
+        !self
+            .children
             .iter()
             .filter_map(|e| e.get_device().ok())
-            .any(|b| b.io_type_supported(io_type))
+            .any(|b| !b.io_type_supported(io_type))
     }
 
     /// IO completion for local replica

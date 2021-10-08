@@ -179,7 +179,7 @@ impl BlockDevice for NvmeBlockDevice {
             IoType::Compare => self.ns.supports_compare(),
             IoType::NvmeIoMd => self.ns.md_size() > 0,
             IoType::Unmap => false,
-            IoType::WriteZeros => false,
+            IoType::WriteZeros => true,
             IoType::CompareAndWrite => false,
             _ => false,
         }
