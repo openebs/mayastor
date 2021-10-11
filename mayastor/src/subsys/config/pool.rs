@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt::Display, fs, path::Path, sync::Mutex};
+use std::{fmt::Display, fs, path::Path, sync::Mutex};
 
 use futures::channel::oneshot;
 use once_cell::sync::{Lazy, OnceCell};
@@ -9,12 +9,10 @@ use crate::{
     bdev::nexus::VerboseError,
     core::{runtime, Cores, Mthread, Reactor, Share},
     grpc::rpc_submit,
-    lvs::{Error as LvsError, Lvs, PoolArgs},
-    pool::{Pool as SpdkPool, PoolsIter},
+    lvs::{Error as LvsError, Lvs},
+    pool::{Pool as SpdkPool, PoolArgs, PoolsIter},
     replica::ShareType,
 };
-
-use rpc::mayastor::CreatePoolRequest;
 
 static CONFIG_FILE: OnceCell<String> = OnceCell::new();
 
@@ -172,7 +170,7 @@ struct Pool {
 }
 
 /// Convert a Pool into a gRPC request payload
-impl From<&Pool> for CreatePoolRequest {
+impl From<&Pool> for PoolArgs {
     fn from(pool: &Pool) -> Self {
         Self {
             name: pool.name.clone(),
@@ -205,15 +203,13 @@ struct Replica {
     share: Option<ShareType>,
 }
 
-async fn create_pool(
-    args: CreatePoolRequest,
-) -> Result<rpc::mayastor::Pool, Status> {
+async fn create_pool(args: PoolArgs) -> Result<rpc::mayastor::Pool, Status> {
     if args.disks.is_empty() {
         return Err(Status::invalid_argument("Missing devices"));
     }
 
     let rx = rpc_submit::<_, _, LvsError>(async move {
-        let pool = Lvs::create_or_import(PoolArgs::try_from(args)?).await?;
+        let pool = Lvs::create_or_import(args).await?;
         Ok(pool.into())
     })?;
 

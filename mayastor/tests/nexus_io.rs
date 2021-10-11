@@ -9,6 +9,7 @@ use mayastor::{
     },
     core::MayastorCliArgs,
     lvs::Lvs,
+    pool::PoolArgs,
 };
 use once_cell::sync::OnceCell;
 use rpc::mayastor::{
@@ -568,7 +569,7 @@ async fn nexus_io_write_zeroes() {
     mayastor
         .spawn(async move {
             // Create local pool and replica
-            Lvs::create_or_import(CreatePoolRequest {
+            Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEVNAME1.to_string()],
             })

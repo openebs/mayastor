@@ -1,8 +1,9 @@
 use common::MayastorTest;
 use mayastor::{
     core::{Bdev, MayastorCliArgs, Protocol, Share},
-    lvs::{Lvs, PoolArgs, PropName, PropValue},
+    lvs::{Lvs, PropName, PropValue},
     nexus_uri::bdev_create,
+    pool::PoolArgs,
     subsys::NvmfSubsystem,
 };
 

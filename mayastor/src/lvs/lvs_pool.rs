@@ -11,6 +11,7 @@ use spdk_rs::libspdk::{
     spdk_lvol,
     spdk_lvol_store,
     vbdev_get_lvol_store_by_name,
+    vbdev_get_lvol_store_by_uuid,
     vbdev_get_lvs_bdev_by_lvs,
     vbdev_lvol_create,
     vbdev_lvol_create_with_uuid,
@@ -32,6 +33,7 @@ use crate::{
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
     nexus_uri::{bdev_destroy, NexusBdevError},
+    pool::PoolArgs,
 };
 
 impl From<*mut spdk_lvol_store> for Lvs {
@@ -42,11 +44,6 @@ impl From<*mut spdk_lvol_store> for Lvs {
 
 /// iterator over all lvol stores
 pub struct LvsIterator(*mut lvol_store_bdev);
-
-pub struct PoolArgs {
-    pub name: String,
-    pub disks: Vec<String>,
-}
 
 /// returns a new lvs iterator
 impl LvsIterator {
@@ -143,6 +140,18 @@ impl Lvs {
         let name = name.into_cstring();
 
         let lvs = unsafe { vbdev_get_lvol_store_by_name(name.as_ptr()) };
+        if lvs.is_null() {
+            None
+        } else {
+            Some(Lvs::from(lvs))
+        }
+    }
+
+    /// lookup a lvol store by its uuid
+    pub fn lookup_by_uuid(uuid: &str) -> Option<Self> {
+        let uuid = uuid.into_cstring();
+
+        let lvs = unsafe { vbdev_get_lvol_store_by_uuid(uuid.as_ptr()) };
         if lvs.is_null() {
             None
         } else {

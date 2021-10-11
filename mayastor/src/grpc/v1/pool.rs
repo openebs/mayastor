@@ -1,7 +1,8 @@
 use crate::{
     core::Share,
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
-    lvs::{Error as LvsError, Lvs, PoolArgs},
+    lvs::{Error as LvsError, Lvs},
+    pool::{PoolArgs, PoolBackend},
     subsys::PoolConfig,
 };
 use futures::FutureExt;
@@ -9,7 +10,7 @@ use nix::errno::Errno;
 use std::{convert::TryFrom, fmt::Debug, time::Duration};
 use tonic::{Request, Response, Status};
 
-use rpc::mayastor::v1::*;
+use rpc::mayastor::v1::pool::*;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
@@ -18,14 +19,14 @@ use ::function_name::named;
 use std::panic::AssertUnwindSafe;
 
 #[derive(Debug)]
-pub struct MayastorSvc {
+pub struct PoolSvc {
     name: String,
     interval: Duration,
     client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
 }
 
 #[async_trait::async_trait]
-impl<F, T> Serializer<F, T> for MayastorSvc
+impl<F, T> Serializer<F, T> for PoolSvc
 where
     T: Send + 'static,
     F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
@@ -67,22 +68,37 @@ where
 
 impl TryFrom<CreatePoolRequest> for PoolArgs {
     type Error = LvsError;
-    fn try_from(pool: CreatePoolRequest) -> Result<Self, Self::Error> {
-        if pool.disks.is_empty() {
-            Err(LvsError::Invalid {
+    fn try_from(args: CreatePoolRequest) -> Result<Self, Self::Error> {
+        match args.disks.len() {
+            0 => Err(LvsError::Invalid {
                 source: Errno::EINVAL,
-                msg: "Missing devices".to_string(),
-            })
-        } else {
-            Ok(Self {
-                name: pool.name,
-                disks: pool.disks,
-            })
+                msg: "invalid argument, missing devices".to_string(),
+            }),
+            _ => Ok(Self {
+                name: args.name,
+                disks: args.disks,
+            }),
         }
     }
 }
 
-impl MayastorSvc {
+impl TryFrom<ImportPoolRequest> for PoolArgs {
+    type Error = LvsError;
+    fn try_from(args: ImportPoolRequest) -> Result<Self, Self::Error> {
+        match args.disks.len() {
+            0 => Err(LvsError::Invalid {
+                source: Errno::EINVAL,
+                msg: "invalid argument, missing devices".to_string(),
+            }),
+            _ => Ok(Self {
+                name: args.name,
+                disks: args.disks,
+            }),
+        }
+    }
+}
+
+impl PoolSvc {
     pub fn new(interval: Duration) -> Self {
         Self {
             name: String::from("CSISvc"),
@@ -95,17 +111,19 @@ impl MayastorSvc {
 impl From<Lvs> for Pool {
     fn from(l: Lvs) -> Self {
         Self {
+            uuid: l.uuid(),
             name: l.name().into(),
             disks: vec![l.base_bdev().bdev_uri().unwrap_or_else(|| "".into())],
             state: PoolState::PoolOnline.into(),
             capacity: l.capacity(),
             used: l.used(),
+            pooltype: PoolType::Lvs as i32,
         }
     }
 }
 
 #[tonic::async_trait]
-impl mayastor_server::Mayastor for MayastorSvc {
+impl PoolRpc for PoolSvc {
     #[named]
     async fn create_pool(
         &self,
@@ -115,14 +133,78 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
+                match PoolBackend::try_from(args.pooltype)? {
+                    PoolBackend::Lvs => {
+                        let rx = rpc_submit::<_, _, LvsError>(async move {
+                            let pool = Lvs::create_or_import(
+                                PoolArgs::try_from(args)?,
+                            )
+                            .await?;
+                            // Capture current pool config and export to file.
+                            PoolConfig::capture().export().await;
+                            Ok(Pool::from(pool))
+                        })?;
 
-                if args.disks.is_empty() {
-                    return Err(Status::invalid_argument("Missing devices"));
+                        rx.await
+                            .map_err(|_| Status::cancelled("cancelled"))?
+                            .map_err(Status::from)
+                            .map(Response::new)
+                    }
                 }
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn destroy_pool(
+        &self,
+        request: Request<DestroyPoolRequest>,
+    ) -> GrpcResult<()> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    if let Some(pool) = Lvs::lookup_by_uuid(&args.uuid) {
+                        // Remove pool from current config and export to file.
+                        // Do this BEFORE we actually destroy the pool.
+                        let mut config = PoolConfig::capture();
+                        config.delete(&args.uuid);
+                        config.export().await;
+
+                        pool.destroy().await?;
+                    }
+                    Ok(())
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn import_pool(
+        &self,
+        request: Request<ImportPoolRequest>,
+    ) -> GrpcResult<Pool> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
 
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool = Lvs::create_or_import(PoolArgs::try_from(args)?)
-                        .await?;
+                    let pool_args = PoolArgs::try_from(args)?;
+                    let pool = Lvs::import(
+                        pool_args.name.as_str(),
+                        pool_args.disks[0].as_str(),
+                    )
+                    .await?;
                     // Capture current pool config and export to file.
                     PoolConfig::capture().export().await;
                     Ok(Pool::from(pool))
@@ -138,50 +220,25 @@ impl mayastor_server::Mayastor for MayastorSvc {
     }
 
     #[named]
-    async fn destroy_pool(
-        &self,
-        request: Request<DestroyPoolRequest>,
-    ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit::<_, _, LvsError>(async move {
-                    if let Some(pool) = Lvs::lookup(&args.name) {
-                        // Remove pool from current config and export to file.
-                        // Do this BEFORE we actually destroy the pool.
-                        let mut config = PoolConfig::capture();
-                        config.delete(&args.name);
-                        config.export().await;
-
-                        pool.destroy().await?;
-                    }
-                    Ok(Null {})
-                })?;
-
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
-        .await
-    }
-
-    #[named]
     async fn list_pools(
         &self,
-        request: Request<Null>,
-    ) -> GrpcResult<ListPoolsReply> {
+        request: Request<ListPoolOptions>,
+    ) -> GrpcResult<ListPoolsResponse> {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    Ok(ListPoolsReply {
-                        pools: Lvs::iter()
-                            .map(|l| l.into())
-                            .collect::<Vec<Pool>>(),
+                    let mut pools = Vec::new();
+                    let name = request.into_inner().name_value;
+                    if let Some(NameValue::Name(name)) = name {
+                        if let Some(l) = Lvs::lookup(&name) {
+                            pools.push(l.into())
+                        };
+                    } else {
+                        Lvs::iter().for_each(|l| pools.push(l.into()));
+                    }
+                    Ok(ListPoolsResponse {
+                        pools,
                     })
                 })?;
 

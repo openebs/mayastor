@@ -32,8 +32,9 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    lvs::{Error as LvsError, Lvol, Lvs, PoolArgs},
+    lvs::{Error as LvsError, Lvol, Lvs},
     nexus_uri::NexusBdevError,
+    pool::PoolArgs,
     subsys::PoolConfig,
 };
 
@@ -125,17 +126,16 @@ impl MayastorSvc {
 
 impl TryFrom<CreatePoolRequest> for PoolArgs {
     type Error = LvsError;
-    fn try_from(pool: CreatePoolRequest) -> Result<Self, Self::Error> {
-        if pool.disks.is_empty() {
-            Err(LvsError::Invalid {
+    fn try_from(args: CreatePoolRequest) -> Result<Self, Self::Error> {
+        match args.disks.len() {
+            0 => Err(LvsError::Invalid {
                 source: Errno::EINVAL,
-                msg: "Missing devices".to_string(),
-            })
-        } else {
-            Ok(Self {
-                name: pool.name,
-                disks: pool.disks,
-            })
+                msg: "invalid argument, missing devices".to_string(),
+            }),
+            _ => Ok(Self {
+                name: args.name,
+                disks: args.disks,
+            }),
         }
     }
 }

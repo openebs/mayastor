@@ -3,7 +3,12 @@
 //! They provide abstraction on top of aio and uring bdev, lvol store, etc
 //! and export simple-to-use json-rpc methods for managing pools.
 
-use std::{ffi::CStr, os::raw::c_char};
+use std::{
+    convert::TryFrom,
+    ffi::CStr,
+    io::{Error as ioError, ErrorKind},
+    os::raw::c_char,
+};
 
 use ::rpc::mayastor as rpc;
 use spdk_rs::libspdk::{
@@ -128,6 +133,32 @@ impl From<Pool> for rpc::Pool {
             state: rpc::PoolState::PoolOnline as i32,
             capacity: pool.get_capacity(),
             used: pool.get_capacity() - pool.get_free(),
+        }
+    }
+}
+
+/// PoolArgs is the input for the grpc
+/// Create/Import requests which comtains name & disks
+pub struct PoolArgs {
+    pub name: String,
+    pub disks: Vec<String>,
+}
+
+/// PoolBackend is the type of pool underneath Lvs, Lvm, etc
+pub enum PoolBackend {
+    Lvs,
+}
+
+impl TryFrom<i32> for PoolBackend {
+    type Error = ioError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Lvs),
+            _ => Err(ioError::new(
+                ErrorKind::InvalidInput,
+                format!("invalid pool type {}", value),
+            )),
         }
     }
 }

@@ -55,6 +55,20 @@ pub mod mayastor {
                 json_rpc_server::{JsonRpc, JsonRpcServer},
                 JsonRpcRequest,
                 JsonRpcResponse,
+        }
+
+        pub mod pool {
+            pub use super::pb::{
+                list_pool_options::NameValue,
+                pool_rpc_server::{PoolRpc, PoolRpcServer},
+                CreatePoolRequest,
+                DestroyPoolRequest,
+                ImportPoolRequest,
+                ListPoolOptions,
+                ListPoolsResponse,
+                Pool,
+                PoolState,
+                PoolType,
             };
         }
     }

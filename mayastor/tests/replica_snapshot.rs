@@ -2,7 +2,8 @@ use common::bdev_io;
 use mayastor::{
     bdev::nexus::nexus_create,
     core::{BdevHandle, CoreError, MayastorCliArgs},
-    lvs::{Lvol, Lvs, PoolArgs},
+    lvs::{Lvol, Lvs},
+    pool::PoolArgs,
 };
 use rpc::mayastor::{
     CreatePoolRequest,
