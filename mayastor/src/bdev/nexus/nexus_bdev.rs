@@ -358,6 +358,8 @@ pub struct NexusNvmeParams {
     pub(crate) max_cntlid: u16,
     /// NVMe reservation key for children
     pub(crate) resv_key: u64,
+    /// NVMe preempt key for children, 0 to not preempt
+    pub(crate) preempt_key: Option<std::num::NonZeroU64>,
 }
 
 impl Default for NexusNvmeParams {
@@ -366,6 +368,7 @@ impl Default for NexusNvmeParams {
             min_cntlid: NVME_MIN_CNTLID,
             max_cntlid: NVME_MAX_CNTLID,
             resv_key: 0x1234_5678,
+            preempt_key: None,
         }
     }
 }
@@ -379,6 +382,12 @@ impl NexusNvmeParams {
     }
     pub fn set_resv_key(&mut self, resv_key: u64) {
         self.resv_key = resv_key;
+    }
+    pub fn set_preempt_key(
+        &mut self,
+        preempt_key: Option<std::num::NonZeroU64>,
+    ) {
+        self.preempt_key = preempt_key;
     }
 }
 
@@ -1046,10 +1055,11 @@ impl Nexus {
     /// io type. Break the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
     pub fn io_is_supported(&self, io_type: IoType) -> bool {
-        self.children
+        !self
+            .children
             .iter()
             .filter_map(|e| e.get_device().ok())
-            .any(|b| b.io_type_supported(io_type))
+            .any(|b| !b.io_type_supported(io_type))
     }
 
     /// IO completion for local replica

@@ -17,30 +17,46 @@
 //! Creating a bdev for any supported device type is now as simple as:
 //! ```ignore
 //!     let uri = "aio:///tmp/disk1.img?blk_size=512";
-//!     bdev::Uri::parse(&uri)?.create().await?;
+//!     bdev::uri::parse(&uri)?.create().await?;
 //! ```
 
-use std::{collections::HashMap, convert::TryFrom};
+use std::collections::HashMap;
 
-use snafu::ResultExt;
-use url::Url;
-
+use super::nvmx;
 use crate::{
-    bdev::{BdevCreateDestroy, SpdkBlockDevice, Uri},
+    bdev::SpdkBlockDevice,
     core::{BlockDevice, BlockDeviceDescriptor, CoreError},
-    nexus_uri::{self, NexusBdevError},
+    nexus_uri::NexusBdevError,
 };
 
-use super::{aio, loopback, malloc, null, nvme, nvmx, uring};
+use url::Url;
 
-impl Uri {
+pub(crate) mod uri {
+    use std::convert::TryFrom;
+
+    use snafu::ResultExt;
+
+    use crate::{
+        bdev::{
+            aio,
+            loopback,
+            malloc,
+            null,
+            nvme,
+            nvmx,
+            uring,
+            BdevCreateDestroy,
+        },
+        nexus_uri::{self, NexusBdevError},
+    };
+
     pub fn parse(
         uri: &str,
     ) -> Result<
         Box<dyn BdevCreateDestroy<Error = NexusBdevError>>,
         NexusBdevError,
     > {
-        let url = Url::parse(uri).context(nexus_uri::UrlParseError {
+        let url = url::Url::parse(uri).context(nexus_uri::UrlParseError {
             uri: uri.to_string(),
         })?;
 
@@ -91,11 +107,11 @@ pub fn device_lookup(name: &str) -> Option<Box<dyn BlockDevice>> {
 }
 
 pub async fn device_create(uri: &str) -> Result<String, NexusBdevError> {
-    Uri::parse(uri)?.create().await
+    uri::parse(uri)?.create().await
 }
 
 pub async fn device_destroy(uri: &str) -> Result<(), NexusBdevError> {
-    Uri::parse(uri)?.destroy().await
+    uri::parse(uri)?.destroy().await
 }
 
 pub fn device_open(

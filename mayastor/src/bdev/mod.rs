@@ -32,6 +32,7 @@ pub use nvmx::{
 
 mod aio;
 pub(crate) mod dev;
+pub(crate) use dev::uri;
 pub(crate) mod device;
 mod loopback;
 mod malloc;
@@ -61,5 +62,3 @@ pub trait CreateDestroy {
 pub trait GetName {
     fn get_name(&self) -> String;
 }
-
-pub struct Uri;

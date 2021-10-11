@@ -16,6 +16,7 @@ use spdk_sys::{
     spdk_bdev_read,
     spdk_bdev_reset,
     spdk_bdev_write,
+    spdk_bdev_write_zeroes,
     spdk_io_channel,
 };
 
@@ -210,6 +211,41 @@ impl BdevHandle {
             Ok(())
         } else {
             Err(CoreError::ResetFailed {})
+        }
+    }
+
+    pub async fn write_zeroes_at(
+        &self,
+        offset: u64,
+        len: u64,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<bool>();
+        let errno = unsafe {
+            spdk_bdev_write_zeroes(
+                self.desc.as_ptr(),
+                self.channel.as_ptr(),
+                offset,
+                len,
+                Some(Self::io_completion_cb),
+                cb_arg(s),
+            )
+        };
+
+        if errno != 0 {
+            return Err(CoreError::WriteZeroesDispatch {
+                source: Errno::from_i32(errno.abs()),
+                offset,
+                len,
+            });
+        }
+
+        if r.await.expect("Failed awaiting write zeroes IO") {
+            Ok(())
+        } else {
+            Err(CoreError::WriteZeroesFailed {
+                offset,
+                len,
+            })
         }
     }
 

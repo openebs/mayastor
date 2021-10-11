@@ -948,7 +948,7 @@ describe('nexus', function () {
       common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_remove_ns', args, done);
     });
 
-    it.skip('should still have bdev of removed child after remove event', (done) => {
+    it('dummy call to get list of bdevs to allow remove event to be processed', (done) => {
       common.jsonrpcCommand(null, 'bdev_get_bdevs', (err, out) => {
         if (err) return done(err);
         const bdevs = JSON.parse(out);
@@ -959,7 +959,7 @@ describe('nexus', function () {
             return done();
           }
         }
-        done(new Error('bdev not found'));
+        done();
       });
     });
 

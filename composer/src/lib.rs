@@ -113,6 +113,7 @@ pub struct Binary {
     arguments: Vec<String>,
     nats_arg: Option<String>,
     env: HashMap<String, String>,
+    binds: HashMap<String, String>,
 }
 
 impl Binary {
@@ -159,6 +160,11 @@ impl Binary {
         if let Some(old) = self.env.insert(key.into(), val.into()) {
             println!("Replaced key {} val {} with val {}", key, old, val);
         }
+        self
+    }
+    /// Add volume bind between host path and container path
+    pub fn with_bind(mut self, host: &str, container: &str) -> Self {
+        self.binds.insert(container.to_string(), host.to_string());
         self
     }
     /// pick up the nats argument name for a particular binary from nats_arg
@@ -287,6 +293,11 @@ impl ContainerSpec {
         self.binds.iter().for_each(|(container, host)| {
             vec.push(format!("{}:{}", host, container));
         });
+        if let Some(binary) = &self.binary {
+            binary.binds.iter().for_each(|(container, host)| {
+                vec.push(format!("{}:{}", host, container));
+            });
+        }
         vec
     }
 
@@ -708,7 +719,7 @@ impl Drop for ComposeTest {
                     .output()
                     .unwrap();
                 std::process::Command::new("docker")
-                    .args(&["rm", c])
+                    .args(&["rm", "-v", c])
                     .output()
                     .unwrap();
             });

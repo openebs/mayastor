@@ -15,7 +15,6 @@ use crate::{
             instances,
             nexus_channel::DrEvent,
             nexus_child::ChildState::Faulted,
-            nexus_persistence::PersistOp,
         },
         nexus_lookup,
         Guid,
@@ -413,6 +412,7 @@ impl NexusChild {
     pub(crate) async fn acquire_write_exclusive(
         &self,
         key: u64,
+        preempt_key: Option<std::num::NonZeroU64>,
     ) -> Result<(), ChildError> {
         if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
             return Ok(());
@@ -434,8 +434,14 @@ impl NexusChild {
             .resv_acquire(
                 &*hdl,
                 key,
-                0,
-                nvme_reservation_acquire_action::ACQUIRE,
+                match preempt_key {
+                    None => 0,
+                    Some(k) => k.get(),
+                },
+                match preempt_key {
+                    None => nvme_reservation_acquire_action::ACQUIRE,
+                    Some(_) => nvme_reservation_acquire_action::PREEMPT,
+                },
                 nvme_reservation_type::WRITE_EXCLUSIVE_ALL_REGS,
             )
             .await
@@ -652,15 +658,9 @@ impl NexusChild {
         // device-related events directly.
         if state != ChildState::Faulted(Reason::IoError) {
             let nexus_name = self.parent.clone();
-            let child_name = self.get_name().to_string();
-            let child_state = self.state();
             Reactor::block_on(async move {
                 match nexus_lookup(&nexus_name) {
-                    Some(n) => {
-                        n.reconfigure(DrEvent::ChildRemove).await;
-                        n.persist(PersistOp::Update((child_name, child_state)))
-                            .await;
-                    }
+                    Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
                     None => error!("Nexus {} not found", nexus_name),
                 }
             });

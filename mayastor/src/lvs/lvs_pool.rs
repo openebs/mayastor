@@ -29,7 +29,7 @@ use spdk_sys::{
 use url::Url;
 
 use crate::{
-    bdev::Uri,
+    bdev::uri,
     core::{Bdev, IoType, Share, Uuid},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
@@ -317,7 +317,7 @@ impl Lvs {
             })
             .collect::<Vec<_>>();
 
-        let parsed = Uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
+        let parsed = uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
             source: e,
             name: args.name.clone(),
         })?;

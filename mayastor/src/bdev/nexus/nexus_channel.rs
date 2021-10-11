@@ -81,6 +81,32 @@ pub enum DrEvent {
     ChildRebuild,
 }
 
+/// Mark nexus child as faulted based on its device name
+pub(crate) fn fault_nexus_child(nexus: &mut Nexus, name: &str) -> bool {
+    nexus
+        .children
+        .iter()
+        .filter(|c| c.state() == ChildState::Open)
+        .filter(|c| {
+            // If there were previous retires, we do not have a reference
+            // to a BlockDevice. We do however, know it can't be the device
+            // we are attempting to retire in the first place so this
+            // condition is fine.
+            if let Ok(child) = c.get_device().as_ref() {
+                child.device_name() == name
+            } else {
+                false
+            }
+        })
+        .any(|c| {
+            Ok(ChildState::Open)
+                == c.state.compare_exchange(
+                    ChildState::Open,
+                    ChildState::Faulted(Reason::IoError),
+                )
+        })
+}
+
 impl NexusChannelInner {
     /// very simplistic routine to rotate between children for read operations
     /// note that the channels can be None during a reconfigure; this is usually
@@ -135,28 +161,7 @@ impl NexusChannelInner {
     /// Fault the child by marking its status.
     pub fn fault_child(&mut self, name: &str) -> bool {
         let nexus = unsafe { Nexus::from_raw(self.device) };
-        nexus
-            .children
-            .iter()
-            .filter(|c| c.state() == ChildState::Open)
-            .filter(|c| {
-                // If there where previous retires, we do not have a reference
-                // to a BlockDevice. We do however, know it cant be the device
-                // we are attempting to retire in the first place so this
-                // condition is fine.
-                if let Ok(child) = c.get_device().as_ref() {
-                    child.device_name() == name
-                } else {
-                    false
-                }
-            })
-            .any(|c| {
-                Ok(ChildState::Open)
-                    == c.state.compare_exchange(
-                        ChildState::Open,
-                        ChildState::Faulted(Reason::IoError),
-                    )
-            })
+        fault_nexus_child(nexus, name)
     }
 
     /// Refreshing our channels simply means that we either have a child going
