@@ -84,9 +84,11 @@ def get_volume_capability(volume, read_only):
 @pytest.fixture(scope="module")
 def mayastor_instance(container_mod):
     container = container_mod.get("ms0")
-    yield MayastorHandle(
+    handle = MayastorHandle(
         container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
     )
+    yield handle
+    handle.close()
 
 
 @pytest.fixture(scope="module")
@@ -104,7 +106,9 @@ def fix_socket_permissions(csi_container):
 
 @pytest.fixture(scope="module")
 def csi_instance(fix_socket_permissions):
-    yield CsiHandle("unix:///tmp/csi.sock")
+    handle = CsiHandle("unix:///tmp/csi.sock")
+    yield handle
+    handle.close()
 
 
 @pytest.fixture

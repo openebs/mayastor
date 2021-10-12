@@ -12,18 +12,13 @@ class CsiHandle(object):
         self._readiness_check()
 
     def _readiness_check(self):
-        try:
-            info = self.identity.GetPluginInfo(pb.GetPluginInfoRequest(), wait_for_ready=True)
-            assert info.name == "io.openebs.csi-mayastor"
-        except grpc._channel._InactiveRpcError:
-            # This is to get around a gRPC bug.
-            # Retry once before failing
-            info = self.identity.GetPluginInfo(pb.GetPluginInfoRequest(), wait_for_ready=True)
-            assert info.name == "io.openebs.csi-mayastor"
-
+        info = self.identity.GetPluginInfo(
+            pb.GetPluginInfoRequest(), wait_for_ready=True
+        )
+        assert info.name == "io.openebs.csi-mayastor"
 
     def __del__(self):
-        del self.channel
+        self.close()
 
     def close(self):
-        self.__del__()
+        self.channel.close()

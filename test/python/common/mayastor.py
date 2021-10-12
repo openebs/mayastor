@@ -31,6 +31,8 @@ def mayastors(docker_project, containers):
             container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
         )
     yield handles
+    for handle in handles.values():
+        handle.close()
 
 
 @pytest.fixture(scope="function")
@@ -60,3 +62,5 @@ def mayastor_mod(docker_project, container_mod):
             container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
         )
     yield handles
+    for handle in handles.values():
+        handle.close()
