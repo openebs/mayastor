@@ -141,7 +141,7 @@ impl SpdkBlockDevice {
     /// Called by spdk when there is an asynchronous bdev event i.e. removal.
     pub(crate) fn bdev_event_callback(
         event: spdk_rs::BdevEvent,
-        bdev: spdk_rs::Bdev<()>,
+        bdev: spdk_rs::DummyBdev,
     ) {
         let dev = SpdkBlockDevice::new(Bdev::new(bdev));
 

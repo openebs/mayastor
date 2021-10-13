@@ -33,7 +33,7 @@ use crate::{
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
 #[derive(Clone)]
-pub struct Bdev(spdk_rs::Bdev<()>);
+pub struct Bdev(spdk_rs::DummyBdev);
 
 #[async_trait(? Send)]
 impl Share for Bdev {
@@ -132,7 +132,7 @@ impl Share for Bdev {
 
 impl Bdev {
     /// TODO
-    pub(crate) fn new(b: spdk_rs::Bdev<()>) -> Self {
+    pub(crate) fn new(b: spdk_rs::DummyBdev) -> Self {
         Self(b)
     }
 
@@ -141,7 +141,7 @@ impl Bdev {
         if bdev.is_null() {
             None
         } else {
-            Some(Self(spdk_rs::Bdev::<()>::legacy_from_ptr(bdev)))
+            Some(Self(spdk_rs::DummyBdev::legacy_from_ptr(bdev)))
         }
     }
 
@@ -153,13 +153,13 @@ impl Bdev {
 
     /// TODO
     #[allow(dead_code)]
-    pub(crate) fn as_ref(&self) -> &spdk_rs::Bdev<()> {
+    pub(crate) fn as_ref(&self) -> &spdk_rs::DummyBdev {
         &self.0
     }
 
     /// TODO
     #[allow(dead_code)]
-    pub(crate) fn as_mut(&mut self) -> &mut spdk_rs::Bdev<()> {
+    pub(crate) fn as_mut(&mut self) -> &mut spdk_rs::DummyBdev {
         &mut self.0
     }
 
@@ -205,7 +205,7 @@ impl Bdev {
 
     /// lookup a bdev by its name
     pub fn lookup_by_name(name: &str) -> Option<Bdev> {
-        spdk_rs::Bdev::<()>::lookup_by_name(name).map(|bdev| Self::new(bdev))
+        spdk_rs::DummyBdev::lookup_by_name(name).map(|bdev| Self::new(bdev))
     }
 
     /// returns the block_size of the underlying device
@@ -311,7 +311,7 @@ impl Iterator for BdevIter {
 
 impl BdevIter {
     pub fn new() -> Self {
-        BdevIter(spdk_rs::Bdev::<()>::iter_all())
+        BdevIter(spdk_rs::DummyBdev::iter_all())
     }
 }
 

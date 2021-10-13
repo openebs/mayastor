@@ -11,11 +11,13 @@ use nix::errno::Errno;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_rs::libspdk::{create_malloc_disk, delete_malloc_disk, spdk_bdev};
+use spdk_rs::{
+    libspdk::{create_malloc_disk, delete_malloc_disk, spdk_bdev},
+    DummyBdev,
+};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
     nexus_uri::{self, NexusBdevError},
 };
@@ -138,7 +140,7 @@ impl CreateDestroy for Malloc {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if DummyBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.name.clone(),
             });
@@ -164,12 +166,12 @@ impl CreateDestroy for Malloc {
             });
         }
 
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = DummyBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.as_mut().set_uuid(uuid.into()) };
+                unsafe { bdev.set_uuid(uuid.into()) };
             }
 
-            if !bdev.as_mut().add_alias(&self.alias) {
+            if !bdev.add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -186,13 +188,13 @@ impl CreateDestroy for Malloc {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
-            bdev.as_mut().remove_alias(&self.alias);
+        if let Some(mut bdev) = DummyBdev::lookup_by_name(&self.name) {
+            bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
 
             unsafe {
                 delete_malloc_disk(
-                    bdev.as_ptr(),
+                    bdev.legacy_as_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
                 );

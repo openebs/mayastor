@@ -56,6 +56,7 @@ use crate::{
 };
 
 use spdk_rs::{
+    libspdk::spdk_bdev,
     BdevIo,
     BdevOps,
     ChannelTraverseStatus,
@@ -64,8 +65,6 @@ use spdk_rs::{
     IoDeviceChannelTraverse,
     JsonWriteContext,
 };
-
-use spdk_rs::libspdk::spdk_bdev;
 
 pub static NVME_MIN_CNTLID: u16 = 1;
 pub static NVME_MAX_CNTLID: u16 = 0xffef;
@@ -1012,7 +1011,8 @@ impl Nexus {
     /// io type. Break the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
     pub fn io_is_supported(&self, io_type: IoType) -> bool {
-        !self.children
+        !self
+            .children
             .iter()
             .filter_map(|e| e.get_device().ok())
             .any(|b| !b.io_type_supported(io_type))
