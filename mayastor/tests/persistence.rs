@@ -3,6 +3,7 @@ use common::compose::Builder;
 use composer::{Binary, ComposeTest, ContainerSpec, RpcHandle};
 use etcd_client::Client;
 use rpc::mayastor::{
+    AddChildNexusRequest,
     BdevShareRequest,
     BdevUri,
     Child,
@@ -14,6 +15,8 @@ use rpc::mayastor::{
     NexusState,
     Null,
     PublishNexusRequest,
+    RebuildStateRequest,
+    RemoveChildNexusRequest,
     ShareProtocolNexus,
 };
 
@@ -27,6 +30,7 @@ pub mod common;
 static ETCD_ENDPOINT: &str = "0.0.0.0:2379";
 static CHILD1_UUID: &str = "d61b2fdf-1be8-457a-a481-70a42d0a2223";
 static CHILD2_UUID: &str = "094ae8c6-46aa-4139-b4f2-550d39645db3";
+static CHILD3_UUID: &str = "ae09c08f-8909-4024-a9ae-c21a2a0596b9";
 
 /// This test checks that when an unexpected restart occurs, all persisted info
 /// remains unchanged. In particular, the clean shutdown variable must be false.
@@ -147,6 +151,7 @@ async fn persist_io_failure() {
     let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
     let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
     let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let ms4 = &mut test.grpc_handle("ms4").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -213,6 +218,74 @@ async fn persist_io_failure() {
 
     // Expect child2 to be faulted due to an I/O error.
     let child = child_info(&nexus_info, &uuid(&child2));
+    assert!(!child.healthy);
+
+    // Create new child and add to nexus
+    let child3 = create_and_share_bdevs(ms4, CHILD3_UUID).await;
+
+    add_child_nexus(ms1, nexus_uuid, &child3, false).await;
+
+    // Expect child3 to be degraded
+    assert_eq!(
+        get_nexus_state(ms1, nexus_uuid).await.unwrap(),
+        NexusState::NexusDegraded as i32
+    );
+    assert_eq!(
+        get_child(ms1, nexus_uuid, &child3).await.state,
+        ChildState::ChildDegraded as i32
+    );
+
+    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
+    let value = response.kvs().first().unwrap().value();
+    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let child = child_info(&nexus_info, &uuid(&child3));
+    assert!(!child.healthy);
+
+    // Wait for rebuild to complete.
+    loop {
+        let replica_name = child3.to_string();
+        let complete = match ms1
+            .mayastor
+            .get_rebuild_state(RebuildStateRequest {
+                uuid: nexus_uuid.to_string(),
+                uri: replica_name,
+            })
+            .await
+        {
+            Err(_e) => true, // Rebuild task completed and was removed
+            Ok(r) => r.into_inner().state == "complete",
+        };
+
+        if complete {
+            break;
+        } else {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    }
+
+    // Expect child3 to be healthy once rebuild completes
+    assert_eq!(
+        get_nexus_state(ms1, nexus_uuid).await.unwrap(),
+        NexusState::NexusDegraded as i32
+    );
+    assert_eq!(
+        get_child(ms1, nexus_uuid, &child3).await.state,
+        ChildState::ChildOnline as i32
+    );
+
+    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
+    let value = response.kvs().first().unwrap().value();
+    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let child = child_info(&nexus_info, &uuid(&child3));
+    assert!(child.healthy);
+
+    // Remove child3 and verify that it is unhealthy
+    remove_child_nexus(ms1, nexus_uuid, &child3).await;
+
+    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
+    let value = response.kvs().first().unwrap().value();
+    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let child = child_info(&nexus_info, &uuid(&child3));
     assert!(!child.healthy);
 }
 
@@ -290,6 +363,10 @@ async fn start_infrastructure(test_name: &str) -> ComposeTest {
             "ms3",
             Binary::from_dbg("mayastor").with_args(vec!["-p", &etcd_endpoint]),
         )
+        .add_container_bin(
+            "ms4",
+            Binary::from_dbg("mayastor").with_args(vec!["-p", &etcd_endpoint]),
+        )
         .build()
         .await
         .unwrap();
@@ -307,6 +384,32 @@ async fn create_nexus(hdl: &mut RpcHandle, uuid: &str, children: Vec<String>) {
         })
         .await
         .expect("Failed to create nexus.");
+}
+
+async fn add_child_nexus(
+    hdl: &mut RpcHandle,
+    uuid: &str,
+    child: &str,
+    norebuild: bool,
+) {
+    hdl.mayastor
+        .add_child_nexus(AddChildNexusRequest {
+            uuid: uuid.to_string(),
+            uri: child.to_string(),
+            norebuild,
+        })
+        .await
+        .expect("Failed to add child to nexus.");
+}
+
+async fn remove_child_nexus(hdl: &mut RpcHandle, uuid: &str, child: &str) {
+    hdl.mayastor
+        .remove_child_nexus(RemoveChildNexusRequest {
+            uuid: uuid.to_string(),
+            uri: child.to_string(),
+        })
+        .await
+        .expect("Failed to remove child from nexus.");
 }
 
 /// Publish a nexus with the given UUID over NVMf.
@@ -327,7 +430,7 @@ async fn publish_nexus(hdl: &mut RpcHandle, uuid: &str) -> String {
 async fn create_and_share_bdevs(hdl: &mut RpcHandle, uuid: &str) -> String {
     hdl.bdev
         .create(BdevUri {
-            uri: "malloc:///disk0?size_mb=100".into(),
+            uri: "malloc:///disk0?size_mb=64".into(),
         })
         .await
         .unwrap();

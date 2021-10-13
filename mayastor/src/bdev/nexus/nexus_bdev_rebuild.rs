@@ -21,6 +21,7 @@ use crate::{
             },
             nexus_channel::DrEvent,
             nexus_child::{ChildState, Reason},
+            nexus_persistence::PersistOp,
         },
         VerboseError,
     },
@@ -265,6 +266,10 @@ impl Nexus {
                     "Child {} has been rebuilt successfully",
                     recovering_child.get_name()
                 );
+                let child_name = recovering_child.get_name().to_string();
+                let child_state = recovering_child.state();
+                self.persist(PersistOp::Update((child_name, child_state)))
+                    .await;
             }
             RebuildState::Stopped => {
                 info!(
