@@ -2,11 +2,12 @@
 //! gRPC method to proxy calls to (local) SPDK json-rpc service
 
 use crate::grpc::GrpcResult;
-use ::rpc::mayastor::v1::{JsonRpc, JsonRpcRequest, JsonRpcResponse};
+use ::rpc::mayastor::v1::json::{JsonRpc, JsonRpcRequest, JsonRpcResponse};
 use jsonrpc::error::Error;
-use tonic::{Request, Response};
 use std::borrow::Cow;
+use tonic::{Request, Response};
 
+/// RPC Service for local SPDK json-rpc calls
 #[derive(Debug)]
 pub struct JsonService {
     // FIXME: using a static lifetime here is not ideal
@@ -24,7 +25,7 @@ impl JsonService {
 #[tonic::async_trait]
 impl JsonRpc for JsonService {
     /// Invoke a json-rpc method and return the result
-    #[instrument(level = "debug", err)]
+    #[tracing::instrument(skip(self))]
     async fn json_rpc_call(
         &self,
         request: Request<JsonRpcRequest>,

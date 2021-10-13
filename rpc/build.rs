@@ -24,9 +24,7 @@ fn main() {
         .build_server(true)
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .compile(
-            &[
-                "mayastor-api/protobuf/mayastor.proto",
-            ],
+            &["mayastor-api/protobuf/mayastor.proto"],
             &["mayastor-api/protobuf"],
         )
         .unwrap_or_else(|e| {
@@ -39,7 +37,8 @@ fn main() {
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .compile(
             &[
-                "mayastor-api/protobuf/v1/mayastor.proto",
+                "mayastor-api/protobuf/v1/bdev.proto",
+                "mayastor-api/protobuf/v1/json.proto",
             ],
             &["mayastor-api/protobuf/v1"],
         )

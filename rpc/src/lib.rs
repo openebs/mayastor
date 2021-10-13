@@ -26,38 +26,36 @@ pub mod mayastor {
 
     include!(concat!(env!("OUT_DIR"), "/mayastor.rs"));
 
+    /// module to access v1 version of grpc APIs
     pub mod v1 {
 
         // dont export the raw pb generated code
         mod pb {
-            use prost_types::NullValue::NullValue;
-
-            /// covert to protobuf NullValue message
-            impl From<()> for Null {
-                fn from(_: ()) -> Self {
-                    Self {
-                        null: NullValue,
-                    }
-                }
-            }
-
             include!(concat!(env!("OUT_DIR"), "/mayastor.v1.rs"));
         }
 
-        pub use pb::{
-            bdev_rpc_server::{BdevRpc, BdevRpcServer},
-            json_rpc_server::{JsonRpc, JsonRpcServer},
-            nullable_string::Kind,
-            NullableString,
-            BdevRequest,
-            BdevResponse,
-            ListBdevResponse,
-            JsonRpcRequest,
-            JsonRpcResponse,
-            Null,
-            ShareRequest,
-            ShareResponse,
-            UnshareRequest,
-        };
+        /// v1 version of bdev grpc API
+        pub mod bdev {
+            pub use super::pb::{
+                bdev_rpc_server::{BdevRpc, BdevRpcServer},
+                nullable_string::Kind,
+                BdevRequest,
+                BdevResponse,
+                BdevShareRequest,
+                BdevShareResponse,
+                BdevUnshareRequest,
+                ListBdevResponse,
+                NullableString,
+            };
+        }
+
+        /// v1 version of json-rpc grpc API
+        pub mod json {
+            pub use super::pb::{
+                json_rpc_server::{JsonRpc, JsonRpcServer},
+                JsonRpcRequest,
+                JsonRpcResponse,
+            };
+        }
     }
 }

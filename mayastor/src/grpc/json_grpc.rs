@@ -4,9 +4,10 @@
 use crate::grpc::GrpcResult;
 use ::rpc::mayastor::{json_rpc_server::JsonRpc, JsonRpcReply, JsonRpcRequest};
 use jsonrpc::error::Error;
-use tonic::{Request, Response};
 use std::borrow::Cow;
+use tonic::{Request, Response};
 
+/// RPC Service for local SPDK json-rpc calls
 #[derive(Debug)]
 pub struct JsonRpcSvc {
     // FIXME: using a static lifetime here is not ideal
