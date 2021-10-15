@@ -47,6 +47,7 @@ use crate::{
             nexus_channel,
             nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
+            nexus_persistence::PersistOp,
         },
         Reason,
         VerboseError,
@@ -200,10 +201,11 @@ impl Nexus {
             }
         }
         match child_name {
-            Ok(_) => {
+            Ok(cn) => {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.fault(Reason::OutOfSync).await;
+                let child_state = child.state();
 
                 // Register event listener for newly added child.
                 self.register_child_event_listener(&child);
@@ -215,6 +217,7 @@ impl Nexus {
                     error!("Failed to sync labels {:?}", e);
                     // todo: how to signal this?
                 }
+                self.persist(PersistOp::AddChild((cn, child_state))).await;
 
                 Ok(self.status())
             }
@@ -277,8 +280,11 @@ impl Nexus {
             });
         }
 
+        let child_state = self.children[idx].state();
         self.children.remove(idx);
         self.child_count -= 1;
+        self.persist(PersistOp::Update((uri.to_string(), child_state)))
+            .await;
 
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
         Ok(())
