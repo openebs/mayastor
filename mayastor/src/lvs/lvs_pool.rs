@@ -38,7 +38,7 @@ use crate::{
 
 impl From<*mut spdk_lvol_store> for Lvs {
     fn from(p: *mut spdk_lvol_store) -> Self {
-        Lvs(NonNull::new(p).unwrap())
+        Lvs(NonNull::new(p).expect("lvol pointer is null"))
     }
 }
 
