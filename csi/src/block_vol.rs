@@ -119,36 +119,3 @@ pub async fn publish_block_volume(
         ))
     }
 }
-
-pub fn unpublish_block_volume(
-    msg: &NodeUnpublishVolumeRequest,
-) -> Result<(), Status> {
-    let target_path = &msg.target_path;
-    let volume_id = &msg.volume_id;
-
-    // block volumes are mounted on block special file, which is not
-    // a regular file.
-    if mount::find_mount(None, Some(target_path)).is_some() {
-        match mount::blockdevice_unmount(target_path) {
-            Ok(_) => {}
-            Err(err) => {
-                return Err(Status::new(
-                    Code::Internal,
-                    format!(
-                        "Failed to unpublish volume {}: {}",
-                        volume_id, err
-                    ),
-                ));
-            }
-        }
-    }
-
-    debug!("Removing block special file {}", target_path);
-
-    if let Err(error) = std::fs::remove_file(target_path) {
-        warn!("Failed to remove block file {}: {}", target_path, error);
-    }
-
-    info!("Volume {} unpublished from {}", volume_id, target_path);
-    Ok(())
-}

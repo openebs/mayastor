@@ -276,14 +276,3 @@ pub fn blockdevice_mount(
 
     Ok(mount)
 }
-
-/// Unmount a block device.
-pub fn blockdevice_unmount(target: &str) -> Result<(), Error> {
-    let flags = UnmountFlags::empty();
-
-    debug!("Unmounting block device {} (flags={:?}) ...", target, flags);
-
-    unmount(&target, flags)?;
-    info!("block device at {} has been unmounted", target);
-    Ok(())
-}

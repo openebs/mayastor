@@ -1,6 +1,8 @@
 use std::{
     boxed::Box,
     collections::HashMap,
+    fs,
+    io::ErrorKind,
     path::Path,
     time::Duration,
     vec::Vec,
@@ -16,18 +18,14 @@ macro_rules! failure {
 use uuid::Uuid;
 
 use crate::{
-    block_vol::{publish_block_volume, unpublish_block_volume},
+    block_vol::publish_block_volume,
     csi::{
         volume_capability::{access_mode::Mode, AccessType},
         *,
     },
     dev::Device,
-    filesystem_vol::{
-        publish_fs_volume,
-        stage_fs_volume,
-        unpublish_fs_volume,
-        unstage_fs_volume,
-    },
+    filesystem_vol::{publish_fs_volume, stage_fs_volume, unstage_fs_volume},
+    mount,
 };
 
 #[derive(Clone, Debug)]
@@ -298,31 +296,74 @@ impl node_server::Node for Node {
             ));
         }
 
-        // target path will have been created previously in node_publish_volume
-        // and is one of
-        //  1. a directory for filesystem volumes ,
-        //  2. a block special file for block volumes.
-        //
-        // If it does not exist, then a previously unpublish request has
-        // succeeded.
-        let target_path = Path::new(&msg.target_path);
-        if target_path.exists() {
-            if target_path.is_dir() {
-                unpublish_fs_volume(&msg)?;
-            } else {
-                if target_path.is_file() {
-                    return Err(Status::new(
-                        Code::Unknown,
-                        format!(
-                            "Failed to unpublish volume {}: {} is a file.",
-                            &msg.volume_id, &msg.target_path
-                        ),
-                    ));
-                }
-
-                unpublish_block_volume(&msg)?;
+        if mount::find_mount(None, Some(&msg.target_path)).is_some() {
+            debug!("Unmounting {}", msg.target_path);
+            if let Err(error) = mount::bind_unmount(&msg.target_path) {
+                return Err(failure!(
+                    Code::Internal,
+                    "Failed to unpublish volume {}: failed to unmount {}: {}",
+                    msg.volume_id,
+                    msg.target_path,
+                    error
+                ));
             }
         }
+
+        let mount_point = Path::new(&msg.target_path);
+        match fs::metadata(mount_point) {
+            Ok(metadata) => {
+                if metadata.is_dir() {
+                    // Mount Volume
+                    debug!("Removing directory {}", msg.target_path);
+                    if let Err(error) = fs::remove_dir(mount_point) {
+                        return Err(failure!(
+                            Code::Internal,
+                            "Failed to unpublish volume {}: failed to remove directory {}: {}",
+                            msg.volume_id,
+                            msg.target_path,
+                            error
+                        ));
+                    }
+                } else if metadata.is_file() {
+                    // Block Volume
+                    debug!("Removing file {}", msg.target_path);
+                    if let Err(error) = fs::remove_file(mount_point) {
+                        return Err(failure!(
+                            Code::Internal,
+                            "Failed to unpublish volume {}: failed to remove file {}: {}",
+                            msg.volume_id,
+                            msg.target_path,
+                            error
+                        ));
+                    }
+                } else {
+                    return Err(failure!(
+                        Code::Internal,
+                        "Failed to unpublish volume {}: target path {} has unexpected type: {:?}",
+                        msg.volume_id,
+                        msg.target_path,
+                        metadata.file_type()
+                    ));
+                }
+            }
+            Err(error) => {
+                if error.kind() != ErrorKind::NotFound {
+                    return Err(failure!(
+                        Code::Internal,
+                        "Failed to unpublish volume {}: failed to stat {}: {}",
+                        msg.volume_id,
+                        msg.target_path,
+                        error
+                    ));
+                }
+            }
+        }
+
+        info!(
+            "Volume {} unpublished from {}",
+            msg.volume_id, msg.target_path
+        );
+
         Ok(Response::new(NodeUnpublishVolumeResponse {}))
     }
 
