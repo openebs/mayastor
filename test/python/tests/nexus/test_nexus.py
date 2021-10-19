@@ -342,6 +342,11 @@ async def test_nexus_cntlid(create_nexus_v2, min_cntlid):
         id_ctrl = nvme_id_ctrl(dev)
         assert id_ctrl["cntlid"] == min_cntlid
 
+        # Test optional command support
+        oncs = id_ctrl["oncs"]
+        assert oncs & 0x04, "should support Dataset Management"
+        assert oncs & 0x08, "should support Write Zeroes"
+
     finally:
         # disconnect target before we shut down
         nvme_disconnect(uri)
