@@ -28,6 +28,7 @@ mkShell {
     fio
     libaio
     libiscsi
+    libnvme
     libudev
     liburing
     llvmPackages_11.libclang

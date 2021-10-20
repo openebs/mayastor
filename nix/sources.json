@@ -11,6 +11,18 @@
         "url": "https://github.com/sahlberg/libiscsi/archive/eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
+    "libnvme": {
+        "branch": "master",
+        "description": "nvme client library",
+        "homepage": "https://github.com/linux-nvme/libnvme",
+        "owner": "linux-nvme",
+        "repo": "libnvme",
+        "rev": "aa9369009f128ed6a6049d7729743151758d342c",
+        "sha256": "0n9j7xpvscw46699q6rx8lrjh1qgwp239jrsz5vikvha55nk19sn",
+        "type": "tarball",
+        "url": "https://github.com/linux-nvme/libnvme/archive/aa9369009f128ed6a6049d7729743151758d342c.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
     "niv": {
         "branch": "master",
         "description": "Easy dependency management for Nix projects",
