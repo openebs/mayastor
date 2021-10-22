@@ -3,12 +3,15 @@ use std::ptr::NonNull;
 use spdk_sys::{
     spdk_nvme_ns,
     spdk_nvme_ns_get_extended_sector_size,
+    spdk_nvme_ns_get_flags,
     spdk_nvme_ns_get_md_size,
     spdk_nvme_ns_get_num_sectors,
     spdk_nvme_ns_get_optimal_io_boundary,
     spdk_nvme_ns_get_size,
     spdk_nvme_ns_get_uuid,
     spdk_nvme_ns_supports_compare,
+    SPDK_NVME_NS_DEALLOCATE_SUPPORTED,
+    SPDK_NVME_NS_WRITE_ZEROES_SUPPORTED,
 };
 
 #[derive(Debug)]
@@ -36,6 +39,22 @@ impl NvmeNamespace {
 
     pub fn supports_compare(&self) -> bool {
         unsafe { spdk_nvme_ns_supports_compare(self.0.as_ptr()) }
+    }
+
+    pub fn supports_deallocate(&self) -> bool {
+        unsafe {
+            spdk_nvme_ns_get_flags(self.0.as_ptr())
+                & SPDK_NVME_NS_DEALLOCATE_SUPPORTED
+                > 0
+        }
+    }
+
+    pub fn supports_write_zeroes(&self) -> bool {
+        unsafe {
+            spdk_nvme_ns_get_flags(self.0.as_ptr())
+                & SPDK_NVME_NS_WRITE_ZEROES_SUPPORTED
+                > 0
+        }
     }
 
     pub fn alignment(&self) -> u64 {

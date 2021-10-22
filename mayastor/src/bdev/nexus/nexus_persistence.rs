@@ -32,6 +32,8 @@ pub struct ChildInfo {
 pub(crate) enum PersistOp {
     /// Create a persistent entry.
     Create,
+    /// Add a child to an existing persistent entry.
+    AddChild((ChildUri, ChildState)),
     /// Update a persistent entry.
     Update((ChildUri, ChildState)),
     /// Save the clean shutdown variable.
@@ -62,6 +64,16 @@ impl Nexus {
                     };
                     nexus_info.children.push(child_info);
                 });
+            }
+            PersistOp::AddChild((uri, state)) => {
+                // Add the state of a new child.
+                // This should only be called on adding a new child.
+                let child_info = ChildInfo {
+                    uuid: NexusChild::uuid(&uri)
+                        .expect("Failed to get child UUID."),
+                    healthy: Self::child_healthy(&state),
+                };
+                nexus_info.children.push(child_info);
             }
             PersistOp::Update((uri, state)) => {
                 let uuid =

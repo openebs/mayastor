@@ -112,6 +112,14 @@ impl AsyncWrite for UnixStream {
 
 const GRPC_PORT: u16 = 10199;
 
+// Returns only base hostname, stripping all (sub)domain parts.
+fn normalize_hostname(hostname: &str) -> &str {
+    match hostname.find('.') {
+        Some(idx) => &hostname[0 .. idx],
+        None => hostname,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let matches = App::new("Mayastor CSI plugin")
@@ -163,7 +171,7 @@ async fn main() -> Result<(), String> {
         )
         .get_matches();
 
-    let node_name = matches.value_of("node-name").unwrap();
+    let node_name = normalize_hostname(matches.value_of("node-name").unwrap());
     let endpoint = matches.value_of("grpc-endpoint").unwrap();
     let csi_socket = matches
         .value_of("csi-socket")

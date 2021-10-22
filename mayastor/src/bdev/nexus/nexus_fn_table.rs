@@ -103,7 +103,6 @@ impl NexusFnTable {
     /// Main entry point to submit IO to the underlying children this uses
     /// callbacks rather than futures and closures for performance reasons.
     /// This function is not called when the IO is re-submitted (see below).
-    #[no_mangle]
     pub extern "C" fn io_submit(
         channel: *mut spdk_io_channel,
         io: *mut spdk_bdev_io,
