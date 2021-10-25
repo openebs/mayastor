@@ -11,6 +11,7 @@ mod nexus_channel;
 mod nexus_child;
 mod nexus_instances;
 mod nexus_io;
+mod nexus_iter;
 mod nexus_label;
 mod nexus_metadata;
 mod nexus_module;
@@ -55,14 +56,14 @@ pub use nexus_child::{
     NexusChild,
     Reason,
 };
-pub use nexus_instances::{
+pub use nexus_instances::NexusInstances;
+pub(crate) use nexus_io::{nexus_submit_io, NexusBio, NioCtx};
+pub use nexus_iter::{
     nexus_iter,
     nexus_iter_mut,
     nexus_lookup,
     nexus_lookup_mut,
-    NexusInstances,
 };
-pub(crate) use nexus_io::{nexus_submit_io, NexusBio, NioCtx};
 pub use nexus_label::{GptEntry, GptGuid, GptHeader};
 pub(crate) use nexus_label::{LabelError, NexusLabel};
 pub(crate) use nexus_metadata::MetaDataError;

@@ -8,7 +8,6 @@ use std::{
     env,
     fmt::{Display, Formatter},
     os::raw::c_void,
-    ptr::NonNull,
 };
 
 use crossbeam::atomic::AtomicCell;
@@ -1064,7 +1063,7 @@ impl Nexus {
 impl Drop for Nexus {
     fn drop(&mut self) {
         info!("^^^^ Dropping Nexus instance: {}", self.name);
-        NexusInstances::remove_by_name(&self.name);
+        // NexusInstances::remove_by_name(&self.name);
     }
 }
 
@@ -1295,7 +1294,8 @@ async fn nexus_create_internal(
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
     let mut nexus_bdev = Nexus::new(name, size, uuid, nvme_params, None);
-    NexusInstances::add(NonNull::new(nexus_bdev.data_mut()).unwrap());
+    // NexusInstances::add(NonNull::new(nexus_bdev.data_mut()).unwrap());
+    // NexusInstances::add();//nexus_bdev.data_mut());
 
     for child in children {
         let ni = nexus_bdev.data_mut();
@@ -1305,7 +1305,7 @@ async fn nexus_create_internal(
                 name, child, error
             );
             ni.close_children().await;
-            NexusInstances::remove_by_name(name);
+            // NexusInstances::remove_by_name(name);
 
             return Err(Error::CreateChild {
                 source: error,
@@ -1332,7 +1332,7 @@ async fn nexus_create_internal(
                 // TODO: children may already be destroyed
                 let _ = device_destroy(&child.name).await;
             }
-            NexusInstances::remove_by_name(name);
+            // NexusInstances::remove_by_name(name);
             Err(Error::NexusCreate {
                 name: String::from(name),
             })
@@ -1342,10 +1342,13 @@ async fn nexus_create_internal(
             error!("failed to open nexus {}: {}", name, error);
             let ni = nexus_bdev.data_mut();
             ni.close_children().await;
-            NexusInstances::remove_by_name(name);
+            // NexusInstances::remove_by_name(name);
             Err(error)
         }
 
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            // NexusInstances::add();
+            Ok(())
+        }
     }
 }

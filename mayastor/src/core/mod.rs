@@ -51,8 +51,6 @@ pub use thread::Mthread;
 
 use crate::{subsys::NvmfError, target::iscsi};
 
-#[macro_use]
-pub mod singleton;
 mod bdev;
 mod block_device;
 mod channel;
