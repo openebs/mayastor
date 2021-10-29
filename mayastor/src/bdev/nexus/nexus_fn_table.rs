@@ -50,6 +50,7 @@ impl NexusFnTable {
             write_config_json: None,
             get_spin_time: None,
             get_module_ctx: None,
+            get_memory_domains: None,
         };
 
         NexusFnTable {

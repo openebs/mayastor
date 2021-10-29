@@ -36,13 +36,13 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.07-8489d57e8";
+    version = "21.10-73d7f3274";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "8489d57e82e95c05c794f56a47f62bfd6c459b7b";
-      sha256 = "LWYEBJ8JukR24ugWQ7qmM5O6LNZad38HWfcJROlUodU=";
+      rev = "73d7f3274705ed01acd9b0ac93d0ee2b4aa6cfbc";
+      sha256 = "1pjaq59v5308q71q287ycspd2xgbsrww3ha8jyyyazh7rdm9r0sk";
       fetchSubmodules = true;
     };
 
@@ -117,13 +117,14 @@ let
       find . -type f -name 'libspdk_bdev_raid.a' -delete
       find . -type f -name 'libspdk_bdev_split.a' -delete
       find . -type f -name 'libspdk_bdev_zone_block.a' -delete
+      find . -type f -name 'libspdk_trace_parser.a' -delete
 
       $CC -shared -o libspdk.so \
         -lc -laio -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
         -Wl,--whole-archive \
         $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
         $(find dpdk/build/lib -type f -name 'librte_*.a*') \
-        $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
+        $(find intel-ipsec-mb/lib -type f -name 'libIPSec_*.a*') \
         -Wl,--no-whole-archive
     '';
 

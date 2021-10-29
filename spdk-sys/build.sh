@@ -31,6 +31,7 @@ find . -type f -name 'libspdk_bdev_passthru.a' -delete
 find . -type f -name 'libspdk_bdev_raid.a' -delete
 find . -type f -name 'libspdk_bdev_split.a' -delete
 find . -type f -name 'libspdk_bdev_zone_block.a' -delete
+find . -type f -name 'libspdk_trace_parser.a' -delete
 
 # the event libraries are the libraries that parse configuration files
 # we do our own config file parsing, and we setup our own targets.
@@ -41,7 +42,7 @@ $CC -shared -o libspdk.so \
 	-Wl,--whole-archive \
 	$(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
 	$(find dpdk/build/lib -type f -name 'librte_*.a*') \
-	$(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
+	$(find intel-ipsec-mb/lib -type f -name 'libIPSec_*.a*') \
 	-Wl,--no-whole-archive
 
 echo "libspdk.so located in $(pwd)"
