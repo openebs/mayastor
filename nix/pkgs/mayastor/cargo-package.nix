@@ -29,6 +29,10 @@ let
     rustc = channel.stable;
     cargo = channel.stable;
   };
+  rustNightly = makeRustPlatform {
+    rustc = channel.nightly;
+    cargo = channel.nightly;
+  };
   whitelistSource = src: allowedPrefixes:
     builtins.filterSource
       (path: type:
@@ -83,15 +87,25 @@ let
   };
 in
 {
-  release = rustPlatform.buildRustPackage (buildProps // {
-    cargoBuildFlags = "--bin mayastor --bin mayastor-client --bin mayastor-csi";
-    buildType = "release";
-    buildInputs = buildProps.buildInputs ++ [ libspdk ];
-    SPDK_PATH = "${libspdk}";
-  });
-  debug = rustPlatform.buildRustPackage (buildProps // {
-    buildType = "debug";
-    buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
-    SPDK_PATH = "${libspdk-dev}";
-  });
+  release = rustPlatform.buildRustPackage
+    (buildProps // {
+      cargoBuildFlags = "--bin mayastor --bin mayastor-client --bin mayastor-csi";
+      buildType = "release";
+      buildInputs = buildProps.buildInputs ++ [ libspdk ];
+      SPDK_PATH = "${libspdk}";
+    });
+  debug = rustPlatform.buildRustPackage
+    (buildProps // {
+      buildType = "debug";
+      buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
+      SPDK_PATH = "${libspdk-dev}";
+    });
+  cov = rustNightly.buildRustPackage
+    (buildProps // {
+      RUSTFLAGS = "-Z instrument-coverage";
+      buildType = "release";
+      buildInputs = buildProps.buildInputs ++ [ libspdk ];
+      SPDK_PATH = "${libspdk}";
+    });
+
 }

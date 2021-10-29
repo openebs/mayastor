@@ -30,4 +30,5 @@ in
   release = project-builder.release;
   debug = project-builder.debug;
   adhoc = project-builder.adhoc;
+  cov = project-builder.cov;
 }

@@ -13,6 +13,7 @@
 , lib
 , mayastor
 , mayastor-dev
+, mayastor-cov
 , stdenv
 , utillinux
 , writeScriptBin
@@ -70,39 +71,49 @@ let
     #!${stdenv.shell}
     chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
   '';
-
   mctl = writeScriptBin "mctl" ''
     /bin/mayastor-client "$@"
   '';
 in
 {
-  mayastor = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor";
-    contents = [ busybox mayastor mctl ];
-  });
+  mayastor = dockerTools.buildImage
+    (mayastorImageProps // {
+      name = "mayadata/mayastor";
+      contents = [ busybox mayastor mctl ];
+    });
 
-  mayastor-dev = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor-dev";
-    contents = [ busybox mayastor-dev ];
-  });
+  mayastor-dev = dockerTools.buildImage
+    (mayastorImageProps // {
+      name = "mayadata/mayastor-dev";
+      contents = [ busybox mayastor-dev ];
+    });
+
+  mayastor-cov = dockerTools.buildImage
+    (mayastorImageProps // {
+      name = "mayadata/mayastor-cov";
+      contents = [ busybox mayastor-cov ];
+    });
 
   # The algorithm for placing packages into the layers is not optimal.
   # There are a couple of layers with negligible size and then there is one
   # big layer with everything else. That defeats the purpose of layering.
-  mayastor-csi = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
-    name = "mayadata/mayastor-csi";
-    contents = [ busybox mayastor mayastorIscsiadm ];
-    maxLayers = 42;
-  });
+  mayastor-csi = dockerTools.buildLayeredImage
+    (mayastorCsiImageProps // {
+      name = "mayadata/mayastor-csi";
+      contents = [ busybox mayastor mayastorIscsiadm ];
+      maxLayers = 42;
+    });
 
-  mayastor-csi-dev = dockerTools.buildImage (mayastorCsiImageProps // {
-    name = "mayadata/mayastor-csi-dev";
-    contents = [ busybox mayastor-dev mayastorIscsiadm ];
-  });
+  mayastor-csi-dev = dockerTools.buildImage
+    (mayastorCsiImageProps // {
+      name = "mayadata/mayastor-csi-dev";
+      contents = [ busybox mayastor-dev mayastorIscsiadm ];
+    });
 
-  mayastor-client = dockerTools.buildImage (clientImageProps // {
-    name = "mayadata/mayastor-client";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/mayastor-client" ]; };
-  });
+  mayastor-client = dockerTools.buildImage
+    (clientImageProps // {
+      name = "mayadata/mayastor-client";
+      contents = [ busybox mayastor ];
+      config = { Entrypoint = [ "/bin/mayastor-client" ]; };
+    });
 }
