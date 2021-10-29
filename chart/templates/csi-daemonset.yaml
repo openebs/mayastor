@@ -44,6 +44,8 @@ spec:
               fieldPath: status.podIP
         - name: RUST_BACKTRACE
           value: "1"
+        - name: LLVM_PROFILE_FILE
+          value: /var/local/mayastor-coverage/mayastor-csi.profraw
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--node-name=$(MY_NODE_NAME)"
@@ -63,6 +65,8 @@ spec:
           mountPath: /host
         - name: plugin-dir
           mountPath: /csi
+        - name: coverage
+          mountPath: /var/local/mayastor-coverage/
         - name: kubelet-dir
           mountPath: /var/lib/kubelet
           mountPropagation: "Bidirectional"
@@ -124,3 +128,7 @@ spec:
         hostPath:
           path: /var/lib/kubelet
           type: Directory
+      - name: coverage
+        hostPath:
+          path: /var/local/mayastor-coverage/
+          type: DirectoryOrCreate
