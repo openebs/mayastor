@@ -396,11 +396,11 @@ pub struct ReplyPayload<T>(pub Result<T, ReplyError>);
 
 // todo: implement thin wrappers on these
 /// MessageBus raw Message
-pub type BusMessage = async_nats::Message;
+pub type BusMessage = nats::asynk::Message;
 /// MessageBus subscription
-pub type BusSubscription = async_nats::Subscription;
+pub type BusSubscription = nats::asynk::Subscription;
 /// MessageBus configuration options
-pub type BusOptions = async_nats::Options;
+pub type BusOptions = nats::asynk::Options;
 /// Save on typing
 pub type DynBus = Box<dyn Bus>;
 
@@ -414,6 +414,11 @@ pub struct TimeoutOptions {
     pub(crate) timeout_step: std::time::Duration,
     /// max number of retries following the initial attempt's timeout
     pub(crate) max_retries: Option<u32>,
+    /// Server tcp read timeout when no messages are received.
+    /// When this timeout is triggered we attempt to send a Ping to the server.
+    /// If a Pong is not received within the same timeout the nats client
+    /// disconnects from the server.
+    tcp_read_timeout: std::time::Duration,
 }
 
 impl TimeoutOptions {
@@ -426,6 +431,14 @@ impl TimeoutOptions {
     pub(crate) fn default_max_retries() -> u32 {
         6
     }
+    /// Default Server tcp read timeout when no messages are received.
+    pub(crate) fn default_tcp_read_timeout() -> Duration {
+        Duration::from_secs(30)
+    }
+    /// Get the tcp read timeout
+    pub(crate) fn tcp_read_timeout(&self) -> Duration {
+        self.tcp_read_timeout
+    }
 }
 
 impl Default for TimeoutOptions {
@@ -434,6 +447,7 @@ impl Default for TimeoutOptions {
             timeout: Self::default_timeout(),
             timeout_step: Self::default_timeout_step(),
             max_retries: Some(Self::default_max_retries()),
+            tcp_read_timeout: Self::default_tcp_read_timeout(),
         }
     }
 }
