@@ -68,16 +68,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-nats"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dae854440faecce70f0664f41f09a588de1e7a4366931ec3962ded3d8f903c5"
-dependencies = [
- "blocking",
- "nats 0.10.1",
-]
-
-[[package]]
 name = "async-stream"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1558,7 +1548,6 @@ dependencies = [
  "mbus_api",
  "md5",
  "merge",
- "nats 0.13.1",
  "nix",
  "nvmeadm",
  "once_cell",
@@ -1596,12 +1585,11 @@ dependencies = [
 name = "mbus_api"
 version = "0.1.0"
 dependencies = [
- "async-nats",
  "async-trait",
  "composer",
  "dyn-clonable",
  "futures",
- "nats 0.13.1",
+ "nats",
  "once_cell",
  "percent-encoding",
  "rpc",
@@ -1698,35 +1686,8 @@ checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
 
 [[package]]
 name = "nats"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c0cfa3903c3e613edddaa4a2f86b2053a1d6fbcf315a3ff352c25ba9f0a8585"
-dependencies = [
- "base64",
- "base64-url",
- "crossbeam-channel",
- "fastrand",
- "itoa",
- "json",
- "libc",
- "log",
- "memchr",
- "nkeys",
- "nuid",
- "once_cell",
- "parking_lot",
- "regex",
- "rustls",
- "rustls-native-certs",
- "webpki",
- "winapi",
-]
-
-[[package]]
-name = "nats"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33f47fab79b62a75d2bf97663f049bfd1ade8c9c5fdae1512ec65a66d0b6c282"
+version = "0.15.2"
+source = "git+https://github.com/openebs/nats.rs?rev=main_fixes#6fc96e7923b9489cccfa38ebe8d44c1ccf46014d"
 dependencies = [
  "base64",
  "base64-url",
