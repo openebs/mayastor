@@ -87,7 +87,7 @@ impl Nexus {
 
         rpc::NexusV2 {
             name: name_to_uuid(&self.name).to_string(),
-            uuid: self.bdev.uuid().to_string(),
+            uuid: self.uuid().to_string(),
             size: self.size,
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
@@ -131,6 +131,11 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
 /// Return error if nexus not found.
 pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
     if let Some(nexus) = instances().iter_mut().find(|n| n.name == uuid) {
+        Ok(nexus)
+    } else if let Some(nexus) = instances()
+        .iter_mut()
+        .find(|n| n.uuid().to_string() == uuid)
+    {
         Ok(nexus)
     } else {
         let name = uuid_to_name(uuid)?;
