@@ -237,12 +237,29 @@ async fn main() -> Result<(), String> {
         format!("{}:{}", endpoint, GRPC_PORT)
     };
 
-    let _ = tokio::join!(
-        CsiServer::run(csi_socket, node_name),
-        MayastorNodePluginGrpcServer::run(
+    let mut signal_term = tokio::signal::unix::signal(
+        tokio::signal::unix::SignalKind::terminate(),
+    )
+    .expect("Failed to egister handler for SIGTERM");
+    let mut signal_int = tokio::signal::unix::signal(
+        tokio::signal::unix::SignalKind::interrupt(),
+    )
+    .expect("Failed to register handler for SIGINT");
+
+    tokio::select! {
+        _srv = CsiServer::run(csi_socket, node_name) => {
+            _srv.expect("Failed CSI server run")
+        }
+        _grpc = MayastorNodePluginGrpcServer::run(
             sock_addr.parse().expect("Invalid gRPC endpoint")
-        ),
-    );
+            ) => {
+                _grpc.expect("Failed Grpc server run")
+            }
+        _evt = signal_term.recv() => {
+            }
+        _evt = signal_int.recv() => {
+            }
+    }
 
     Ok(())
 }
