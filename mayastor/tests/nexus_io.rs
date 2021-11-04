@@ -393,7 +393,7 @@ async fn nexus_io_resv_acquire() {
             nexus_create_v2(
                 &NXNAME.to_string(),
                 32 * 1024 * 1024,
-                Some(UUID),
+                UUID,
                 nvme_params,
                 &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
             )

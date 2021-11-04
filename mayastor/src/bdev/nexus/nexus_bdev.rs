@@ -17,6 +17,7 @@ use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
+use uuid::Uuid;
 
 use rpc::mayastor::NvmeAnaState;
 use spdk_sys::{spdk_bdev, spdk_bdev_register, spdk_bdev_unregister};
@@ -93,6 +94,12 @@ pub enum Error {
     NexusInitialising { name: String },
     #[snafu(display("Invalid nexus uuid \"{}\"", uuid))]
     InvalidUuid { uuid: String },
+    #[snafu(display(
+        "Nexus uuid \"{}\" already exists for nexus \"{}\"",
+        uuid,
+        nexus
+    ))]
+    UuidExists { uuid: String, nexus: String },
     #[snafu(display("Invalid encryption key"))]
     InvalidKey {},
     #[snafu(display("Failed to create crypto bdev for nexus {}", name))]
@@ -406,6 +413,8 @@ pub struct Nexus {
     pub(crate) nvme_params: NexusNvmeParams,
     /// inner bdev
     pub(crate) bdev: Bdev,
+    /// uuid of the nexus (might not be the same as the nexus bdev!)
+    pub(crate) nexus_uuid: Uuid,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
@@ -511,7 +520,8 @@ impl Nexus {
     pub fn new(
         name: &str,
         size: u64,
-        uuid: Option<&str>,
+        bdev_uuid: Option<&str>,
+        nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
         child_bdevs: Option<&[String]>,
     ) -> Box<Self> {
@@ -541,10 +551,14 @@ impl Nexus {
             pause_state: AtomicCell::new(NexusPauseState::Unpaused),
             pause_waiters: Vec::new(),
             nexus_info: futures::lock::Mutex::new(Default::default()),
+            nexus_uuid: Default::default(),
         });
 
         // set the UUID of the underlying bdev
-        n.set_uuid(uuid);
+        n.set_uuid(bdev_uuid);
+        // set the nexus UUID to be the specified nexus UUID, otherwise inherit
+        // the bdev UUID
+        n.nexus_uuid = nexus_uuid.unwrap_or_else(|| n.bdev.uuid());
 
         // register children
         if let Some(child_bdevs) = child_bdevs {
@@ -586,6 +600,11 @@ impl Nexus {
             self.bdev.uuid(),
             self.name
         );
+    }
+
+    /// Get the Nexus uuid
+    pub(crate) fn uuid(&self) -> Uuid {
+        self.nexus_uuid
     }
 
     /// set the state of the nexus
@@ -1122,6 +1141,7 @@ pub async fn nexus_create(
         name,
         size,
         uuid,
+        None,
         NexusNvmeParams::default(),
         children,
     )
@@ -1134,7 +1154,7 @@ pub async fn nexus_create(
 pub async fn nexus_create_v2(
     name: &str,
     size: u64,
-    uuid: Option<&str>,
+    uuid: &str,
     nvme_params: NexusNvmeParams,
     children: &[String],
 ) -> Result<(), Error> {
@@ -1161,25 +1181,65 @@ pub async fn nexus_create_v2(
         });
     }
 
-    nexus_create_internal(name, size, uuid, nvme_params, children).await
+    match uuid::Uuid::parse_str(name) {
+        Ok(name_uuid) => {
+            let bdev_uuid = name_uuid.to_string();
+            let nexus_uuid = uuid::Uuid::parse_str(uuid).map_err(|_| {
+                Error::InvalidUuid {
+                    uuid: uuid.to_string(),
+                }
+            })?;
+            nexus_create_internal(
+                name,
+                size,
+                Some(bdev_uuid.as_str()),
+                Some(nexus_uuid),
+                nvme_params,
+                children,
+            )
+            .await
+        }
+        Err(_) => {
+            nexus_create_internal(
+                name,
+                size,
+                Some(uuid),
+                None,
+                nvme_params,
+                children,
+            )
+            .await
+        }
+    }
 }
 
 async fn nexus_create_internal(
     name: &str,
     size: u64,
-    uuid: Option<&str>,
+    bdev_uuid: Option<&str>,
+    nexus_uuid: Option<Uuid>,
     nvme_params: NexusNvmeParams,
     children: &[String],
 ) -> Result<(), Error> {
     // global variable defined in the nexus module
     let nexus_list = instances();
 
-    if let Some(nexus) = nexus_list.iter().find(|n| n.name == name) {
+    if let Some(nexus) = nexus_list.iter().find(|n| {
+        n.name == name || (nexus_uuid.is_some() && Some(n.uuid()) == nexus_uuid)
+    }) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.
         if *nexus.state.lock() == NexusState::Init {
             return Err(Error::NexusInitialising {
                 name: name.to_owned(),
+            });
+        }
+        if nexus.name != name
+            || (nexus_uuid.is_some() && Some(nexus.nexus_uuid) != nexus_uuid)
+        {
+            return Err(Error::UuidExists {
+                uuid: nexus.nexus_uuid.to_string(),
+                nexus: name.to_string(),
             });
         }
         return Ok(());
@@ -1190,7 +1250,14 @@ async fn nexus_create_internal(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    nexus_list.push(Nexus::new(name, size, uuid, nvme_params, None));
+    nexus_list.push(Nexus::new(
+        name,
+        size,
+        bdev_uuid,
+        nexus_uuid,
+        nvme_params,
+        None,
+    ));
 
     // Obtain a reference to the newly created Nexus object.
     let ni =
