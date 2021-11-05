@@ -1469,6 +1469,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "libnvme-rs"
+version = "0.1.0"
+dependencies = [
+ "bindgen 0.59.1",
+ "cc",
+ "glob",
+ "libc",
+ "snafu",
+ "url",
+]
+
+[[package]]
 name = "libudev-sys"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1560,6 +1572,7 @@ dependencies = [
  "jsonrpc",
  "lazy_static",
  "libc",
+ "libnvme-rs",
  "log",
  "mbus_api",
  "md5",

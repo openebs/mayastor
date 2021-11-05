@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 use std::convert::TryFrom;
 
-extern crate nvmeadm;
+extern crate libnvme_rs;
 
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
@@ -35,7 +35,7 @@ fn get_ms() -> &'static MayastorTest<'static> {
 
 async fn create_connected_nvmf_nexus(
     ms: &'static MayastorTest<'static>,
-) -> (nvmeadm::NvmeTarget, String) {
+) -> (libnvme_rs::NvmeTarget, String) {
     let uri = ms
         .spawn(async {
             create_nexus().await;
@@ -48,7 +48,7 @@ async fn create_connected_nvmf_nexus(
         .await;
 
     // Create and connect NVMF target.
-    let target = nvmeadm::NvmeTarget::try_from(uri).unwrap();
+    let target = libnvme_rs::NvmeTarget::try_from(uri).unwrap();
     let devices = target.connect().unwrap();
 
     assert_eq!(devices.len(), 1);
@@ -96,7 +96,7 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
             .await;
 
         // Create and connect NVMF target.
-        let target = nvmeadm::NvmeTarget::try_from(uri).unwrap();
+        let target = libnvme_rs::NvmeTarget::try_from(uri).unwrap();
         let devices = target.connect().unwrap();
 
         assert_eq!(devices.len(), 1);

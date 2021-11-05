@@ -114,5 +114,6 @@ version = "0.8.2"
 [dev-dependencies]
 assert_matches = "1.5.0"
 composer = { path = "../composer" }
+libnvme-rs = {path = "../libnvme-rs", version = "0.1.0"}
 nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
 run_script = "0.8.0"
