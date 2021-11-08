@@ -44,8 +44,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: LLVM_PROFILE_FILE
-          value: /var/local/mayastor-coverage/mayastor.profraw
         args:
         # The -l argument accepts cpu-list. Indexing starts at zero.
         # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.
@@ -71,8 +69,6 @@ spec:
           mountPath: /dev/shm
         - name: configlocation
           mountPath: /var/local/mayastor/
-        - name: coverage
-          mountPath: /var/local/mayastor-coverage/
         resources:
           # NOTE: Each container must have mem/cpu limits defined in order to
           # belong to Guaranteed QoS class, hence can never get evicted in case of
@@ -108,8 +104,4 @@ spec:
       - name: configlocation
         hostPath:
           path: /var/local/mayastor/
-          type: DirectoryOrCreate
-      - name: coverage
-        hostPath:
-          path: /var/local/mayastor-coverage/
           type: DirectoryOrCreate
