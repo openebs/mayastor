@@ -175,6 +175,7 @@ impl From<&Pool> for PoolArgs {
         Self {
             name: pool.name.clone(),
             disks: pool.disks.clone(),
+            uuid: None,
         }
     }
 }

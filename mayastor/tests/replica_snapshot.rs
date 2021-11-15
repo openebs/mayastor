@@ -76,6 +76,7 @@ async fn replica_snapshot() {
             Lvs::create_or_import(PoolArgs {
                 name: POOL1_NAME.to_string(),
                 disks: vec![format!("aio://{}", DISKNAME1)],
+                uuid: None,
             })
             .await
             .unwrap();

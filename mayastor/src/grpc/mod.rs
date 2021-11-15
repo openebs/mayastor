@@ -41,12 +41,9 @@ mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
 pub mod v1 {
-    pub mod pool;
-}
-
-mod v1 {
     pub mod bdev;
     pub mod json;
+    pub mod pool;
 }
 
 #[derive(Debug)]

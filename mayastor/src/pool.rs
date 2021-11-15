@@ -137,11 +137,14 @@ impl From<Pool> for rpc::Pool {
     }
 }
 
-/// PoolArgs is the input for the grpc
-/// Create/Import requests which comtains name & disks
+/// PoolArgs is used to translate the input for the grpc
+/// Create/Import requests which comtains name, uuid & disks.
+/// This help us avoid importing grpc structs in the actual lvs mod
+#[derive(Clone)]
 pub struct PoolArgs {
     pub name: String,
     pub disks: Vec<String>,
+    pub uuid: Option<String>,
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc

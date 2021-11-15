@@ -14,7 +14,6 @@ use rpc::mayastor::{
     v1,
 };
 
-use rpc::mayastor::v1::mayastor_server::MayastorServer as MayastorRpcServer1;
 use std::{borrow::Cow, time::Duration};
 use tonic::transport::Server;
 use tracing::trace;
@@ -37,9 +36,8 @@ impl MayastorGrpcServer {
             .add_service(JsonRpcServer::new(JsonRpcSvc::new(address.clone())))
             .add_service(v1::json::JsonRpcServer::new(JsonService::new(
                 address.clone(),
-            .add_service(v1::pool::PoolRpcServer::new(PoolSvc::new(
-                Duration::from_millis(4),
             )))
+            .add_service(v1::pool::PoolRpcServer::new(PoolSvc::new()))
             .serve(endpoint);
 
         match svc.await {

@@ -3,11 +3,10 @@ use crate::{
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvs},
     pool::{PoolArgs, PoolBackend},
-    subsys::PoolConfig,
 };
 use futures::FutureExt;
 use nix::errno::Errno;
-use std::{convert::TryFrom, fmt::Debug, time::Duration};
+use std::{convert::TryFrom, fmt::Debug};
 use tonic::{Request, Response, Status};
 
 use rpc::mayastor::v1::pool::*;
@@ -18,10 +17,11 @@ struct UnixStream(tokio::net::UnixStream);
 use ::function_name::named;
 use std::panic::AssertUnwindSafe;
 
+/// RPC service for mayastor pool operations
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct PoolSvc {
     name: String,
-    interval: Duration,
     client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
 }
 
@@ -69,40 +69,67 @@ where
 impl TryFrom<CreatePoolRequest> for PoolArgs {
     type Error = LvsError;
     fn try_from(args: CreatePoolRequest) -> Result<Self, Self::Error> {
-        match args.disks.len() {
-            0 => Err(LvsError::Invalid {
+        if args.disks.is_empty() {
+            return Err(LvsError::Invalid {
                 source: Errno::EINVAL,
                 msg: "invalid argument, missing devices".to_string(),
-            }),
-            _ => Ok(Self {
-                name: args.name,
-                disks: args.disks,
-            }),
+            });
         }
+
+        if let Some(s) = args.uuid.clone() {
+            let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
+                LvsError::Invalid {
+                    source: Errno::EINVAL,
+                    msg: format!("invalid uuid provided, {}", e),
+                }
+            })?;
+        }
+
+        Ok(Self {
+            name: args.name,
+            disks: args.disks,
+            uuid: args.uuid,
+        })
     }
 }
 
 impl TryFrom<ImportPoolRequest> for PoolArgs {
     type Error = LvsError;
     fn try_from(args: ImportPoolRequest) -> Result<Self, Self::Error> {
-        match args.disks.len() {
-            0 => Err(LvsError::Invalid {
+        if args.disks.is_empty() {
+            return Err(LvsError::Invalid {
                 source: Errno::EINVAL,
                 msg: "invalid argument, missing devices".to_string(),
-            }),
-            _ => Ok(Self {
-                name: args.name,
-                disks: args.disks,
-            }),
+            });
         }
+
+        if let Some(s) = args.uuid.clone() {
+            let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
+                LvsError::Invalid {
+                    source: Errno::EINVAL,
+                    msg: format!("invalid uuid provided, {}", e),
+                }
+            })?;
+        }
+
+        Ok(Self {
+            name: args.name,
+            disks: args.disks,
+            uuid: args.uuid,
+        })
+    }
+}
+
+impl Default for PoolSvc {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl PoolSvc {
-    pub fn new(interval: Duration) -> Self {
+    pub fn new() -> Self {
         Self {
-            name: String::from("CSISvc"),
-            interval,
+            name: String::from("PoolSvc"),
             client_context: tokio::sync::Mutex::new(None),
         }
     }
@@ -140,8 +167,6 @@ impl PoolRpc for PoolSvc {
                                 PoolArgs::try_from(args)?,
                             )
                             .await?;
-                            // Capture current pool config and export to file.
-                            PoolConfig::capture().export().await;
                             Ok(Pool::from(pool))
                         })?;
 
@@ -167,14 +192,66 @@ impl PoolRpc for PoolSvc {
                 let args = request.into_inner();
                 info!("{:?}", args);
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    if let Some(pool) = Lvs::lookup_by_uuid(&args.uuid) {
-                        // Remove pool from current config and export to file.
-                        // Do this BEFORE we actually destroy the pool.
-                        let mut config = PoolConfig::capture();
-                        config.delete(&args.uuid);
-                        config.export().await;
-
+                    if let Some(pool) = Lvs::lookup(&args.name) {
+                        if args.uuid.is_some() && args.uuid != Some(pool.uuid())
+                        {
+                            return Err(LvsError::Invalid {
+                                source: Errno::EINVAL,
+                                msg: format!(
+                                    "invalid uuid {}, found pool with uuid {}",
+                                    args.uuid.unwrap(),
+                                    pool.uuid(),
+                                ),
+                            });
+                        }
                         pool.destroy().await?;
+                    } else {
+                        return Err(LvsError::Invalid {
+                            source: Errno::EINVAL,
+                            msg: format!("pool {} not found", args.name,),
+                        });
+                    }
+                    Ok(())
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn export_pool(
+        &self,
+        request: Request<ExportPoolRequest>,
+    ) -> GrpcResult<()> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    if let Some(pool) = Lvs::lookup(&args.name) {
+                        if args.uuid.is_some() && args.uuid != Some(pool.uuid())
+                        {
+                            return Err(LvsError::Invalid {
+                                source: Errno::EINVAL,
+                                msg: format!(
+                                    "invalid uuid {}, found pool with uuid {}",
+                                    args.uuid.unwrap(),
+                                    pool.uuid(),
+                                ),
+                            });
+                        }
+                        pool.export().await?;
+                    } else {
+                        return Err(LvsError::Invalid {
+                            source: Errno::EINVAL,
+                            msg: format!("pool {} not found", args.name,),
+                        });
                     }
                     Ok(())
                 })?;
@@ -199,14 +276,8 @@ impl PoolRpc for PoolSvc {
                 let args = request.into_inner();
 
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool_args = PoolArgs::try_from(args)?;
-                    let pool = Lvs::import(
-                        pool_args.name.as_str(),
-                        pool_args.disks[0].as_str(),
-                    )
-                    .await?;
-                    // Capture current pool config and export to file.
-                    PoolConfig::capture().export().await;
+                    let pool = Lvs::import_from_args(PoolArgs::try_from(args)?)
+                        .await?;
                     Ok(Pool::from(pool))
                 })?;
 
@@ -229,8 +300,8 @@ impl PoolRpc for PoolSvc {
             async move {
                 let rx = rpc_submit::<_, _, LvsError>(async move {
                     let mut pools = Vec::new();
-                    let name = request.into_inner().name_value;
-                    if let Some(NameValue::Name(name)) = name {
+                    let args = request.into_inner();
+                    if let Some(name) = args.name {
                         if let Some(l) = Lvs::lookup(&name) {
                             pools.push(l.into())
                         };

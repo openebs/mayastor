@@ -135,6 +135,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             _ => Ok(Self {
                 name: args.name,
                 disks: args.disks,
+                uuid: None,
             }),
         }
     }
