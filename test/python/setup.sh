@@ -11,6 +11,8 @@ fi
 cd "$SRCDIR"
 
 python -m grpc_tools.protoc --proto_path=rpc/mayastor-api/protobuf --grpc_python_out=test/python --python_out=test/python mayastor.proto
+python -m grpc_tools.protoc --proto_path=rpc/mayastor-api/protobuf/v1 --grpc_python_out=test/python --python_out=test/python \
+  common.proto pool.proto
 python -m grpc_tools.protoc --proto_path=csi/proto --grpc_python_out=test/python --python_out=test/python csi.proto
 
 virtualenv --no-setuptools test/python/venv
