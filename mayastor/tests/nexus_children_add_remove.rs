@@ -78,6 +78,33 @@ async fn remove_children_from_nexus() {
     .await
     .expect("failed to remove child from nexus");
 
+    ms.spawn(async {
+        let nexus =
+            nexus_lookup("remove_from_nexus").expect("nexus is not found!");
+        nexus.remove_child(&format!("uring:///{}", DISKNAME2)).await
+    })
+    .await
+    .expect_err("cannot remove the last child from nexus");
+
+    // add new child but don't rebuild, so it's not healthy!
+    ms.spawn(async {
+        let nexus =
+            nexus_lookup("remove_from_nexus").expect("nexus is not found!");
+        nexus
+            .add_child(&format!("uring:///{}", DISKNAME1), true)
+            .await
+    })
+    .await
+    .expect("should be able to add a child back");
+
+    ms.spawn(async {
+        let nexus =
+            nexus_lookup("remove_from_nexus").expect("nexus is not found!");
+        nexus.remove_child(&format!("uring:///{}", DISKNAME2)).await
+    })
+    .await
+    .expect_err("cannot remove the last healthy child from nexus");
+
     // destroy it
     ms.spawn(async {
         let nexus =

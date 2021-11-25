@@ -193,6 +193,12 @@ pub enum Error {
         child,
         name
     ))]
+    DestroyLastHealthyChild { child: String, name: String },
+    #[snafu(display(
+        "Cannot remove the last healthy child {} of nexus {} from the IO path",
+        child,
+        name
+    ))]
     RemoveLastChild { child: String, name: String },
     #[snafu(display(
         "Cannot fault the last healthy child {} of nexus {}",
