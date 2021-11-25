@@ -13,7 +13,7 @@ use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_async_event_completion,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
@@ -51,7 +51,8 @@ use crate::{
         poller,
         BlockDeviceIoStats,
         CoreError,
-        DeviceEventListener,
+        DeviceEventDispatcher,
+        DeviceEventSink,
         DeviceEventType,
         IoDevice,
         OpCompletionCallback,
@@ -114,18 +115,18 @@ pub struct NvmeControllerInner<'a> {
     io_device: Arc<IoDevice>,
 }
 
-type EventCallbackList = Vec<DeviceEventListener>;
+unsafe impl<'a> Send for NvmeControllerInner<'a> {}
+unsafe impl<'a> Sync for NvmeControllerInner<'a> {}
 
-/*
- * NVME controller implementation.
- */
+/// NVME controller implementation.
+/// TODO
 pub struct NvmeController<'a> {
     pub(crate) name: String,
     id: u64,
     prchk_flags: u32,
     inner: Option<NvmeControllerInner<'a>>,
     state_machine: ControllerStateMachine,
-    event_listeners: Mutex<EventCallbackList>,
+    event_dispatcher: Mutex<DeviceEventDispatcher>,
     /// Timeout config is accessed by SPDK-driven timeout callback handlers,
     /// so it needs to be a raw pointer. Mutable members are made atomic to
     /// eliminate lock contention between API path and callback path.
@@ -154,7 +155,7 @@ impl<'a> NvmeController<'a> {
             prchk_flags,
             state_machine: ControllerStateMachine::new(name),
             inner: None,
-            event_listeners: Mutex::new(Vec::<fn(DeviceEventType, &str)>::new()),
+            event_dispatcher: Mutex::new(DeviceEventDispatcher::new()),
             timeout_config: NonNull::new(Box::into_raw(Box::new(
                 TimeoutConfig::new(name),
             )))
@@ -269,7 +270,7 @@ impl<'a> NvmeController<'a> {
 
         // Notify listeners in case of namespace removal.
         if notify_listeners {
-            self.notify_event(DeviceEventType::DeviceRemoved);
+            self.notify_listeners(DeviceEventType::DeviceRemoved);
         }
 
         ns_active
@@ -698,34 +699,31 @@ impl<'a> NvmeController<'a> {
         NvmeController::_complete_reset(reset_ctx, status);
     }
 
-    fn notify_event(&self, event: DeviceEventType) -> usize {
-        // Keep a separate copy of all registered listeners in order to not
-        // invoke them with the lock held.
-        let listeners = {
-            let listeners = self
-                .event_listeners
-                .lock()
-                .expect("event listeners lock poisoned");
-            listeners.clone()
-        };
+    /// Notifies all listeners of this controller.
+    ///
+    /// Note: Keep a separate copy of all registered listeners in order to not
+    /// invoke them with the lock held.
+    fn notify_listeners(&self, event: DeviceEventType) -> usize {
+        let mut disp = self
+            .event_dispatcher
+            .lock()
+            .expect("event dispatcher lock poisoned");
 
-        for l in listeners.iter() {
-            (*l)(event, &self.name);
-        }
-        listeners.len()
+        disp.dispatch_event(event, &self.name);
+        disp.count()
     }
 
     /// Register listener to monitor device events related to this controller.
-    pub fn add_event_listener(
+    pub fn register_device_listener(
         &self,
-        listener: fn(DeviceEventType, &str),
+        listener: DeviceEventSink,
     ) -> Result<(), CoreError> {
         let mut listeners = self
-            .event_listeners
+            .event_dispatcher
             .lock()
             .expect("event listeners lock poisoned");
 
-        listeners.push(listener);
+        listeners.add_listener(listener);
         debug!("{} added event listener", self.name);
         Ok(())
     }
@@ -856,8 +854,9 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
                 "notifying listeners of admin command completion failure"
             );
             let controller = carc.lock();
-            let num_listeners = controller
-                .notify_event(DeviceEventType::AdminCommandCompletionFailed);
+            let num_listeners = controller.notify_listeners(
+                DeviceEventType::AdminCommandCompletionFailed,
+            );
             debug!(
                 ?dev_name,
                 ?num_listeners,
@@ -928,7 +927,8 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
     // Notify the listeners.
     debug!(?name, "notifying listeners about device removal");
     let controller = carc.lock();
-    let num_listeners = controller.notify_event(DeviceEventType::DeviceRemoved);
+    let num_listeners =
+        controller.notify_listeners(DeviceEventType::DeviceRemoved);
     debug!(
         ?name,
         ?num_listeners,
@@ -997,7 +997,7 @@ pub(crate) fn connected_attached_cb(
 pub(crate) mod options {
     use std::{mem::size_of, ptr::copy_nonoverlapping};
 
-    use spdk_sys::{
+    use spdk_rs::libspdk::{
         spdk_nvme_ctrlr_get_default_ctrlr_opts,
         spdk_nvme_ctrlr_opts,
     };
@@ -1142,7 +1142,7 @@ pub(crate) mod transport {
 
     use libc::c_void;
 
-    use spdk_sys::spdk_nvme_transport_id;
+    use spdk_rs::libspdk::spdk_nvme_transport_id;
 
     pub struct NvmeTransportId(spdk_nvme_transport_id);
 
@@ -1233,6 +1233,7 @@ pub(crate) mod transport {
     }
 
     #[derive(Default, Debug)]
+    #[allow(dead_code)]
     pub struct Builder {
         trid: TransportId,
         adrfam: AdressFamily,

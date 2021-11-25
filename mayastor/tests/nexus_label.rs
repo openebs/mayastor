@@ -6,15 +6,11 @@ use std::{
 use bincode::serialize_into;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, GptEntry, GptHeader},
-    core::{
-        mayastor_env_stop,
-        DmaBuf,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
-    },
+    bdev::nexus::{nexus_create, nexus_lookup_mut, GptEntry, GptHeader},
+    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
+
+use spdk_rs::DmaBuf;
 
 const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
@@ -124,13 +120,13 @@ async fn make_nexus() {
 
 // compare what is written
 async fn label_child() {
-    let nexus = nexus_lookup("gpt_nexus").unwrap();
+    let mut nexus = nexus_lookup_mut("gpt_nexus").unwrap();
     let child = &mut nexus.children[0];
     let hdl = child.get_io_handle().unwrap();
 
     let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(34 * 512).unwrap();
-    file.read_exact(&mut buffer.as_mut_slice()).unwrap();
+    file.read_exact(buffer.as_mut_slice()).unwrap();
     // write out the MBR + primary GPT header + GPT partition table
     hdl.write_at(0, &buffer).await.unwrap();
 
@@ -143,7 +139,7 @@ async fn label_child() {
     let mut file =
         std::fs::File::open("./gpt_secondary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(33 * 512).unwrap();
-    file.read_exact(&mut buffer.as_mut_slice()).unwrap();
+    file.read_exact(buffer.as_mut_slice()).unwrap();
     // write out the secondary GPT partition table + GPT header
     hdl.write_at(131_039 * 512, &buffer).await.unwrap();
 

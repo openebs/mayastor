@@ -12,14 +12,14 @@ repos:
     -   id: rust-style
         name: Rust style
         description: Run cargo fmt on files included in the commit. rustfmt should be installed before-hand.
-        entry: cargo fmt --all -- --check
+        entry: cargo +nightly-2021-11-26 fmt --all -- --check
         pass_filenames: true
         types: [file, rust]
         language: system
     -   id: rust-lint
         name: Rust lint
         description: Run cargo clippy on files included in the commit. clippy should be installed before-hand.
-        entry: cargo clippy --all --all-targets -- -D warnings
+        entry: cargo +nightly-2021-11-26 clippy --all --all-targets -- -D warnings
         pass_filenames: false
         types: [file, rust]
         language: system

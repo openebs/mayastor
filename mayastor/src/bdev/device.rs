@@ -5,50 +5,57 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     os::raw::c_void,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex},
 };
 
 use async_trait::async_trait;
 use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
 
-use spdk_sys::{
-    iovec,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_reset,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_write_zeroes_blocks,
-    spdk_bdev_writev_blocks,
+use spdk_rs::{
+    libspdk::{
+        iovec,
+        spdk_bdev_free_io,
+        spdk_bdev_io,
+        spdk_bdev_readv_blocks,
+        spdk_bdev_reset,
+        spdk_bdev_unmap_blocks,
+        spdk_bdev_write_zeroes_blocks,
+        spdk_bdev_writev_blocks,
+    },
+    nvme_admin_opc,
+    DmaBuf,
+    DmaError,
+    IoType,
 };
 
 use crate::core::{
     mempool::MemoryPool,
-    nvme_admin_opc,
     Bdev,
     BdevHandle,
-    Bio,
     BlockDevice,
     BlockDeviceDescriptor,
     BlockDeviceHandle,
     BlockDeviceIoStats,
     CoreError,
     Descriptor,
-    DeviceEventListener,
+    DeviceEventDispatcher,
+    DeviceEventSink,
     DeviceEventType,
     DeviceIoController,
-    DmaBuf,
-    DmaError,
     IoCompletionCallback,
     IoCompletionCallbackArg,
     IoCompletionStatus,
-    IoType,
     NvmeCommandStatus,
+    NvmeStatus,
 };
 
-static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+/// TODO
+type EventDispatcherMap = HashMap<String, DeviceEventDispatcher>;
+
+/// TODO
+static BDEV_EVENT_DISPATCHER: Lazy<Mutex<EventDispatcherMap>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 // Memory pool for bdev I/O context.
 static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
@@ -132,20 +139,42 @@ impl SpdkBlockDevice {
         Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
     }
 
-    pub fn process_device_event(event: DeviceEventType, device: &str) {
-        // Keep a separate copy of all registered listeners in order to not
-        // invoke them with the lock held.
-        let listeners = {
-            let map = BDEV_LISTENERS.read().expect("lock poisoned");
-            match map.get(device) {
-                Some(listeners) => listeners.clone(),
-                None => return,
+    /// Called by spdk when there is an asynchronous bdev event i.e. removal.
+    pub(crate) fn bdev_event_callback(
+        event: spdk_rs::BdevEvent,
+        bdev: spdk_rs::DummyBdev,
+    ) {
+        let dev = SpdkBlockDevice::new(Bdev::new(bdev));
+
+        // Translate SPDK events into common device events.
+        let event = match event {
+            spdk_rs::BdevEvent::Remove => {
+                info!("Received remove event for Bdev '{}'", dev.device_name());
+                DeviceEventType::DeviceRemoved
+            }
+            spdk_rs::BdevEvent::Resize => {
+                warn!("Received resize event for Bdev '{}'", dev.device_name());
+                DeviceEventType::DeviceResized
+            }
+            spdk_rs::BdevEvent::MediaManagement => {
+                warn!(
+                    "Received media management event for Bdev '{}'",
+                    dev.device_name()
+                );
+                DeviceEventType::MediaManagement
             }
         };
 
-        // Notify all listeners of this SPDK bdev.
-        for l in listeners {
-            (l)(event, device);
+        // Forward event to the high-level handler.
+        dev.notify_listeners(event);
+    }
+
+    /// Notifies all listeners of this SPDK Bdev.
+    fn notify_listeners(self, event: DeviceEventType) {
+        let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
+        let name = self.device_name();
+        if let Some(disp) = map.get_mut(&name) {
+            disp.dispatch_event(event, &name);
         }
     }
 }
@@ -170,15 +199,15 @@ impl BlockDevice for SpdkBlockDevice {
     }
     //// returns the product name
     fn product_name(&self) -> String {
-        self.bdev.product_name()
+        self.bdev.product_name().to_string()
     }
     //// returns the driver name of the block device
     fn driver_name(&self) -> String {
-        self.bdev.driver()
+        self.bdev.driver().to_string()
     }
     /// returns the name of the device
     fn device_name(&self) -> String {
-        self.bdev.name()
+        self.bdev.name().to_string()
     }
     //// returns the alignment of the device
     fn alignment(&self) -> u64 {
@@ -190,7 +219,7 @@ impl BlockDevice for SpdkBlockDevice {
     }
     /// returns the IO statistics
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
-        self.bdev.stats().await
+        self.bdev.stats_async().await
     }
     /// returns which module has returned driver
     fn claimed_by(&self) -> Option<String> {
@@ -212,11 +241,11 @@ impl BlockDevice for SpdkBlockDevice {
     /// add a callback to be called when a particular event is received
     fn add_event_listener(
         &self,
-        listener: DeviceEventListener,
+        listener: DeviceEventSink,
     ) -> Result<(), CoreError> {
-        let mut map = BDEV_LISTENERS.write().expect("lock poisoned");
-        let listeners = map.entry(self.bdev.name()).or_default();
-        listeners.push(listener);
+        let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
+        let disp = map.entry(self.bdev.name().to_string()).or_default();
+        disp.add_listener(listener);
         Ok(())
     }
 }
@@ -314,7 +343,7 @@ extern "C" fn bdev_io_completion(
     let status = if success {
         IoCompletionStatus::Success
     } else {
-        let nvme_status = Bio::from(child_bio).nvme_status();
+        let nvme_status = NvmeStatus::from(child_bio);
         let nvme_cmd_status = NvmeCommandStatus::from_command_status(
             nvme_status.status_type(),
             nvme_status.status_code(),
@@ -577,7 +606,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
     /// NVMe commands are not applicable for non-NVMe devices.
     async fn nvme_admin(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
         _buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         Err(CoreError::NvmeAdminDispatch {

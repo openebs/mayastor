@@ -1,54 +1,27 @@
 use std::{
     convert::TryFrom,
-    ffi::{CStr, CString},
     fmt::{Debug, Display, Formatter},
-    os::raw::c_void,
-    ptr::NonNull,
 };
 
 use async_trait::async_trait;
-use futures::channel::oneshot;
 use nix::errno::Errno;
 use snafu::ResultExt;
 
-use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_event_type,
-    spdk_bdev_first,
-    spdk_bdev_get_aliases,
-    spdk_bdev_get_block_size,
-    spdk_bdev_get_buf_align,
-    spdk_bdev_get_by_name,
-    spdk_bdev_get_device_stat,
-    spdk_bdev_get_name,
-    spdk_bdev_get_num_blocks,
-    spdk_bdev_get_product_name,
-    spdk_bdev_get_uuid,
-    spdk_bdev_io_stat,
-    spdk_bdev_io_type_supported,
-    spdk_bdev_next,
-    spdk_bdev_open_ext,
-    spdk_uuid,
-    spdk_uuid_copy,
-    spdk_uuid_generate,
-};
+use spdk_rs::libspdk::spdk_bdev;
 
 use crate::{
     bdev::SpdkBlockDevice,
     core::{
         share::{Protocol, Share},
-        uuid::Uuid,
         BlockDeviceIoStats,
         CoreError,
         Descriptor,
-        DeviceEventType,
         IoType,
         ShareIscsi,
         ShareNvmf,
         UnshareIscsi,
         UnshareNvmf,
     },
-    ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::NvmfSubsystem,
     target::{iscsi, nvmf, Side},
 };
@@ -60,7 +33,7 @@ use crate::{
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
 #[derive(Clone)]
-pub struct Bdev(NonNull<spdk_bdev>);
+pub struct Bdev(spdk_rs::DummyBdev);
 
 #[async_trait(? Send)]
 impl Share for Bdev {
@@ -69,7 +42,7 @@ impl Share for Bdev {
 
     /// share the bdev over iscsi
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
-        iscsi::share(&self.name(), self, Side::Nexus).context(ShareIscsi {})
+        iscsi::share(self.name(), self, Side::Nexus).context(ShareIscsi {})
     }
 
     /// share the bdev over NVMe-OF TCP
@@ -91,21 +64,19 @@ impl Share for Bdev {
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Nvmf) => {
-                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name())
+                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(self.name())
                 {
                     subsystem.stop().await.context(UnshareNvmf {})?;
                     subsystem.destroy();
                 }
             }
             Some(Protocol::Iscsi) => {
-                iscsi::unshare(&self.name())
-                    .await
-                    .context(UnshareIscsi {})?;
+                iscsi::unshare(self.name()).await.context(UnshareIscsi {})?;
             }
             Some(Protocol::Off) | None => {}
         }
 
-        Ok(self.name())
+        Ok(self.name().to_string())
     }
 
     /// returns if the bdev is currently shared
@@ -122,15 +93,15 @@ impl Share for Bdev {
     /// better?)
     fn share_uri(&self) -> Option<String> {
         match self.shared() {
-            Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
-            Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
+            Some(Protocol::Nvmf) => nvmf::get_uri(self.name()),
+            Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, self.name()),
             _ => Some(format!("bdev:///{}", self.name())),
         }
     }
 
     /// return the URI that was used to construct the bdev
     fn bdev_uri(&self) -> Option<String> {
-        for alias in self.aliases().iter() {
+        for alias in self.as_ref().aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if self == uri {
                     if !uri.query_pairs().any(|e| e.0 == "uuid") {
@@ -146,7 +117,7 @@ impl Share for Bdev {
 
     /// return the URI that was used to construct the bdev, without uuid
     fn bdev_uri_original(&self) -> Option<String> {
-        for alias in self.aliases().iter() {
+        for alias in self.as_ref().aliases().iter() {
             if let Ok(uri) = url::Url::parse(alias) {
                 if self == uri {
                     return Some(uri.to_string());
@@ -158,6 +129,38 @@ impl Share for Bdev {
 }
 
 impl Bdev {
+    /// TODO
+    pub(crate) fn new(b: spdk_rs::DummyBdev) -> Self {
+        Self(b)
+    }
+
+    /// construct bdev from raw pointer
+    pub(crate) fn from_ptr(bdev: *mut spdk_bdev) -> Option<Bdev> {
+        if bdev.is_null() {
+            None
+        } else {
+            Some(Self(spdk_rs::DummyBdev::legacy_from_ptr(bdev)))
+        }
+    }
+
+    /// returns the bdev as a ptr
+    /// dont use please
+    pub fn as_ptr(&self) -> *mut spdk_bdev {
+        self.0.legacy_as_ptr().as_ptr()
+    }
+
+    /// TODO
+    #[allow(dead_code)]
+    pub(crate) fn as_ref(&self) -> &spdk_rs::DummyBdev {
+        &self.0
+    }
+
+    /// TODO
+    #[allow(dead_code)]
+    pub(crate) fn as_mut(&mut self) -> &mut spdk_rs::DummyBdev {
+        &mut self.0
+    }
+
     /// open a bdev by its name in read_write mode.
     pub fn open_by_name(
         name: &str,
@@ -172,285 +175,131 @@ impl Bdev {
         }
     }
 
-    /// Called by spdk when there is an asynchronous bdev event i.e. removal.
-    extern "C" fn event_cb(
-        event: spdk_bdev_event_type,
-        bdev: *mut spdk_bdev,
-        _ctx: *mut c_void,
-    ) {
-        let bdev = Bdev::from_ptr(bdev).unwrap();
-        let name = bdev.name();
-
-        // Translate SPDK events into common device events.
-        let event = match event {
-            spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
-                info!("Received remove event for bdev {}", name);
-                DeviceEventType::DeviceRemoved
-            }
-            spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
-                warn!("Received resize event for bdev {}", name);
-                DeviceEventType::DeviceResized
-            }
-            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => {
-                warn!("Received media management event for bdev {}", name,);
-                DeviceEventType::MediaManagement
-            }
-            _ => {
-                error!("Received unknown event {} for bdev {}", event, name,);
-                return;
-            }
-        };
-
-        // Forward event to high-level handler.
-        SpdkBlockDevice::process_device_event(event, &name);
-    }
-
-    /// open the current bdev, the bdev can be opened multiple times resulting
-    /// in a new descriptor for each call.
+    /// Opens the current Bdev.
+    /// A Bdev can be opened multiple times resulting in a new descriptor for
+    /// each call.
     pub fn open(&self, read_write: bool) -> Result<Descriptor, CoreError> {
-        let mut descriptor = std::ptr::null_mut();
-        let cname = CString::new(self.name()).unwrap();
-        let rc = unsafe {
-            spdk_bdev_open_ext(
-                cname.as_ptr(),
-                read_write,
-                Some(Self::event_cb),
-                std::ptr::null_mut(),
-                &mut descriptor,
-            )
-        };
-
-        if rc != 0 {
-            Err(CoreError::OpenBdev {
-                source: Errno::from_i32(rc),
-            })
-        } else {
-            Ok(Descriptor::from_null_checked(descriptor).unwrap())
+        match spdk_rs::BdevDesc::<()>::open(
+            self.name(),
+            read_write,
+            SpdkBlockDevice::bdev_event_callback,
+        ) {
+            Ok(d) => Ok(Descriptor::new(d)),
+            Err(err) => Err(CoreError::OpenBdev {
+                source: err,
+            }),
         }
     }
 
     /// returns true if this bdev is claimed by some other component
     pub fn is_claimed(&self) -> bool {
-        !unsafe { self.0.as_ref().internal.claim_module.is_null() }
+        self.0.is_claimed()
     }
 
     /// returns by who the bdev is claimed
     pub fn claimed_by(&self) -> Option<String> {
-        let ptr = unsafe { self.0.as_ref().internal.claim_module };
-        if ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { (*ptr).name.as_str() }.to_string())
-        }
-    }
-
-    /// construct bdev from raw pointer
-    pub fn from_ptr(bdev: *mut spdk_bdev) -> Option<Bdev> {
-        NonNull::new(bdev).map(Bdev)
+        self.0.claimed_by().map(|m| m.name().to_string())
     }
 
     /// lookup a bdev by its name
     pub fn lookup_by_name(name: &str) -> Option<Bdev> {
-        let name = CString::new(name).unwrap();
-        Self::from_ptr(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
+        spdk_rs::DummyBdev::lookup_by_name(name).map(Self::new)
     }
 
     /// returns the block_size of the underlying device
     pub fn block_len(&self) -> u32 {
-        unsafe { spdk_bdev_get_block_size(self.0.as_ptr()) }
+        self.0.block_len()
+    }
+
+    /// set the block length of the device in bytes
+    /// # Safety
+    /// TODO
+    pub unsafe fn set_block_len(&mut self, len: u32) {
+        self.0.set_block_len(len)
     }
 
     /// number of blocks for this device
     pub fn num_blocks(&self) -> u64 {
-        unsafe { spdk_bdev_get_num_blocks(self.0.as_ptr()) }
+        self.0.num_blocks()
     }
 
     /// set the block count of this device
-    pub fn set_block_count(&mut self, count: u64) {
-        unsafe {
-            self.0.as_mut().blockcnt = count;
-        }
-    }
-
-    /// set the block length of the device in bytes
-    pub fn set_block_len(&mut self, len: u32) {
-        unsafe {
-            self.0.as_mut().blocklen = len;
-        }
+    /// # Safety
+    /// TODO
+    pub unsafe fn set_num_blocks(&mut self, count: u64) {
+        self.0.set_num_blocks(count)
     }
 
     /// return the bdev size in bytes
     pub fn size_in_bytes(&self) -> u64 {
-        self.num_blocks() * self.block_len() as u64
+        self.0.size_in_bytes()
     }
 
     /// returns the alignment of the bdev
     pub fn alignment(&self) -> u64 {
-        unsafe { spdk_bdev_get_buf_align(self.0.as_ptr()) }
+        self.0.alignment()
     }
 
     /// returns the configured product name
-    pub fn product_name(&self) -> String {
-        unsafe { CStr::from_ptr(spdk_bdev_get_product_name(self.0.as_ptr())) }
-            .to_str()
-            .unwrap()
-            .to_string()
+    pub fn product_name(&self) -> &str {
+        self.0.product_name()
     }
 
     /// returns the name of driver module for the given bdev
-    pub fn driver(&self) -> String {
-        unsafe { CStr::from_ptr((*self.0.as_ref().module).name) }
-            .to_str()
-            .unwrap()
-            .to_string()
+    pub fn driver(&self) -> &str {
+        self.0.module_name()
     }
 
     /// returns the bdev name
-    pub fn name(&self) -> String {
-        unsafe { CStr::from_ptr(spdk_bdev_get_name(self.0.as_ptr())) }
-            .to_str()
-            .unwrap()
-            .to_string()
+    pub fn name(&self) -> &str {
+        self.0.name()
     }
 
     /// return the UUID of this bdev
     pub fn uuid(&self) -> uuid::Uuid {
-        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) }).into()
+        self.0.uuid().into()
     }
 
-    /// return the UUID of this bdev as a string
+    /// return the UUID of this bdev as a hyphenated string
     pub fn uuid_as_string(&self) -> String {
         self.uuid().to_hyphenated().to_string()
     }
 
-    /// Set a list of aliases on the bdev, used to find the bdev later
-    pub fn add_aliases(&self, alias: &[String]) -> bool {
-        alias
-            .iter()
-            .filter(|a| -> bool { !self.add_alias(a) })
-            .count()
-            == 0
-    }
-
-    /// Set an alias on the bdev, this alias can be used to find the bdev later.
-    /// If the alias is already present we return true
-    pub fn add_alias(&self, alias: &str) -> bool {
-        let alias = alias.into_cstring();
-        let ret = unsafe {
-            spdk_sys::spdk_bdev_alias_add(self.0.as_ptr(), alias.as_ptr())
-        }
-        .to_result(Errno::from_i32);
-
-        matches!(ret, Err(Errno::EEXIST) | Ok(_))
-    }
-
-    /// removes the given alias from the bdev
-    pub fn remove_alias(&self, alias: &str) {
-        let alias = alias.into_cstring();
-        unsafe {
-            spdk_sys::spdk_bdev_alias_del(self.0.as_ptr(), alias.as_ptr())
-        };
-    }
-
-    /// Get list of bdev aliases
-    pub fn aliases(&self) -> Vec<String> {
-        let mut aliases = Vec::new();
-        let head = unsafe { &*spdk_bdev_get_aliases(self.0.as_ptr()) };
-        let mut ent_ptr = head.tqh_first;
-        while !ent_ptr.is_null() {
-            let ent = unsafe { &*ent_ptr };
-            let alias = unsafe { CStr::from_ptr(ent.alias.name) };
-            aliases.push(alias.to_str().unwrap().to_string());
-            ent_ptr = ent.tailq.tqe_next;
-        }
-        aliases
-    }
-
     /// returns whenever the bdev supports the requested IO type
     pub fn io_type_supported(&self, io_type: IoType) -> bool {
-        unsafe { spdk_bdev_io_type_supported(self.0.as_ptr(), io_type.into()) }
+        self.0.io_type_supported(io_type)
     }
 
-    /// returns the bdev as a ptr
-    /// dont use please
-    pub fn as_ptr(&self) -> *mut spdk_bdev {
-        self.0.as_ptr()
+    /// returns the first bdev in the list
+    pub fn bdev_first() -> Option<Bdev> {
+        BdevIter::new().next()
     }
 
-    /// set the UUID for this bdev
-    pub fn set_uuid(&mut self, uuid: uuid::Uuid) {
-        unsafe {
-            spdk_uuid_copy(
-                &mut (*self.0.as_ptr()).uuid,
-                uuid.as_bytes().as_ptr() as *const spdk_uuid,
-            );
-        }
-    }
-
-    /// generate a new random UUID for this bdev
-    pub fn generate_uuid(&mut self) {
-        unsafe {
-            spdk_uuid_generate(&mut (*self.0.as_ptr()).uuid);
-        }
-    }
-
-    extern "C" fn stat_cb(
-        _bdev: *mut spdk_bdev,
-        _stat: *mut spdk_bdev_io_stat,
-        sender_ptr: *mut c_void,
-        errno: i32,
-    ) {
-        let sender =
-            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
-        sender.send(errno).expect("stat_cb receiver is gone");
-    }
-
-    /// Get bdev § or errno value in case of an error.
-    pub async fn stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
-        let mut stat: spdk_bdev_io_stat = Default::default();
-        let (sender, receiver) = oneshot::channel::<i32>();
-
-        // this will iterate over io channels and call async cb when done
-        unsafe {
-            spdk_bdev_get_device_stat(
-                self.0.as_ptr(),
-                &mut stat as *mut _,
-                Some(Self::stat_cb),
-                cb_arg(sender),
-            );
-        }
-
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno != 0 {
-            Err(CoreError::DeviceStatisticsError {
-                source: Errno::from_i32(errno),
-            })
-        } else {
-            // stat is populated with the stats by now
-            Ok(BlockDeviceIoStats {
+    /// TODO
+    pub async fn stats_async(&self) -> Result<BlockDeviceIoStats, CoreError> {
+        match self.0.stats_async().await {
+            Ok(stat) => Ok(BlockDeviceIoStats {
                 num_read_ops: stat.num_read_ops,
                 num_write_ops: stat.num_write_ops,
                 bytes_read: stat.bytes_read,
                 bytes_written: stat.bytes_written,
                 num_unmap_ops: stat.num_unmap_ops,
                 bytes_unmapped: stat.bytes_unmapped,
-            })
+            }),
+            Err(err) => Err(CoreError::DeviceStatisticsError {
+                source: err,
+            }),
         }
-    }
-
-    /// returns the first bdev in the list
-    pub fn bdev_first() -> Option<Bdev> {
-        Self::from_ptr(unsafe { spdk_bdev_first() })
     }
 }
 
-pub struct BdevIter(*mut spdk_bdev);
+pub struct BdevIter(spdk_rs::BdevGlobalIter<()>);
 
 impl IntoIterator for Bdev {
     type Item = Bdev;
     type IntoIter = BdevIter;
     fn into_iter(self) -> Self::IntoIter {
-        BdevIter(unsafe { spdk_bdev_first() })
+        BdevIter::new()
     }
 }
 
@@ -458,13 +307,19 @@ impl IntoIterator for Bdev {
 impl Iterator for BdevIter {
     type Item = Bdev;
     fn next(&mut self) -> Option<Bdev> {
-        if self.0.is_null() {
-            None
-        } else {
-            let current = self.0;
-            self.0 = unsafe { spdk_bdev_next(current) };
-            Bdev::from_ptr(current)
-        }
+        self.0.next().map(Self::Item::new)
+    }
+}
+
+impl Default for BdevIter {
+    fn default() -> Self {
+        BdevIter(spdk_rs::DummyBdev::iter_all())
+    }
+}
+
+impl BdevIter {
+    pub fn new() -> Self {
+        Default::default()
     }
 }
 

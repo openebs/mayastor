@@ -33,7 +33,7 @@ async fn iscsi_target() {
 
         // unshare the iSCSI target
         let bdev = Bdev::lookup_by_name("malloc0").unwrap();
-        let should_err = iscsi::unshare(&bdev.name()).await;
+        let should_err = iscsi::unshare(bdev.name()).await;
         assert!(!should_err.is_err());
 
         // verify the bdev is not claimed by our target anymore

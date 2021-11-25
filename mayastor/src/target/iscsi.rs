@@ -17,7 +17,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use snafu::{ResultExt, Snafu};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     iscsi_find_tgt_node,
     iscsi_init_grp_create_from_initiator_list,
     iscsi_init_grp_destroy,

@@ -10,8 +10,7 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{
-    self,
+use spdk_rs::libspdk::{
     bdev_nvme_create,
     bdev_nvme_delete,
     spdk_nvme_host_id,
@@ -112,7 +111,7 @@ impl CreateDestroy for NVMe {
             })?;
 
         let success = Bdev::lookup_by_name(&self.get_name())
-            .map(|b| b.add_alias(&self.url.to_string()))
+            .map(|mut b| b.as_mut().add_alias(&self.url.to_string()))
             .expect("bdev created but not found!");
 
         if !success {
@@ -126,8 +125,8 @@ impl CreateDestroy for NVMe {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
-            bdev.remove_alias(&self.url.to_string());
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.get_name()) {
+            bdev.as_mut().remove_alias(&self.url.to_string());
             let errno = unsafe {
                 bdev_nvme_delete(
                     self.name.clone().into_cstring().as_ptr(),
@@ -168,7 +167,7 @@ impl NvmeCreateContext {
             );
         }
 
-        trid.trtype = spdk_sys::SPDK_NVME_TRANSPORT_PCIE;
+        trid.trtype = spdk_rs::libspdk::SPDK_NVME_TRANSPORT_PCIE;
 
         let hostid = spdk_nvme_host_id::default();
 

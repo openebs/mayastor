@@ -1,6 +1,6 @@
 use common::bdev_io;
 use mayastor::{
-    bdev::nexus_create,
+    bdev::nexus::nexus_create,
     core::{BdevHandle, CoreError, MayastorCliArgs},
     lvs::{Lvol, Lvs},
 };

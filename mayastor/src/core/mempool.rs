@@ -6,8 +6,7 @@
 
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void, ptr::NonNull};
 
-use spdk_sys::{
-    self,
+use spdk_rs::libspdk::{
     spdk_mempool,
     spdk_mempool_count,
     spdk_mempool_create,

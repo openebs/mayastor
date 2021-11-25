@@ -7,10 +7,11 @@ use futures::channel::oneshot;
 use snafu::Snafu;
 
 use crate::{
-    bdev::VerboseError,
-    core::{BlockDeviceDescriptor, CoreError, Descriptor, DmaError},
+    bdev::nexus::VerboseError,
+    core::{BlockDeviceDescriptor, CoreError, Descriptor},
     nexus_uri::NexusBdevError,
 };
+use spdk_rs::DmaError;
 
 use super::rebuild_impl::*;
 
@@ -136,6 +137,9 @@ pub struct RebuildJob {
     pub(super) src_descriptor: Box<dyn BlockDeviceDescriptor>,
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
 }
+
+// TODO: is `RebuildJob` really a Send type?
+unsafe impl Send for RebuildJob {}
 
 impl fmt::Debug for RebuildJob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

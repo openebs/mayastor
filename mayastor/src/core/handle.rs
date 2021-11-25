@@ -8,28 +8,26 @@ use futures::channel::oneshot;
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk_sys::{
-    spdk_bdev_desc,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_nvme_admin_passthru_ro,
-    spdk_bdev_read,
-    spdk_bdev_reset,
-    spdk_bdev_write,
-    spdk_bdev_write_zeroes,
-    spdk_io_channel,
+use spdk_rs::{
+    libspdk::{
+        spdk_bdev_desc,
+        spdk_bdev_free_io,
+        spdk_bdev_io,
+        spdk_bdev_nvme_admin_passthru_ro,
+        spdk_bdev_read,
+        spdk_bdev_reset,
+        spdk_bdev_write,
+        spdk_bdev_write_zeroes,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+    },
+    nvme_admin_opc,
+    DmaBuf,
+    DmaError,
 };
 
 use crate::{
-    core::{
-        nvme_admin_opc,
-        Bdev,
-        CoreError,
-        Descriptor,
-        DmaBuf,
-        DmaError,
-        IoChannel,
-    },
+    core::{Bdev, CoreError, Descriptor, IoChannel},
     ffihelper::cb_arg,
     subsys,
 };
@@ -252,7 +250,7 @@ impl BdevHandle {
     /// create a snapshot, only works for nvme bdev
     /// returns snapshot time as u64 seconds since Unix epoch
     pub async fn create_snapshot(&self) -> Result<u64, CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
         let now = subsys::set_snapshot_time(&mut cmd);
         debug!("Creating snapshot at {}", now);
@@ -264,19 +262,19 @@ impl BdevHandle {
     /// buffer must be at least 4096B
     pub async fn nvme_identify_ctrlr(
         &self,
-        mut buffer: &mut DmaBuf,
+        buffer: &mut DmaBuf,
     ) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::IDENTIFY.into());
         cmd.nsid = 0xffffffff;
         // Controller Identifier
-        unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
-        self.nvme_admin(&cmd, Some(&mut buffer)).await
+        unsafe { *spdk_rs::libspdk::nvme_cmd_cdw10_get(&mut cmd) = 1 };
+        self.nvme_admin(&cmd, Some(buffer)).await
     }
 
     /// sends an NVMe Admin command, only for read commands without buffer
     pub async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(opcode.into());
         self.nvme_admin(&cmd, None).await
     }
@@ -284,12 +282,12 @@ impl BdevHandle {
     /// sends the specified NVMe Admin command, only read commands
     pub async fn nvme_admin(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_nvme_cmd,
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         trace!("Sending nvme_admin {}", nvme_cmd.opc());
         let (s, r) = oneshot::channel::<bool>();
-        // Use the spdk-sys variant spdk_bdev_nvme_admin_passthru that
+        // Use the spdk-rs variant spdk_bdev_nvme_admin_passthru that
         // assumes read commands
         let errno = unsafe {
             spdk_bdev_nvme_admin_passthru_ro(
@@ -345,7 +343,7 @@ impl TryFrom<Descriptor> for BdevHandle {
         }
 
         Err(CoreError::GetIoChannel {
-            name: desc.get_bdev().name(),
+            name: desc.get_bdev().name().to_string(),
         })
     }
 }
@@ -362,7 +360,7 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
         }
 
         Err(CoreError::GetIoChannel {
-            name: desc.get_bdev().name(),
+            name: desc.get_bdev().name().to_string(),
         })
     }
 }

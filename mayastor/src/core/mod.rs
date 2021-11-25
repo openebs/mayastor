@@ -2,20 +2,15 @@
 //! core contains the primary abstractions around the SPDK primitives.
 use std::{fmt::Debug, sync::atomic::AtomicUsize, time::Duration};
 
-pub use ::uuid::Uuid;
-
 use nix::errno::Errno;
 use snafu::Snafu;
 
 pub use bdev::{Bdev, BdevIter};
-pub use bio::{Bio, IoStatus, IoType};
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,
     BlockDeviceHandle,
     BlockDeviceIoStats,
-    DeviceEventListener,
-    DeviceEventType,
     DeviceIoController,
     DeviceTimeoutAction,
     IoCompletionCallback,
@@ -27,7 +22,12 @@ pub use block_device::{
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
-pub use dma::{DmaBuf, DmaError};
+pub use device_events::{
+    DeviceEventDispatcher,
+    DeviceEventListener,
+    DeviceEventSink,
+    DeviceEventType,
+};
 pub use env::{
     mayastor_env_stop,
     MayastorCliArgs,
@@ -37,43 +37,36 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
-pub use nvme::{
-    nvme_admin_opc,
-    nvme_nvm_opcode,
-    nvme_reservation_acquire_action,
-    nvme_reservation_register_action,
-    nvme_reservation_register_cptpl,
-    nvme_reservation_type,
-    GenericStatusCode,
-    NvmeCommandStatus,
-    NvmeStatus,
-};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
+pub use spdk_rs::{
+    cpu_cores,
+    GenericStatusCode,
+    IoStatus,
+    IoType,
+    NvmeCommandStatus,
+    NvmeStatus,
+};
 pub use thread::Mthread;
 
-use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
+use crate::{subsys::NvmfError, target::iscsi};
 
 mod bdev;
-mod bio;
 mod block_device;
 mod channel;
-mod cpu_cores;
 mod descriptor;
-mod dma;
+mod device_events;
 mod env;
 mod handle;
 mod io_device;
 pub mod io_driver;
 pub mod mempool;
-mod nvme;
 pub mod poller;
 mod reactor;
 pub mod runtime;
 mod share;
 pub(crate) mod thread;
-pub mod uuid;
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
@@ -236,6 +229,7 @@ pub enum IoCompletionStatus {
 pub static PAUSING: AtomicUsize = AtomicUsize::new(0);
 pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
 
+/// TODO
 pub async fn device_monitor() {
     let handle = Mthread::get_init();
     let mut interval = tokio::time::interval(Duration::from_millis(10));
@@ -246,7 +240,9 @@ pub async fn device_monitor() {
             match w {
                 Command::RemoveDevice(nexus, child) => {
                     let rx = handle.spawn_local(async move {
-                        if let Some(n) = nexus_lookup(&nexus) {
+                        if let Some(mut n) =
+                            crate::bdev::nexus::nexus_lookup_mut(&nexus)
+                        {
                             if let Err(e) = n.destroy_child(&child).await {
                                 error!(?e, "destroy child failed");
                             }

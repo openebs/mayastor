@@ -3,9 +3,8 @@ use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, ptr::NonNull};
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
-
 use rpc::mayastor::CreatePoolRequest;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -30,7 +29,7 @@ use url::Url;
 
 use crate::{
     bdev::uri,
-    core::{Bdev, IoType, Share, Uuid},
+    core::{Bdev, IoType, Share},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
     nexus_uri::{bdev_destroy, NexusBdevError},
@@ -184,7 +183,7 @@ impl Lvs {
     /// returns the UUID of the lvs
     pub fn uuid(&self) -> String {
         let t = unsafe { self.0.as_ref().uuid.u.raw };
-        Uuid::from_bytes(t).to_string()
+        uuid::Uuid::from_bytes(t).to_string()
     }
 
     /// imports a pool based on its name and base bdev name
@@ -206,7 +205,7 @@ impl Lvs {
         if bdev.is_claimed() {
             return Err(Error::Import {
                 source: Errno::EBUSY,
-                name: bdev.name(),
+                name: bdev.name().to_string(),
             });
         }
 
@@ -408,7 +407,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                name: base_bdev.name(),
+                name: base_bdev.name().to_string(),
             })?;
         Ok(())
     }
@@ -482,7 +481,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                name: base_bdev.name(),
+                name: base_bdev.name().to_string(),
             })?;
 
         Ok(())
@@ -492,12 +491,13 @@ impl Lvs {
     /// signature
     pub fn lvols(&self) -> Option<impl Iterator<Item = Lvol>> {
         if let Some(bdev) = Bdev::bdev_first() {
-            let pool_name = format!("{}/", self.name().to_string());
+            let pool_name = format!("{}/", self.name());
             Some(
                 bdev.into_iter()
                     .filter(move |b| {
                         b.driver() == "lvol"
-                            && b.aliases()
+                            && b.as_ref()
+                                .aliases()
                                 .iter()
                                 .any(|a| a.contains(&pool_name))
                     })

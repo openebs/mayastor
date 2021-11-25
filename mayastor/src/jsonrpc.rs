@@ -15,7 +15,7 @@ use futures::future::Future;
 use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_json_val,
     spdk_json_write_val_raw,
     spdk_jsonrpc_begin_result,

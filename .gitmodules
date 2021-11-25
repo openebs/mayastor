@@ -1,3 +1,6 @@
 [submodule "rpc/mayastor-api"]
 	path = rpc/mayastor-api
 	url = https://github.com/openebs/mayastor-api
+[submodule "spdk-rs"]
+	path = spdk-rs
+	url = git@mayadata.github.com:mayadata-io/spdk-rs.git

@@ -4,7 +4,7 @@ use once_cell::sync::OnceCell;
 
 use common::MayastorTest;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{Bdev, MayastorCliArgs},
 };
 
@@ -53,10 +53,11 @@ async fn child_size_ok() {
                 Bdev::lookup_by_name("m2").expect("child bdev m2 not found");
             assert_eq!(bdev.name(), "m2");
 
-            let nexus = nexus_lookup("core_nexus").expect("nexus not found");
+            let nexus =
+                nexus_lookup_mut("core_nexus").expect("nexus not found");
             nexus.destroy().await.unwrap();
 
-            assert!(nexus_lookup("core_nexus").is_none());
+            assert!(nexus_lookup_mut("core_nexus").is_none());
             assert!(Bdev::lookup_by_name("core_nexus").is_none());
             assert!(Bdev::lookup_by_name("m0").is_none());
             assert!(Bdev::lookup_by_name("m1").is_none());
@@ -72,7 +73,7 @@ async fn child_too_small() {
             assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
             assert!(!create_nexus(16, vec![16, 16, 8]).await);
 
-            assert!(nexus_lookup("core_nexus").is_none());
+            assert!(nexus_lookup_mut("core_nexus").is_none());
             assert!(Bdev::lookup_by_name("core_nexus").is_none());
             assert!(Bdev::lookup_by_name("m0").is_none());
             assert!(Bdev::lookup_by_name("m1").is_none());
@@ -89,7 +90,7 @@ async fn too_small_for_metadata() {
             assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
             assert!(!create_nexus(4, vec![16, 8, 4]).await);
 
-            assert!(nexus_lookup("core_nexus").is_none());
+            assert!(nexus_lookup_mut("core_nexus").is_none());
             assert!(Bdev::lookup_by_name("core_nexus").is_none());
             assert!(Bdev::lookup_by_name("m0").is_none());
             assert!(Bdev::lookup_by_name("m1").is_none());

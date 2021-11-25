@@ -71,14 +71,11 @@ use serde::{
 use snafu::{ResultExt, Snafu};
 use uuid::{self, Uuid};
 
-use crate::{
-    bdev::nexus::{
-        nexus_bdev::Nexus,
-        nexus_child::NexusChild,
-        nexus_metadata::{MetaDataError, NexusMetaData},
-    },
-    core::{BlockDeviceHandle, CoreError, DmaBuf, DmaError},
-};
+use super::{MetaDataError, Nexus, NexusChild, NexusMetaData};
+
+use crate::core::{BlockDeviceHandle, CoreError};
+
+use spdk_rs::{DmaBuf, DmaError};
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {
@@ -244,7 +241,7 @@ impl FromStr for GptGuid {
 
 impl fmt::Display for GptGuid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", Uuid::from(*self).to_string())
+        write!(f, "{}", Uuid::from(*self))
     }
 }
 
@@ -818,7 +815,7 @@ impl NexusLabel {
 
 impl fmt::Display for NexusLabel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "GUID: {}", self.primary.guid.to_string())?;
+        writeln!(f, "GUID: {}", self.primary.guid)?;
 
         writeln!(
             f,
@@ -846,16 +843,8 @@ impl fmt::Display for NexusLabel {
 
         for i in 0 .. self.partitions.len() {
             writeln!(f, "  Partition {}", i)?;
-            writeln!(
-                f,
-                "    GUID: {}",
-                self.partitions[i].ent_guid.to_string()
-            )?;
-            writeln!(
-                f,
-                "    Type GUID: {}",
-                self.partitions[i].ent_type.to_string()
-            )?;
+            writeln!(f, "    GUID: {}", self.partitions[i].ent_guid)?;
+            writeln!(f, "    Type GUID: {}", self.partitions[i].ent_type)?;
             writeln!(f, "    LBA start: {}", self.partitions[i].ent_start)?;
             writeln!(f, "    LBA end: {}", self.partitions[i].ent_end)?;
             writeln!(f, "    Name: {}", self.partitions[i].ent_name.name)?;
@@ -1032,7 +1021,7 @@ impl NexusLabel {
     }
 }
 
-impl NexusChild {
+impl<'c> NexusChild<'c> {
     /// Read and validate this child's label.
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
         let handle = self.get_io_handle().context(HandleError {
@@ -1327,7 +1316,7 @@ impl NexusChild {
     }
 }
 
-impl Nexus {
+impl<'n> Nexus<'n> {
     /// Validate label on each child device.
     pub(crate) async fn validate_child_labels(
         &mut self,
@@ -1338,7 +1327,7 @@ impl Nexus {
             });
         }
 
-        let block_size = u64::from(self.bdev.block_len());
+        let block_size = u64::from(self.bdev().block_len());
 
         let mut offsets: Vec<u64> = Vec::new();
         let mut size = self.size;
@@ -1374,7 +1363,7 @@ impl Nexus {
         self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
-        self.bdev.set_block_count(size / block_size);
+        unsafe { self.bdev_mut().set_num_blocks(size / block_size) };
 
         Ok(())
     }
@@ -1407,7 +1396,7 @@ impl Nexus {
             });
         }
 
-        let block_size = u64::from(self.bdev.block_len());
+        let block_size = u64::from(self.bdev().block_len());
 
         let mut offsets: Vec<u64> = Vec::new();
         let mut size = self.size;
@@ -1443,7 +1432,7 @@ impl Nexus {
         self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
-        self.bdev.set_block_count(size / block_size);
+        unsafe { self.bdev_mut().set_num_blocks(size / block_size) };
 
         Ok(())
     }

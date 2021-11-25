@@ -10,10 +10,9 @@ use std::{
 use crossbeam::channel::unbounded;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
         Bdev,
-        DmaBuf,
         IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -22,7 +21,7 @@ use mayastor::{
         Reactors,
     },
 };
-
+use spdk_rs::DmaBuf;
 pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";
@@ -81,7 +80,7 @@ fn test_fini() {
     }
 
     Reactor::block_on(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus.destroy().await.unwrap();
     });
 }

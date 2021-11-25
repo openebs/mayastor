@@ -88,7 +88,7 @@ impl Device {
     pub async fn lookup(
         uuid: &Uuid,
     ) -> Result<Option<Box<dyn Detach>>, DeviceError> {
-        let nvmf_key: String = format!("uuid.{}", uuid.to_string());
+        let nvmf_key: String = format!("uuid.{}", uuid);
 
         let mut enumerator = Enumerator::new()?;
 
@@ -114,7 +114,7 @@ impl Device {
             {
                 return Ok(Some(Box::new(nvmf::NvmfDetach::new(
                     devname.to_string(),
-                    format!("{}:nexus-{}", NVME_NQN_PREFIX, uuid.to_string()),
+                    format!("{}:nexus-{}", NVME_NQN_PREFIX, uuid),
                 ))));
             }
         }

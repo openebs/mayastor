@@ -14,15 +14,15 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-use spdk_sys::{spdk_log_get_print_level, spdk_log_level};
+use spdk_rs::libspdk::{spdk_log_get_print_level, spdk_log_level};
 
 fn from_spdk_level(level: spdk_log_level) -> log::Level {
     match level {
-        spdk_sys::SPDK_LOG_ERROR => log::Level::Error,
-        spdk_sys::SPDK_LOG_WARN => log::Level::Warn,
-        spdk_sys::SPDK_LOG_INFO => log::Level::Info,
-        spdk_sys::SPDK_LOG_NOTICE => log::Level::Debug,
-        spdk_sys::SPDK_LOG_DEBUG => log::Level::Trace,
+        spdk_rs::libspdk::SPDK_LOG_ERROR => log::Level::Error,
+        spdk_rs::libspdk::SPDK_LOG_WARN => log::Level::Warn,
+        spdk_rs::libspdk::SPDK_LOG_INFO => log::Level::Info,
+        spdk_rs::libspdk::SPDK_LOG_NOTICE => log::Level::Debug,
+        spdk_rs::libspdk::SPDK_LOG_DEBUG => log::Level::Trace,
         // any other level unknown to us is logged as an error
         _ => log::Level::Error,
     }
@@ -43,7 +43,7 @@ pub extern "C" fn log_impl(
     buf: *const c_char,
     _n: i32, // the number of bytes written into buf
 ) {
-    if spdk_level == spdk_sys::SPDK_LOG_DISABLED {
+    if spdk_level == spdk_rs::libspdk::SPDK_LOG_DISABLED {
         return;
     }
 

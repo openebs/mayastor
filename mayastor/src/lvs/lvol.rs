@@ -11,13 +11,16 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
+    spdk_bdev_io,
+    spdk_bdev_io_get_thread,
     spdk_blob_get_xattr_value,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_lvol,
+    spdk_nvmf_request_complete,
     vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
@@ -26,7 +29,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_bdev::Nexus,
+    bdev::nexus::Nexus,
     core::{Bdev, CoreError, Mthread, Protocol, Share},
     ffihelper::{
         cb_arg,
@@ -88,7 +91,7 @@ impl TryFrom<Bdev> for Lvol {
         } else {
             Err(Error::NotALvol {
                 source: Errno::EINVAL,
-                name: b.name(),
+                name: b.name().to_string(),
             })
         }
     }
@@ -209,7 +212,7 @@ impl Lvol {
 
     /// returns the name of the bdev
     pub fn name(&self) -> String {
-        self.as_bdev().name()
+        self.as_bdev().name().to_string()
     }
 
     /// returns the UUID of the lvol
@@ -436,7 +439,7 @@ impl Lvol {
 
             // From nvmf_bdev_ctrlr_complete_cmd
             unsafe {
-                spdk_sys::spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
+                spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
             }
         }
 
@@ -456,7 +459,7 @@ impl Lvol {
     /// Create snapshot for local replica
     pub async fn create_snapshot_local(
         &self,
-        io: *mut spdk_sys::spdk_bdev_io,
+        io: *mut spdk_bdev_io,
         snapshot_name: &str,
     ) {
         extern "C" fn snapshot_done_cb(
@@ -468,10 +471,8 @@ impl Lvol {
                 error!("vbdev_lvol_create_snapshot errno {}", errno);
             }
             // Must complete IO on thread IO was submitted from
-            Mthread::from(unsafe {
-                spdk_sys::spdk_bdev_io_get_thread(bio_ptr.cast())
-            })
-            .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
+            Mthread::from(unsafe { spdk_bdev_io_get_thread(bio_ptr.cast()) })
+                .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
         }
 
         let c_snapshot_name = snapshot_name.into_cstring();
