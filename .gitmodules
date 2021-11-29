@@ -3,4 +3,4 @@
 	url = https://github.com/openebs/mayastor-api
 [submodule "spdk-rs"]
 	path = spdk-rs
-	url = git@mayadata.github.com:mayadata-io/spdk-rs.git
+	url = https://github.com/mayadata-io/spdk-rs

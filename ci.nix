@@ -33,7 +33,9 @@ mkShell {
     git
     kubernetes-helm
     libaio
+    libbsd
     libiscsi
+    libpcap
     libudev
     liburing
     llvmPackages_11.libclang
