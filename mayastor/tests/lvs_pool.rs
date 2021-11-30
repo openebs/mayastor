@@ -41,19 +41,6 @@ async fn lvs_pool_test() {
     })
     .await;
 
-    // returns OK when the pool is already there and we create
-    // it again
-    ms.spawn(async {
-        assert!(Lvs::create_or_import(PoolArgs {
-            name: "tpool".into(),
-            disks: vec!["aio:///tmp/disk1.img".into()],
-            uuid: None,
-        })
-        .await
-        .is_ok())
-    })
-    .await;
-
     // should fail to create the pool again, notice that we use
     // create directly here to ensure that if we
     // have an idempotent snafu, we dont crash and

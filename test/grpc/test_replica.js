@@ -195,10 +195,6 @@ describe('replica', function () {
     );
   });
 
-  it('should succeed if creating a pool that already exists', (done) => {
-    client.createPool({ name: POOL, disks: disks }, done);
-  });
-
   it('should list the pool', (done) => {
     client.listPools({}, (err, res) => {
       if (err) return done(err);
