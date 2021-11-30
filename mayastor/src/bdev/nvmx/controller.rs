@@ -59,6 +59,7 @@ use crate::{
     },
     ffihelper::{cb_arg, done_cb},
     nexus_uri::NexusBdevError,
+    sleep::mayastor_sleep,
 };
 
 #[derive(Debug)]
@@ -352,6 +353,7 @@ impl<'a> NvmeController<'a> {
         channel: &mut NvmeIoChannelInner,
         ctx: &mut ShutdownCtx,
     ) -> i32 {
+        debug!(?ctx.name, "shutting down I/O channel");
         let rc = channel.shutdown();
 
         if rc == 0 {
@@ -927,13 +929,34 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
 
     // Notify the listeners.
     debug!(?name, "notifying listeners about device removal");
-    let controller = carc.lock();
-    let num_listeners = controller.notify_event(DeviceEventType::DeviceRemoved);
-    debug!(
-        ?name,
-        ?num_listeners,
-        "listeners notified about device removal"
-    );
+    {
+        let controller = carc.lock();
+        let num_listeners =
+            controller.notify_event(DeviceEventType::DeviceRemoved);
+        debug!(
+            ?name,
+            ?num_listeners,
+            "listeners notified about device removal"
+        );
+    }
+
+    let mut carc = carc;
+    loop {
+        match Arc::try_unwrap(carc) {
+            Ok(i) => {
+                drop(i);
+                break;
+            }
+            Err(ret) => {
+                warn!(?name, "delaying controller destroy");
+                let rx = mayastor_sleep(std::time::Duration::from_millis(250));
+                if rx.await.is_err() {
+                    error!("failed to wait for mayastor_sleep");
+                }
+                carc = ret;
+            }
+        }
+    }
 
     Ok(())
 }
