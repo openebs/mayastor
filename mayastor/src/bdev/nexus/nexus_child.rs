@@ -292,6 +292,11 @@ impl NexusChild {
         )
     }
 
+    /// Check if we're healthy
+    pub(crate) fn is_healthy(&self) -> bool {
+        self.state() == ChildState::Open
+    }
+
     /// Register an NVMe reservation, specifying a new key
     async fn resv_register(
         &self,

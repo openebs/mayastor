@@ -264,6 +264,26 @@ impl Nexus {
             });
         }
 
+        let healthy_children = self
+            .children
+            .iter()
+            .filter(|c| c.is_healthy())
+            .collect::<Vec<_>>();
+
+        let have_healthy_children = !healthy_children.is_empty();
+        let other_healthy_children = healthy_children
+            .into_iter()
+            .filter(|c| c.get_name() != uri)
+            .count()
+            > 0;
+
+        if have_healthy_children && !other_healthy_children {
+            return Err(Error::DestroyLastHealthyChild {
+                name: self.name.clone(),
+                child: uri.to_owned(),
+            });
+        }
+
         let cancelled_rebuilding_children =
             self.cancel_child_rebuild_jobs(uri).await;
 
