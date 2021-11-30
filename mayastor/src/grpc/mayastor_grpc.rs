@@ -9,12 +9,7 @@
 //! without the need for setting up a grpc client.
 
 use crate::{
-    bdev::{
-        nexus::{instances, nexus_bdev},
-        nexus_create,
-        nexus_create_v2,
-        Reason,
-    },
+    bdev::nexus,
     core::{
         Bdev,
         BlockDeviceIoStats,
@@ -25,7 +20,6 @@ use crate::{
     },
     grpc::{
         controller_grpc::{controller_stats, list_controllers},
-        mayastor_grpc::nexus_bdev::NexusNvmeParams,
         nexus_grpc::{
             nexus_add_child,
             nexus_destroy,
@@ -42,11 +36,14 @@ use crate::{
     nexus_uri::NexusBdevError,
     subsys::PoolConfig,
 };
+
 use futures::FutureExt;
 use nix::errno::Errno;
 use rpc::mayastor::*;
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, time::Duration};
 use tonic::{Request, Response, Status};
+
+/// TODO
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
@@ -68,6 +65,7 @@ impl GrpcClientContext {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct MayastorSvc {
     name: String,
     interval: Duration,
@@ -545,7 +543,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
             let mut replicas = Vec::new();
             for l in lvols {
-                let stats = l.as_bdev().stats().await;
+                let stats = l.as_bdev().stats_async().await;
                 if stats.is_err() {
                     error!("failed to get stats for lvol: {}", l);
                 }
@@ -640,10 +638,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     let uuid = args.uuid.clone();
                     let name = uuid_to_name(&args.uuid)?;
-                    nexus_create(
+                    nexus::nexus_create(
                         &name,
                         args.size,
                         Some(&args.uuid),
@@ -672,12 +670,12 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
-                    nexus_create_v2(
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus::nexus_create_v2(
                         &args.name,
                         args.size,
                         Some(&args.uuid),
-                        NexusNvmeParams {
+                        nexus::NexusNvmeParams {
                             min_cntlid: args.min_cntl_id as u16,
                             max_cntlid: args.max_cntl_id as u16,
                             resv_key: args.resv_key,
@@ -710,7 +708,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     let args = request.into_inner();
                     trace!("{:?}", args);
                     nexus_destroy(&args.uuid).await?;
@@ -733,12 +731,11 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let args = request.into_inner();
         trace!("{:?}", args);
 
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             Ok(ListNexusReply {
-                nexus_list: instances()
-                    .iter()
+                nexus_list: nexus::nexus_iter()
                     .filter(|n| {
-                        n.state.lock().deref() != &nexus_bdev::NexusState::Init
+                        n.state.lock().deref() != &nexus::NexusState::Init
                     })
                     .map(|n| n.to_grpc())
                     .collect::<Vec<_>>(),
@@ -758,11 +755,11 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let args = request.into_inner();
         trace!("{:?}", args);
 
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             let mut nexus_list: Vec<NexusV2> = Vec::new();
 
-            for n in instances() {
-                if n.state.lock().deref() != &nexus_bdev::NexusState::Init {
+            for n in nexus::nexus_iter() {
+                if n.state.lock().deref() != &nexus::NexusState::Init {
                     nexus_list.push(n.to_grpc_v2().await);
                 }
             }
@@ -783,7 +780,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         request: Request<AddChildNexusRequest>,
     ) -> GrpcResult<Child> {
         let args = request.into_inner();
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             trace!("{:?}", args);
             let uuid = args.uuid.clone();
             debug!("Adding child {} to nexus {} ...", args.uri, uuid);
@@ -802,7 +799,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<RemoveChildNexusRequest>,
     ) -> GrpcResult<Null> {
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             let args = request.into_inner();
             trace!("{:?}", args);
             let uuid = args.uuid.clone();
@@ -822,14 +819,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<FaultNexusChildRequest>,
     ) -> GrpcResult<Null> {
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             let args = request.into_inner();
             trace!("{:?}", args);
             let uuid = args.uuid.clone();
             let uri = args.uri.clone();
             debug!("Faulting child {} on nexus {}", uri, uuid);
             nexus_lookup(&args.uuid)?
-                .fault_child(&args.uri, Reason::Rpc)
+                .fault_child(&args.uri, nexus::Reason::Rpc)
                 .await?;
             info!("Faulted child {} on nexus {}", uri, uuid);
             Ok(Null {})
@@ -845,14 +842,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<PublishNexusRequest>,
     ) -> GrpcResult<PublishNexusReply> {
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async {
+        let rx = rpc_submit::<_, _, nexus::Error>(async {
             let args = request.into_inner();
             trace!("{:?}", args);
             let uuid = args.uuid.clone();
             debug!("Publishing nexus {} ...", uuid);
 
             if !args.key.is_empty() && args.key.len() != 16 {
-                return Err(nexus_bdev::Error::InvalidKey {});
+                return Err(nexus::Error::InvalidKey {});
             }
 
             let key: Option<String> = if args.key.is_empty() {
@@ -865,7 +862,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             {
                 Some(protocol) => protocol,
                 None => {
-                    return Err(nexus_bdev::Error::InvalidShareProtocol {
+                    return Err(nexus::Error::InvalidShareProtocol {
                         sp_value: args.share as i32,
                     });
                 }
@@ -889,7 +886,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<UnpublishNexusRequest>,
     ) -> GrpcResult<Null> {
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async {
+        let rx = rpc_submit::<_, _, nexus::Error>(async {
             let args = request.into_inner();
             trace!("{:?}", args);
             let uuid = args.uuid.clone();
@@ -913,7 +910,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let uuid = args.uuid.clone();
         debug!("Getting NVMe ANA state for nexus {} ...", uuid);
 
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             let ana_state = nexus_lookup(&args.uuid)?.get_ana_state().await?;
             info!("Got nexus {} NVMe ANA state {:?}", uuid, ana_state);
             Ok(GetNvmeAnaStateReply {
@@ -935,11 +932,11 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let uuid = args.uuid.clone();
         debug!("Setting NVMe ANA state for nexus {} ...", uuid);
 
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
             let ana_state = match NvmeAnaState::from_i32(args.ana_state) {
                 Some(ana_state) => ana_state,
                 None => {
-                    return Err(nexus_bdev::Error::InvalidNvmeAnaState {
+                    return Err(nexus::Error::InvalidNvmeAnaState {
                         ana_value: args.ana_state as i32,
                     });
                 }
@@ -965,14 +962,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     let args = request.into_inner();
                     trace!("{:?}", args);
 
                     let onl = match args.action {
                         1 => Ok(true),
                         0 => Ok(false),
-                        _ => Err(nexus_bdev::Error::InvalidKey {}),
+                        _ => Err(nexus::Error::InvalidKey {}),
                     }?;
 
                     let nexus = nexus_lookup(&args.uuid)?;
@@ -1004,7 +1001,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.uuid)?
                         .start_rebuild(&args.uri)
                         .await
@@ -1031,7 +1028,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.uuid)?.stop_rebuild(&args.uri).await?;
 
                     Ok(Null {})
@@ -1055,7 +1052,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let msg = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&msg.uuid)?.pause_rebuild(&msg.uri).await?;
 
                     Ok(Null {})
@@ -1079,7 +1076,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let msg = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&msg.uuid)?.resume_rebuild(&msg.uri).await?;
                     Ok(Null {})
                 })?;
@@ -1102,7 +1099,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     trace!("{:?}", args);
                     nexus_lookup(&args.uuid)?.get_rebuild_state(&args.uri).await
                 })?;
@@ -1126,7 +1123,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.uuid)?.get_rebuild_stats(&args.uri).await
                 })?;
                 rx.await
@@ -1148,7 +1145,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.uuid)?.get_rebuild_progress(&args.uri)
                 })?;
 
@@ -1165,7 +1162,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateSnapshotRequest>,
     ) -> GrpcResult<CreateSnapshotReply> {
-        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async {
+        let rx = rpc_submit::<_, _, nexus::Error>(async {
             let args = request.into_inner();
             let uuid = args.uuid.clone();
             debug!("Creating snapshot on nexus {} ...", uuid);

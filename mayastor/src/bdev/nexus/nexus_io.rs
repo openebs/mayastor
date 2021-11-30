@@ -1,87 +1,73 @@
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
-    ptr::NonNull,
+    pin::Pin,
 };
 
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk_sys::{spdk_bdev_io, spdk_bdev_io_get_buf, spdk_io_channel};
-
-use crate::{
-    bdev::{
-        nexus::{
-            nexus_bdev::NEXUS_PRODUCT_ID,
-            nexus_channel::{NexusChannel, NexusChannelInner},
-        },
-        nexus_lookup,
-        Nexus,
-        NexusStatus,
-    },
-    core::{
-        Bio,
-        BlockDevice,
-        BlockDeviceHandle,
-        CoreError,
-        Cores,
-        GenericStatusCode,
-        IoCompletionStatus,
-        IoStatus,
-        IoType,
-        Mthread,
-        NvmeCommandStatus,
-        Reactors,
-    },
+use spdk_rs::{
+    libspdk::{spdk_bdev_io, spdk_io_channel},
+    BdevIo,
 };
 
-#[allow(unused_macros)]
-macro_rules! offset_of {
-    ($container:ty, $field:ident) => {
-        unsafe { &(*(0usize as *const $container)).$field as *const _ as usize }
-    };
-}
+use super::{
+    nexus_lookup_mut,
+    Nexus,
+    NexusChannel,
+    NexusChannelInner,
+    NexusStatus,
+    NEXUS_PRODUCT_ID,
+};
 
-#[allow(unused_macros)]
-macro_rules! container_of {
-    ($ptr:ident, $container:ty, $field:ident) => {{
-        (($ptr as usize) - offset_of!($container, $field)) as *mut $container
-    }};
-}
+use crate::core::{
+    BlockDevice,
+    BlockDeviceHandle,
+    CoreError,
+    Cores,
+    GenericStatusCode,
+    IoCompletionStatus,
+    IoStatus,
+    IoType,
+    Mthread,
+    NvmeCommandStatus,
+    Reactors,
+};
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub(crate) struct NexusBio(Bio);
+pub(crate) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
 
-impl DerefMut for NexusBio {
+impl DerefMut for NexusBio<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl Deref for NexusBio {
-    type Target = Bio;
+impl<'n> Deref for NexusBio<'n> {
+    type Target = BdevIo<Nexus<'n>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<*mut c_void> for NexusBio {
-    fn from(ptr: *mut c_void) -> Self {
-        Self(Bio::from(ptr))
-    }
-}
-
-impl From<*mut spdk_bdev_io> for NexusBio {
+impl<'n> From<*mut spdk_bdev_io> for NexusBio<'n> {
     fn from(ptr: *mut spdk_bdev_io) -> Self {
-        Self(Bio::from(ptr))
+        Self(BdevIo::<Nexus<'n>>::legacy_from_ptr(ptr))
     }
 }
 
-impl NexusBio {
+impl<'n> From<BdevIo<Nexus<'n>>> for NexusBio<'n> {
+    fn from(io: BdevIo<Nexus<'n>>) -> Self {
+        Self(io)
+    }
+}
+
+impl NexusBio<'_> {
     fn as_ptr(&self) -> *mut spdk_bdev_io {
-        self.0.as_ptr()
+        self.0.legacy_as_ptr()
     }
 }
 
@@ -94,7 +80,7 @@ pub struct NioCtx {
     /// intermediate status of the IO
     status: IoStatus,
     /// a reference to  our channel
-    channel: NonNull<spdk_io_channel>,
+    channel: spdk_rs::IoChannel<NexusChannel>,
     /// the IO must fail regardless of when it completes
     must_fail: bool,
 }
@@ -128,20 +114,28 @@ pub(crate) fn nexus_submit_io(mut io: NexusBio) {
     }
 }
 
-impl NexusBio {
+impl<'n> NexusBio<'n> {
     /// helper function to wrap the raw pointers into new types. From here we
     /// should not be dealing with any raw pointers.
-    pub unsafe fn nexus_bio_setup(
-        channel: *mut spdk_sys::spdk_io_channel,
-        io: *mut spdk_sys::spdk_bdev_io,
+    pub fn nexus_bio_setup(
+        channel: spdk_rs::IoChannel<NexusChannel>,
+        io: spdk_rs::BdevIo<Nexus<'n>>,
     ) -> Self {
+        // NexusBio::nexus_bio_setup(channel.legacy_as_ptr(),
+        // io.legacy_as_ptr())
         let mut bio = NexusBio::from(io);
-        let ctx = bio.ctx_as_mut();
-        ctx.channel = NonNull::new(channel).unwrap();
+        let ctx = bio.ctx_mut();
+        ctx.channel = channel;
         ctx.status = IoStatus::Pending;
         ctx.in_flight = 0;
         ctx.must_fail = false;
         bio
+    }
+
+    /// assess the IO if we need to mark it failed or ok.
+    /// obtain the Nexus struct embedded within the bdev
+    pub(crate) fn nexus_as_ref(&self) -> Pin<&Nexus> {
+        self.bdev_checked(NEXUS_PRODUCT_ID).data()
     }
 
     /// invoked when a nexus IO completes
@@ -156,17 +150,17 @@ impl NexusBio {
 
     #[inline(always)]
     /// a mutable reference to the IO context
-    pub fn ctx_as_mut(&mut self) -> &mut NioCtx {
-        self.specific_as_mut::<NioCtx>()
+    pub fn ctx_mut(&mut self) -> &mut NioCtx {
+        self.driver_ctx_mut::<NioCtx>()
     }
 
     #[inline(always)]
     /// immutable reference to the IO context
     pub fn ctx(&self) -> &NioCtx {
-        self.specific::<NioCtx>()
+        self.driver_ctx::<NioCtx>()
     }
 
-    /// returns the type of command for this IO
+    /// Returns the type of command for this IO.
     #[inline(always)]
     fn cmd(&self) -> IoType {
         self.io_type()
@@ -180,7 +174,7 @@ impl NexusBio {
     ) {
         let success = status == IoCompletionStatus::Success;
 
-        self.ctx_as_mut().in_flight -= 1;
+        self.ctx_mut().in_flight -= 1;
 
         if success {
             self.ok_checked();
@@ -192,8 +186,8 @@ impl NexusBio {
                 child.device_name(),
                 self.ctx()
             );
-            self.ctx_as_mut().status = IoStatus::Failed;
-            self.ctx_as_mut().must_fail = true;
+            self.ctx_mut().status = IoStatus::Failed;
+            self.ctx_mut().must_fail = true;
             self.handle_failure(child, status);
         }
     }
@@ -226,12 +220,10 @@ impl NexusBio {
     #[inline]
     pub fn retry_checked(&mut self) {
         if self.ctx().in_flight == 0 {
-            let bio = unsafe {
-                Self::nexus_bio_setup(
-                    self.ctx().channel.as_ptr(),
-                    self.as_ptr(),
-                )
-            };
+            let bio = Self::nexus_bio_setup(
+                self.ctx().channel.clone(),
+                self.0.clone(),
+            );
             debug!(?self, "resubmitting IO");
             nexus_submit_io(bio);
         }
@@ -239,16 +231,19 @@ impl NexusBio {
 
     /// reference to the inner channels. The inner channel contains the specific
     /// per-core data structures.
-    #[allow(clippy::mut_from_ref)]
-    fn inner_channel(&self) -> &mut NexusChannelInner {
-        NexusChannel::inner_from_channel(self.ctx().channel.as_ptr())
+    fn inner_channel(&self) -> &NexusChannelInner {
+        self.ctx().channel.channel_data().inner()
     }
 
-    //TODO make const
+    /// mutable reference to the inner channels. The inner channel contains the
+    /// specific per-core data structures.
+    fn inner_channel_mut(&mut self) -> &mut NexusChannelInner {
+        self.ctx_mut().channel.channel_data_mut().inner_mut()
+    }
+
+    // TODO make const
     fn data_ent_offset(&self) -> u64 {
-        let b = self.bdev();
-        assert_eq!(b.product_name(), NEXUS_PRODUCT_ID);
-        unsafe { Nexus::from_raw((*b.as_ptr()).ctxt) }.data_ent_offset
+        self.nexus_as_ref().data_ent_offset
     }
 
     /// helper routine to get a channel to read from
@@ -275,9 +270,7 @@ impl NexusBio {
 
     /// submit a read operation
     fn do_readv(&mut self) -> Result<(), CoreError> {
-        let inner = self.inner_channel();
-
-        if let Some(i) = inner.child_select() {
+        if let Some(i) = self.inner_channel_mut().child_select() {
             let hdl = self.read_channel_at_index(i);
             let r = self.submit_read(hdl);
 
@@ -296,6 +289,8 @@ impl NexusBio {
                 trace!(
                     "(core: {} thread: {}): read IO to {} submission failed with error {:?}",
                     Cores::current(), Mthread::current().unwrap().name(), device, r);
+
+                let inner = self.inner_channel_mut();
                 let must_retire = inner.fault_child(&device);
                 if must_retire {
                     self.do_retire(device);
@@ -303,7 +298,7 @@ impl NexusBio {
 
                 self.fail();
             } else {
-                self.ctx_as_mut().in_flight = 1;
+                self.ctx_mut().in_flight = 1;
             }
             r
         } else {
@@ -336,13 +331,9 @@ impl NexusBio {
 
     /// submit read IO to some child
     fn readv(&mut self) -> Result<(), CoreError> {
-        if self.0.need_buf() {
+        if self.need_buf() {
             unsafe {
-                spdk_bdev_io_get_buf(
-                    self.0.as_ptr(),
-                    Some(Self::nexus_get_buf_cb),
-                    self.0.num_blocks() * self.0.block_len(),
-                )
+                self.alloc_buffer(Self::nexus_get_buf_cb);
             }
             Ok(())
         } else {
@@ -445,8 +436,8 @@ impl NexusBio {
         if result.is_err() {
             let device = failed_device.unwrap();
             // set the IO as failed in the submission stage.
-            self.ctx_as_mut().must_fail = true;
-            if self.inner_channel().remove_child(&device) {
+            self.ctx_mut().must_fail = true;
+            if self.inner_channel_mut().remove_child(&device) {
                 self.do_retire(device);
             }
         }
@@ -455,8 +446,8 @@ impl NexusBio {
         if inflight != 0 {
             // An error was experienced during submission. Some IO however, has
             // been submitted successfully prior to the error condition.
-            self.ctx_as_mut().in_flight = inflight;
-            self.ctx_as_mut().status = IoStatus::Success;
+            self.ctx_mut().in_flight = inflight;
+            self.ctx_mut().status = IoStatus::Success;
             self.ok_checked();
             return result;
         }
@@ -467,7 +458,7 @@ impl NexusBio {
     }
 
     fn do_retire(&self, child: String) {
-        Reactors::master().send_future(Self::child_retire(
+        Reactors::master().send_future(nexus_child_retire(
             self.nexus_as_ref().name.clone(),
             child,
         ));
@@ -516,7 +507,7 @@ impl NexusBio {
 
         let child = child.device_name();
         // check if this child needs to be retired
-        let needs_retire = self.inner_channel().fault_child(&child);
+        let needs_retire = self.inner_channel_mut().fault_child(&child);
         // The child state was not faulted yet, so this is the first IO
         // to this child for which we encountered an error.
         if needs_retire {
@@ -530,22 +521,22 @@ impl NexusBio {
 
         self.fail_checked();
     }
+}
 
-    /// Retire a child for this nexus.
-    async fn child_retire(nexus_name: String, device: String) {
-        if let Some(nexus) = nexus_lookup(&nexus_name) {
-            warn!(?nexus, ?device, "retiring child");
+/// Retire a child for this nexus.
+async fn nexus_child_retire(nexus_name: String, device: String) {
+    if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
+        warn!(?nexus, ?device, "retiring child");
 
-            if let Err(e) = nexus.child_retire(device.clone()).await {
-                error!(?e, "double pause which we cant sneak in...");
-                Reactors::current()
-                    .send_future(Self::child_retire(nexus_name, device));
-                return;
-            }
+        if let Err(e) = nexus.as_mut().child_retire(device.clone()).await {
+            error!(?e, "double pause which we cant sneak in...");
+            Reactors::current()
+                .send_future(nexus_child_retire(nexus_name, device));
+            return;
+        }
 
-            if matches!(nexus.status(), NexusStatus::Faulted) {
-                warn!(?nexus, "no children left");
-            }
+        if matches!(nexus.status(), NexusStatus::Faulted) {
+            warn!(?nexus, "no children left");
         }
     }
 }

@@ -33,7 +33,9 @@ mkShell {
     git
     kubernetes-helm
     libaio
+    libbsd
     libiscsi
+    libpcap
     libudev
     liburing
     llvmPackages_11.libclang
@@ -62,8 +64,6 @@ mkShell {
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
-    ${pkgs.lib.optionalString (nospdk)
-    ''export RUSTFLAGS="-C link-args=-Wl,-rpath,$(pwd)/spdk-sys/spdk"''}
     ${pkgs.lib.optionalString (nospdk) "echo"}
     ${pkgs.lib.optionalString (norust) "cowsay ${norust_moth}"}
     ${pkgs.lib.optionalString (norust) "echo 'Hint: use rustup tool.'"}

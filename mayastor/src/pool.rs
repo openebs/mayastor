@@ -6,7 +6,7 @@
 use std::{ffi::CStr, os::raw::c_char};
 
 use ::rpc::mayastor as rpc;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -120,9 +120,9 @@ impl From<Pool> for rpc::Pool {
         rpc::Pool {
             name: pool.get_name().to_owned(),
             disks: vec![
-                pool.get_base_bdev().driver()
+                pool.get_base_bdev().driver().to_string()
                     + "://"
-                    + &pool.get_base_bdev().name(),
+                    + pool.get_base_bdev().name(),
             ],
             // TODO: figure out how to detect state of pool
             state: rpc::PoolState::PoolOnline as i32,

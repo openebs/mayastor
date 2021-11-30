@@ -34,7 +34,7 @@
 //!    let now = SystemTime::now();
 //!    let mut object = MetaDataObject::new();
 //!    object.children.push(MetaDataChildEntry {
-//!        guid: Guid::new_random(),
+//!        guid: GptGuid::new_random(),
 //!        state: 0,
 //!    });
 //!    object.generation = 1;
@@ -57,13 +57,9 @@ use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 
-use crate::{
-    bdev::nexus::{
-        nexus_child::NexusChild,
-        nexus_label::{GptGuid as Guid, NexusLabel},
-    },
-    core::{CoreError, DmaBuf, DmaError},
-};
+use super::{GptGuid, NexusChild, NexusLabel};
+use crate::core::CoreError;
+use spdk_rs::{DmaBuf, DmaError};
 
 #[derive(Debug, Snafu)]
 pub enum MetaDataError {
@@ -121,7 +117,7 @@ pub enum MetaDataError {
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct MetaDataChildEntry {
-    pub guid: Guid,
+    pub guid: GptGuid,
     pub state: u16,
 }
 
@@ -288,8 +284,8 @@ pub struct MetaDataIndex {
     pub signature: [u8; 8],
     pub index_size: u32,
     pub self_checksum: u32,
-    pub parent: Guid,
-    pub guid: Guid,
+    pub parent: GptGuid,
+    pub guid: GptGuid,
     pub generation: u64,
     pub timestamp: u128,
     pub self_lba: u64,
@@ -335,8 +331,8 @@ impl MetaDataIndex {
     }
 
     pub fn new(
-        parent: Guid,
-        guid: Guid,
+        parent: GptGuid,
+        guid: GptGuid,
         index_lba: u64,
         total_entries: u64,
     ) -> MetaDataIndex {
@@ -429,7 +425,7 @@ impl NexusMetaData {
     /// Check that a valid MetaDataIndex exists on the MayaMeta partition,
     /// and that it is consistent with the NexusChild object.
     pub async fn validate_index(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
     ) -> Result<(), MetaDataError> {
         if let Some(index) = NexusMetaData::get_index(child).await? {
             if child.guid == index.guid {
@@ -444,7 +440,7 @@ impl NexusMetaData {
 
     /// Write a new index to the MayaMeta partition.
     pub async fn create_index(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
         index: &mut MetaDataIndex,
         now: &SystemTime,
     ) -> Result<(), MetaDataError> {
@@ -475,7 +471,7 @@ impl NexusMetaData {
 
     /// Retrieve existing index from the MayaMeta partition.
     pub async fn get_index(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
     ) -> Result<Option<MetaDataIndex>, MetaDataError> {
         if child.metadata_index_lba == 0 {
             return Err(MetaDataError::IndexAddressNotSet {
@@ -513,7 +509,7 @@ impl NexusMetaData {
 
     /// Add (append) a new entry to the index.
     pub async fn add(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
         object: &mut MetaDataObject,
         now: &SystemTime,
     ) -> Result<(), MetaDataError> {
@@ -587,7 +583,7 @@ impl NexusMetaData {
 
     /// Update (overwrite) the most recent index entry.
     pub async fn update(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
         object: &mut MetaDataObject,
         now: &SystemTime,
     ) -> Result<(), MetaDataError> {
@@ -651,7 +647,7 @@ impl NexusMetaData {
 
     /// Remove the most recent entry from the index.
     pub async fn remove(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
         now: &SystemTime,
     ) -> Result<Option<MetaDataObject>, MetaDataError> {
         if child.metadata_index_lba == 0 {
@@ -718,7 +714,7 @@ impl NexusMetaData {
 
     /// Get the most recent entry but do not remove it from the index.
     pub async fn last(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
     ) -> Result<Option<MetaDataObject>, MetaDataError> {
         if child.metadata_index_lba == 0 {
             return Err(MetaDataError::IndexAddressNotSet {
@@ -766,7 +762,7 @@ impl NexusMetaData {
 
     /// Return list of the most recent entries but do not modify the index.
     pub async fn get(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
         count: u64,
     ) -> Result<Vec<MetaDataObject>, MetaDataError> {
         if child.metadata_index_lba == 0 {
@@ -846,7 +842,7 @@ impl NexusMetaData {
 
     /// Purge oldest entries from index.
     pub async fn purge(
-        child: &NexusChild,
+        child: &NexusChild<'_>,
         retain: u64,
         now: &SystemTime,
     ) -> Result<u64, MetaDataError> {

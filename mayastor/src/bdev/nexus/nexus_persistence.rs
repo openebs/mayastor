@@ -1,8 +1,5 @@
-use crate::{
-    bdev::{nexus::nexus_child::NexusChild, ChildState, Nexus},
-    persistent_store::PersistentStore,
-    sleep::mayastor_sleep,
-};
+use super::{ChildState, Nexus, NexusChild};
+use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -40,7 +37,7 @@ pub(crate) enum PersistOp {
     Shutdown,
 }
 
-impl Nexus {
+impl<'n> Nexus<'n> {
     /// Persist information to the store.
     pub(crate) async fn persist(&self, op: PersistOp) {
         if !PersistentStore::enabled() {
@@ -108,7 +105,7 @@ impl Nexus {
     // TODO: Should we give up retrying eventually?
     async fn save(&self, info: &NexusInfo) {
         let mut output_err = true;
-        let nexus_uuid = self.bdev.uuid().to_string();
+        let nexus_uuid = self.bdev().uuid().to_string();
         loop {
             match PersistentStore::put(&nexus_uuid, info).await {
                 Ok(_) => {

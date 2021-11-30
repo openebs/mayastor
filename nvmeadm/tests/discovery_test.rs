@@ -32,22 +32,18 @@ const TARGET_PORT: u32 = 9523;
 fn create_config_file(config_file: &str, nvmf_port: &str) {
     let path = Path::new(config_file);
     let mut config = match File::create(&path) {
-        Err(reason) => panic!(
-            "Unable to create {}: {}",
-            path.display(),
-            reason.to_string()
-        ),
+        Err(reason) => {
+            panic!("Unable to create {}: {}", path.display(), reason)
+        }
         Ok(config) => config,
     };
 
     let after = CONFIG_TEXT.replace("NVMF_PORT", nvmf_port);
 
     match config.write_all(after.as_bytes()) {
-        Err(reason) => panic!(
-            "Unable to write to {}: {}",
-            path.display(),
-            reason.to_string()
-        ),
+        Err(reason) => {
+            panic!("Unable to write to {}: {}", path.display(), reason)
+        }
         Ok(_) => println!("Wrote to file"),
     }
 }

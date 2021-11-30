@@ -15,4 +15,5 @@ members = [
 	"rpc",
 	"sysfs",
 	"composer",
+	"spdk-rs",
 ]

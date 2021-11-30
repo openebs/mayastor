@@ -20,7 +20,7 @@ use rpc::mayastor::{
     ShareProtocolNexus,
 };
 
-use mayastor::bdev::{ChildInfo, NexusInfo};
+use mayastor::bdev::nexus::{ChildInfo, NexusInfo};
 
 use std::{convert::TryFrom, thread::sleep, time::Duration};
 use url::Url;

@@ -42,7 +42,13 @@ impl fmt::Debug for NvmfDiscRspPageHdr {
 
 impl Default for NvmfDiscRspPageHdr {
     fn default() -> Self {
-        NvmfDiscRspPageHdr {
+        Self::new()
+    }
+}
+
+impl NvmfDiscRspPageHdr {
+    fn new() -> Self {
+        Self {
             ..unsafe { std::mem::zeroed() }
         }
     }
@@ -88,9 +94,16 @@ pub struct NvmfDiscRspPageEntry {
     pub traddr: [c_char; 256usize],
     pub tsas: NvmfDiscRspPageEntryTsas,
 }
+
 impl Default for NvmfDiscRspPageEntry {
     fn default() -> Self {
-        NvmfDiscRspPageEntry {
+        Self::new()
+    }
+}
+
+impl NvmfDiscRspPageEntry {
+    fn new() -> Self {
+        Self {
             ..unsafe { std::mem::zeroed() }
         }
     }

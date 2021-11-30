@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tonic::Status;
 
 use crate::{
-    bdev::VerboseError,
+    bdev::nexus::VerboseError,
     core::{runtime, Cores, Mthread, Reactor, Share},
     grpc::rpc_submit,
     lvs::{Error as LvsError, Lvs},
@@ -187,7 +187,9 @@ impl From<SpdkPool> for Pool {
         let base = pool.get_base_bdev();
         Self {
             name: pool.get_name().to_string(),
-            disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
+            disks: vec![base
+                .bdev_uri()
+                .unwrap_or_else(|| base.name().to_string())],
             replicas: None,
         }
     }

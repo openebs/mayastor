@@ -58,7 +58,7 @@ impl TryFrom<&str> for BlkDev {
         }
 
         let uuid = Uuid::parse_str(nq[1]).map_err(|e| NqnInvalid {
-            value: format!("the UUID is invalid {}", e.to_string()),
+            value: format!("the UUID is invalid {}", e),
         })?;
 
         match value.scheme() {

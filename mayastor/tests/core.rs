@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use common::MayastorTest;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, util::uring},
+    bdev::{
+        nexus::{nexus_create, nexus_lookup_mut},
+        util::uring,
+    },
     core::{Bdev, BdevHandle, MayastorCliArgs},
     nexus_uri::{bdev_create, bdev_destroy},
 };
@@ -78,7 +81,7 @@ async fn works() {
     let channel = desc.get_channel().expect("failed to get IO channel");
     drop(channel);
     drop(desc);
-    let n = nexus_lookup("core_nexus").expect("nexus not found");
+    let n = nexus_lookup_mut("core_nexus").expect("nexus not found");
     n.destroy().await.unwrap();
 }
 
@@ -88,7 +91,8 @@ async fn core_2() {
         .spawn(async {
             create_nexus().await;
 
-            let n = nexus_lookup("core_nexus").expect("failed to lookup nexus");
+            let n =
+                nexus_lookup_mut("core_nexus").expect("failed to lookup nexus");
 
             let d1 = Bdev::open_by_name("core_nexus", true)
                 .expect("failed to open first desc to nexus");
@@ -168,24 +172,28 @@ async fn core_4() {
                             test_case_index
                         )
                     });
-                    let nexus = nexus_lookup(nexus_name).unwrap();
+                    let mut nexus = nexus_lookup_mut(nexus_name).unwrap();
 
                     if child_ok {
-                        nexus.add_child(BDEVNAME2, true).await.unwrap_or_else(
-                            |_| {
+                        nexus
+                            .as_mut()
+                            .add_child(BDEVNAME2, true)
+                            .await
+                            .unwrap_or_else(|_| {
                                 panic!(
                                     "Case {} - Child should have been added",
                                     test_case_index
                                 )
-                            },
-                        );
+                            });
                     } else {
-                        nexus.add_child(BDEVNAME2, true).await.expect_err(
-                            &format!(
+                        nexus
+                            .as_mut()
+                            .add_child(BDEVNAME2, true)
+                            .await
+                            .expect_err(&format!(
                                 "Case {} - Child should not have been added",
                                 test_case_index
-                            ),
-                        );
+                            ));
                     }
 
                     nexus.destroy().await.unwrap();
@@ -228,9 +236,10 @@ async fn core_5() {
                 )
                 .await
                 .unwrap();
-                let nexus = nexus_lookup(nexus_name).unwrap();
+                let mut nexus = nexus_lookup_mut(nexus_name).unwrap();
                 let device = common::device_path_from_uri(
                     &nexus
+                        .as_mut()
                         .share(ShareProtocolNexus::NexusNbd, None)
                         .await
                         .unwrap(),

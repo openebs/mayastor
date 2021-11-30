@@ -9,7 +9,7 @@ use std::{
 use futures::channel::oneshot;
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
     nvmf_subsystem_set_cntlid_range,
@@ -129,7 +129,7 @@ impl TryFrom<Bdev> for NvmfSubsystem {
                 msg: "already shared".to_string(),
             });
         }
-        let ss = NvmfSubsystem::new(bdev.name().as_str())?;
+        let ss = NvmfSubsystem::new(bdev.name())?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);
         if let Err(e) = ss.add_namespace(&bdev) {
@@ -215,7 +215,7 @@ impl NvmfSubsystem {
 
         if ns_id < 1 {
             Err(Error::Namespace {
-                bdev: bdev.name(),
+                bdev: bdev.name().to_string(),
                 msg: "failed to add namespace ID".to_string(),
             })
         } else {

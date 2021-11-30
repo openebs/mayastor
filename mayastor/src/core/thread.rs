@@ -1,7 +1,7 @@
 use std::ffi::{c_void, CString};
 
 use snafu::Snafu;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_get_thread,
     spdk_set_thread,
     spdk_thread,
