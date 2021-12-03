@@ -140,7 +140,7 @@ impl From<Pool> for rpc::Pool {
 /// PoolArgs is used to translate the input for the grpc
 /// Create/Import requests which comtains name, uuid & disks.
 /// This help us avoid importing grpc structs in the actual lvs mod
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PoolArgs {
     pub name: String,
     pub disks: Vec<String>,

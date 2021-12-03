@@ -160,6 +160,7 @@ impl PoolRpc for PoolSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
+                info!("{:?}", args);
                 match PoolBackend::try_from(args.pooltype)? {
                     PoolBackend::Lvs => {
                         let rx = rpc_submit::<_, _, LvsError>(async move {
@@ -250,7 +251,7 @@ impl PoolRpc for PoolSvc {
                     } else {
                         return Err(LvsError::Invalid {
                             source: Errno::EINVAL,
-                            msg: format!("pool {} not found", args.name,),
+                            msg: format!("pool {} not found", args.name),
                         });
                     }
                     Ok(())
@@ -274,7 +275,7 @@ impl PoolRpc for PoolSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-
+                info!("{:?}", args);
                 let rx = rpc_submit::<_, _, LvsError>(async move {
                     let pool = Lvs::import_from_args(PoolArgs::try_from(args)?)
                         .await?;

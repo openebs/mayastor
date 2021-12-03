@@ -18,6 +18,7 @@ use spdk_rs::libspdk::{
     vbdev_lvol_store_first,
     vbdev_lvol_store_next,
     vbdev_lvs_create,
+    vbdev_lvs_create_with_uuid,
     vbdev_lvs_destruct,
     vbdev_lvs_examine,
     vbdev_lvs_unload,
@@ -199,6 +200,30 @@ impl Lvs {
         uuid::Uuid::from_bytes(t).to_string()
     }
 
+    // checks for the disks length and parses to correct format
+    fn parse_disk(disks: Vec<String>) -> Result<String, Error> {
+        let disk = match disks.first() {
+            Some(disk) if disks.len() == 1 => {
+                if Url::parse(disk).is_err() {
+                    format!("aio://{}", disk)
+                } else {
+                    disk.clone()
+                }
+            }
+            _ => {
+                return Err(Error::Invalid {
+                    source: Errno::EINVAL,
+                    msg: format!(
+                        "invalid number {} of devices {:?}",
+                        disks.len(),
+                        disks,
+                    ),
+                })
+            }
+        };
+        Ok(disk)
+    }
+
     /// imports a pool based on its name and base bdev name
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
@@ -257,32 +282,11 @@ impl Lvs {
     }
 
     /// imports a pool based on its name, uuid and base bdev name
+    #[tracing::instrument(level = "debug", err)]
     pub async fn import_from_args(args: PoolArgs) -> Result<Lvs, Error> {
-        if args.disks.len() != 1 {
-            return Err(Error::Invalid {
-                source: Errno::EINVAL,
-                msg: format!(
-                    "invalid number {} of devices {:?}",
-                    args.disks.len(),
-                    args.disks
-                ),
-            });
-        }
+        let disk = Self::parse_disk(args.disks.clone())?;
 
-        // default to aio if no specific driver scheme is specified
-        let disks = args
-            .disks
-            .iter()
-            .map(|d| {
-                if Url::parse(d).is_err() {
-                    format!("aio://{}", d)
-                } else {
-                    d.clone()
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let parsed = uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
+        let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
             source: e,
             name: args.name.clone(),
         })?;
@@ -347,24 +351,22 @@ impl Lvs {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
             if let Some(uuid) = uuid {
-                let _cuuid = uuid.into_cstring();
-                // after importing vbdev_lvs_create_with_uuid,
-                // vbdev_lvs_create_with_uuid(
-                //     bdev_name.as_ptr(),
-                //     pool_name.as_ptr(),
-                //     cuuid.as_ptr(),
-                //     0,
-                //     // We used to clear a pool with UNMAP but that takes
-                //     // awfully long time on large SSDs (~
-                //     // can take an hour). Clearing the pool
-                //     // is not necessary. Clearing the lvol must be done, but
-                //     // lvols tend to be small so there the overhead is
-                //     // acceptable.
-                //     LVS_CLEAR_WITH_NONE,
-                //     Some(Self::lvs_cb),
-                //     cb_arg(sender),
-                // )
-                todo!("will be able to create pools with uuid");
+                let cuuid = uuid.into_cstring();
+                vbdev_lvs_create_with_uuid(
+                    bdev_name.as_ptr(),
+                    pool_name.as_ptr(),
+                    cuuid.as_ptr(),
+                    0,
+                    // We used to clear a pool with UNMAP but that takes
+                    // awfully long time on large SSDs (~
+                    // can take an hour). Clearing the pool
+                    // is not necessary. Clearing the lvol must be done, but
+                    // lvols tend to be small so there the overhead is
+                    // acceptable.
+                    LVS_CLEAR_WITH_NONE,
+                    Some(Self::lvs_cb),
+                    cb_arg(sender),
+                )
             } else {
                 vbdev_lvs_create(
                     bdev_name.as_ptr(),
@@ -408,32 +410,11 @@ impl Lvs {
     }
 
     /// imports the pool if it exists, otherwise try to create it
+    #[tracing::instrument(level = "debug", err)]
     pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, Error> {
-        if args.disks.len() != 1 {
-            return Err(Error::Invalid {
-                source: Errno::EINVAL,
-                msg: format!(
-                    "invalid number {} of devices {:?}",
-                    args.disks.len(),
-                    args.disks
-                ),
-            });
-        }
+        let disk = Self::parse_disk(args.disks.clone())?;
 
-        // default to aio if no specific driver scheme is specified
-        let disks = args
-            .disks
-            .iter()
-            .map(|d| {
-                if Url::parse(d).is_err() {
-                    format!("aio://{}", d)
-                } else {
-                    d.clone()
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let parsed = uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
+        let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
             source: e,
             name: args.name.clone(),
         })?;
@@ -503,7 +484,8 @@ impl Lvs {
         }
     }
 
-    /// export the given lvl
+    /// export the given lvs
+    #[tracing::instrument(level = "debug", err)]
     pub async fn export(self) -> Result<(), Error> {
         let pool = self.name().to_string();
         let base_bdev = self.base_bdev();
@@ -571,6 +553,7 @@ impl Lvs {
 
     /// destroys the given pool deleting the on disk super blob before doing so,
     /// un share all targets
+    #[tracing::instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<(), Error> {
         let pool = self.name().to_string();
         let (s, r) = pair::<i32>();
