@@ -134,12 +134,18 @@ impl<'n> Nexus<'n> {
                     },
                 )?;
                 let uri = disk.as_uri();
-                self.nexus_target = Some(NexusTarget::NbdDisk(disk));
+                unsafe {
+                    self.as_mut().get_unchecked_mut().nexus_target =
+                        Some(NexusTarget::NbdDisk(disk));
+                }
                 Ok(uri)
             }
             ShareProtocolNexus::NexusIscsi => {
                 let uri = self.share_iscsi().await?;
-                self.nexus_target = Some(NexusTarget::NexusIscsiTarget);
+                unsafe {
+                    self.as_mut().get_unchecked_mut().nexus_target =
+                        Some(NexusTarget::NexusIscsiTarget);
+                }
                 Ok(uri)
             }
             ShareProtocolNexus::NexusNvmf => {
@@ -149,25 +155,31 @@ impl<'n> Nexus<'n> {
                         self.nvme_params.max_cntlid,
                     )))
                     .await?;
-                self.nexus_target = Some(NexusTarget::NexusNvmfTarget);
+
+                unsafe {
+                    self.as_mut().get_unchecked_mut().nexus_target =
+                        Some(NexusTarget::NexusNvmfTarget);
+                }
                 Ok(uri)
             }
         }
     }
 
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
-        match self.nexus_target.take() {
-            Some(NexusTarget::NbdDisk(disk)) => {
-                disk.destroy();
-            }
-            Some(NexusTarget::NexusIscsiTarget) => {
-                self.unshare().await?;
-            }
-            Some(NexusTarget::NexusNvmfTarget) => {
-                self.unshare().await?;
-            }
-            None => {
-                warn!("{} was not shared", self.name);
+        unsafe {
+            match self.as_mut().get_unchecked_mut().nexus_target.take() {
+                Some(NexusTarget::NbdDisk(disk)) => {
+                    disk.destroy();
+                }
+                Some(NexusTarget::NexusIscsiTarget) => {
+                    self.unshare().await?;
+                }
+                Some(NexusTarget::NexusNvmfTarget) => {
+                    self.unshare().await?;
+                }
+                None => {
+                    warn!("{} was not shared", self.name);
+                }
             }
         }
 

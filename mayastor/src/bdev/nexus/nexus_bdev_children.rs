@@ -60,17 +60,27 @@ impl<'n> Nexus<'n> {
     /// phase
     pub fn register_children(mut self: Pin<&mut Self>, dev_name: &[String]) {
         assert_eq!(*self.state.lock(), NexusState::Init);
-        self.child_count = dev_name.len() as u32;
+
+        unsafe {
+            self.as_mut().get_unchecked_mut().child_count =
+                dev_name.len() as u32;
+        }
+
         let nexus_name = self.name.clone();
         dev_name
             .iter()
             .map(|c| {
                 debug!("{}: Adding child {}", self.name, c);
-                self.children.push(NexusChild::new(
-                    c.clone(),
-                    nexus_name.clone(),
-                    device_lookup(c),
-                ))
+
+                unsafe {
+                    self.as_mut().get_unchecked_mut().children.push(
+                        NexusChild::new(
+                            c.clone(),
+                            nexus_name.clone(),
+                            device_lookup(c),
+                        ),
+                    )
+                }
             })
             .for_each(drop);
     }
@@ -84,13 +94,19 @@ impl<'n> Nexus<'n> {
         assert_eq!(*self.state.lock(), NexusState::Init);
         let name = device_create(uri).await?;
         let nexus_name = self.name.clone();
-        self.children.push(NexusChild::new(
-            uri.to_string(),
-            nexus_name,
-            device_lookup(&name),
-        ));
 
-        self.child_count += 1;
+        unsafe {
+            self.as_mut()
+                .get_unchecked_mut()
+                .children
+                .push(NexusChild::new(
+                    uri.to_string(),
+                    nexus_name,
+                    device_lookup(&name),
+                ));
+            self.as_mut().get_unchecked_mut().child_count += 1;
+        }
+
         Ok(())
     }
 
@@ -217,8 +233,10 @@ impl<'n> Nexus<'n> {
                 // Register event listener for newly added child.
                 child.set_event_listener(self.get_event_sink());
 
-                self.children.push(child);
-                self.child_count += 1;
+                unsafe {
+                    self.as_mut().get_unchecked_mut().children.push(child);
+                    self.as_mut().get_unchecked_mut().child_count += 1;
+                }
 
                 self.persist(PersistOp::AddChild((cn, child_state))).await;
 
@@ -280,17 +298,26 @@ impl<'n> Nexus<'n> {
             Some(val) => val,
         };
 
-        if let Err(e) = self.children[idx].close().await {
-            return Err(Error::CloseChild {
-                name: self.name.clone(),
-                child: self.children[idx].get_name().to_string(),
-                source: e,
-            });
+        unsafe {
+            if let Err(e) = self.as_mut().get_unchecked_mut().children[idx]
+                .close()
+                .await
+            {
+                return Err(Error::CloseChild {
+                    name: self.name.clone(),
+                    child: self.children[idx].get_name().to_string(),
+                    source: e,
+                });
+            }
         }
 
         let child_state = self.children[idx].state();
-        self.children.remove(idx);
-        self.child_count -= 1;
+
+        unsafe {
+            self.as_mut().get_unchecked_mut().children.remove(idx);
+            self.as_mut().get_unchecked_mut().child_count -= 1;
+        }
+
         self.persist(PersistOp::Update((uri.to_string(), child_state)))
             .await;
 
@@ -308,15 +335,21 @@ impl<'n> Nexus<'n> {
         let cancelled_rebuilding_children =
             self.cancel_child_rebuild_jobs(name).await;
 
-        if let Some(child) =
-            self.children.iter_mut().find(|c| c.get_name() == name)
-        {
-            child.offline().await;
-        } else {
-            return Err(Error::ChildNotFound {
-                name: self.name.clone(),
-                child: name.to_owned(),
-            });
+        unsafe {
+            if let Some(child) = self
+                .as_mut()
+                .get_unchecked_mut()
+                .children
+                .iter_mut()
+                .find(|c| c.get_name() == name)
+            {
+                child.offline().await;
+            } else {
+                return Err(Error::ChildNotFound {
+                    name: self.name.clone(),
+                    child: name.to_owned(),
+                });
+            }
         }
 
         self.reconfigure(DrEvent::ChildOffline).await;
@@ -360,8 +393,14 @@ impl<'n> Nexus<'n> {
         let cancelled_rebuilding_children =
             self.cancel_child_rebuild_jobs(name).await;
 
-        let result =
-            match self.children.iter_mut().find(|c| c.get_name() == name) {
+        let result = unsafe {
+            match self
+                .as_mut()
+                .get_unchecked_mut()
+                .children
+                .iter_mut()
+                .find(|c| c.get_name() == name)
+            {
                 Some(child) => {
                     match child.state() {
                         ChildState::Faulted(_) => {}
@@ -376,7 +415,8 @@ impl<'n> Nexus<'n> {
                     name: self.name.clone(),
                     child: name.to_owned(),
                 }),
-            };
+            }
+        };
 
         // start rebuilding the children that previously had their rebuild jobs
         // cancelled, in spite of whether or not the child was correctly faulted
@@ -396,26 +436,38 @@ impl<'n> Nexus<'n> {
 
         trace!("{} Online child request", nexus_name);
 
-        if let Some(child) =
-            self.children.iter_mut().find(|c| c.get_name() == name)
-        {
-            child.online(nexus_size).await.context(OpenChild {
-                child: name.to_owned(),
-                name: nexus_name,
-            })?;
-            self.as_mut().start_rebuild(name).await.map(|_| {})?;
-            Ok(self.status())
-        } else {
-            Err(Error::ChildNotFound {
-                name: nexus_name,
-                child: name.to_owned(),
-            })
+        unsafe {
+            if let Some(child) = self
+                .as_mut()
+                .get_unchecked_mut()
+                .children
+                .iter_mut()
+                .find(|c| c.get_name() == name)
+            {
+                child.online(nexus_size).await.context(OpenChild {
+                    child: name.to_owned(),
+                    name: nexus_name,
+                })?;
+                self.as_mut().start_rebuild(name).await.map(|_| {})?;
+                Ok(self.status())
+            } else {
+                Err(Error::ChildNotFound {
+                    name: nexus_name,
+                    child: name.to_owned(),
+                })
+            }
         }
     }
 
     /// Close each child that belongs to this nexus.
     pub(crate) async fn close_children(mut self: Pin<&mut Self>) {
-        let futures = self.children.iter_mut().map(|c| c.close());
+        let futures = unsafe {
+            self.as_mut()
+                .get_unchecked_mut()
+                .children
+                .iter_mut()
+                .map(|c| c.close())
+        };
         let results = join_all(futures).await;
         if results.iter().any(|c| c.is_err()) {
             error!("{}: Failed to close children", self.name);
@@ -428,9 +480,11 @@ impl<'n> Nexus<'n> {
     pub(crate) async fn try_open_children(
         mut self: Pin<&mut Self>,
     ) -> Result<(), Error> {
+        let name = self.name.clone();
+
         if self.children.is_empty() {
             return Err(Error::NexusIncomplete {
-                name: self.name.clone(),
+                name,
             });
         }
 
@@ -444,7 +498,7 @@ impl<'n> Nexus<'n> {
                 Ok(dev) => dev,
                 Err(_) => {
                     return Err(Error::NexusIncomplete {
-                        name: self.name.clone(),
+                        name,
                     })
                 }
             };
@@ -471,7 +525,7 @@ impl<'n> Nexus<'n> {
                         if start_blk != start {
                             return Err(Error::ChildGeometry {
                                 child: child.name.clone(),
-                                name: self.name.clone(),
+                                name,
                             });
                         }
                     }
@@ -479,7 +533,7 @@ impl<'n> Nexus<'n> {
                 None => {
                     return Err(Error::ChildTooSmall {
                         child: child.name.clone(),
-                        name: self.name.clone(),
+                        name,
                         num_blocks: nb,
                         block_size: bs,
                     })
@@ -487,38 +541,41 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        self.data_ent_offset = start_blk;
         unsafe {
-            self.bdev_mut().set_block_len(blk_size as u32);
-            self.bdev_mut().set_num_blocks(end_blk - start_blk);
+            self.as_mut().get_unchecked_mut().data_ent_offset = start_blk;
+            self.as_mut().bdev_mut().set_block_len(blk_size as u32);
+            self.as_mut().bdev_mut().set_num_blocks(end_blk - start_blk);
         }
 
         let size = self.req_size;
 
         // Take the child vec, try open and re-add.
         // NOTE: self.child_count is not affected by this algorithm!
-        let children = std::mem::take(&mut self.children);
+        // let children = std::mem::take(&mut self.children);
         let mut failed = false;
-        let evt_listener = self.get_event_sink();
+        let evt_listener = self.as_mut().get_event_sink();
 
-        for mut child in children {
-            match child.open(size) {
-                Ok(name) => {
-                    info!("{}: successfully opened child {}", self.name, name);
-                    child.set_event_listener(evt_listener.clone());
-                }
-                Err(error) => {
-                    error!(
-                        "{}: failed to open child {}: {}",
-                        self.name,
-                        child.name,
-                        error.verbose()
-                    );
-                    failed = true;
-                }
-            };
-
-            self.children.push(child);
+        unsafe {
+            for child in self.as_mut().get_unchecked_mut().children.iter_mut() {
+                match child.open(size) {
+                    Ok(child_name) => {
+                        info!(
+                            "{}: successfully opened child {}",
+                            name, child_name
+                        );
+                        child.set_event_listener(evt_listener.clone());
+                    }
+                    Err(error) => {
+                        error!(
+                            "{}: failed to open child {}: {}",
+                            name,
+                            child.name,
+                            error.verbose()
+                        );
+                        failed = true;
+                    }
+                };
+            }
         }
 
         // TODO:
@@ -526,33 +583,32 @@ impl<'n> Nexus<'n> {
         // even if some of the children failed to open. This is work is not
         // completed yet so we fail the registration all together for now.
         if failed {
-            let nexus_name = self.name.clone();
-
             // Close any children that WERE succesfully opened.
-            let mut opened = self
-                .children
-                .iter_mut()
-                .filter(|c| c.state() == ChildState::Open);
-
-            for child in &mut opened {
-                if let Err(error) = child.close().await {
-                    error!(
-                        "{}: failed to close child {}: {}",
-                        nexus_name,
-                        child.name,
-                        error.verbose()
-                    );
+            unsafe {
+                for child in
+                    self.as_mut().get_unchecked_mut().children.iter_mut()
+                {
+                    if child.state() == ChildState::Open {
+                        if let Err(error) = child.close().await {
+                            error!(
+                                "{}: failed to close child {}: {}",
+                                name,
+                                child.name,
+                                error.verbose()
+                            );
+                        }
+                    }
                 }
             }
 
             return Err(Error::NexusIncomplete {
-                name: nexus_name,
+                name,
             });
         }
 
         // acquire a write exclusive reservation on all children,
         // if any one fails, close all children.
-        let mut we_err: Result<(), Error> = Ok(());
+        let mut write_ex_err: Result<(), Error> = Ok(());
         for child in self.children.iter() {
             if let Err(error) = child
                 .acquire_write_exclusive(
@@ -561,7 +617,7 @@ impl<'n> Nexus<'n> {
                 )
                 .await
             {
-                we_err = Err(Error::ChildWriteExclusiveResvFailed {
+                write_ex_err = Err(Error::ChildWriteExclusiveResvFailed {
                     source: error,
                     child: child.name.clone(),
                     name: self.name.clone(),
@@ -570,16 +626,19 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        if let Err(error) = we_err {
-            let nexus_name = self.name.clone();
-            for child in self.children.iter_mut() {
-                if let Err(error) = child.close().await {
-                    error!(
-                        "{}: child {} failed to close with error {}",
-                        nexus_name,
-                        &child.name,
-                        error.verbose()
-                    );
+        if let Err(error) = write_ex_err {
+            unsafe {
+                for child in
+                    self.as_mut().get_unchecked_mut().children.iter_mut()
+                {
+                    if let Err(error) = child.close().await {
+                        error!(
+                            "{}: child {} failed to close with error {}",
+                            name,
+                            child.name,
+                            error.verbose()
+                        );
+                    }
                 }
             }
             return Err(error);
@@ -591,7 +650,7 @@ impl<'n> Nexus<'n> {
                 info!(
                     "{}: child {} has alignment {}, updating \
                         required_alignment from {}",
-                    self.name,
+                    name,
                     child.name,
                     alignment,
                     self.bdev().alignment()
@@ -606,7 +665,8 @@ impl<'n> Nexus<'n> {
         Ok(())
     }
 
-    pub async fn destroy_child(&mut self, name: &str) -> Result<(), Error> {
+    /// TODO
+    pub async fn destroy_child(&self, name: &str) -> Result<(), Error> {
         if let Some(child) = self.lookup_child(name) {
             child.destroy().await.map_err(|source| Error::DestroyChild {
                 source,

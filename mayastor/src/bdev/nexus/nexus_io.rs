@@ -35,45 +35,10 @@ use crate::core::{
     Reactors,
 };
 
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub(crate) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
-
-impl DerefMut for NexusBio<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'n> Deref for NexusBio<'n> {
-    type Target = BdevIo<Nexus<'n>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'n> From<*mut spdk_bdev_io> for NexusBio<'n> {
-    fn from(ptr: *mut spdk_bdev_io) -> Self {
-        Self(BdevIo::<Nexus<'n>>::legacy_from_ptr(ptr))
-    }
-}
-
-impl<'n> From<BdevIo<Nexus<'n>>> for NexusBio<'n> {
-    fn from(io: BdevIo<Nexus<'n>>) -> Self {
-        Self(io)
-    }
-}
-
-impl NexusBio<'_> {
-    fn as_ptr(&self) -> *mut spdk_bdev_io {
-        self.0.legacy_as_ptr()
-    }
-}
-
-#[derive(Debug)]
+/// TODO
 #[repr(C)]
-pub struct NioCtx {
+#[derive(Debug)]
+pub(crate) struct NioCtx {
     /// number of IO's submitted. Nexus IO's may never be freed until this
     /// counter drops to zero.
     in_flight: u8,
@@ -85,51 +50,85 @@ pub struct NioCtx {
     must_fail: bool,
 }
 
-pub(crate) fn nexus_submit_io(mut io: NexusBio) {
-    if let Err(_e) = match io.cmd() {
-        IoType::Read => io.readv(),
-        // these IOs are submitted to all the underlying children
-        IoType::Write | IoType::WriteZeros | IoType::Reset | IoType::Unmap => {
-            io.submit_all()
-        }
-        IoType::Flush => {
-            io.ok();
-            Ok(())
-        }
-        IoType::NvmeAdmin => {
-            io.fail();
-            Err(CoreError::NotSupported {
-                source: Errno::EINVAL,
-            })
-        }
-        _ => {
-            trace!(?io, "not supported");
-            io.fail();
-            Err(CoreError::NotSupported {
-                source: Errno::EOPNOTSUPP,
-            })
-        }
-    } {
-        //trace!(?e, ?io, "Error during IO submission");
+/// TODO
+#[repr(transparent)]
+#[derive(Debug)]
+struct NexusBio<'n>(BdevIo<Nexus<'n>>);
+
+impl<'n> Deref for NexusBio<'n> {
+    type Target = BdevIo<Nexus<'n>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for NexusBio<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'n> From<*mut spdk_bdev_io> for NexusBio<'n> {
+    fn from(ptr: *mut spdk_bdev_io) -> Self {
+        Self(BdevIo::<Nexus<'n>>::legacy_from_ptr(ptr))
+    }
+}
+
+impl Clone for NexusBio<'_> {
+    fn clone(&self) -> Self {
+        Self::new(self.ctx().channel.clone(), self.0.clone())
     }
 }
 
 impl<'n> NexusBio<'n> {
-    /// helper function to wrap the raw pointers into new types. From here we
-    /// should not be dealing with any raw pointers.
-    pub fn nexus_bio_setup(
+    fn as_ptr(&self) -> *mut spdk_bdev_io {
+        self.0.legacy_as_ptr()
+    }
+
+    /// Makes a new instance of `NexusBio` from a channel and `BdevIo`.
+    fn new(
         channel: spdk_rs::IoChannel<NexusChannel>,
-        io: spdk_rs::BdevIo<Nexus<'n>>,
+        io: BdevIo<Nexus<'n>>,
     ) -> Self {
-        // NexusBio::nexus_bio_setup(channel.legacy_as_ptr(),
-        // io.legacy_as_ptr())
-        let mut bio = NexusBio::from(io);
+        let mut bio = NexusBio(io);
         let ctx = bio.ctx_mut();
         ctx.channel = channel;
         ctx.status = IoStatus::Pending;
         ctx.in_flight = 0;
         ctx.must_fail = false;
         bio
+    }
+
+    /// TODO
+    fn submit_request(mut self) {
+        if let Err(_e) = match self.io_type() {
+            IoType::Read => self.readv(),
+            // these IOs are submitted to all the underlying children
+            IoType::Write
+            | IoType::WriteZeros
+            | IoType::Reset
+            | IoType::Unmap => self.submit_all(),
+            IoType::Flush => {
+                self.ok();
+                Ok(())
+            }
+            IoType::NvmeAdmin => {
+                self.fail();
+                Err(CoreError::NotSupported {
+                    source: Errno::EINVAL,
+                })
+            }
+            _ => {
+                trace!(?self, "not supported");
+                self.fail();
+                Err(CoreError::NotSupported {
+                    source: Errno::EOPNOTSUPP,
+                })
+            }
+        } {
+            //trace!(?e, ?io, "Error during IO submission");
+        }
     }
 
     /// assess the IO if we need to mark it failed or ok.
@@ -150,24 +149,18 @@ impl<'n> NexusBio<'n> {
 
     #[inline(always)]
     /// a mutable reference to the IO context
-    pub fn ctx_mut(&mut self) -> &mut NioCtx {
+    fn ctx_mut(&mut self) -> &mut NioCtx {
         self.driver_ctx_mut::<NioCtx>()
     }
 
     #[inline(always)]
     /// immutable reference to the IO context
-    pub fn ctx(&self) -> &NioCtx {
+    fn ctx(&self) -> &NioCtx {
         self.driver_ctx::<NioCtx>()
     }
 
-    /// Returns the type of command for this IO.
-    #[inline(always)]
-    fn cmd(&self) -> IoType {
-        self.io_type()
-    }
-
     /// completion handler for the nexus when a child IO completes
-    pub fn complete(
+    fn complete(
         &mut self,
         child: &dyn BlockDevice,
         status: IoCompletionStatus,
@@ -210,7 +203,7 @@ impl<'n> NexusBio<'n> {
 
     /// Complete the IO marking it as failed.
     #[inline]
-    pub fn fail_checked(&mut self) {
+    fn fail_checked(&mut self) {
         if self.ctx().in_flight == 0 {
             self.fail();
         }
@@ -218,14 +211,10 @@ impl<'n> NexusBio<'n> {
 
     /// retry this IO when all other IOs have completed
     #[inline]
-    pub fn retry_checked(&mut self) {
+    fn retry_checked(&mut self) {
         if self.ctx().in_flight == 0 {
-            let bio = Self::nexus_bio_setup(
-                self.ctx().channel.clone(),
-                self.0.clone(),
-            );
             debug!(?self, "resubmitting IO");
-            nexus_submit_io(bio);
+            self.clone().submit_request();
         }
     }
 
@@ -402,7 +391,7 @@ impl<'n> NexusBio<'n> {
         let mut failed_device = None;
 
         let result = self.inner_channel().writers.iter().try_for_each(|h| {
-            match self.cmd() {
+            match self.io_type() {
                 IoType::Write => self.submit_write(h.as_ref()),
                 IoType::Unmap => self.submit_unmap(h.as_ref()),
                 IoType::WriteZeros => self.submit_write_zeroes(h.as_ref()),
@@ -522,6 +511,15 @@ impl<'n> NexusBio<'n> {
 
         self.fail_checked();
     }
+}
+
+/// TODO
+pub(crate) fn nexus_submit_request(
+    chan: spdk_rs::IoChannel<NexusChannel>,
+    bio: BdevIo<Nexus>,
+) {
+    let io = NexusBio::new(chan, bio);
+    io.submit_request();
 }
 
 /// Retire a child for this nexus.

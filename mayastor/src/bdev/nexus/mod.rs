@@ -53,7 +53,7 @@ pub use nexus_child::{
     NexusChild,
     Reason,
 };
-pub(crate) use nexus_io::{nexus_submit_io, NexusBio, NioCtx};
+pub(crate) use nexus_io::{nexus_submit_request, NioCtx};
 pub use nexus_iter::{
     nexus_iter,
     nexus_iter_mut,
