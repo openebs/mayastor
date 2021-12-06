@@ -51,7 +51,7 @@ use crate::{
         device_lookup,
         nexus::nexus_persistence::PersistOp,
     },
-    core::{DeviceEventListener, DeviceEventType, Reactors},
+    core::{partition, DeviceEventListener, DeviceEventType, Reactors},
     nexus_uri::NexusBdevError,
 };
 
@@ -140,9 +140,12 @@ impl<'n> Nexus<'n> {
             name: self.name.clone(),
         })?;
 
+        assert!(self.num_blocks() > 0);
+        assert!(self.block_len() > 0);
+
         let child_bdev = match device_lookup(&name) {
             Some(child) => {
-                if child.block_len() as u32 != self.bdev().block_len()
+                if child.block_len() != self.block_len()
                     || self
                         .min_num_blocks()
                         .map_or(true, |n| n > child.num_blocks())
@@ -183,7 +186,7 @@ impl<'n> Nexus<'n> {
             Some(child_bdev),
         );
 
-        let mut child_name = child.open(self.size);
+        let mut child_name = child.open(self.req_size);
 
         if let Ok(ref name) = child_name {
             // we have created the bdev, and created a nexusChild struct. To
@@ -217,10 +220,6 @@ impl<'n> Nexus<'n> {
                 self.children.push(child);
                 self.child_count += 1;
 
-                if let Err(e) = self.as_mut().sync_labels().await {
-                    error!("Failed to sync labels {:?}", e);
-                    // todo: how to signal this?
-                }
                 self.persist(PersistOp::AddChild((cn, child_state))).await;
 
                 Ok(self.status())
@@ -393,7 +392,7 @@ impl<'n> Nexus<'n> {
         name: &str,
     ) -> Result<NexusStatus, Error> {
         let nexus_name = self.name.clone();
-        let nexus_size = self.size;
+        let nexus_size = self.req_size;
 
         trace!("{} Online child request", nexus_name);
 
@@ -424,34 +423,77 @@ impl<'n> Nexus<'n> {
     }
 
     /// Tries to open all the child devices.
-    /// TODO:
+    /// Opens children, determines and validates block size and block count
+    /// of underlying devices.
     pub(crate) async fn try_open_children(
         mut self: Pin<&mut Self>,
     ) -> Result<(), Error> {
-        if self.children.is_empty()
-            || self.children.iter().any(|c| c.get_device().is_err())
-        {
+        if self.children.is_empty() {
             return Err(Error::NexusIncomplete {
                 name: self.name.clone(),
             });
         }
 
-        // Block size.
-        let blk_size = self.children[0].get_device().unwrap().block_len();
+        // Determine Nexus block size and data start and end offsets.
+        let mut start_blk = 0;
+        let mut end_blk = 0;
+        let mut blk_size = 0;
 
-        if self
-            .children
-            .iter()
-            .any(|b| b.get_device().unwrap().block_len() != blk_size)
-        {
-            return Err(Error::MixedBlockSizes {
-                name: self.name.clone(),
-            });
+        for child in self.children.iter() {
+            let dev = match child.get_device() {
+                Ok(dev) => dev,
+                Err(_) => {
+                    return Err(Error::NexusIncomplete {
+                        name: self.name.clone(),
+                    })
+                }
+            };
+
+            let nb = dev.num_blocks();
+            let bs = dev.block_len();
+
+            if blk_size == 0 {
+                blk_size = bs;
+            } else if bs != blk_size {
+                return Err(Error::MixedBlockSizes {
+                    name: self.name.clone(),
+                });
+            }
+
+            match partition::calc_data_partition(self.req_size, nb, bs) {
+                Some((start, end)) => {
+                    if start_blk == 0 {
+                        start_blk = start;
+                        end_blk = end;
+                    } else {
+                        end_blk = min(end_blk, end);
+
+                        if start_blk != start {
+                            return Err(Error::ChildGeometry {
+                                child: child.name.clone(),
+                                name: self.name.clone(),
+                            });
+                        }
+                    }
+                }
+                None => {
+                    return Err(Error::ChildTooSmall {
+                        child: child.name.clone(),
+                        name: self.name.clone(),
+                        num_blocks: nb,
+                        block_size: bs,
+                    })
+                }
+            }
         }
 
-        unsafe { self.bdev_mut().set_block_len(blk_size as u32) };
+        self.data_ent_offset = start_blk;
+        unsafe {
+            self.bdev_mut().set_block_len(blk_size as u32);
+            self.bdev_mut().set_num_blocks(end_blk - start_blk);
+        }
 
-        let size = self.size;
+        let size = self.req_size;
 
         // Take the child vec, try open and re-add.
         // NOTE: self.child_count is not affected by this algorithm!

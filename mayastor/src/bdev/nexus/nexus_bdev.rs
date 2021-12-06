@@ -5,7 +5,6 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
-    env,
     fmt::{Display, Formatter},
     os::raw::c_void,
     pin::Pin,
@@ -27,7 +26,6 @@ use super::{
     ChildError,
     ChildState,
     DrEvent,
-    LabelError,
     NbdDisk,
     NbdError,
     NexusBio,
@@ -134,18 +132,6 @@ pub enum Error {
     #[snafu(display("Failed to unshare nexus {}", name))]
     UnshareNexus { source: CoreError, name: String },
     #[snafu(display(
-        "Failed to read child label of nexus {}: {}",
-        name,
-        source
-    ))]
-    ReadLabel { source: LabelError, name: String },
-    #[snafu(display(
-        "Failed to write child label of nexus {}: {}",
-        name,
-        source
-    ))]
-    WriteLabel { source: LabelError, name: String },
-    #[snafu(display(
         "Failed to register IO device nexus {}: {}",
         name,
         source
@@ -158,6 +144,19 @@ pub enum Error {
     },
     #[snafu(display("Deferring open because nexus {} is incomplete", name))]
     NexusIncomplete { name: String },
+    #[snafu(display(
+        "Child {} of nexus {} is too small: size = {} x {}",
+        child,
+        name,
+        num_blocks,
+        block_size
+    ))]
+    ChildTooSmall {
+        child: String,
+        name: String,
+        num_blocks: u64,
+        block_size: u64,
+    },
     #[snafu(display("Children of nexus {} have mixed block sizes", name))]
     MixedBlockSizes { name: String },
     #[snafu(display(
@@ -419,8 +418,10 @@ impl NexusNvmeParams {
 pub struct Nexus<'n> {
     /// Name of the Nexus instance
     pub(crate) name: String,
-    /// the requested size of the nexus, children are allowed to be larger
-    pub(crate) size: u64,
+    /// The requested size of the Nexus in bytes. Children are allowed to
+    /// be larger. The actual Nexus size will be calculated based on the
+    /// capabilities of the underlying child devices.
+    pub(crate) req_size: u64,
     /// number of children part of this nexus
     pub(crate) child_count: u32,
     /// vector of children
@@ -433,18 +434,15 @@ pub struct Nexus<'n> {
     bdev_raw: NonNull<spdk_bdev>,
     /// represents the current state of the Nexus
     pub state: parking_lot::Mutex<NexusState>,
-    /// the offset in num blocks where the data partition starts
+    /// The offset in blocks where the data partition starts.
     pub data_ent_offset: u64,
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
-
-    /// Nexus I/O device.
-    // pub io_device: Option<IoDevice>,
+    /// Indicates if the Nexus has an I/O device.
     pub has_io_device: bool,
-
     /// Nexus pause counter to allow concurrent pause/resume.
     pause_state: AtomicCell<NexusPauseState>,
     pause_waiters: Vec<oneshot::Sender<i32>>,
@@ -546,7 +544,7 @@ impl<'n> Nexus<'n> {
             bdev_raw: NonNull::dangling(),
             data_ent_offset: 0,
             share_handle: None,
-            size,
+            req_size: size,
             nexus_target: None,
             nvme_params,
             has_io_device: false,
@@ -627,13 +625,13 @@ impl<'n> Nexus<'n> {
         u
     }
 
-    /// Get the Nexus uuid
+    /// Returns the Nexus uuid.
     pub(crate) fn uuid(&self) -> Uuid {
         self.nexus_uuid
     }
 
-    /// set the state of the nexus
-    pub(crate) fn set_state(&mut self, state: NexusState) -> NexusState {
+    /// Sets the state of the Nexus.
+    fn set_state(self: Pin<&mut Self>, state: NexusState) -> NexusState {
         debug!(
             "{} Transitioned state from {:?} to {:?}",
             self.name, self.state, state
@@ -642,9 +640,19 @@ impl<'n> Nexus<'n> {
         state
     }
 
-    /// returns the size in bytes of the nexus instance
-    pub fn size(&self) -> u64 {
+    /// Returns the actual size of the Nexus instance, in bytes.
+    pub fn size_in_bytes(&self) -> u64 {
         self.bdev().size_in_bytes()
+    }
+
+    /// Returns Nexus's block size in bytes.
+    pub fn block_len(&self) -> u64 {
+        self.bdev().block_len() as u64
+    }
+
+    /// Returns the actual size of the Nexus instance, in blocks.
+    pub fn num_blocks(&self) -> u64 {
+        self.bdev().num_blocks()
     }
 
     /// Reconfigures the child event handler.
@@ -688,7 +696,6 @@ impl<'n> Nexus<'n> {
         debug!("Opening nexus {}", nex.name);
 
         nex.as_mut().try_open_children().await?;
-        nex.as_mut().sync_labels().await?;
 
         // Register the bdev with SPDK and set the callbacks for io channel
         // creation.
@@ -705,7 +712,7 @@ impl<'n> Nexus<'n> {
                 // We have to do this before setting the nexus to open so that
                 // nexus list does not return this nexus until it is persisted.
                 nex.persist(PersistOp::Create).await;
-                nex.set_state(NexusState::Open);
+                nex.as_mut().set_state(NexusState::Open);
                 // nex.io_device = Some(io_device);
                 nex.has_io_device = true;
                 Ok(())
@@ -721,39 +728,12 @@ impl<'n> Nexus<'n> {
                         );
                     }
                 }
-                nex.set_state(NexusState::Closed);
+                nex.as_mut().set_state(NexusState::Closed);
                 Err(err).context(RegisterNexus {
                     name: nex.name.clone(),
                 })
             }
         }
-    }
-
-    pub(crate) async fn sync_labels(
-        mut self: Pin<&mut Self>,
-    ) -> Result<(), Error> {
-        if env::var("NEXUS_DONT_READ_LABELS").is_ok() {
-            // This is to allow for the specific case where the underlying
-            // child devices are NULL bdevs, which may be written to
-            // but cannot be read from. Just write out new labels,
-            // and don't attempt to read them back afterwards.
-            warn!("NOT reading disk labels on request");
-            return self.create_child_labels().await.context(WriteLabel {
-                name: self.name.clone(),
-            });
-        }
-
-        // update child labels as necessary
-        if let Err(error) = self.update_child_labels().await {
-            warn!("error updating child labels: {}", error);
-        }
-
-        // check if we can read the labels back
-        self.validate_child_labels().await.context(ReadLabel {
-            name: self.name.clone(),
-        })?;
-
-        Ok(())
     }
 
     /// Destroy the nexus

@@ -10,7 +10,7 @@ use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
-use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent, GptGuid, VerboseError};
+use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent, VerboseError};
 
 use crate::{
     bdev::{device_create, device_destroy, device_lookup},
@@ -166,14 +166,10 @@ pub struct NexusChild<'c> {
     pub state: AtomicCell<ChildState>,
     /// previous state of the child
     #[serde(skip_serializing)]
-    pub prev_state: AtomicCell<ChildState>,
+    prev_state: AtomicCell<ChildState>,
     /// TODO
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
-    /// TODO
-    pub guid: GptGuid,
-    /// TODO
-    pub metadata_index_lba: u64,
     /// Name of the child is the URI used to create it.
     /// Note that block device name can differ from it!
     pub name: String,
@@ -287,15 +283,7 @@ impl<'c> NexusChild<'c> {
         Ok(self.name.clone())
     }
 
-    /// Check if we're open
-    pub(crate) fn is_open(&self) -> bool {
-        matches!(
-            self.state(),
-            ChildState::Open | ChildState::Faulted(Reason::OutOfSync)
-        )
-    }
-
-    /// Check if we're healthy
+    /// Check if we're healthy.
     pub(crate) fn is_healthy(&self) -> bool {
         self.state() == ChildState::Open
     }
@@ -717,8 +705,6 @@ impl<'c> NexusChild<'c> {
             state: AtomicCell::new(ChildState::Init),
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
-            guid: GptGuid::from(uuid::Uuid::nil()),
-            metadata_index_lba: 0,
             _c: Default::default(),
         }
     }
