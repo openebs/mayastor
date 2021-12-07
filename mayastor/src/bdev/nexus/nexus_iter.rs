@@ -27,6 +27,23 @@ pub fn nexus_lookup_mut<'n>(
     NexusIterMut::new().find(|n| n.name == name)
 }
 
+/// Looks up a Nexus by its name or uuid, and returns a reference to it.
+pub fn nexus_lookup_name_uuid<'n>(
+    name: &str,
+    nexus_uuid: Option<uuid::Uuid>,
+) -> Option<<NexusIter<'n> as Iterator>::Item> {
+    NexusIter::new().find(|n| {
+        n.name == name || (nexus_uuid.is_some() && Some(n.uuid()) == nexus_uuid)
+    })
+}
+
+/// Looks up a Nexus by its uuid, and returns a mutable reference to it.
+pub fn nexus_lookup_uuid_mut<'n>(
+    uuid: &str,
+) -> Option<<NexusIterMut<'n> as Iterator>::Item> {
+    NexusIterMut::new().find(|n| n.uuid().to_string() == uuid)
+}
+
 /// TODO
 pub struct NexusIter<'n> {
     iter: BdevModuleIter<Nexus<'n>>,

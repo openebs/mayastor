@@ -105,7 +105,7 @@ impl<'n> Nexus<'n> {
     // TODO: Should we give up retrying eventually?
     async fn save(&self, info: &NexusInfo) {
         let mut output_err = true;
-        let nexus_uuid = self.bdev().uuid().to_string();
+        let nexus_uuid = self.uuid().to_string();
         loop {
             match PersistentStore::put(&nexus_uuid, info).await {
                 Ok(_) => {

@@ -8,6 +8,7 @@ use crate::{
         nexus,
         nexus::{
             nexus_lookup_mut,
+            nexus_lookup_uuid_mut,
             ChildState,
             Nexus,
             NexusChild,
@@ -92,7 +93,7 @@ impl<'n> Nexus<'n> {
 
         rpc::NexusV2 {
             name: name_to_uuid(&self.name).to_string(),
-            uuid: self.bdev().uuid().to_string(),
+            uuid: self.uuid().to_string(),
             size: self.size,
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
@@ -138,6 +139,8 @@ pub fn nexus_lookup<'n>(
     uuid: &str,
 ) -> Result<Pin<&'n mut Nexus<'n>>, nexus::Error> {
     if let Some(nexus) = nexus_lookup_mut(uuid) {
+        Ok(nexus)
+    } else if let Some(nexus) = nexus_lookup_uuid_mut(uuid) {
         Ok(nexus)
     } else {
         let name = uuid_to_name(uuid)?;

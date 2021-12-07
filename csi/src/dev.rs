@@ -112,9 +112,14 @@ impl Device {
             if let Some(devname) =
                 match_dev::match_nvmf_device(&device, &nvmf_key)
             {
+                let nqn = if std::env::var("MOAC").is_ok() {
+                    format!("{}:nexus-{}", NVME_NQN_PREFIX, uuid)
+                } else {
+                    format!("{}:{}", NVME_NQN_PREFIX, uuid)
+                };
                 return Ok(Some(Box::new(nvmf::NvmfDetach::new(
                     devname.to_string(),
-                    format!("{}:nexus-{}", NVME_NQN_PREFIX, uuid),
+                    nqn,
                 ))));
             }
         }

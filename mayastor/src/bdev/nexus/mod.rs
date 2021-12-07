@@ -61,6 +61,8 @@ pub use nexus_iter::{
     nexus_iter_mut,
     nexus_lookup,
     nexus_lookup_mut,
+    nexus_lookup_name_uuid,
+    nexus_lookup_uuid_mut,
 };
 pub use nexus_label::{GptEntry, GptGuid, GptHeader};
 pub(crate) use nexus_label::{LabelError, NexusLabel};
