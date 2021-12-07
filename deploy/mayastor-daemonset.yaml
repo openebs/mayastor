@@ -58,6 +58,8 @@ spec:
         - "-P/var/local/mayastor/pools.yaml"
         - "-l0"
         - "-pmayastor-etcd"
+        command:
+        - mayastor
         securityContext:
           privileged: true
         volumeMounts:

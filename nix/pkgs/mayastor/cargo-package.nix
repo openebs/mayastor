@@ -75,6 +75,7 @@ let
       lockFile = ../../../Cargo.lock;
       outputHashes = {
         "h2-0.3.3" = "sha256-Y4AaBj10ZOutI37sVRY4yVUYmVWj5dwPbPhBhPWHNiQ=";
+        "nats-0.15.2" = "sha256:1whr0v4yv31q5zwxhcqmx4qykgn5cgzvwlaxgq847mymzajpcsln";
       };
     };
     doCheck = false;

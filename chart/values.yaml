@@ -10,6 +10,7 @@ mayastorPools:
 # moac that does not update status of msp resource in some cases. Feel free to
 # remove when no longer needed.
 moacDebug: false
+moac: false
 
 csi:
   nvme:

@@ -4,6 +4,7 @@ set -euxo pipefail
 
 export PATH="$PATH:${HOME}/.cargo/bin"
 export npm_config_jobs=$(nproc)
+export MOAC=true
 
 cargo build --all
 cd "$(dirname "$0")/../test/grpc"
