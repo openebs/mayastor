@@ -36,15 +36,21 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.07-8489d57e8";
+    version = "21.10-8709a5789";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "8489d57e82e95c05c794f56a47f62bfd6c459b7b";
-      sha256 = "LWYEBJ8JukR24ugWQ7qmM5O6LNZad38HWfcJROlUodU=";
+      rev = "8709a578910d99359d011701a3a70337d727f790";
+      sha256 = "0wwggi2g015xq3lspz3r5cns1h1fb8r5gxg4y6r2nq0ds0gm21rb";
       fetchSubmodules = true;
     };
+
+    patches = [
+      # intel-ipsec-mb enables CET if the compiler supports it
+      # but this is incompatible with separateDebugInfo
+      ./cet-disable.patch
+    ];
 
     nativeBuildInputs = [
       meson
@@ -134,7 +140,7 @@ let
       install -v build/lib/pkgconfig/*.pc        $out/lib/pkgconfig/
       install -v dpdk/build/lib/*.a              $out/lib/
       install -v dpdk/build/lib/pkgconfig/*.pc   $out/lib/pkgconfig/
-      install -v intel-ipsec-mb/*.a              $out/lib/
+      install -v intel-ipsec-mb/lib/*.a          $out/lib/
 
       # fix paths in pkg config files
       build_dir=`pwd`
@@ -143,7 +149,7 @@ let
         echo "fixing pkg config paths in '$i' ..."
         sed -i "s,$build_dir/build/lib,$out/lib,g" $i
         sed -i "s,$build_dir/dpdk/build,$out,g" $i
-        sed -i "s,$build_dir/intel-ipsec-mb,$out/lib,g" $i
+        sed -i "s,$build_dir/intel-ipsec-mb/lib,$out/lib,g" $i
       done
     '';
   };
