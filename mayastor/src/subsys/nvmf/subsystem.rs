@@ -225,8 +225,14 @@ impl NvmfSubsystem {
     }
 
     /// destroy the subsystem
-    pub fn destroy(&self) {
-        unsafe { spdk_nvmf_subsystem_destroy(self.0.as_ptr()) }
+    pub fn destroy(&self) -> i32 {
+        unsafe {
+            spdk_nvmf_subsystem_destroy(
+                self.0.as_ptr(),
+                None,
+                std::ptr::null_mut(),
+            )
+        }
     }
 
     /// Get NVMe subsystem's NQN
@@ -520,7 +526,7 @@ impl NvmfSubsystem {
                 trid: trid_replica.to_string(),
             })
         } else {
-            Ok(unsafe { (*listener).ana_state })
+            Ok(unsafe { *(*listener).ana_state })
         }
     }
 
@@ -541,6 +547,7 @@ impl NvmfSubsystem {
                 self.0.as_ptr(),
                 trid_replica.as_ptr(),
                 ana_state,
+                0,
                 Some(set_ana_state_cb),
                 cb_arg(s),
             );
