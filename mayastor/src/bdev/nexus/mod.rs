@@ -11,8 +11,6 @@ mod nexus_channel;
 mod nexus_child;
 mod nexus_io;
 mod nexus_iter;
-mod nexus_label;
-mod nexus_metadata;
 mod nexus_module;
 mod nexus_nbd;
 mod nexus_persistence;
@@ -63,15 +61,6 @@ pub use nexus_iter::{
     nexus_lookup_mut,
     nexus_lookup_name_uuid,
     nexus_lookup_uuid_mut,
-};
-pub use nexus_label::{GptEntry, GptGuid, GptHeader};
-pub(crate) use nexus_label::{LabelError, NexusLabel};
-pub(crate) use nexus_metadata::MetaDataError;
-pub use nexus_metadata::{
-    MetaDataChildEntry,
-    MetaDataIndex,
-    MetaDataObject,
-    NexusMetaData,
 };
 pub(crate) use nexus_module::{NexusModule, NEXUS_MODULE_NAME};
 pub(crate) use nexus_nbd::{NbdDisk, NbdError};

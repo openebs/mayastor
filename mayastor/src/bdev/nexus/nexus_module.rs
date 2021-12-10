@@ -72,7 +72,7 @@ impl WithModuleConfigJson for NexusModule {
                     "name" : nexus.name,
                     "uuid" : nexus.bdev().uuid_as_string(),
                     "children" : uris,
-                    "size": nexus.size,
+                    "size": nexus.req_size,
                 },
             });
 

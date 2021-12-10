@@ -69,7 +69,7 @@ impl<'n> Nexus<'n> {
     pub fn to_grpc(&self) -> rpc::Nexus {
         rpc::Nexus {
             uuid: name_to_uuid(&self.name).to_string(),
-            size: self.size,
+            size: self.req_size,
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
             children: self
@@ -94,7 +94,7 @@ impl<'n> Nexus<'n> {
         rpc::NexusV2 {
             name: name_to_uuid(&self.name).to_string(),
             uuid: self.uuid().to_string(),
-            size: self.size,
+            size: self.req_size,
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
             children: self

@@ -241,8 +241,9 @@ impl<'n> NexusBio<'n> {
         self.ctx_mut().channel.channel_data_mut().inner_mut()
     }
 
-    // TODO make const
+    /// Returns the offset in num blocks where the data partition starts.
     fn data_ent_offset(&self) -> u64 {
+        // TODO make const
         self.nexus_as_ref().data_ent_offset
     }
 

@@ -155,8 +155,8 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let dst_hdl = dst_desc.into_handle().unwrap();
 
         let nexus = nexus_lookup_mut(nexus_name()).unwrap();
-        let mut src_buf = src_hdl.dma_malloc(nexus.size()).unwrap();
-        let mut dst_buf = dst_hdl.dma_malloc(nexus.size()).unwrap();
+        let mut src_buf = src_hdl.dma_malloc(nexus.size_in_bytes()).unwrap();
+        let mut dst_buf = dst_hdl.dma_malloc(nexus.size_in_bytes()).unwrap();
 
         // Skip Mayastor partition and read only disk data at offset 10240
         // sectors.
@@ -169,7 +169,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
             .expect("Failed to read source replica");
         assert_eq!(
             r,
-            nexus.size(),
+            nexus.size_in_bytes(),
             "Amount of data read from source replica mismatches"
         );
 
@@ -180,13 +180,13 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
             .expect("Failed to read new replica");
         assert_eq!(
             r,
-            nexus.size(),
+            nexus.size_in_bytes(),
             "Amount of data read from new replica mismatches"
         );
 
         println!(
             "Validating new replica, {} bytes to check using MD5 checksum ...",
-            nexus.size()
+            nexus.size_in_bytes()
         );
         // Make sure checksums of all 2 buffers do match.
         assert_eq!(
