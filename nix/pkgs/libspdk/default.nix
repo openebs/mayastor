@@ -6,12 +6,12 @@
 , lib
 , libaio
 , libbpf
+, libbsd
 , libelf
+, libexecinfo
+, libpcap
 , liburing
 , libuuid
-, libpcap
-, libbsd
-, libexecinfo
 , nasm
 , cmake
 , fio
@@ -108,7 +108,6 @@ let
     '';
     enableParallelBuilding = true;
 
-
     hardeningDisable = [ "all" ];
 
     buildPhase = ''
@@ -157,12 +156,10 @@ in
 {
   release = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk";
-    separateDebugInfo = true;
     dontStrip = false;
   });
   debug = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk-dev";
-    separateDebugInfo = false;
     dontStrip = true;
     nativeBuildInputs = drvAttrs.nativeBuildInputs ++ [ cunit lcov ];
     buildInputs = drvAttrs.buildInputs ++ [ cunit lcov fio ];
