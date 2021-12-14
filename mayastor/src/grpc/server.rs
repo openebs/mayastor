@@ -2,6 +2,7 @@ use crate::grpc::{
     bdev_grpc::BdevSvc,
     json_grpc::JsonRpcSvc,
     mayastor_grpc::MayastorSvc,
+    v1::pool::PoolSvc,
 };
 
 use crate::grpc::v1::{bdev::BdevService, json::JsonService};
@@ -36,6 +37,7 @@ impl MayastorGrpcServer {
             .add_service(v1::json::JsonRpcServer::new(JsonService::new(
                 address.clone(),
             )))
+            .add_service(v1::pool::PoolRpcServer::new(PoolSvc::new()))
             .serve(endpoint);
 
         match svc.await {

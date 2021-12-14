@@ -3,6 +3,7 @@ use mayastor::{
     bdev::nexus::nexus_create,
     core::{BdevHandle, CoreError, MayastorCliArgs},
     lvs::{Lvol, Lvs},
+    pool::PoolArgs,
 };
 use rpc::mayastor::{
     CreatePoolRequest,
@@ -72,9 +73,10 @@ async fn replica_snapshot() {
 
     let t = mayastor
         .spawn(async move {
-            Lvs::create_or_import(CreatePoolRequest {
+            Lvs::create_or_import(PoolArgs {
                 name: POOL1_NAME.to_string(),
                 disks: vec![format!("aio://{}", DISKNAME1)],
+                uuid: None,
             })
             .await
             .unwrap();

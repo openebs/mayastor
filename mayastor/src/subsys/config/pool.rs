@@ -10,11 +10,9 @@ use crate::{
     core::{runtime, Cores, Mthread, Reactor, Share},
     grpc::rpc_submit,
     lvs::{Error as LvsError, Lvs},
-    pool::{Pool as SpdkPool, PoolsIter},
+    pool::{Pool as SpdkPool, PoolArgs, PoolsIter},
     replica::ShareType,
 };
-
-use rpc::mayastor::CreatePoolRequest;
 
 static CONFIG_FILE: OnceCell<String> = OnceCell::new();
 
@@ -172,11 +170,12 @@ struct Pool {
 }
 
 /// Convert a Pool into a gRPC request payload
-impl From<&Pool> for CreatePoolRequest {
+impl From<&Pool> for PoolArgs {
     fn from(pool: &Pool) -> Self {
         Self {
             name: pool.name.clone(),
             disks: pool.disks.clone(),
+            uuid: None,
         }
     }
 }
@@ -205,9 +204,7 @@ struct Replica {
     share: Option<ShareType>,
 }
 
-async fn create_pool(
-    args: CreatePoolRequest,
-) -> Result<rpc::mayastor::Pool, Status> {
+async fn create_pool(args: PoolArgs) -> Result<rpc::mayastor::Pool, Status> {
     if args.disks.is_empty() {
         return Err(Status::invalid_argument("Missing devices"));
     }

@@ -40,10 +40,10 @@ mod json_grpc;
 mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
-
-mod v1 {
+pub mod v1 {
     pub mod bdev;
     pub mod json;
+    pub mod pool;
 }
 
 #[derive(Debug)]
