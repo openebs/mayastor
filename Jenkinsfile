@@ -225,8 +225,8 @@ pipeline {
       steps {
         cleanWs()
         unstash 'source'
-        sh 'nix-shell --run "cargo fmt --all -- --check" ci.nix'
-        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings" ci.nix'
+        sh 'nix-shell --run "./scripts/rust-style.sh" ci.nix'
+        sh 'nix-shell --run "./scripts/rust-linter.sh" ci.nix'
         sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
       }
     }
