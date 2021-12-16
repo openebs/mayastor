@@ -26,5 +26,7 @@ test/python/common_pb2_grpc.py
 /test/python/mayastor_pb2_grpc.py
 /test/python/pool_pb2.py
 /test/python/pool_pb2_grpc.py
+/test/python/replica_pb2.py
+/test/python/replica_pb2_grpc.py
 /test/python/venv/*
 /package.json
