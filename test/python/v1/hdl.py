@@ -1,8 +1,10 @@
 """Common code that represents a mayastor handle."""
 from os import name
-import pool_pb2 as pool_pb
 import grpc
+import pool_pb2 as pool_pb
+import replica_pb2 as replica_pb
 import pool_pb2_grpc as pool_rpc
+import replica_pb2_grpc as replica_rpc
 from pytest_testconfig import config
 from functools import partial
 
@@ -20,6 +22,7 @@ class MayastorHandle(object):
         self.timeout = float(config["grpc"]["client_timeout"])
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.pool_rpc = pool_rpc.PoolRpcStub(self.channel)
+        self.replica_rpc = replica_rpc.ReplicaRpcStub(self.channel)
         self._readiness_check()
 
     def set_timeout(self, timeout):
@@ -27,6 +30,7 @@ class MayastorHandle(object):
 
     def install_stub(self, name):
         stub = getattr(pool_rpc, name)(self.channel)
+        stub = getattr(replica_rpc, name)(self.channel)
 
         # Install default timeout to all functions, ignore system attributes.
         for f in dir(stub):
@@ -46,6 +50,7 @@ class MayastorHandle(object):
     def reconnect(self):
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.pool_rpc = self.install_stub("PoolRpcStub")
+        self.replica_rpc = self.install_stub("ReplicaRpcStub")
         self._readiness_check()
 
     def __del__(self):
@@ -66,7 +71,6 @@ class MayastorHandle(object):
     def pool_create(self, name, bdev):
         """Create a pool with given name on this node using the bdev as the
         backend device. The bdev is implicitly created."""
-
         disks = []
         disks.append(bdev)
         return self.pool_rpc.CreatePool(
@@ -80,3 +84,22 @@ class MayastorHandle(object):
     def pool_list(self, opts):
         """Only list pools"""
         return self.pool_rpc.ListPools(opts, wait_for_ready=True)
+
+    def replica_create(self, pooluuid, name, uuid, size, share=1):
+        """Create a replica on the pool with the specified UUID and size."""
+        return self.replica_rpc.CreateReplica(
+            replica_pb.CreateReplicaRequest(
+                pooluuid=pooluuid, name=name, uuid=uuid, size=size, thin=False, share=share
+            )
+        )
+
+    def replica_destroy(self, uuid):
+        """Destroy the replica by the UUID, the pool is resolved within
+        mayastor."""
+        return self.replica_rpc.DestroyReplica(
+            replica_pb.DestroyReplicaRequest(uuid=uuid)
+        )
+
+    def replica_list(self, opts):
+        """List existing replicas along with their UUIDs"""
+        return self.replica_rpc.ListReplicas(opts, wait_for_ready=True)
