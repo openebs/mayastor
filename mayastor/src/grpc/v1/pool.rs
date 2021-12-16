@@ -20,13 +20,13 @@ use std::panic::AssertUnwindSafe;
 /// RPC service for mayastor pool operations
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct PoolSvc {
+pub struct PoolService {
     name: String,
     client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
 }
 
 #[async_trait::async_trait]
-impl<F, T> Serializer<F, T> for PoolSvc
+impl<F, T> Serializer<F, T> for PoolService
 where
     T: Send + 'static,
     F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
@@ -120,13 +120,13 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
     }
 }
 
-impl Default for PoolSvc {
+impl Default for PoolService {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PoolSvc {
+impl PoolService {
     pub fn new() -> Self {
         Self {
             name: String::from("PoolSvc"),
@@ -150,7 +150,7 @@ impl From<Lvs> for Pool {
 }
 
 #[tonic::async_trait]
-impl PoolRpc for PoolSvc {
+impl PoolRpc for PoolService {
     #[named]
     async fn create_pool(
         &self,

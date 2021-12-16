@@ -7,7 +7,7 @@ use crate::grpc::{
 use crate::grpc::v1::{
     bdev::BdevService,
     json::JsonService,
-    pool::PoolSvc,
+    pool::PoolService,
     replica::ReplicaService,
 };
 
@@ -41,7 +41,7 @@ impl MayastorGrpcServer {
             .add_service(v1::json::JsonRpcServer::new(JsonService::new(
                 address.clone(),
             )))
-            .add_service(v1::pool::PoolRpcServer::new(PoolSvc::new()))
+            .add_service(v1::pool::PoolRpcServer::new(PoolService::new()))
             .add_service(v1::replica::ReplicaRpcServer::new(
                 ReplicaService::new(),
             ))
