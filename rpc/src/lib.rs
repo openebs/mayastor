@@ -72,5 +72,18 @@ pub mod mayastor {
                 PoolType,
             };
         }
+
+        pub mod replica {
+            pub use super::pb::{
+                replica_rpc_server::{ReplicaRpc, ReplicaRpcServer},
+                CreateReplicaRequest,
+                DestroyReplicaRequest,
+                ListReplicaOptions,
+                ListReplicasResponse,
+                Replica,
+                ShareReplicaRequest,
+                UnshareReplicaRequest,
+            };
+        }
     }
 }
