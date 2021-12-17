@@ -241,7 +241,7 @@ pub async fn device_monitor() {
             match w {
                 Command::RemoveDevice(nexus, child) => {
                     let rx = handle.spawn_local(async move {
-                        if let Some(mut n) =
+                        if let Some(n) =
                             crate::bdev::nexus::nexus_lookup_mut(&nexus)
                         {
                             if let Err(e) = n.destroy_child(&child).await {

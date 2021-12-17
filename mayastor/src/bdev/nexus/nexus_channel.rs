@@ -75,10 +75,10 @@ pub(crate) fn fault_nexus_child(nexus: Pin<&mut Nexus>, name: &str) -> bool {
 
 impl NexusChannelInner {
     /// Returns reference to channel's Nexus.
-    fn get_nexus(&self) -> Pin<&Nexus> {
+    fn get_nexus(&self) -> &Nexus {
         unsafe {
             let n = self.nexus_ref as *const Nexus;
-            Pin::new_unchecked(&*n)
+            &*n
         }
     }
 
@@ -176,35 +176,44 @@ impl NexusChannelInner {
         let mut readers = Vec::new();
 
         // iterate over all our children which are in the open state
-        self.get_nexus_mut()
-            .children
-            .iter_mut()
-            .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
-                (Ok(w), Ok(r)) => {
-                    writers.push(w);
-                    readers.push(r);
-                }
-                _ => {
-                    c.set_state(ChildState::Faulted(Reason::CantOpen));
-                    error!("failed to get I/O handle for {}", c.get_name());
-                }
-            });
-
-        // then add write-only children
-        if !self.readers.is_empty() {
+        unsafe {
             self.get_nexus_mut()
+                .get_unchecked_mut()
                 .children
                 .iter_mut()
-                .filter(|c| c.rebuilding())
-                .for_each(|c| {
-                    if let Ok(hdl) = c.get_io_handle() {
-                        writers.push(hdl);
-                    } else {
+                .filter(|c| c.state() == ChildState::Open)
+                .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
+                    (Ok(w), Ok(r)) => {
+                        writers.push(w);
+                        readers.push(r);
+                    }
+                    _ => {
                         c.set_state(ChildState::Faulted(Reason::CantOpen));
                         error!("failed to get I/O handle for {}", c.get_name());
                     }
                 });
+        }
+
+        // then add write-only children
+        if !self.readers.is_empty() {
+            unsafe {
+                self.get_nexus_mut()
+                    .get_unchecked_mut()
+                    .children
+                    .iter_mut()
+                    .filter(|c| c.rebuilding())
+                    .for_each(|c| {
+                        if let Ok(hdl) = c.get_io_handle() {
+                            writers.push(hdl);
+                        } else {
+                            c.set_state(ChildState::Faulted(Reason::CantOpen));
+                            error!(
+                                "failed to get I/O handle for {}",
+                                c.get_name()
+                            );
+                        }
+                    });
+            }
         }
 
         self.writers.clear();
@@ -231,20 +240,22 @@ impl NexusChannel {
         let mut writers = Vec::new();
         let mut readers = Vec::new();
 
-        nexus
-            .children
-            .iter_mut()
-            .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
-                (Ok(w), Ok(r)) => {
-                    writers.push(w);
-                    readers.push(r);
-                }
-                _ => {
-                    c.set_state(ChildState::Faulted(Reason::CantOpen));
-                    error!("Failed to get I/O handle for {}, skipping block device", c.get_name())
-                }
-            });
+        unsafe {
+            nexus.as_mut().get_unchecked_mut()
+                .children
+                .iter_mut()
+                .filter(|c| c.state() == ChildState::Open)
+                .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
+                    (Ok(w), Ok(r)) => {
+                        writers.push(w);
+                        readers.push(r);
+                    }
+                    _ => {
+                        c.set_state(ChildState::Faulted(Reason::CantOpen));
+                        error!("Failed to get I/O handle for {}, skipping block device", c.get_name())
+                    }
+                });
+        }
 
         let channels = Box::new(NexusChannelInner {
             writers,

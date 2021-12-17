@@ -6,6 +6,7 @@
 
 use std::{
     fmt::{Display, Formatter},
+    marker::PhantomPinned,
     os::raw::c_void,
     pin::Pin,
     ptr::NonNull,
@@ -22,13 +23,12 @@ use uuid::Uuid;
 
 use super::{
     nexus_lookup_name_uuid,
-    nexus_submit_io,
+    nexus_submit_request,
     ChildError,
     ChildState,
     DrEvent,
     NbdDisk,
     NbdError,
-    NexusBio,
     NexusChannel,
     NexusChild,
     NexusInfo,
@@ -43,6 +43,7 @@ use crate::{
         Command,
         CoreError,
         Cores,
+        DeviceEventSink,
         IoType,
         Protocol,
         Reactor,
@@ -54,7 +55,6 @@ use crate::{
     subsys::{NvmfError, NvmfSubsystem},
 };
 
-use crate::core::DeviceEventSink;
 use spdk_rs::{
     libspdk::spdk_bdev,
     BdevIo,
@@ -429,7 +429,7 @@ pub struct Nexus<'n> {
     /// NVMe parameters
     pub(crate) nvme_params: NexusNvmeParams,
     /// uuid of the nexus (might not be the same as the nexus bdev!)
-    pub(crate) nexus_uuid: Uuid,
+    nexus_uuid: Uuid,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: NonNull<spdk_bdev>,
     /// represents the current state of the Nexus
@@ -442,7 +442,7 @@ pub struct Nexus<'n> {
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
-    pub has_io_device: bool,
+    has_io_device: bool,
     /// Nexus pause counter to allow concurrent pause/resume.
     pause_state: AtomicCell<NexusPauseState>,
     pause_waiters: Vec<oneshot::Sender<i32>>,
@@ -450,6 +450,8 @@ pub struct Nexus<'n> {
     pub nexus_info: futures::lock::Mutex<NexusInfo>,
     /// TODO
     event_sink: Option<DeviceEventSink>,
+    /// Prevent auto-Unpin.
+    _pin: PhantomPinned,
 }
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
@@ -553,6 +555,7 @@ impl<'n> Nexus<'n> {
             nexus_info: futures::lock::Mutex::new(Default::default()),
             nexus_uuid: Default::default(),
             event_sink: None,
+            _pin: Default::default(),
         };
 
         let mut bdev = NexusModule::current()
@@ -566,13 +569,15 @@ impl<'n> Nexus<'n> {
             .with_data(n)
             .build();
 
-        let mut n = bdev.data_mut();
-        n.bdev_raw = bdev.legacy_as_ptr();
-        n.event_sink = Some(DeviceEventSink::new(n.as_mut()));
+        unsafe {
+            let n = bdev.data_mut().get_unchecked_mut();
+            n.bdev_raw = bdev.legacy_as_ptr();
+            n.event_sink = Some(DeviceEventSink::new(bdev.data_mut()));
 
-        // set the nexus UUID to be the specified nexus UUID, otherwise inherit
-        // the bdev UUID
-        n.nexus_uuid = nexus_uuid.unwrap_or_else(|| n.bdev().uuid());
+            // Set the nexus UUID to be the specified nexus UUID, otherwise
+            // inherit the bdev UUID.
+            n.nexus_uuid = nexus_uuid.unwrap_or_else(|| n.bdev().uuid());
+        }
 
         // register children
         if let Some(child_bdevs) = child_bdevs {
@@ -588,12 +593,12 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub(crate) fn bdev_mut(&mut self) -> Bdev {
+    pub(crate) unsafe fn bdev_mut(self: Pin<&mut Self>) -> Bdev {
         Bdev::from(self.bdev_raw.as_ptr())
     }
 
     /// TODO
-    pub(crate) fn get_event_sink(&mut self) -> DeviceEventSink {
+    pub(crate) fn get_event_sink(&self) -> DeviceEventSink {
         self.event_sink
             .clone()
             .expect("Nexus device event sink not ready")
@@ -713,19 +718,22 @@ impl<'n> Nexus<'n> {
                 // nexus list does not return this nexus until it is persisted.
                 nex.persist(PersistOp::Create).await;
                 nex.as_mut().set_state(NexusState::Open);
-                // nex.io_device = Some(io_device);
-                nex.has_io_device = true;
+                unsafe { nex.get_unchecked_mut().has_io_device = true };
                 Ok(())
             }
             Err(err) => {
-                for child in &mut nex.children {
-                    if let Err(e) = child.close().await {
-                        error!(
-                            "{}: child {} failed to close with error {}",
-                            bdev.data_mut().name,
-                            child.get_name(),
-                            e.verbose()
-                        );
+                unsafe {
+                    for child in
+                        nex.as_mut().get_unchecked_mut().children.iter_mut()
+                    {
+                        if let Err(e) = child.close().await {
+                            error!(
+                                "{}: child {} failed to close with error {}",
+                                bdev.data_mut().name,
+                                child.get_name(),
+                                e.verbose()
+                            );
+                        }
                     }
                 }
                 nex.as_mut().set_state(NexusState::Closed);
@@ -753,17 +761,20 @@ impl<'n> Nexus<'n> {
             self.cancel_child_rebuild_jobs(child.get_name()).await;
         }
 
-        for child in self.children.iter_mut() {
-            info!("Destroying child bdev {}", child.get_name());
-            if let Err(e) = child.close().await {
-                // TODO: should an error be returned here?
-                error!(
-                    "Failed to close child {} with error {}",
-                    child.get_name(),
-                    e.verbose()
-                );
+        unsafe {
+            for child in self.as_mut().get_unchecked_mut().children.iter_mut() {
+                info!("Destroying child bdev {}", child.get_name());
+                if let Err(e) = child.close().await {
+                    // TODO: should an error be returned here?
+                    error!(
+                        "Failed to close child {} with error {}",
+                        child.get_name(),
+                        e.verbose()
+                    );
+                }
             }
         }
+
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
 
@@ -778,7 +789,7 @@ impl<'n> Nexus<'n> {
     /// Resume IO to the bdev.
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
-    pub async fn resume(&mut self) -> Result<(), Error> {
+    pub async fn resume(self: Pin<&mut Self>) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
         // if we are pausing we have concurrent requests for this
@@ -817,7 +828,9 @@ impl<'n> Nexus<'n> {
 
         // Keep the Nexus paused in case there are waiters.
         if !self.pause_waiters.is_empty() {
-            let s = self.pause_waiters.pop().unwrap();
+            let s = unsafe {
+                self.get_unchecked_mut().pause_waiters.pop().unwrap()
+            };
             s.send(0).expect("Nexus pause waiter disappeared");
         } else {
             self.pause_state.store(NexusPauseState::Unpaused);
@@ -833,7 +846,7 @@ impl<'n> Nexus<'n> {
     /// with the nexus paused once they are awakened via resume().
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
-    pub async fn pause(&mut self) -> Result<(), Error> {
+    pub async fn pause(&self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
         let state = self.pause_state.compare_exchange(
@@ -950,7 +963,7 @@ impl<'n> Nexus<'n> {
     }
 
     pub async fn child_retire(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         name: String,
     ) -> Result<(), Error> {
         self.child_retire_for_each_channel(Some(name.clone()))
@@ -1155,8 +1168,11 @@ impl<'n> BdevOps for Nexus<'n> {
             self_ref.child_count = 0;
         });
 
-        self.unregister_io_device();
-        self.has_io_device = false;
+        self.as_mut().unregister_io_device();
+
+        unsafe {
+            self.as_mut().get_unchecked_mut().has_io_device = false;
+        }
 
         trace!("{}: closed", self.name);
         self.set_state(NexusState::Closed);
@@ -1170,8 +1186,7 @@ impl<'n> BdevOps for Nexus<'n> {
         chan: IoChannel<NexusChannel>,
         bio: BdevIo<Nexus<'n>>,
     ) {
-        let bio = NexusBio::nexus_bio_setup(chan, bio);
-        nexus_submit_io(bio);
+        nexus_submit_request(chan, bio);
     }
 
     fn io_type_supported(&self, io_type: IoType) -> bool {
