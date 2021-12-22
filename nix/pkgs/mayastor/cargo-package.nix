@@ -4,8 +4,10 @@
 , e2fsprogs
 , lib
 , libaio
+, libbsd
 , libspdk
 , libspdk-dev
+, libpcap
 , libudev
 , liburing
 , makeRustPlatform
@@ -65,6 +67,8 @@ let
       llvmPackages_11.libclang
       protobuf
       libaio
+      libbsd
+      libpcap
       libudev
       liburing
       numactl
@@ -80,6 +84,13 @@ let
     };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
+    fixupPhase = ''
+      echo "fixing rpaths in mayastor binaries to point to $out/lib"
+      patchelf \
+          --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+          --set-rpath $out/lib \
+          $out/bin/mayastor
+    '';
   };
 in
 {

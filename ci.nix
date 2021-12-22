@@ -54,8 +54,10 @@ mkShell {
     utillinux
     xfsprogs
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
+  ++ pkgs.lib.optional (!norust) channel.stable
   ++ pkgs.lib.optional (!norust) channel.nightly;
 
+  RUST_NIGHTLY_PATH = channel.nightly;
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
