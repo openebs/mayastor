@@ -105,5 +105,34 @@ pub mod mayastor {
                 StatNvmeControllerResponse,
             };
         }
+
+        pub mod nexus {
+            pub use super::pb::{
+                nexus_rpc_server::{NexusRpc, NexusRpcServer},
+                AddChildNexusRequest,
+                AddChildNexusResponse,
+                Child,
+                ChildState,
+                CreateNexusRequest,
+                CreateNexusResponse,
+                DestroyNexusRequest,
+                FaultNexusChildRequest,
+                GetNvmeAnaStateRequest,
+                GetNvmeAnaStateResponse,
+                ListNexusOptions,
+                ListNexusResponse,
+                Nexus,
+                NexusState,
+                NvmeAnaState,
+                PublishNexusRequest,
+                PublishNexusResponse,
+                RemoveChildNexusRequest,
+                RemoveChildNexusResponse,
+                SetNvmeAnaStateRequest,
+                SetNvmeAnaStateResponse,
+                UnpublishNexusRequest,
+                UnpublishNexusResponse,
+            };
+        }
     }
 }

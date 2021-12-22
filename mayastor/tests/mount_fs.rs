@@ -5,13 +5,11 @@ extern crate nvmeadm;
 
 use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
-    core::MayastorCliArgs,
+    core::{MayastorCliArgs, Protocol},
 };
 
 pub mod common;
 use common::compose::MayastorTest;
-
-use rpc::mayastor::ShareProtocolNexus;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -40,10 +38,7 @@ async fn create_connected_nvmf_nexus(
         .spawn(async {
             create_nexus().await;
             let nexus = nexus_lookup_mut("nexus").unwrap();
-            nexus
-                .share(ShareProtocolNexus::NexusNvmf, None)
-                .await
-                .unwrap()
+            nexus.share(Protocol::Nvmf, None).await.unwrap()
         })
         .await;
 
@@ -88,10 +83,7 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
         let uri = ms
             .spawn(async move {
                 let nexus = nexus_lookup_mut(n).unwrap();
-                nexus
-                    .share(ShareProtocolNexus::NexusNvmf, None)
-                    .await
-                    .unwrap()
+                nexus.share(Protocol::Nvmf, None).await.unwrap()
             })
             .await;
 

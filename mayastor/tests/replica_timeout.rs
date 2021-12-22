@@ -1,11 +1,11 @@
 use common::{compose::Builder, MayastorTest};
 use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
-    core::{Bdev, MayastorCliArgs},
+    core::{Bdev, MayastorCliArgs, Protocol},
     nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null, ShareProtocolNexus};
+use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use std::process::{Command, Stdio};
 use tokio::time::Duration;
 
@@ -71,7 +71,7 @@ async fn replica_stop_cont() {
                 .unwrap();
             nexus_lookup_mut(NXNAME)
                 .unwrap()
-                .share(ShareProtocolNexus::NexusNvmf, None)
+                .share(Protocol::Nvmf, None)
                 .await
                 .expect("should publish nexus over nvmf");
             assert!(

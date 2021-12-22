@@ -44,6 +44,7 @@ pub mod v1 {
     pub mod bdev;
     pub mod host;
     pub mod json;
+    pub mod nexus;
     pub mod pool;
     pub mod replica;
 }

@@ -15,7 +15,6 @@ use std::{
 use crossbeam::atomic::AtomicCell;
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use rpc::mayastor::NvmeAnaState;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
@@ -108,6 +107,8 @@ pub enum Error {
         nexus
     ))]
     UuidExists { uuid: String, nexus: String },
+    #[snafu(display("Nexus with name \"{}\" already exists", name))]
+    NameExists { name: String },
     #[snafu(display("Invalid encryption key"))]
     InvalidKey {},
     #[snafu(display("Failed to create crypto bdev for nexus {}", name))]
@@ -369,6 +370,32 @@ pub enum NexusPauseState {
     Pausing,
     Paused,
     Unpausing,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum NvmeAnaState {
+    InvalidState, // invalid, do not use
+    OptimizedState,
+    NonOptimizedState,
+    InaccessibleState,
+    PersistentLossState, // not yet supported
+    ChangeState,         // not yet supported
+}
+
+impl NvmeAnaState {
+    pub fn from_i32(value: i32) -> Result<NvmeAnaState, Error> {
+        match value {
+            0 => Ok(NvmeAnaState::InvalidState),
+            1 => Ok(NvmeAnaState::OptimizedState),
+            2 => Ok(NvmeAnaState::NonOptimizedState),
+            3 => Ok(NvmeAnaState::InaccessibleState),
+            4 => Ok(NvmeAnaState::PersistentLossState),
+            15 => Ok(NvmeAnaState::ChangeState),
+            _ => Err(Error::InvalidNvmeAnaState {
+                ana_value: value,
+            }),
+        }
+    }
 }
 
 /// NVMe-specific parameters for the Nexus
@@ -999,11 +1026,7 @@ impl<'n> Nexus<'n> {
         if let Some(Protocol::Nvmf) = self.shared() {
             if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
                 let ana_state = subsystem.get_ana_state().await? as i32;
-                return NvmeAnaState::from_i32(ana_state).ok_or({
-                    Error::InvalidNvmeAnaState {
-                        ana_value: ana_state,
-                    }
-                });
+                return NvmeAnaState::from_i32(ana_state);
             }
         }
 

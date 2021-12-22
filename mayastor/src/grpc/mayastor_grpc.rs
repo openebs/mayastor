@@ -981,10 +981,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 Some(args.key.clone())
             };
 
-            let share_protocol = match ShareProtocolNexus::from_i32(args.share)
-            {
-                Some(protocol) => protocol,
-                None => {
+            let share_protocol = match Protocol::try_from(args.share) {
+                Ok(protocol) => protocol,
+                Err(_) => {
                     return Err(nexus::Error::InvalidShareProtocol {
                         sp_value: args.share as i32,
                     });
@@ -1056,14 +1055,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         debug!("Setting NVMe ANA state for nexus {} ...", uuid);
 
         let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            let ana_state = match NvmeAnaState::from_i32(args.ana_state) {
-                Some(ana_state) => ana_state,
-                None => {
-                    return Err(nexus::Error::InvalidNvmeAnaState {
-                        ana_value: args.ana_state as i32,
-                    });
-                }
-            };
+            let ana_state = nexus::NvmeAnaState::from_i32(args.ana_state)?;
 
             let ana_state =
                 nexus_lookup(&args.uuid)?.set_ana_state(ana_state).await?;
