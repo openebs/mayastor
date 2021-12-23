@@ -787,12 +787,13 @@ impl Nexus {
     pub async fn resume(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
-        // if we are pausing we have concurrent requests for this
-        if matches!(self.pause_state.load(), NexusPauseState::Pausing) {
+        // In case nexus is already unpaused or is being paused, bail out.
+        if matches!(
+            self.pause_state.load(),
+            NexusPauseState::Pausing | NexusPauseState::Unpaused
+        ) {
             return Ok(());
         }
-
-        assert_eq!(self.pause_state.load(), NexusPauseState::Paused);
 
         info!(
             "{} resuming nexus, waiters: {}",
