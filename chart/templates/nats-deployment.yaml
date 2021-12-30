@@ -101,7 +101,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
       - name: nats
-        image: nats:2.1.7-alpine3.11
+        image: nats:2.6.5-alpine
         ports:
         - containerPort: 4222
           name: client
@@ -169,7 +169,7 @@ spec:
       #                               #
       #################################
       - name: reloader
-        image: connecteverything/nats-server-config-reloader:0.6.0
+        image: natsio/nats-server-config-reloader:0.6.2
         command:
          - "nats-server-config-reloader"
          - "-pid"
@@ -188,7 +188,7 @@ spec:
       #                            #
       ##############################
       - name: metrics
-        image: synadia/prometheus-nats-exporter:0.5.0
+        image: natsio/prometheus-nats-exporter:0.9.0
         args:
         - -connz
         - -routez
