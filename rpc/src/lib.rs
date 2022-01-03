@@ -38,14 +38,15 @@ pub mod mayastor {
         pub mod bdev {
             pub use super::pb::{
                 bdev_rpc_server::{BdevRpc, BdevRpcServer},
-                nullable_string::Kind,
-                BdevRequest,
-                BdevResponse,
+                Bdev,
                 BdevShareRequest,
                 BdevShareResponse,
                 BdevUnshareRequest,
+                CreateBdevRequest,
+                CreateBdevResponse,
+                DestroyBdevRequest,
+                ListBdevOptions,
                 ListBdevResponse,
-                NullableString,
             };
         }
 
