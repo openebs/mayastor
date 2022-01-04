@@ -85,5 +85,25 @@ pub mod mayastor {
                 UnshareReplicaRequest,
             };
         }
+
+        pub mod host {
+            pub use super::pb::{
+                block_device::{Filesystem, Partition},
+                host_rpc_server::{HostRpc, HostRpcServer},
+                BlockDevice,
+                GetMayastorResourceUsageResponse,
+                ListBlockDevicesRequest,
+                ListBlockDevicesResponse,
+                ListNvmeControllersResponse,
+                MayastorFeatures,
+                MayastorInfoResponse,
+                NvmeController,
+                NvmeControllerIoStats,
+                NvmeControllerState,
+                ResourceUsage,
+                StatNvmeControllerRequest,
+                StatNvmeControllerResponse,
+            };
+        }
     }
 }
