@@ -50,5 +50,6 @@ tests/nexus
 
 v1/pool
 v1/replica
+v1/nexus
 
 END
