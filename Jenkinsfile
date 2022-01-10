@@ -183,9 +183,20 @@ pipeline {
         checkout([
           $class: 'GitSCM',
           branches: scm.branches,
-          extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [
-            [$class: 'CloneOption', noTags: false, reference: '', shallow: false],
-          ],
+          extensions: scm.extensions.findAll {
+            !(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)
+          } + [[
+            $class: 'CloneOption',
+            noTags: false,
+            reference: '', shallow: false
+          ], [
+            $class: 'SubmoduleOption',
+            disableSubmodules: false,
+            parentCredentials: true,
+            recursiveSubmodules: true,
+            reference: '',
+            trackingSubmodules: false
+          ]],
           userRemoteConfigs: scm.userRemoteConfigs
         ])
         stash name: 'source', useDefaultExcludes: false
@@ -214,8 +225,8 @@ pipeline {
       steps {
         cleanWs()
         unstash 'source'
-        sh 'nix-shell --run "cargo fmt --all -- --check" ci.nix'
-        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings" ci.nix'
+        sh 'nix-shell --run "./scripts/rust-style.sh" ci.nix'
+        sh 'nix-shell --run "./scripts/rust-linter.sh" ci.nix'
         sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
       }
     }
@@ -288,7 +299,21 @@ pipeline {
                 checkout([
                   $class: 'GitSCM',
                   branches: scm.branches,
-                  extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [[$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                  extensions: scm.extensions.findAll {
+                    !(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)
+                  } + [[
+                    $class: 'CloneOption',
+                    noTags: false,
+                    reference: '',
+                    shallow: false
+                  ], [
+                    $class: 'SubmoduleOption',
+                    disableSubmodules: false,
+                    parentCredentials: true,
+                    recursiveSubmodules: true,
+                    reference: '',
+                    trackingSubmodules: false
+                  ]],
                   userRemoteConfigs: scm.userRemoteConfigs
                 ])
               }

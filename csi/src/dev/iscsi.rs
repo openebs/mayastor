@@ -107,8 +107,7 @@ impl TryFrom<&Url> for IscsiDevice {
             DeviceError::from(format!("invalid UUID: {}", error))
         })?;
 
-        let portal =
-            format!("{}:{}", host.to_string(), url.port().unwrap_or(3260));
+        let portal = format!("{}:{}", host, url.port().unwrap_or(3260));
 
         Ok(IscsiDevice::new(portal, segments[0].to_string(), uuid, lun))
     }

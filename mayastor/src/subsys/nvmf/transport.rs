@@ -11,7 +11,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::Lazy;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_transport_id,
     spdk_nvmf_tgt_add_transport,
     spdk_nvmf_transport_create,

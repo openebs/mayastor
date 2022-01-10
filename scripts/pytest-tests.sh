@@ -48,4 +48,6 @@ tests/replica_uuid
 tests/nexus_multipath
 tests/nexus
 
+v1/pool
+
 END

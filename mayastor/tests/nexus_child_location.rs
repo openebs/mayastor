@@ -1,5 +1,5 @@
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::MayastorCliArgs,
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
@@ -62,7 +62,8 @@ async fn child_location() {
             .await
             .unwrap();
 
-            let nexus = nexus_lookup(NEXUS_NAME).expect("Failed to find nexus");
+            let nexus =
+                nexus_lookup_mut(NEXUS_NAME).expect("Failed to find nexus");
             let children = &nexus.children;
             assert_eq!(children.len(), 2);
             assert!(children[0].is_local().unwrap());

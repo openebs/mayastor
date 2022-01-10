@@ -4,8 +4,10 @@
 , e2fsprogs
 , lib
 , libaio
+, libbsd
 , libspdk
 , libspdk-dev
+, libpcap
 , libudev
 , liburing
 , makeRustPlatform
@@ -49,7 +51,7 @@ let
     "mbus-api"
     "nvmeadm"
     "rpc"
-    "spdk-sys"
+    "spdk-rs"
     "sysfs"
   ];
   buildProps = rec {
@@ -65,6 +67,8 @@ let
       llvmPackages_11.libclang
       protobuf
       libaio
+      libbsd
+      libpcap
       libudev
       liburing
       numactl
@@ -75,10 +79,18 @@ let
       lockFile = ../../../Cargo.lock;
       outputHashes = {
         "h2-0.3.3" = "sha256-Y4AaBj10ZOutI37sVRY4yVUYmVWj5dwPbPhBhPWHNiQ=";
+        "nats-0.15.2" = "sha256:1whr0v4yv31q5zwxhcqmx4qykgn5cgzvwlaxgq847mymzajpcsln";
       };
     };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
+    fixupPhase = ''
+      echo "fixing rpaths in mayastor binaries to point to $out/lib"
+      patchelf \
+          --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+          --set-rpath $out/lib \
+          $out/bin/mayastor
+    '';
   };
 in
 {

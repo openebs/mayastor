@@ -1,23 +1,21 @@
 use async_trait::async_trait;
 use snafu::ResultExt;
+use std::pin::Pin;
 
 use rpc::mayastor::ShareProtocolNexus;
 
-use crate::{
-    bdev::nexus::{
-        nexus_bdev::{
-            Error,
-            Nexus,
-            NexusTarget,
-            ShareIscsiNexus,
-            ShareNbdNexus,
-            ShareNvmfNexus,
-            UnshareNexus,
-        },
-        nexus_nbd::NbdDisk,
-    },
-    core::{Protocol, Share},
+use super::{
+    Error,
+    NbdDisk,
+    Nexus,
+    NexusTarget,
+    ShareIscsiNexus,
+    ShareNbdNexus,
+    ShareNvmfNexus,
+    UnshareNexus,
 };
+
+use crate::core::{Protocol, Share};
 
 #[async_trait(? Send)]
 ///
@@ -28,14 +26,14 @@ use crate::{
 /// endpoints (not targets) however, we want to avoid too much
 /// iSCSI specifics and for bdevs the need for different endpoints
 /// is not implemented yet as the need for it has not arrived yet.
-impl Share for Nexus {
+impl<'n> Share for Nexus<'n> {
     type Error = Error;
     type Output = String;
 
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Off) | None => {
-                self.bdev.share_iscsi().await.context(ShareIscsiNexus {
+                self.bdev().share_iscsi().await.context(ShareIscsiNexus {
                     name: self.name.clone(),
                 })?;
             }
@@ -56,7 +54,7 @@ impl Share for Nexus {
     ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Off) | None => {
-                self.bdev.share_nvmf(cntlid_range).await.context(
+                self.bdev().share_nvmf(cntlid_range).await.context(
                     ShareNvmfNexus {
                         name: self.name.clone(),
                     },
@@ -74,25 +72,25 @@ impl Share for Nexus {
     }
 
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
-        self.bdev.unshare().await.context(UnshareNexus {
+        self.bdev().unshare().await.context(UnshareNexus {
             name: self.name.clone(),
         })
     }
 
     fn shared(&self) -> Option<Protocol> {
-        self.bdev.shared()
+        self.bdev().shared()
     }
 
     fn share_uri(&self) -> Option<String> {
-        self.bdev.share_uri()
+        self.bdev().share_uri()
     }
 
     fn bdev_uri(&self) -> Option<String> {
-        self.bdev.bdev_uri()
+        self.bdev().bdev_uri()
     }
 
     fn bdev_uri_original(&self) -> Option<String> {
-        self.bdev.bdev_uri_original()
+        self.bdev().bdev_uri_original()
     }
 }
 
@@ -106,9 +104,9 @@ impl From<&NexusTarget> for ShareProtocolNexus {
     }
 }
 
-impl Nexus {
+impl<'n> Nexus<'n> {
     pub async fn share(
-        &mut self,
+        mut self: Pin<&mut Self>,
         protocol: ShareProtocolNexus,
         _key: Option<String>,
     ) -> Result<String, Error> {
@@ -136,12 +134,18 @@ impl Nexus {
                     },
                 )?;
                 let uri = disk.as_uri();
-                self.nexus_target = Some(NexusTarget::NbdDisk(disk));
+                unsafe {
+                    self.as_mut().get_unchecked_mut().nexus_target =
+                        Some(NexusTarget::NbdDisk(disk));
+                }
                 Ok(uri)
             }
             ShareProtocolNexus::NexusIscsi => {
                 let uri = self.share_iscsi().await?;
-                self.nexus_target = Some(NexusTarget::NexusIscsiTarget);
+                unsafe {
+                    self.as_mut().get_unchecked_mut().nexus_target =
+                        Some(NexusTarget::NexusIscsiTarget);
+                }
                 Ok(uri)
             }
             ShareProtocolNexus::NexusNvmf => {
@@ -151,25 +155,31 @@ impl Nexus {
                         self.nvme_params.max_cntlid,
                     )))
                     .await?;
-                self.nexus_target = Some(NexusTarget::NexusNvmfTarget);
+
+                unsafe {
+                    self.as_mut().get_unchecked_mut().nexus_target =
+                        Some(NexusTarget::NexusNvmfTarget);
+                }
                 Ok(uri)
             }
         }
     }
 
-    pub async fn unshare_nexus(&mut self) -> Result<(), Error> {
-        match self.nexus_target.take() {
-            Some(NexusTarget::NbdDisk(disk)) => {
-                disk.destroy();
-            }
-            Some(NexusTarget::NexusIscsiTarget) => {
-                self.unshare().await?;
-            }
-            Some(NexusTarget::NexusNvmfTarget) => {
-                self.unshare().await?;
-            }
-            None => {
-                warn!("{} was not shared", self.name);
+    pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        unsafe {
+            match self.as_mut().get_unchecked_mut().nexus_target.take() {
+                Some(NexusTarget::NbdDisk(disk)) => {
+                    disk.destroy();
+                }
+                Some(NexusTarget::NexusIscsiTarget) => {
+                    self.unshare().await?;
+                }
+                Some(NexusTarget::NexusNvmfTarget) => {
+                    self.unshare().await?;
+                }
+                None => {
+                    warn!("{} was not shared", self.name);
+                }
             }
         }
 

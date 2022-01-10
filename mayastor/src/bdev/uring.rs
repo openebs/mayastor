@@ -5,7 +5,7 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{create_uring_bdev, delete_uring_bdev};
+use spdk_rs::libspdk::{create_uring_bdev, delete_uring_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
@@ -91,10 +91,10 @@ impl CreateDestroy for Uring {
             create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
         }) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.as_mut().set_uuid(uuid.into()) };
             }
 
-            if !bdev.add_alias(&self.alias) {
+            if !bdev.as_mut().add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -102,7 +102,7 @@ impl CreateDestroy for Uring {
                 );
             }
 
-            return Ok(bdev.name());
+            return Ok(bdev.name().to_string());
         }
 
         Err(NexusBdevError::BdevNotFound {
@@ -113,8 +113,8 @@ impl CreateDestroy for Uring {
     /// Destroy the given uring bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.name) {
-            Some(bdev) => {
-                bdev.remove_alias(&self.alias);
+            Some(mut bdev) => {
+                bdev.as_mut().remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     delete_uring_bdev(

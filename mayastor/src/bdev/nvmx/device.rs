@@ -20,7 +20,7 @@ use crate::{
         BlockDeviceHandle,
         BlockDeviceIoStats,
         CoreError,
-        DeviceEventType,
+        DeviceEventSink,
         DeviceIoController,
         DeviceTimeoutAction,
         IoType,
@@ -28,6 +28,7 @@ use crate::{
     ffihelper::{cb_arg, done_cb},
 };
 
+/// TODO
 pub struct NvmeBlockDevice {
     ns: Arc<NvmeNamespace>,
     name: String,
@@ -43,7 +44,10 @@ pub struct NvmeDeviceDescriptor {
     prchk_flags: u32,
 }
 
+unsafe impl Send for NvmeDeviceDescriptor {}
+
 impl NvmeDeviceDescriptor {
+    /// TODO
     fn create(
         controller: &NvmeController,
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
@@ -226,7 +230,7 @@ impl BlockDevice for NvmeBlockDevice {
 
     fn add_event_listener(
         &self,
-        listener: fn(DeviceEventType, &str),
+        listener: DeviceEventSink,
     ) -> Result<(), CoreError> {
         let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
             CoreError::BdevNotFound {
@@ -234,7 +238,7 @@ impl BlockDevice for NvmeBlockDevice {
             },
         )?;
         let controller = controller.lock();
-        controller.add_event_listener(listener)
+        controller.register_device_listener(listener)
     }
 }
 

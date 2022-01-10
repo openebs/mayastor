@@ -8,7 +8,7 @@ use std::{ffi::CStr, os::raw::c_char};
 use ::rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
 
-use spdk_sys::{spdk_lvol, vbdev_lvol_get_from_bdev};
+use spdk_rs::libspdk::{spdk_lvol, vbdev_lvol_get_from_bdev};
 
 use crate::{core::Bdev, subsys::NvmfError, target};
 
@@ -235,8 +235,9 @@ impl Iterator for ReplicaIter {
         loop {
             let maybe_bdev = match &mut self.bdev {
                 Some(bdev) => {
-                    let ptr =
-                        unsafe { spdk_sys::spdk_bdev_next(bdev.as_ptr()) };
+                    let ptr = unsafe {
+                        spdk_rs::libspdk::spdk_bdev_next(bdev.as_ptr())
+                    };
                     if !ptr.is_null() {
                         Some(Bdev::from(ptr))
                     } else {
@@ -254,7 +255,7 @@ impl Iterator for ReplicaIter {
             // Skip all other bdevs which are not lvols (i.e. aio)
             let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
             if !lvol.is_null() {
-                let mut aliases = bdev.aliases();
+                let mut aliases = bdev.as_ref().aliases();
                 // each lvol has a first alias of form "pool/lvol-name"
                 if !aliases.is_empty() {
                     let alias = aliases.remove(0);

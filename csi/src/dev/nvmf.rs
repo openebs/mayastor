@@ -43,7 +43,7 @@ impl NvmfAttach {
     }
 
     fn get_device(&self) -> Result<Option<Device>, DeviceError> {
-        let key: String = format!("uuid.{}", self.uuid.to_string());
+        let key: String = format!("uuid.{}", self.uuid);
         let mut enumerator = Enumerator::new()?;
 
         enumerator.match_subsystem("block")?;

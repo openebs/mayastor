@@ -10,11 +10,9 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{
-    self,
+use spdk_rs::libspdk::{
     bdev_nvme_create,
     bdev_nvme_delete,
-    spdk_nvme_host_id,
     spdk_nvme_transport_id,
 };
 
@@ -84,15 +82,14 @@ impl CreateDestroy for NVMe {
         let errno = unsafe {
             bdev_nvme_create(
                 &mut context.trid,
-                &mut context.hostid,
                 cname.as_ptr(),
                 &mut context.names[0],
                 context.count,
-                std::ptr::null_mut(),
                 context.prchk_flags,
                 Some(nvme_create_cb),
                 cb_arg(sender),
                 std::ptr::null_mut(),
+                false,
             )
         };
 
@@ -112,7 +109,7 @@ impl CreateDestroy for NVMe {
             })?;
 
         let success = Bdev::lookup_by_name(&self.get_name())
-            .map(|b| b.add_alias(&self.url.to_string()))
+            .map(|mut b| b.as_mut().add_alias(&self.url.to_string()))
             .expect("bdev created but not found!");
 
         if !success {
@@ -126,8 +123,8 @@ impl CreateDestroy for NVMe {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
-            bdev.remove_alias(&self.url.to_string());
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.get_name()) {
+            bdev.as_mut().remove_alias(&self.url.to_string());
             let errno = unsafe {
                 bdev_nvme_delete(
                     self.name.clone().into_cstring().as_ptr(),
@@ -149,7 +146,6 @@ const MAX_NAMESPACES: usize = 1;
 
 struct NvmeCreateContext {
     trid: spdk_nvme_transport_id,
-    hostid: spdk_nvme_host_id,
     names: [*const c_char; MAX_NAMESPACES],
     prchk_flags: u32,
     count: u32,
@@ -168,13 +164,10 @@ impl NvmeCreateContext {
             );
         }
 
-        trid.trtype = spdk_sys::SPDK_NVME_TRANSPORT_PCIE;
-
-        let hostid = spdk_nvme_host_id::default();
+        trid.trtype = spdk_rs::libspdk::SPDK_NVME_TRANSPORT_PCIE;
 
         NvmeCreateContext {
             trid,
-            hostid,
             names: [std::ptr::null_mut() as *mut c_char; MAX_NAMESPACES],
             prchk_flags: 0,
             count: MAX_NAMESPACES as u32,

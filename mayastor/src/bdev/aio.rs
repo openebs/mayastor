@@ -6,7 +6,7 @@ use nix::errno::Errno;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{bdev_aio_delete, create_aio_bdev};
+use spdk_rs::libspdk::{bdev_aio_delete, create_aio_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
@@ -101,10 +101,10 @@ impl CreateDestroy for Aio {
 
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.as_mut().set_uuid(uuid.into()) };
             }
 
-            if !bdev.add_alias(&self.alias) {
+            if !bdev.as_mut().add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -123,8 +123,8 @@ impl CreateDestroy for Aio {
     /// Destroy the given AIO bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.name) {
-            Some(bdev) => {
-                bdev.remove_alias(&self.alias);
+            Some(mut bdev) => {
+                bdev.as_mut().remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     bdev_aio_delete(

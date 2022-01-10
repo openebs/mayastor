@@ -2,7 +2,7 @@
 //! This test is roughly the same as the tests in nexus_add_remove. However,
 //! this test does not use nvmf targets rather uring bdevs
 
-use mayastor::bdev::{nexus_create, nexus_lookup};
+use mayastor::bdev::nexus::{nexus_create, nexus_lookup_mut};
 use once_cell::sync::OnceCell;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -63,7 +63,7 @@ async fn remove_children_from_nexus() {
     // lookup the nexus and share it over nvmf
     ms.spawn(async {
         let nexus =
-            nexus_lookup("remove_from_nexus").expect("nexus is not found!");
+            nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
         nexus.share_nvmf(None).await
     })
     .await
@@ -72,16 +72,43 @@ async fn remove_children_from_nexus() {
     // lookup the nexus, and remove a child
     ms.spawn(async {
         let nexus =
-            nexus_lookup("remove_from_nexus").expect("nexus is not found!");
+            nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
         nexus.remove_child(&format!("uring:///{}", DISKNAME1)).await
     })
     .await
     .expect("failed to remove child from nexus");
 
+    ms.spawn(async {
+        let nexus =
+            nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
+        nexus.remove_child(&format!("uring:///{}", DISKNAME2)).await
+    })
+    .await
+    .expect_err("cannot remove the last child from nexus");
+
+    // add new child but don't rebuild, so it's not healthy!
+    ms.spawn(async {
+        let nexus =
+            nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
+        nexus
+            .add_child(&format!("uring:///{}", DISKNAME1), true)
+            .await
+    })
+    .await
+    .expect("should be able to add a child back");
+
+    ms.spawn(async {
+        let nexus =
+            nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
+        nexus.remove_child(&format!("uring:///{}", DISKNAME2)).await
+    })
+    .await
+    .expect_err("cannot remove the last healthy child from nexus");
+
     // destroy it
     ms.spawn(async {
         let nexus =
-            nexus_lookup("remove_from_nexus").expect("nexus is not found!");
+            nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
         nexus.destroy().await.unwrap();
     })
     .await;
@@ -115,7 +142,7 @@ async fn nexus_add_child() {
 
     ms.spawn(async {
         let nexus =
-            nexus_lookup("nexus_add_child").expect("nexus is not found!");
+            nexus_lookup_mut("nexus_add_child").expect("nexus is not found!");
         nexus
             .share_nvmf(None)
             .await
@@ -125,7 +152,7 @@ async fn nexus_add_child() {
 
     ms.spawn(async {
         let nexus =
-            nexus_lookup("nexus_add_child").expect("nexus is not found!");
+            nexus_lookup_mut("nexus_add_child").expect("nexus is not found!");
         nexus
             .add_child(&format!("uring:///{}", DISKNAME3), false)
             .await
@@ -135,7 +162,7 @@ async fn nexus_add_child() {
 
     ms.spawn(async {
         let nexus =
-            nexus_lookup("nexus_add_child").expect("nexus is not found!");
+            nexus_lookup_mut("nexus_add_child").expect("nexus is not found!");
         nexus.destroy().await.unwrap();
     })
     .await;

@@ -1,9 +1,15 @@
 //! Nexus IO tests for multipath NVMf, reservation, and write-zeroes
 use common::bdev_io;
 use mayastor::{
-    bdev::{nexus_create, nexus_create_v2, nexus_lookup, NexusNvmeParams},
+    bdev::nexus::{
+        nexus_create,
+        nexus_create_v2,
+        nexus_lookup_mut,
+        NexusNvmeParams,
+    },
     core::MayastorCliArgs,
     lvs::Lvs,
+    pool::PoolArgs,
 };
 use once_cell::sync::OnceCell;
 use rpc::mayastor::{
@@ -190,7 +196,7 @@ async fn nexus_io_multipath() {
             .await
             .unwrap();
             // publish nexus on local node over nvmf
-            nexus_lookup(&name)
+            nexus_lookup_mut(&name)
                 .unwrap()
                 .share(ShareProtocolNexus::NexusNvmf, None)
                 .await
@@ -231,7 +237,7 @@ async fn nexus_io_multipath() {
     mayastor
         .spawn(async move {
             // set nexus on local node ANA state to non-optimized
-            nexus_lookup(&nexus_name)
+            nexus_lookup_mut(&nexus_name)
                 .unwrap()
                 .set_ana_state(NvmeAnaState::NvmeAnaNonOptimizedState)
                 .await
@@ -393,7 +399,7 @@ async fn nexus_io_resv_acquire() {
             nexus_create_v2(
                 &NXNAME.to_string(),
                 32 * 1024 * 1024,
-                Some(UUID),
+                UUID,
                 nvme_params,
                 &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
             )
@@ -499,7 +505,7 @@ async fn nexus_io_resv_acquire() {
                 .await
                 .expect("reads should succeed");
 
-            nexus_lookup(&NXNAME.to_string())
+            nexus_lookup_mut(&NXNAME.to_string())
                 .unwrap()
                 .destroy()
                 .await
@@ -563,9 +569,10 @@ async fn nexus_io_write_zeroes() {
     mayastor
         .spawn(async move {
             // Create local pool and replica
-            Lvs::create_or_import(CreatePoolRequest {
+            Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEVNAME1.to_string()],
+                uuid: None,
             })
             .await
             .unwrap();

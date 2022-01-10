@@ -4,8 +4,10 @@
 , e2fsprogs
 , lib
 , libaio
+, libbsd
 , libspdk
 , libspdk-dev
+, libpcap
 , libudev
 , liburing
 , makeRustPlatform

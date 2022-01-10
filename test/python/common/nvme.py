@@ -127,6 +127,12 @@ def nvme_disconnect(uri):
     subprocess.run(command, check=True, shell=True, capture_output=True)
 
 
+def nvme_disconnect_controller(name):
+    """Disconnect the given NVMe controller on this host."""
+    command = "sudo nvme disconnect -d {0}".format(name)
+    subprocess.run(command, check=True, shell=True, capture_output=True)
+
+
 def nvme_disconnect_all():
     """Disconnect from all connected nvme subsystems"""
     command = "sudo nvme disconnect-all"

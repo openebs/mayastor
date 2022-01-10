@@ -9,7 +9,6 @@ use mayastor::{
         Bdev,
         Cores,
         Descriptor,
-        DmaBuf,
         IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -20,12 +19,17 @@ use mayastor::{
     nexus_uri::bdev_create,
     subsys::Config,
 };
-use spdk_sys::{
-    spdk_bdev_free_io,
-    spdk_bdev_read,
-    spdk_bdev_write,
-    spdk_poller,
-    spdk_poller_unregister,
+use spdk_rs::{
+    libspdk::{
+        spdk_bdev_free_io,
+        spdk_bdev_io,
+        spdk_bdev_read,
+        spdk_bdev_write,
+        spdk_poller,
+        spdk_poller_register,
+        spdk_poller_unregister,
+    },
+    DmaBuf,
 };
 
 #[derive(Debug)]
@@ -45,6 +49,7 @@ const IO_SIZE: u64 = 512;
 /// a Job refers to a set of work typically defined by either time or size
 /// that drives IO to a bdev using its own channel.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Job {
     bdev: Bdev,
     /// descriptor to the bdev
@@ -84,7 +89,7 @@ thread_local! {
 impl Job {
     /// io completion callback
     extern "C" fn io_completion(
-        bdev_io: *mut spdk_sys::spdk_bdev_io,
+        bdev_io: *mut spdk_bdev_io,
         success: bool,
         arg: *mut std::ffi::c_void,
     ) {
@@ -129,7 +134,7 @@ impl Job {
         let bdev = bdev_create(bdev)
             .await
             .map_err(|e| {
-                eprintln!("Failed to open URI {}: {}", bdev, e.to_string());
+                eprintln!("Failed to open URI {}: {}", bdev, e);
                 std::process::exit(1);
             })
             .map(|name| Bdev::lookup_by_name(&name).unwrap())
@@ -378,7 +383,8 @@ fn main() {
         for j in jobs {
             let job = j.await;
             let thread =
-                Mthread::new(job.bdev.name(), Cores::current()).unwrap();
+                Mthread::new(job.bdev.name().to_string(), Cores::current())
+                    .unwrap();
             thread.msg(job, |job| {
                 job.run();
             });
@@ -386,7 +392,7 @@ fn main() {
 
         unsafe {
             PERF_TICK.with(|p| {
-                *p.borrow_mut() = NonNull::new(spdk_sys::spdk_poller_register(
+                *p.borrow_mut() = NonNull::new(spdk_poller_register(
                     Some(perf_tick),
                     std::ptr::null_mut(),
                     1_000_000,

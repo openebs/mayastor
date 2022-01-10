@@ -1,15 +1,3 @@
-extern crate bytes;
-extern crate prost;
-extern crate prost_derive;
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_json;
-extern crate tonic;
-#[allow(dead_code)]
-#[allow(clippy::type_complexity)]
-#[allow(clippy::unit_arg)]
-#[allow(clippy::redundant_closure)]
-#[allow(clippy::upper_case_acronyms)]
 pub mod mayastor {
     use std::str::FromStr;
 
@@ -37,4 +25,52 @@ pub mod mayastor {
     }
 
     include!(concat!(env!("OUT_DIR"), "/mayastor.rs"));
+
+    /// module to access v1 version of grpc APIs
+    pub mod v1 {
+
+        // dont export the raw pb generated code
+        mod pb {
+            include!(concat!(env!("OUT_DIR"), "/mayastor.v1.rs"));
+        }
+
+        /// v1 version of bdev grpc API
+        pub mod bdev {
+            pub use super::pb::{
+                bdev_rpc_server::{BdevRpc, BdevRpcServer},
+                nullable_string::Kind,
+                BdevRequest,
+                BdevResponse,
+                BdevShareRequest,
+                BdevShareResponse,
+                BdevUnshareRequest,
+                ListBdevResponse,
+                NullableString,
+            };
+        }
+
+        /// v1 version of json-rpc grpc API
+        pub mod json {
+            pub use super::pb::{
+                json_rpc_server::{JsonRpc, JsonRpcServer},
+                JsonRpcRequest,
+                JsonRpcResponse,
+            };
+        }
+
+        pub mod pool {
+            pub use super::pb::{
+                pool_rpc_server::{PoolRpc, PoolRpcServer},
+                CreatePoolRequest,
+                DestroyPoolRequest,
+                ExportPoolRequest,
+                ImportPoolRequest,
+                ListPoolOptions,
+                ListPoolsResponse,
+                Pool,
+                PoolState,
+                PoolType,
+            };
+        }
+    }
 }

@@ -43,7 +43,9 @@ spec:
             fieldRef:
               fieldPath: status.podIP
         - name: RUST_BACKTRACE
-          value: "1"
+          value: "1"{{ if .Values.moac }}
+        - name: MOAC
+          value: "true"{{ end }}
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--node-name=$(MY_NODE_NAME)"

@@ -2,7 +2,7 @@
 
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nvme_qpair_abort_reqs,
     spdk_io_channel,
     spdk_nvme_ctrlr_alloc_io_qpair,
@@ -264,6 +264,10 @@ pub struct NvmeIoChannelInner<'a> {
     poller: poller::Poller<'a>,
     io_stats_controller: IoStatsController,
     pub device: Box<dyn BlockDevice>,
+    /// to prevent the controller from being destroyed before the channel
+    ctrl: Option<
+        std::sync::Arc<parking_lot::Mutex<crate::bdev::NvmeController<'a>>>,
+    >,
     num_pending_ios: u64,
 
     // Flag to indicate the shutdown state of the channel.
@@ -309,6 +313,7 @@ impl NvmeIoChannelInner<'_> {
         let rc = self.reset();
         if rc == 0 {
             self.is_shutdown = true;
+            self.ctrl.take();
         }
         rc
     }
@@ -588,6 +593,7 @@ impl NvmeControllerIoChannel {
             io_stats_controller: IoStatsController::new(block_size),
             is_shutdown: false,
             device,
+            ctrl: Some(carc),
             num_pending_ios: 0,
         });
 

@@ -3,18 +3,21 @@ use futures::channel::oneshot;
 use rand::Rng;
 use std::{ptr::NonNull, sync::Mutex};
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_bdev_free_io,
+    spdk_bdev_io,
     spdk_bdev_read,
     spdk_bdev_reset,
     spdk_bdev_write,
 };
 
 use crate::{
-    core::{Bdev, Cores, Descriptor, DmaBuf, IoChannel, Mthread},
+    core::{Bdev, Cores, Descriptor, IoChannel, Mthread},
     ffihelper::pair,
     nexus_uri::bdev_create,
 };
+
+use spdk_rs::DmaBuf;
 
 #[derive(Debug, Copy, Clone)]
 pub enum IoType {
@@ -31,6 +34,7 @@ impl Default for IoType {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Io {
     /// buffer we read/write from/to
     buf: DmaBuf,
@@ -139,6 +143,7 @@ impl Io {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Job {
     /// that drives IO to a bdev using its own channel.
     bdev: Bdev,
@@ -180,7 +185,7 @@ pub struct Job {
 
 impl Job {
     extern "C" fn io_completion(
-        bdev_io: *mut spdk_sys::spdk_bdev_io,
+        bdev_io: *mut spdk_bdev_io,
         success: bool,
         arg: *mut std::ffi::c_void,
     ) {

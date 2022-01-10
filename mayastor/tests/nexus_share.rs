@@ -1,5 +1,5 @@
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -36,7 +36,7 @@ async fn nexus_share_test() {
                 .await
                 .unwrap();
 
-                let nexus = nexus_lookup("nexus0").unwrap();
+                let nexus = nexus_lookup_mut("nexus0").unwrap();
 
                 // this should be idempotent so validate that sharing the
                 // same thing over the same protocol
@@ -49,14 +49,14 @@ async fn nexus_share_test() {
 
             // sharing the nexus over nvmf should fail
             Reactor::block_on(async {
-                let nexus = nexus_lookup("nexus0").unwrap();
+                let nexus = nexus_lookup_mut("nexus0").unwrap();
                 assert!(nexus.share_nvmf(None).await.is_err());
                 assert_eq!(nexus.shared(), Some(Protocol::Iscsi));
             });
 
             // unshare the nexus and then share over nvmf
             Reactor::block_on(async {
-                let nexus = nexus_lookup("nexus0").unwrap();
+                let nexus = nexus_lookup_mut("nexus0").unwrap();
                 nexus.unshare().await.unwrap();
                 let shared = nexus.shared();
                 assert_eq!(shared, Some(Protocol::Off));
@@ -78,12 +78,12 @@ async fn nexus_share_test() {
 
             // unshare the nexus
             Reactor::block_on(async {
-                let nexus = nexus_lookup("nexus0").unwrap();
+                let nexus = nexus_lookup_mut("nexus0").unwrap();
                 nexus.unshare().await.unwrap();
             });
 
             Reactor::block_on(async {
-                let nexus = nexus_lookup("nexus0").unwrap();
+                let nexus = nexus_lookup_mut("nexus0").unwrap();
                 assert_eq!(nexus.shared(), Some(Protocol::Off));
                 let bdev = Bdev::lookup_by_name("nexus0").unwrap();
                 assert_eq!(bdev.shared(), Some(Protocol::Off));

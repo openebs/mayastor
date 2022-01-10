@@ -17,7 +17,7 @@ pub use nvmf::{
     SubType,
     Target as NvmfTarget,
 };
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_add_subsystem,
     spdk_add_subsystem_depend,
     spdk_subsystem_depend,

@@ -17,20 +17,22 @@ use futures::{channel::oneshot, future};
 use git_version::git_version;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
-use spdk_sys::{
-    maya_log,
-    spdk_app_shutdown_cb,
-    spdk_log_level,
-    spdk_log_open,
-    spdk_log_set_level,
-    spdk_log_set_print_level,
-    spdk_pci_addr,
-    spdk_rpc_set_state,
-    spdk_thread_lib_fini,
-    spdk_thread_send_critical_msg,
-    SPDK_LOG_DEBUG,
-    SPDK_LOG_INFO,
-    SPDK_RPC_RUNTIME,
+use spdk_rs::{
+    libspdk::{
+        spdk_app_shutdown_cb,
+        spdk_log_level,
+        spdk_log_open,
+        spdk_log_set_level,
+        spdk_log_set_print_level,
+        spdk_pci_addr,
+        spdk_rpc_set_state,
+        spdk_thread_lib_fini,
+        spdk_thread_send_critical_msg,
+        SPDK_LOG_DEBUG,
+        SPDK_LOG_INFO,
+        SPDK_RPC_RUNTIME,
+    },
+    spdk_rs_log,
 };
 use structopt::StructOpt;
 use tokio::runtime::Builder;
@@ -219,6 +221,7 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 
 /// Mayastor argument
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MayastorEnvironment {
     pub node_name: String,
     pub mbus_endpoint: Option<String>,
@@ -567,9 +570,9 @@ impl MayastorEnvironment {
             spdk_log_set_level(self.debug_level);
             spdk_log_set_print_level(self.print_level);
             // open our log implementation which is implemented in the wrapper
-            spdk_log_open(Some(maya_log));
+            spdk_log_open(Some(spdk_rs_log));
             // our callback called defined in rust called by our wrapper
-            spdk_sys::logfn = Some(logger::log_impl);
+            spdk_rs::logfn = Some(logger::log_impl);
         }
         Ok(())
     }

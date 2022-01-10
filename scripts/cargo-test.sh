@@ -15,6 +15,10 @@ cleanup_handler() {
 
 trap cleanup_handler ERR INT QUIT TERM HUP
 
+echo "running cargo-test..."
+echo "rustc version:"
+rustc --version
+
 set -euxo pipefail
 export PATH=$PATH:${HOME}/.cargo/bin
 ( cd jsonrpc && cargo test )
