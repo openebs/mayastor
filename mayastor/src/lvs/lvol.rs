@@ -220,12 +220,19 @@ impl Lvol {
         self.as_bdev().uuid_as_string()
     }
 
-    /// returns the pool of the lvol
+    /// returns the pool name of the lvol
     pub fn pool(&self) -> String {
         unsafe {
             Lvs(NonNull::new_unchecked(self.0.as_ref().lvol_store))
                 .name()
                 .to_string()
+        }
+    }
+
+    /// returns the pool uuid of the lvol
+    pub fn pool_uuid(&self) -> String {
+        unsafe {
+            Lvs(NonNull::new_unchecked(self.0.as_ref().lvol_store)).uuid()
         }
     }
 

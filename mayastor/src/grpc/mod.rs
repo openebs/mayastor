@@ -44,6 +44,7 @@ pub mod v1 {
     pub mod bdev;
     pub mod json;
     pub mod pool;
+    pub mod replica;
 }
 
 #[derive(Debug)]

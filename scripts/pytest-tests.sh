@@ -49,5 +49,6 @@ tests/nexus_multipath
 tests/nexus
 
 v1/pool
+v1/replica
 
 END

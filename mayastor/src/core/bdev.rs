@@ -206,6 +206,20 @@ impl Bdev {
         spdk_rs::DummyBdev::lookup_by_name(name).map(Self::new)
     }
 
+    /// lookup a bdev by its uuid
+    pub fn lookup_by_uuid(uuid: &str) -> Option<Bdev> {
+        match Self::bdev_first() {
+            None => None,
+            Some(bdev) => {
+                let b: Vec<Bdev> = bdev
+                    .into_iter()
+                    .filter(|b| b.uuid_as_string() == uuid)
+                    .collect();
+                b.first().cloned()
+            }
+        }
+    }
+
     /// returns the block_size of the underlying device
     pub fn block_len(&self) -> u32 {
         self.0.block_len()

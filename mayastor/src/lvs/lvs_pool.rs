@@ -625,6 +625,15 @@ impl Lvs {
             LVOL_CLEAR_WITH_NONE
         };
 
+        if let Some(uuid) = uuid {
+            if Bdev::lookup_by_uuid(uuid).is_some() {
+                return Err(Error::RepExists {
+                    source: Errno::EEXIST,
+                    name: uuid.to_string(),
+                });
+            }
+        }
+
         if Bdev::lookup_by_name(name).is_some() {
             return Err(Error::RepExists {
                 source: Errno::EEXIST,
