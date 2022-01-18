@@ -48,7 +48,7 @@ At a high-level, Mayastor consists of two major components.
 
  * A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.  This is extended by a dedicated operator responsible 
  for managing the life cycle of "Mayastor Pools" (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant external provisioner (controller).
- Source code for the control plane components is located in its [own repository](https://github.com/mayadata-io/mayastor-control-plane)
+ Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
 
  * A _per_ node instance *mayastor-csi* plugin which implements the identity and node grpc services from CSI protocol.
 
