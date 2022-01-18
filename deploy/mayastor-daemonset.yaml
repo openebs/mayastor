@@ -33,11 +33,11 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:develop
-        imagePullPolicy: Always
+        image: mayadata/mayastor:v1.0.0
+        imagePullPolicy: IfNotPresent
         env:
         - name: RUST_LOG
-          value: info,mayastor=debug
+          value: info,mayastor=info
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
