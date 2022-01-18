@@ -10,6 +10,7 @@ mayastorPools:
 # moac that does not update status of msp resource in some cases. Feel free to
 # remove when no longer needed.
 moacDebug: false
+moac: false
 
 csi:
   nvme:
@@ -27,6 +28,9 @@ nats:
     trace: false
 
 etcd:
+  ## Number of replicas
+  ##
+  replicaCount: 1
   ## Kubernetes Cluster Domain
   ##
   clusterDomain: cluster.local
@@ -46,7 +50,25 @@ etcd:
   persistence:
     ## If true, use a Persistent Volume Claim. If false, use emptyDir.
     ##
-    enabled: false
+    enabled: true
+    ## Persistent Volume Storage Class
+    ## If defined, storageClassName: <storageClass>
+    ## If set to "-", storageClassName: "", which disables dynamic provisioning
+    ## If undefined (the default) or set to null, no storageClassName spec is
+    ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+    ##   GKE, AWS & OpenStack)
+    ##
+    storageClass: "manual"
+    ## Persistent Volume size
+    ##
+    size: 2Gi
+
+  ## Init containers parameters:
+  ## volumePermissions: Change the owner and group of the persistent volume mountpoint to runAsUser:fsGroup values from the securityContext section.
+  ##
+  volumePermissions:
+    enabled: true
+
   ## Set to true if you would like to see extra information on logs
   ##
   debug: false

@@ -134,7 +134,7 @@ Like in [the build guide's *Iterative Build*][doc-build-iterative-builds] sectio
 evaluate the output, instead of the derivation.
 
 ```bash
-nix shell -f . mayastor moac
+nix shell -f . mayastor
 mayastor-client --version
 mayastor --version
 ```

@@ -91,6 +91,9 @@ fn main() {
         .allowlist_function("^nvme_qpair_.*")
         .allowlist_function("^nvme_ctrlr_.*")
         .blocklist_type("^longfunc")
+        .allowlist_type("^spdk_nvme_ns_flags")
+        .allowlist_type("^spdk_nvme_registered_ctrlr.*")
+        .allowlist_type("^spdk_nvme_reservation.*")
         .allowlist_var("^NVMF.*")
         .allowlist_var("^SPDK.*")
         .allowlist_var("^spdk.*")
@@ -123,7 +126,6 @@ fn main() {
     println!("cargo:rustc-link-search={}/spdk", manifest_dir);
     println!("cargo:rustc-link-lib=spdk");
     println!("cargo:rustc-link-lib=aio");
-    println!("cargo:rustc-link-lib=iscsi");
     println!("cargo:rustc-link-lib=dl");
     println!("cargo:rustc-link-lib=uuid");
     println!("cargo:rustc-link-lib=numa");

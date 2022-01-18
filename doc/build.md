@@ -138,7 +138,7 @@ There are a few ways to build Mayastor! If you're hacking on Mayastor, it's best
 You can build release binaries of Mayastor with [`nix build`][nix-build]:
 
 ```bash
-for PKG in moac mayastor; do
+for PKG in mayastor; do
   echo "Building ${PKG} to artifacts/pkgs/${PKG}"; \
   nix build -f . -o artifacts/pkgs/${PKG} ${PKG};
 done
@@ -147,7 +147,7 @@ done
 Try them as if they were installed:
 
 ```rust
-nix shell -f . moac mayastor
+nix shell -f . mayastor
 ```
 
 ### Building portable Nix bundles
@@ -179,7 +179,7 @@ Build the Docker images with [`nix build`][nix-build]:
 
 ```bash
 for IMAGE in \
-  moac mayastor-client mayastor mayastor-csi moac mayastor-client kiiss-service \
+  mayastor-client mayastor mayastor-csi mayastor-client kiiss-service \
   node-service volume-service pool-service rest-service node-operator; \
 do
   echo "Building ${IMAGE} to artifacts/docker/${IMAGE}.tar"; \
@@ -237,7 +237,7 @@ The basic steps are:
 ```
 git submodule update --init --recursive
 sudo ./spdk-sys/spdk/scripts/pkgdep
-./spdk-sys/build.sh --enable-debug --without-isal --with-iscsi-initiator --with-rdma \
+./spdk-sys/build.sh --enable-debug --without-isal --with-rdma \
             --with-internal-vhost-lib --disable-tests \
             --with-crypto
 ```

@@ -34,6 +34,7 @@ use crate::{
         device_destroy,
         device_lookup,
         lookup_nexus_child,
+        nexus,
         nexus::{
             nexus_bdev::{
                 CreateChild,
@@ -43,13 +44,15 @@ use crate::{
                 NexusStatus,
                 OpenChild,
             },
+            nexus_channel,
             nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
+            nexus_persistence::PersistOp,
         },
         Reason,
         VerboseError,
     },
-    core::DeviceEventType,
+    core::{DeviceEventType, Reactors},
     nexus_uri::NexusBdevError,
 };
 
@@ -178,23 +181,31 @@ impl Nexus {
             self.name.clone(),
             Some(child_bdev),
         );
-        match child.open(self.size) {
-            Ok(name) => {
-                // we have created the bdev, and created a nexusChild struct. To
-                // make use of the device itself the
-                // data and metadata must be validated. The child
-                // will be added and marked as faulted, once the rebuild has
-                // completed the device can transition to online
-                info!("{}: child opened successfully {}", self.name, name);
+        let mut child_name = child.open(self.size);
+        if let Ok(ref name) = child_name {
+            // we have created the bdev, and created a nexusChild struct. To
+            // make use of the device itself the
+            // data and metadata must be validated. The child
+            // will be added and marked as faulted, once the rebuild has
+            // completed the device can transition to online
+            info!("{}: child opened successfully {}", self.name, name);
 
-                // FIXME: use dummy key for now
-                if let Err(e) = child.resv_register(0x12345678).await {
-                    error!("Failed to register key with child: {}", e);
-                }
-
+            if let Err(e) = child
+                .acquire_write_exclusive(
+                    self.nvme_params.resv_key,
+                    self.nvme_params.preempt_key,
+                )
+                .await
+            {
+                child_name = Err(e);
+            }
+        }
+        match child_name {
+            Ok(cn) => {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.fault(Reason::OutOfSync).await;
+                let child_state = child.state();
 
                 // Register event listener for newly added child.
                 self.register_child_event_listener(&child);
@@ -206,6 +217,7 @@ impl Nexus {
                     error!("Failed to sync labels {:?}", e);
                     // todo: how to signal this?
                 }
+                self.persist(PersistOp::AddChild((cn, child_state))).await;
 
                 Ok(self.status())
             }
@@ -252,6 +264,26 @@ impl Nexus {
             });
         }
 
+        let healthy_children = self
+            .children
+            .iter()
+            .filter(|c| c.is_healthy())
+            .collect::<Vec<_>>();
+
+        let have_healthy_children = !healthy_children.is_empty();
+        let other_healthy_children = healthy_children
+            .into_iter()
+            .filter(|c| c.get_name() != uri)
+            .count()
+            > 0;
+
+        if have_healthy_children && !other_healthy_children {
+            return Err(Error::DestroyLastHealthyChild {
+                name: self.name.clone(),
+                child: uri.to_owned(),
+            });
+        }
+
         let cancelled_rebuilding_children =
             self.cancel_child_rebuild_jobs(uri).await;
 
@@ -268,8 +300,11 @@ impl Nexus {
             });
         }
 
+        let child_state = self.children[idx].state();
         self.children.remove(idx);
         self.child_count -= 1;
+        self.persist(PersistOp::Update((uri.to_string(), child_state)))
+            .await;
 
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
         Ok(())
@@ -415,6 +450,37 @@ impl Nexus {
                     }
                 }
             }
+            DeviceEventType::AdminCommandCompletionFailed => {
+                let cn = &device;
+                for nexus in nexus::instances() {
+                    if nexus_channel::fault_nexus_child(nexus, cn) {
+                        info!(
+                            "{}: retiring child {} in response to admin command completion failure event",
+                            nexus.name,
+                            device,
+                        );
+
+                        let child_dev = device.to_string();
+                        Reactors::master().send_future(async move {
+                            // Error indicates it is already paused and another
+                            // thread is processing the fault
+                            let child_dev2 = child_dev.clone();
+                            if let Err(e) = nexus.child_retire(child_dev).await
+                            {
+                                warn!(
+                                    "retiring child {} returned {}",
+                                    child_dev2, e
+                                );
+                            }
+                        });
+                        return;
+                    }
+                }
+                warn!(
+                    "No nexus child exists for device {}, ignoring admin command completion failure event",
+                    device
+                );
+            }
             _ => {
                 info!("Ignoring {:?} event for device {}", event, device);
             }
@@ -487,14 +553,37 @@ impl Nexus {
             });
         }
 
-        // FIXME: use dummy key for now
+        // acquire a write exclusive reservation on all children,
+        // if any one fails, close all children.
+        let mut we_err: Result<(), Error> = Ok(());
         for child in self.children.iter() {
-            if let Err(error) = child.resv_register(0x12345678).await {
-                error!(
-                    "{}: failed to register key {} for child {}",
-                    self.name, child.name, error
-                );
+            if let Err(error) = child
+                .acquire_write_exclusive(
+                    self.nvme_params.resv_key,
+                    self.nvme_params.preempt_key,
+                )
+                .await
+            {
+                we_err = Err(Error::ChildWriteExclusiveResvFailed {
+                    source: error,
+                    child: child.name.clone(),
+                    name: self.name.clone(),
+                });
+                break;
             }
+        }
+        if let Err(error) = we_err {
+            for child in &mut self.children {
+                if let Err(error) = child.close().await {
+                    error!(
+                        "{}: child {} failed to close with error {}",
+                        self.name,
+                        &child.name,
+                        error.verbose()
+                    );
+                }
+            }
+            return Err(error);
         }
 
         for child in self.children.iter() {

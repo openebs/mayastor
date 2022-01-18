@@ -1,6 +1,6 @@
 pub use composer::*;
 
-use crossbeam::crossbeam_channel::bounded;
+use crossbeam::channel::bounded;
 use std::future::Future;
 use tokio::sync::oneshot::channel;
 

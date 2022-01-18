@@ -44,6 +44,7 @@ impl TryFrom<&Url> for Uring {
                 value.parse().context(nexus_uri::IntParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("blk_size"),
+                    value: value.clone(),
                 })?
             }
             None => 512,
@@ -113,6 +114,7 @@ impl CreateDestroy for Uring {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.name) {
             Some(bdev) => {
+                bdev.remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     delete_uring_bdev(

@@ -40,6 +40,7 @@ use crate::{
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
+        MayastorFeatures,
         Mthread,
     },
     grpc,
@@ -131,6 +132,24 @@ pub struct MayastorCliArgs {
     #[structopt(long = "nvme-ctl-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for NVMe controller I/O contexts
     pub nvme_ctl_io_ctx_pool_size: u64,
+}
+
+/// Mayastor features.
+impl MayastorFeatures {
+    fn init_features() -> MayastorFeatures {
+        let ana = match std::env::var("NEXUS_NVMF_ANA_ENABLE") {
+            Ok(s) => s == "1",
+            Err(_) => false,
+        };
+
+        MayastorFeatures {
+            asymmetric_namespace_access: ana,
+        }
+    }
+
+    pub fn get_features() -> Self {
+        MAYASTOR_FEATURES.get_or_init(Self::init_features).clone()
+    }
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -295,6 +314,7 @@ async fn do_shutdown(arg: *mut c_void) {
 
     iscsi::fini();
     nexus::nexus_children_to_destroying_state().await;
+    crate::lvs::Lvs::export_all().await;
     unsafe {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
@@ -344,6 +364,8 @@ struct SubsystemCtx {
     sender: futures::channel::oneshot::Sender<bool>,
 }
 
+static MAYASTOR_FEATURES: OnceCell<MayastorFeatures> = OnceCell::new();
+
 static MAYASTOR_DEFAULT_ENV: OnceCell<MayastorEnvironment> = OnceCell::new();
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
@@ -386,16 +408,18 @@ impl MayastorEnvironment {
     /// configure signal handling
     fn install_signal_handlers(&self) {
         unsafe {
-            signal_hook::register(signal_hook::SIGTERM, || {
-                mayastor_signal_handler(1)
-            })
+            signal_hook::low_level::register(
+                signal_hook::consts::SIGTERM,
+                || mayastor_signal_handler(1),
+            )
         }
         .unwrap();
 
         unsafe {
-            signal_hook::register(signal_hook::SIGINT, || {
-                mayastor_signal_handler(1)
-            })
+            signal_hook::low_level::register(
+                signal_hook::consts::SIGINT,
+                || mayastor_signal_handler(1),
+            )
         }
         .unwrap();
     }

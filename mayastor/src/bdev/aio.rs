@@ -45,6 +45,7 @@ impl TryFrom<&Url> for Aio {
                 value.parse().context(nexus_uri::IntParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("blk_size"),
+                    value: value.clone(),
                 })?
             }
             None => 512,
@@ -123,6 +124,7 @@ impl CreateDestroy for Aio {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.name) {
             Some(bdev) => {
+                bdev.remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     bdev_aio_delete(

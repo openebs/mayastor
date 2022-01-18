@@ -10,6 +10,7 @@ use crate::{
         nexus_bdev::{Error, Nexus, NexusStatus},
         nexus_child::{ChildState, NexusChild, Reason},
     },
+    core::{Protocol, Share},
     rebuild::RebuildJob,
 };
 
@@ -73,6 +74,32 @@ impl Nexus {
             rebuilds: RebuildJob::count() as u32,
         }
     }
+
+    pub async fn to_grpc_v2(&self) -> rpc::NexusV2 {
+        let mut ana_state = rpc::NvmeAnaState::NvmeAnaInvalidState;
+
+        // Get ANA state only for published nexuses.
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Ok(state) = self.get_ana_state().await {
+                ana_state = state;
+            }
+        }
+
+        rpc::NexusV2 {
+            name: name_to_uuid(&self.name).to_string(),
+            uuid: self.uuid().to_string(),
+            size: self.size,
+            state: rpc::NexusState::from(self.status()) as i32,
+            device_uri: self.get_share_uri().unwrap_or_default(),
+            children: self
+                .children
+                .iter()
+                .map(|ch| ch.to_grpc())
+                .collect::<Vec<_>>(),
+            rebuilds: RebuildJob::count() as u32,
+            ana_state: ana_state as i32,
+        }
+    }
 }
 
 /// Convert nexus name to uuid.
@@ -99,17 +126,26 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
     }
 }
 
-/// Lookup a nexus by its uuid prepending "nexus-" prefix. Return error if
-/// uuid is invalid or nexus not found.
+/// Look up a nexus by name first (if created by nexus_create_v2) then by its
+/// uuid prepending "nexus-" prefix.
+/// Return error if nexus not found.
 pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
-    let name = uuid_to_name(uuid)?;
-
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
+    if let Some(nexus) = instances().iter_mut().find(|n| n.name == uuid) {
+        Ok(nexus)
+    } else if let Some(nexus) = instances()
+        .iter_mut()
+        .find(|n| n.uuid().to_string() == uuid)
+    {
         Ok(nexus)
     } else {
-        Err(Error::NexusNotFound {
-            name: uuid.to_owned(),
-        })
+        let name = uuid_to_name(uuid)?;
+        if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
+            Ok(nexus)
+        } else {
+            Err(Error::NexusNotFound {
+                name: uuid.to_owned(),
+            })
+        }
     }
 }
 

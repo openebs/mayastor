@@ -40,6 +40,10 @@ pub use io_device::IoDevice;
 pub use nvme::{
     nvme_admin_opc,
     nvme_nvm_opcode,
+    nvme_reservation_acquire_action,
+    nvme_reservation_register_action,
+    nvme_reservation_register_cptpl,
+    nvme_reservation_type,
     GenericStatusCode,
     NvmeCommandStatus,
     NvmeStatus,
@@ -137,6 +141,16 @@ pub enum CoreError {
         len: u64,
     },
     #[snafu(display(
+        "Failed to dispatch write-zeroes at offset {} length {}",
+        offset,
+        len
+    ))]
+    WriteZeroesDispatch {
+        source: Errno,
+        offset: u64,
+        len: u64,
+    },
+    #[snafu(display(
         "Failed to dispatch NVMe IO passthru command {:x}h: {}",
         opcode,
         source
@@ -157,6 +171,15 @@ pub enum CoreError {
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},
+    #[snafu(display(
+        "Write zeroes failed at offset {} length {}",
+        offset,
+        len
+    ))]
+    WriteZeroesFailed {
+        offset: u64,
+        len: u64,
+    },
     #[snafu(display("NVMe Admin command {:x}h failed", opcode))]
     NvmeAdminFailed {
         opcode: u16,
@@ -282,7 +305,7 @@ impl<T: Send + Debug> MayastorWorkQueue<T> {
     }
 
     pub fn take(&self) -> Option<T> {
-        if let Ok(elem) = self.incoming.pop() {
+        if let Some(elem) = self.incoming.pop() {
             return Some(elem);
         }
         None
@@ -291,3 +314,8 @@ impl<T: Send + Debug> MayastorWorkQueue<T> {
 
 pub static MWQ: once_cell::sync::Lazy<MayastorWorkQueue<Command>> =
     once_cell::sync::Lazy::new(MayastorWorkQueue::new);
+
+#[derive(Debug, Clone)]
+pub struct MayastorFeatures {
+    pub asymmetric_namespace_access: bool,
+}

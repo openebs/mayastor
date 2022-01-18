@@ -59,6 +59,7 @@ use crate::{
     },
     ffihelper::{cb_arg, done_cb},
     nexus_uri::NexusBdevError,
+    sleep::mayastor_sleep,
 };
 
 #[derive(Debug)]
@@ -199,7 +200,7 @@ impl<'a> NvmeController<'a> {
             .expect("(BUG) no inner NVMe controller defined yet");
 
         if let Some(ns) = inner.namespaces.get(0) {
-            Some(Arc::clone(ns))
+            Some(ns.clone())
         } else {
             debug!("no namespaces associated with the current controller");
             None
@@ -263,7 +264,7 @@ impl<'a> NvmeController<'a> {
         if !ns_active {
             self
                 .state_machine
-                .transition(Faulted(ControllerFailureReason::NamespaceInitFailed))
+                .transition(Faulted(ControllerFailureReason::NamespaceInit))
                 .expect("failed to fault controller in response to ns enumeration failure");
         }
 
@@ -324,7 +325,7 @@ impl<'a> NvmeController<'a> {
             );
         }
 
-        let io_device = Arc::clone(&self.inner.as_ref().unwrap().io_device);
+        let io_device = self.inner.as_ref().unwrap().io_device.clone();
         let reset_ctx = ResetCtx {
             name: self.name.clone(),
             cb,
@@ -352,6 +353,7 @@ impl<'a> NvmeController<'a> {
         channel: &mut NvmeIoChannelInner,
         ctx: &mut ShutdownCtx,
     ) -> i32 {
+        debug!(?ctx.name, "shutting down I/O channel");
         let rc = channel.shutdown();
 
         if rc == 0 {
@@ -379,7 +381,7 @@ impl<'a> NvmeController<'a> {
             error!("{} failed to shutdown I/O channels, rc = {}. Shutdown aborted.", ctx.name, result);
             controller
                 .state_machine
-                .transition(Faulted(ControllerFailureReason::ShutdownFailed))
+                .transition(Faulted(ControllerFailureReason::Shutdown))
                 .expect("failed to transition controller to Faulted state");
             return;
         }
@@ -503,6 +505,10 @@ impl<'a> NvmeController<'a> {
                 source: Errno::EBUSY,
             }
         })?;
+        // Prevent racing device destroy
+        unsafe {
+            self.timeout_config.as_mut().start_device_destroy();
+        }
 
         debug!("{} shutting down the controller", self.name);
 
@@ -544,7 +550,7 @@ impl<'a> NvmeController<'a> {
                 // shutdown might be in place.
                 let _ = controller.state_machine.transition_checked(
                     Running,
-                    Faulted(ControllerFailureReason::ResetFailed),
+                    Faulted(ControllerFailureReason::Reset),
                 );
             }
 
@@ -595,7 +601,7 @@ impl<'a> NvmeController<'a> {
         if let Some(c) = self.controller() {
             c.fail()
         }
-        let io_device = Arc::clone(&self.inner.as_ref().unwrap().io_device);
+        let io_device = self.inner.as_ref().unwrap().io_device.clone();
         let reset_ctx = ResetCtx {
             name: self.name.clone(),
             cb,
@@ -654,7 +660,7 @@ impl<'a> NvmeController<'a> {
 
             // Once controller is successfully reset, schedule another
             //I/O channel traversal to restore all I/O channels.
-            let io_device = Arc::clone(&reset_ctx.io_device);
+            let io_device = reset_ctx.io_device.clone();
             io_device.traverse_io_channels(
                 NvmeController::_reset_create_channels,
                 NvmeController::_reset_create_channels_done,
@@ -821,22 +827,45 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     }
 }
 
-/// return number of completions processed (maybe 0) or the negated on error,
-/// which is one of:
-///
-/// ENXIO: the qpair is not conected  or when the controller is
-/// marked as failed.
-///
-/// EGAIN: returned whenever the controller is being reset.
+/// Poll to process qpair completions on admin queue
+/// Returns: 0 (SPDK_POLLER_IDLE) or 1 (SPDK_POLLER_BUSY)
 pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     let mut context = NonNull::<TimeoutConfig>::new(ctx.cast())
         .expect("ctx pointer may never be null");
     let context = unsafe { context.as_mut() };
 
+    // returns number of completions processed (maybe 0) or the negated error,
+    // which is one of:
+    //
+    // ENXIO: the qpair is not connected or when the controller is
+    // marked as failed.
+    //
+    // EAGAIN: returned whenever the controller is being reset.
     let result = context.process_adminq();
 
     if result < 0 {
-        //error!("{}: {}", context.name, Errno::from_i32(result.abs()));
+        if context.start_device_destroy() {
+            error!(
+                "process adminq: {}: {}",
+                context.name,
+                Errno::from_i32(result.abs())
+            );
+            info!("dispatching nexus fault and retire: {}", context.name);
+            let dev_name = context.name.to_string();
+            let carc = NVME_CONTROLLERS.lookup_by_name(&dev_name).unwrap();
+            debug!(
+                ?dev_name,
+                "notifying listeners of admin command completion failure"
+            );
+            let controller = carc.lock();
+            let num_listeners = controller
+                .notify_event(DeviceEventType::AdminCommandCompletionFailed);
+            debug!(
+                ?dev_name,
+                ?num_listeners,
+                "listeners notified of admin command completion failure"
+            );
+        }
         return 1;
     }
 
@@ -861,24 +890,30 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
     {
         let mut controller = carc.lock();
 
-        fn _shutdown_callback(success: bool, ctx: *mut c_void) {
-            done_cb(ctx, success);
+        // Skip not-fully initialized controllers.
+        if controller.get_state() != NvmeControllerState::New {
+            fn _shutdown_callback(success: bool, ctx: *mut c_void) {
+                done_cb(ctx, success);
+            }
+
+            controller.shutdown(_shutdown_callback, cb_arg(s)).map_err(
+                |_| NexusBdevError::DestroyBdev {
+                    name: String::from(&name),
+                    source: Errno::EAGAIN,
+                },
+            )?;
+
+            // Release the lock before waiting for controller shutdown.
+            drop(controller);
+
+            if !r.await.expect("Failed awaiting at shutdown()") {
+                error!(?name, "failed to shutdown controller");
+                return Err(NexusBdevError::DestroyBdev {
+                    name: String::from(&name),
+                    source: Errno::EAGAIN,
+                });
+            }
         }
-
-        controller
-            .shutdown(_shutdown_callback, cb_arg(s))
-            .map_err(|_| NexusBdevError::DestroyBdev {
-                name: String::from(&name),
-                source: Errno::EAGAIN,
-            })?
-    }
-
-    if !r.await.expect("Failed awaiting at shutdown()") {
-        error!(?name, "failed to shutdown controller");
-        return Err(NexusBdevError::DestroyBdev {
-            name: String::from(&name),
-            source: Errno::EAGAIN,
-        });
     }
 
     // 2. Remove controller from the list so that a new controller with the
@@ -894,13 +929,34 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
 
     // Notify the listeners.
     debug!(?name, "notifying listeners about device removal");
-    let controller = carc.lock();
-    let num_listeners = controller.notify_event(DeviceEventType::DeviceRemoved);
-    debug!(
-        ?name,
-        ?num_listeners,
-        "listeners notified about device removal"
-    );
+    {
+        let controller = carc.lock();
+        let num_listeners =
+            controller.notify_event(DeviceEventType::DeviceRemoved);
+        debug!(
+            ?name,
+            ?num_listeners,
+            "listeners notified about device removal"
+        );
+    }
+
+    let mut carc = carc;
+    loop {
+        match Arc::try_unwrap(carc) {
+            Ok(i) => {
+                drop(i);
+                break;
+            }
+            Err(ret) => {
+                warn!(?name, "delaying controller destroy");
+                let rx = mayastor_sleep(std::time::Duration::from_millis(250));
+                if rx.await.is_err() {
+                    error!("failed to wait for mayastor_sleep");
+                }
+                carc = ret;
+            }
+        }
+    }
 
     Ok(())
 }
@@ -909,7 +965,6 @@ pub(crate) fn connected_attached_cb(
     ctx: &mut NvmeControllerContext,
     ctrlr: SpdkNvmeController,
 ) {
-    ctx.unregister_poller();
     // we use the ctrlr address as the controller id in the global table
     let cid = ctrlr.as_ptr() as u64;
 
@@ -920,7 +975,7 @@ pub(crate) fn connected_attached_cb(
         .expect("no controller in the list");
 
     // clone it now such that we can lock the original, and insert it later.
-    let ctl = Arc::clone(&controller);
+    let ctl = controller.clone();
     let mut controller = controller.lock();
     controller
         .state_machine
@@ -1003,6 +1058,7 @@ pub(crate) mod options {
         admin_timeout_ms: Option<u32>,
         disable_error_logging: Option<bool>,
         fabrics_connect_timeout_us: Option<u64>,
+        ext_host_id: Option<[u8; 16]>,
         host_nqn: Option<String>,
         keep_alive_timeout_ms: Option<u32>,
         transport_retry_count: Option<u8>,
@@ -1038,6 +1094,11 @@ pub(crate) mod options {
             self
         }
 
+        pub fn with_ext_host_id(mut self, ext_host_id: [u8; 16]) -> Self {
+            self.ext_host_id = Some(ext_host_id);
+            self
+        }
+
         pub fn with_hostnqn<T: Into<String>>(mut self, host_nqn: T) -> Self {
             self.host_nqn = Some(host_nqn.into());
             self
@@ -1061,6 +1122,10 @@ pub(crate) mod options {
 
             if let Some(timeout_ms) = self.keep_alive_timeout_ms {
                 opts.0.keep_alive_timeout_ms = timeout_ms;
+            }
+
+            if let Some(ext_host_id) = self.ext_host_id {
+                opts.0.extended_host_id = ext_host_id;
             }
 
             if let Some(host_nqn) = self.host_nqn {

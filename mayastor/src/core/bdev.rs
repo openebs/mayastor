@@ -143,6 +143,18 @@ impl Share for Bdev {
         }
         None
     }
+
+    /// return the URI that was used to construct the bdev, without uuid
+    fn bdev_uri_original(&self) -> Option<String> {
+        for alias in self.aliases().iter() {
+            if let Ok(uri) = url::Url::parse(alias) {
+                if self == uri {
+                    return Some(uri.to_string());
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Bdev {
@@ -347,7 +359,7 @@ impl Bdev {
         let mut ent_ptr = head.tqh_first;
         while !ent_ptr.is_null() {
             let ent = unsafe { &*ent_ptr };
-            let alias = unsafe { CStr::from_ptr(ent.alias) };
+            let alias = unsafe { CStr::from_ptr(ent.alias.name) };
             aliases.push(alias.to_str().unwrap().to_string());
             ent_ptr = ent.tailq.tqe_next;
         }
@@ -473,12 +485,13 @@ impl Debug for Bdev {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
-            "name: {}, driver: {}, product: {}, num_blocks: {}, block_len: {}",
+            "name: {}, driver: {}, product: {}, num_blocks: {}, block_len: {}, alignment: {}",
             self.name(),
             self.driver(),
             self.product_name(),
             self.num_blocks(),
-            self.block_len()
+            self.block_len(),
+            self.alignment(),
         )
     }
 }

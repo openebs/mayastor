@@ -12,7 +12,5 @@ etcd:
     rbac:
       enabled: false
   replicaCount: 1
-  persistence:
-    enabled: false
 
 mayastorLogLevel: debug

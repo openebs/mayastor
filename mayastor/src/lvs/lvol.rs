@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
-use tracing::instrument;
 
 use spdk_sys::{
     spdk_blob_get_xattr_value,
@@ -22,6 +21,8 @@ use spdk_sys::{
     vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
+    LVS_CLEAR_WITH_UNMAP,
+    SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
 
 use crate::{
@@ -121,7 +122,6 @@ impl Share for Lvol {
     }
 
     /// share the lvol as a nvmf target
-    #[instrument(level = "debug", err)]
     async fn share_nvmf(
         &self,
         cntlid_range: Option<(u16, u16)>,
@@ -140,7 +140,6 @@ impl Share for Lvol {
     }
 
     /// unshare the nvmf target
-    #[instrument(level = "debug", err)]
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
         let share =
             self.as_bdev()
@@ -174,6 +173,10 @@ impl Share for Lvol {
     /// as lvols can not be created by URIs directly, but only through the
     /// ['Lvs'] interface.
     fn bdev_uri(&self) -> Option<String> {
+        None
+    }
+
+    fn bdev_uri_original(&self) -> Option<String> {
         None
     }
 }
@@ -223,6 +226,50 @@ impl Lvol {
         }
     }
 
+    // wipe the first 8MB if unmap is not supported on failure the operation
+    // needs to be repeated
+    pub async fn wipe_super(&self) -> Result<(), Error> {
+        if !unsafe { self.0.as_ref().clear_method == LVS_CLEAR_WITH_UNMAP } {
+            let hdl = Bdev::open(&self.as_bdev(), true)
+                .and_then(|desc| desc.into_handle())
+                .map_err(|e| {
+                    error!(?self, ?e, "failed to wipe lvol");
+                    Error::RepDestroy {
+                        source: Errno::ENXIO,
+                        name: self.name(),
+                    }
+                })?;
+
+            // Set the buffer size to the maximum allowed by SPDK.
+            let buf_size = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
+            let buf = hdl.dma_malloc(buf_size).map_err(|e| {
+                error!(
+                    ?self,
+                    ?e,
+                    "no memory available to allocate zero buffer"
+                );
+                Error::RepDestroy {
+                    source: Errno::ENOMEM,
+                    name: self.name(),
+                }
+            })?;
+            // write zero to the first 8MB which wipes the metadata and the
+            // first 4MB of the data partition
+            let range =
+                std::cmp::min(self.as_bdev().size_in_bytes(), (1 << 20) * 8);
+            for offset in 0 .. (range / buf_size) {
+                hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
+                    error!(?self, ?e);
+                    Error::RepDestroy {
+                        source: Errno::EIO,
+                        name: self.name(),
+                    }
+                })?;
+            }
+        }
+        Ok(())
+    }
+
     /// returns a boolean indicating if the lvol is thin provisioned
     pub fn is_thin(&self) -> bool {
         unsafe { self.0.as_ref().thin_provision }
@@ -239,7 +286,6 @@ impl Lvol {
     }
 
     /// destroy the lvol
-    #[instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<String, Error> {
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
@@ -247,10 +293,10 @@ impl Lvol {
             sender.send(errno).unwrap();
         }
 
-        let name = self.name();
-
         // we must always unshare before destroying bdev
         let _ = self.unshare().await;
+
+        let name = self.name();
 
         let (s, r) = pair::<i32>();
         unsafe {
@@ -276,8 +322,6 @@ impl Lvol {
     }
 
     /// write the property prop on to the lvol which is stored on disk
-    #[allow(clippy::unit_arg)] // here to silence the Ok(()) variant
-    #[instrument(level = "debug", err)]
     pub async fn set(&self, prop: PropValue) -> Result<(), Error> {
         let blob = unsafe { self.0.as_ref().blob };
         assert!(!blob.is_null());
@@ -325,7 +369,6 @@ impl Lvol {
     }
 
     /// get/read a property from this lvol from disk
-    #[instrument(level = "debug", err)]
     pub async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = unsafe { self.0.as_ref().blob };
         assert!(!blob.is_null());

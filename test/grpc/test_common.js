@@ -352,7 +352,8 @@ function createGrpcClient (serviceName = 'Mayastor', endpoint = grpcEndpoint) {
         '..',
         '..',
         'rpc',
-        'proto',
+        'mayastor-api',
+        'protobuf',
         'mayastor.proto'
       ),
       packageName: 'mayastor',

@@ -74,6 +74,7 @@ pub(crate) struct TimeoutConfig {
     ctrlr: SpdkNvmeController,
     reset_attempts: u32,
     next_reset_time: Instant,
+    destroy_in_progress: AtomicCell<bool>,
 }
 
 impl Drop for TimeoutConfig {
@@ -93,6 +94,7 @@ impl TimeoutConfig {
             ctrlr: SpdkNvmeController(NonNull::dangling()),
             reset_attempts: MAX_RESET_ATTEMPTS,
             next_reset_time: Instant::now(),
+            destroy_in_progress: AtomicCell::new(false),
         }
     }
 
@@ -100,6 +102,11 @@ impl TimeoutConfig {
         self as *const _ as *mut _
     }
 
+    pub fn start_device_destroy(&mut self) -> bool {
+        self.destroy_in_progress
+            .compare_exchange(false, true)
+            .is_ok()
+    }
     pub fn set_controller(&mut self, ctrlr: SpdkNvmeController) {
         self.ctrlr = ctrlr;
     }
@@ -142,7 +149,10 @@ impl TimeoutConfig {
 
         // Clear the flag as we are the exclusive owner.
         assert!(
-            timeout_ctx.reset_in_progress.compare_and_swap(true, false),
+            timeout_ctx
+                .reset_in_progress
+                .compare_exchange(true, false)
+                .is_ok(),
             "non-exclusive access to controller reset flag"
         );
     }
@@ -176,7 +186,7 @@ impl TimeoutConfig {
     /// resets related to I/O timeout.
     pub(crate) fn reset_controller(&mut self) {
         // Make sure no other resets are in progress.
-        if self.reset_in_progress.compare_and_swap(false, true) {
+        if self.reset_in_progress.compare_exchange(false, true).is_ok() {
             return;
         }
 
@@ -223,7 +233,7 @@ impl TimeoutConfig {
 
         // Clear the flag as we are the exclusive owner.
         assert!(
-            self.reset_in_progress.compare_and_swap(true, false),
+            self.reset_in_progress.compare_exchange(true, false).is_ok(),
             "non-exclusive access to controller reset flag"
         );
     }
@@ -293,6 +303,11 @@ impl SpdkNvmeController {
 
     pub fn as_ptr(&self) -> *mut spdk_nvme_ctrlr {
         self.0.as_ptr()
+    }
+
+    /// Returns extended host identifier
+    pub fn ext_host_id(&self) -> &[u8; 16] {
+        unsafe { &(*self.as_ptr()).opts.extended_host_id }
     }
 }
 
@@ -455,6 +470,7 @@ impl<'a> NvmeController<'a> {
         unsafe {
             spdk_nvme_ctrlr_register_timeout_callback(
                 self.ctrlr_as_ptr(),
+                device_defaults.timeout_us,
                 device_defaults.timeout_us,
                 Some(NvmeController::io_timeout_handler),
                 self.timeout_config.as_ptr().cast(),

@@ -1,7 +1,6 @@
 #include <bdev/aio/bdev_aio.h>
 #include <bdev/crypto/vbdev_crypto.h>
 #include <bdev/error/vbdev_error.h>
-#include <bdev/iscsi/bdev_iscsi.h>
 #include <bdev/lvol/vbdev_lvol.h>
 #include <bdev/nvme/bdev_nvme.h>
 #include <bdev/malloc/bdev_malloc.h>
@@ -24,6 +23,7 @@
 #include <spdk/lvol.h>
 #include <spdk/nbd.h>
 #include <spdk/nvme.h>
+#include <nvme/nvme_internal.h>
 #include <spdk/nvmf.h>
 #include <nvmf/nvmf_internal.h>
 #include <spdk/rpc.h>
@@ -32,8 +32,10 @@
 #include <spdk/uuid.h>
 #include <spdk/version.h>
 #include <spdk_internal/event.h>
+#include <spdk_internal/init.h>
 #include <spdk_internal/thread.h>
 #include <spdk_internal/lvolstore.h>
+#include <thread/thread_internal.h>
 
 #include "logwrapper.h"
 #include "nvme_helper.h"

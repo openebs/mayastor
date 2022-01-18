@@ -1,0 +1,57 @@
+---
+# Source: mayastor/templates/etcd/storage/localpv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: mayastor
+  name: etcd-volume-0
+  labels:
+    statefulset.kubernetes.io/pod-name: mayastor-etcd-0
+spec:
+  storageClassName: manual
+  # You must also delete the hostpath on the node
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: "2Gi"
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/var/local/mayastor/etcd/pod-0"
+---
+# Source: mayastor/templates/etcd/storage/localpv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: mayastor
+  name: etcd-volume-1
+  labels:
+    statefulset.kubernetes.io/pod-name: mayastor-etcd-1
+spec:
+  storageClassName: manual
+  # You must also delete the hostpath on the node
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: "2Gi"
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/var/local/mayastor/etcd/pod-1"
+---
+# Source: mayastor/templates/etcd/storage/localpv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: mayastor
+  name: etcd-volume-2
+  labels:
+    statefulset.kubernetes.io/pod-name: mayastor-etcd-2
+spec:
+  storageClassName: manual
+  # You must also delete the hostpath on the node
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: "2Gi"
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/var/local/mayastor/etcd/pod-2"

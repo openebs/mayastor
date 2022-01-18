@@ -93,7 +93,7 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     }
 
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
-        let handle = SpdkBlockDeviceHandle::try_from(Arc::clone(&self.0))?;
+        let handle = SpdkBlockDeviceHandle::try_from(self.0.clone())?;
         Ok(Box::new(handle))
     }
 

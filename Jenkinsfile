@@ -98,13 +98,13 @@ def lokiInstall(tag, loki_run_id) {
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
   def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
-  sh "nix-shell --run '${cmd}'"
+  sh "nix-shell --run '${cmd}' ci.nix"
 }
 
 // Unnstall Loki
 def lokiUninstall(tag, loki_run_id) {
   def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
-  sh "nix-shell --run '${cmd}'"
+  sh "nix-shell --run '${cmd}' ci.nix"
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
@@ -139,7 +139,7 @@ if (params.e2e_continuous == true) {
   run_linter = false
   rust_test = false
   grpc_test = false
-  moac_test = false
+  pytest_test = false
   e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
@@ -151,7 +151,7 @@ if (params.e2e_continuous == true) {
   run_linter = true
   rust_test = true
   grpc_test = true
-  moac_test = true
+  pytest_test = true
   // Some long e2e tests are not suitable to be run for each PR
   e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
@@ -214,9 +214,9 @@ pipeline {
       steps {
         cleanWs()
         unstash 'source'
-        sh 'nix-shell --run "cargo fmt --all -- --check"'
-        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
-        sh 'nix-shell --run "./scripts/js-check.sh"'
+        sh 'nix-shell --run "cargo fmt --all -- --check" ci.nix'
+        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings" ci.nix'
+        sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
       }
     }
     stage('test') {
@@ -243,7 +243,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/cargo-test.sh"'
+            sh 'nix-shell --run "./scripts/cargo-test.sh" ci.nix'
           }
           post {
             always {
@@ -266,7 +266,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/grpc-test.sh"'
+            sh 'nix-shell --run "./scripts/grpc-test.sh" ci.nix'
           }
           post {
             always {
@@ -275,21 +275,40 @@ pipeline {
             }
           }
         }
-        stage('moac unit tests') {
+        stage('pytest tests') {
           when {
             beforeAgent true
-            expression { moac_test == true }
+            expression { pytest_test == true }
           }
-          agent { label 'nixos-mayastor' }
-          steps {
-            cleanWs()
-            unstash 'source'
-            sh 'printenv'
-            sh 'nix-shell --run "./scripts/moac-test.sh"'
-          }
-          post {
-            always {
-              junit 'moac-xunit-report.xml'
+          agent { label 'virtual-nixos-mayastor' }
+          stages {
+            stage('checkout') {
+              steps {
+                cleanWs()
+                checkout([
+                  $class: 'GitSCM',
+                  branches: scm.branches,
+                  extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [[$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                  userRemoteConfigs: scm.userRemoteConfigs
+                ])
+              }
+            }
+            stage('build') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "cargo build --bins" ci.nix'
+              }
+            }
+            stage('python setup') {
+              steps {
+                sh 'nix-shell --run "./test/python/setup.sh" ci.nix'
+              }
+            }
+            stage('run tests') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "./scripts/pytest-tests.sh" ci.nix'
+              }
             }
           }
         }
@@ -384,7 +403,7 @@ pipeline {
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
                   ]) {
                     lokiInstall(tag, loki_run_id)
-                    sh "nix-shell --run 'cd mayastor-e2e && ${cmd}'"
+                    sh "nix-shell --run 'cd mayastor-e2e && ${cmd}' ci.nix"
                     lokiUninstall(tag, loki_run_id) // so that, if we keep the cluster, the next Loki instance can use different parameters
                   }
                 }
@@ -395,7 +414,7 @@ pipeline {
                     withCredentials([string(credentialsId: 'HCLOUD_TOKEN', variable: 'HCLOUD_TOKEN')]) {
                       e2e_nodes=sh(
                         script: """
-                          nix-shell -p hcloud --run 'hcloud server list' | grep -e '-${k8s_job.getNumber()} ' | awk '{ print \$2" "\$4 }'
+                          nix-shell -p hcloud --run 'hcloud server list' ci.nix | grep -e '-${k8s_job.getNumber()} ' | awk '{ print \$2" "\$4 }'
                         """,
                         returnStdout: true
                       ).trim()

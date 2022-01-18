@@ -12,15 +12,16 @@ use crate::{
         nexus::{
             nexus_bdev::{
                 nexus_lookup,
-                CreateRebuildError,
+                CreateRebuild,
                 Error,
                 Nexus,
                 RebuildJobNotFound,
-                RebuildOperationError,
+                RebuildOperation,
                 RemoveRebuildJob,
             },
             nexus_channel::DrEvent,
             nexus_child::{ChildState, Reason},
+            nexus_persistence::PersistOp,
         },
         VerboseError,
     },
@@ -86,7 +87,7 @@ impl Nexus {
                 });
             },
         )
-        .context(CreateRebuildError {
+        .context(CreateRebuild {
             child: name.to_owned(),
             name: self.name.clone(),
         })?;
@@ -101,7 +102,7 @@ impl Nexus {
         // rebuilt ranges in sync with the other children.
         self.reconfigure(DrEvent::ChildRebuild).await;
 
-        job.as_client().start().context(RebuildOperationError {
+        job.as_client().start().context(RebuildOperation {
             job: name.to_owned(),
             name: self.name.clone(),
         })
@@ -128,7 +129,7 @@ impl Nexus {
     /// Stop a rebuild job in the background
     pub async fn stop_rebuild(&self, name: &str) -> Result<(), Error> {
         match self.get_rebuild_job(name) {
-            Ok(rj) => rj.as_client().stop().context(RebuildOperationError {
+            Ok(rj) => rj.as_client().stop().context(RebuildOperation {
                 job: name.to_owned(),
                 name: self.name.clone(),
             }),
@@ -141,7 +142,7 @@ impl Nexus {
     /// Pause a rebuild job in the background
     pub async fn pause_rebuild(&mut self, name: &str) -> Result<(), Error> {
         let rj = self.get_rebuild_job(name)?.as_client();
-        rj.pause().context(RebuildOperationError {
+        rj.pause().context(RebuildOperation {
             job: name.to_owned(),
             name: self.name.clone(),
         })
@@ -150,7 +151,7 @@ impl Nexus {
     /// Resume a rebuild job in the background
     pub async fn resume_rebuild(&mut self, name: &str) -> Result<(), Error> {
         let rj = self.get_rebuild_job(name)?.as_client();
-        rj.resume().context(RebuildOperationError {
+        rj.resume().context(RebuildOperation {
             job: name.to_owned(),
             name: self.name.clone(),
         })
@@ -265,6 +266,10 @@ impl Nexus {
                     "Child {} has been rebuilt successfully",
                     recovering_child.get_name()
                 );
+                let child_name = recovering_child.get_name().to_string();
+                let child_state = recovering_child.state();
+                self.persist(PersistOp::Update((child_name, child_state)))
+                    .await;
             }
             RebuildState::Stopped => {
                 info!(

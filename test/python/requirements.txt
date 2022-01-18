@@ -1,6 +1,11 @@
 asyncio
 asyncssh
-pytest-timeout
-pytest-docker-compose
+black
+protobuf
 pytest-asyncio
+pytest-bdd
+pytest-black
+pytest-docker-compose
+pytest-testconfig
+pytest-timeout
 pytest-variables

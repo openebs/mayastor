@@ -5,7 +5,6 @@
 , lcov
 , lib
 , libaio
-, libiscsi
 , libbpf
 , libelf
 , liburing
@@ -37,14 +36,13 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.04-ab79841";
+    version = "21.07-8489d57e8";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "ab79841affa8713e68df45fcf36c286dfb3809ca";
-      sha256 = "1rvnnw2n949c3kdd4rz5pc73sic2lgg36w1m25kkipzw7x1c57hm";
-      #sha256 = lib.fakeSha256;
+      rev = "8489d57e82e95c05c794f56a47f62bfd6c459b7b";
+      sha256 = "LWYEBJ8JukR24ugWQ7qmM5O6LNZad38HWfcJROlUodU=";
       fetchSubmodules = true;
     };
 
@@ -60,22 +58,21 @@ let
 
     buildInputs = [
       binutils
-      fio
-      libtool
+      jansson
       libaio
-      libiscsi
+      libbpf
+      libbsd
+      libelf
+      libexecinfo
+      libpcap
+      libtool
       liburing
       libuuid
       nasm
       ncurses
       numactl
       openssl
-      libpcap
-      libbsd
-      jansson
-      libbpf
-      libelf
-      libexecinfo
+      (python3.withPackages (ps: with ps; [ pyelftools ]))
       zlib
     ];
 
@@ -94,24 +91,17 @@ let
     (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else [ ]) ++
     [
       "--without-isal"
-      "--with-iscsi-initiator"
       "--with-uring"
       "--disable-unit-tests"
       "--disable-tests"
-      "--with-fio=${pkgs.fio}/include"
     ];
-
-    enableParallelBuilding = true;
 
     configurePhase = ''
       patchShebangs ./. > /dev/null
-      ./configure ${builtins.concatStringsSep
-          " "
-          (builtins.filter
-              (opt: (builtins.match "--build=.*" opt) == null)
-              configureFlags)
-      }
+      ./configure ${builtins.concatStringsSep " " configureFlags}
     '';
+    enableParallelBuilding = true;
+
 
     hardeningDisable = [ "all" ];
 
@@ -120,10 +110,16 @@ let
       find . -type f -name 'libspdk_event_nvmf.a' -delete
       find . -type f -name 'libspdk_sock_uring.a' -delete
       find . -type f -name 'libspdk_ut_mock.a' -delete
+      find . -type f -name 'libspdk_bdev_blobfs.a' -delete
+      find . -type f -name 'libspdk_bdev_ftl.a' -delete
+      find . -type f -name 'libspdk_bdev_gpt.a' -delete
+      find . -type f -name 'libspdk_bdev_passthru.a' -delete
+      find . -type f -name 'libspdk_bdev_raid.a' -delete
+      find . -type f -name 'libspdk_bdev_split.a' -delete
+      find . -type f -name 'libspdk_bdev_zone_block.a' -delete
 
       $CC -shared -o libspdk.so \
-        -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
-        -luring \
+        -lc -laio -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
         -Wl,--whole-archive \
         $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
         $(find dpdk/build/lib -type f -name 'librte_*.a*') \
@@ -134,7 +130,6 @@ let
     installPhase = ''
       mkdir -p $out/lib
       mkdir $out/bin
-      mkdir $out/fio
 
       pushd include
       find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
@@ -154,8 +149,6 @@ let
 
       echo $(find $out -type f -name '*.a*' -delete)
       find . -executable -type f -name 'bdevperf' -exec install -D "{}" $out/bin \;
-
-      cp build/fio/spdk_* $out/fio
     '';
   };
 in
@@ -164,22 +157,26 @@ in
     pname = "libspdk";
     separateDebugInfo = true;
     dontStrip = false;
-    configureFlags = drvAttrs.configureFlags ++ [
-      "--disable-tests"
-      "--disable-unit-tests"
-    ];
   });
   debug = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk-dev";
     separateDebugInfo = false;
     dontStrip = true;
-    buildInputs = drvAttrs.buildInputs ++ [ cunit lcov ];
-    configureFlags = drvAttrs.configureFlags ++ [
-      "--enable-debug"
-    ];
+    nativeBuildInputs = drvAttrs.nativeBuildInputs ++ [ cunit lcov ];
+    buildInputs = drvAttrs.buildInputs ++ [ cunit lcov fio ];
+    configurePhase = ''
+      patchShebangs ./. > /dev/null
+      ./configure ${builtins.concatStringsSep " " (drvAttrs.configureFlags ++
+      [
+        "--enable-debug"
+        "--with-fio=${pkgs.fio}/include"
+      ])}
+    '';
     installPhase = drvAttrs.installPhase + ''
       echo "Copying test files"
       cp -ar test $out/test
+      mkdir $out/fio
+      cp build/fio/spdk_* $out/fio
     '';
   });
 }

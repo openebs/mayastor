@@ -9,6 +9,8 @@ use spdk_sys::{
     spdk_thread_destroy,
     spdk_thread_exit,
     spdk_thread_get_by_id,
+    spdk_thread_get_id,
+    spdk_thread_get_name,
     spdk_thread_is_exited,
     spdk_thread_poll,
     spdk_thread_send_msg,
@@ -65,7 +67,7 @@ impl Mthread {
     }
 
     pub fn id(&self) -> u64 {
-        unsafe { (self.0.as_ref()).id }
+        unsafe { spdk_thread_get_id(self.0.as_ptr()) }
     }
     ///
     /// # Note
@@ -104,7 +106,7 @@ impl Mthread {
 
     pub fn name(&self) -> &str {
         unsafe {
-            std::ffi::CStr::from_ptr(&self.0.as_ref().name[0])
+            std::ffi::CStr::from_ptr(spdk_thread_get_name(self.0.as_ptr()))
                 .to_str()
                 .unwrap()
         }
@@ -214,7 +216,7 @@ impl Mthread {
                         .expect("sender already taken")
                         .send(result)
                     {
-                        error!("Failed to send with error {:?}", e);
+                        error!("Failed to send response future result {:?}", e);
                     }
                 })
                 .detach();

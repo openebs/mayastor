@@ -1,15 +1,24 @@
-# MayaStor
+# Mayastor
 
 [![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
-[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fmaster)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
+[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fdevelop)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_shield)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 
-<img width="300" align="right" alt="OpenEBS Logo" src="https://raw.githubusercontent.com/cncf/artwork/master/projects/openebs/stacked/color/openebs-stacked-color.png" xmlns="http://www.w3.org/1999/html">
+Table of contents:
+==================
+- [Quickly deploy it on K8s and get started](https://mayastor.gitbook.io)
+    - [Deploying on microk8s](/doc/microk8s.md)
+- [High-level overview](#overview)
+    - [The Nexus CAS module](#Nexus)
+    - [Local storage](#local-storage)
+    - [Exporting a Nexus](#exporting-the-nexus)
+- [Building from source](/doc/build.md)
+- [Examples of the Nexus module](/doc/mcli.md)
+- [Frequently asked questions](/doc/FAQ.md)
 
 <p align="justify">
-<strong>MayaStor</strong> is a cloud-native declarative data plane written in <strong>Rust.</strong>
+<strong>Mayastor</strong> is a cloud-native declarative data plane written in <strong>Rust.</strong>
 Our goal is to abstract storage resources and their differences through the data plane such that users only need to
 supply the <strong>what</strong> and do not have to worry about the <strong>how</strong> so that individual teams stay in control.
 
@@ -31,38 +40,21 @@ Some targeted use cases are:
 
 The official user documentation for the Mayastor Project is published here in GitBook format: [mayastor.gitbook.io](https://mayastor.gitbook.io/)
 
-# Project Status
-
-Mayastor is currently beta software.  From Wikipedia: "it (beta software) will generally have many more bugs in it than completed software and speed or performance issues, and may still cause crashes or data loss."
-
-The project's maintainers operate a live issue tracking dashboard for defects which they have under active triage and investigation. It can be accessed [here](https://mayadata.atlassian.net/secure/Dashboard.jspa?selectPageId=10015). You are strongly encouraged to familisarise yourself with the issues identified there before deploying Mayastor and/or raising issue reports.
-
-Table of contents:
-==================
-- [Quickly deploy it on K8s and get started](/deploy/README.md)
-    - [Deploying on microk8s](/doc/microk8s.md)
-- [High-level overview](#overview)
-    - [The Nexus CAS module](#Nexus)
-    - [Local storage](#local-storage)
-    - [Exporting a Nexus](#exporting-the-nexus)
-- [Building from source](/doc/build.md)
-- [Examples of the Nexus module](/doc/mcli.md)
-- [Frequently asked questions](/doc/FAQ.md)
-
 ## Overview
 
-At a high-level, MayaStor consists of two major components.
+At a high-level, Mayastor consists of two major components.
 
 ### **Control plane:**
 
- * A single instance K8s controller which implements the [CSI](https://github.com/container-storage-interface/spec/blob/master/spec.md)
- controller spec but also private interfaces that otherwise would be implemented by your storage system.  This is called Mother Of All Containers native storage or *MOAC*  for short; it runs as a k8s deployment.
+ * A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.  This is extended by a dedicated operator responsible 
+ for managing the life cycle of "Mayastor Pools" (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant external provisioner (controller).
+ Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
 
  * A _per_ node instance *mayastor-csi* plugin which implements the identity and node grpc services from CSI protocol.
 
 ### **Data plane:**
 
-* Each node you wish to use for storage or storage services will have to run a MayaStor daemon set. MayaStor itself has three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
+* Each node you wish to use for storage or storage services will have to run a Mayastor daemon set. Mayastor itself has three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
 
 ## Nexus
 
@@ -96,8 +88,8 @@ use mayastor::bdev::nexus::nexus_bdev::nexus_create;
 let children = vec![
       "aio:////disk1.img?blk_size=512".to_string(),
       // it is assumed these hosts are reachable over the network
-      "iscsi://foobar/iqn.2019-05.io.openebs:disk0".into(),
-      "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into()
+      "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into(),
+      "nvmf://barr/nqn.2019-05.io-openebs:disk0".into()
 ];
 
 // if no UUID given, one will be generated for you
@@ -133,9 +125,8 @@ buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
 We think this can help a lot of database projects as well, where they typically have all the smarts in their database engine
 and they want the most simple (but fast) storage device. For a more elaborate example see some of the tests in mayastor/tests.
 
-To communicate with the children, the Nexus uses industry standard protocols. Currently, the Nexus has support for
-direct access to local storage and remote storage using NVMF or iSCSI. The other advantage is that if you were to remove
-the Nexus out of the data path, you would still be able to access your data as if Mayastor was not there.
+To communicate with the children, the Nexus uses industry standard protocols. The Nexus supports direct access to local storage and remote storage using NVMe-oF TCP. Another advantage of the implementation is that if you were to remove
+the Nexus from the data path, you would still be able to access your data as if Mayastor was not there.
 
 The Nexus itself does not store any data and in its most simplistic form the Nexus is a proxy towards real storage
 devices where the transport may vary. It can however, as mentioned, "transform" the data, which makes it possible to
@@ -165,13 +156,8 @@ additional functionality that otherwise would require you setup kernel specific 
 ## Exporting the Nexus
 
 <p align="justify">
-Our current main focus of development is on NVMe and vhost-user. Vhost-user allows developers to expose virtio devices
-implemented as a user space process that the hyper-visor can use to submit IO to. This means that our Nexus can be exposed as a
-vhost-user device such that a micro-vm (which typically does not have a feature rich kernel with drivers) can submit IO
-to the Nexus.
-
-In turn, the Nexus can then use nvmf to replicate (if needed) the data to multiple devices and or nodes. Our
-vhost-user code can be seen in the link section (still in C).
+The primary focus of development is using NVMe as a transport protocol. The Nexus uses
+NVMe-oF to replicate a volume's data to multiple devices on multiple nodes (if required).
 
 <br>
 </p>
@@ -222,9 +208,6 @@ Mayastor is developed under Apache 2.0 license at the project level. Some compon
 other open source projects and are distributed under their respective licenses.
 
 ```http://www.apache.org/licenses/LICENSE-2.0```
-
-
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_large)
 
 ### Contributions
 

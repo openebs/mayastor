@@ -68,6 +68,7 @@ impl ReconfigureCtx {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 /// Dynamic Reconfiguration Events occur when a child is added or removed
 pub enum DrEvent {
     /// Child offline reconfiguration event
@@ -78,6 +79,32 @@ pub enum DrEvent {
     ChildRemove,
     /// Child rebuild event
     ChildRebuild,
+}
+
+/// Mark nexus child as faulted based on its device name
+pub(crate) fn fault_nexus_child(nexus: &mut Nexus, name: &str) -> bool {
+    nexus
+        .children
+        .iter()
+        .filter(|c| c.state() == ChildState::Open)
+        .filter(|c| {
+            // If there were previous retires, we do not have a reference
+            // to a BlockDevice. We do however, know it can't be the device
+            // we are attempting to retire in the first place so this
+            // condition is fine.
+            if let Ok(child) = c.get_device().as_ref() {
+                child.device_name() == name
+            } else {
+                false
+            }
+        })
+        .any(|c| {
+            Ok(ChildState::Open)
+                == c.state.compare_exchange(
+                    ChildState::Open,
+                    ChildState::Faulted(Reason::IoError),
+                )
+        })
 }
 
 impl NexusChannelInner {
@@ -134,28 +161,7 @@ impl NexusChannelInner {
     /// Fault the child by marking its status.
     pub fn fault_child(&mut self, name: &str) -> bool {
         let nexus = unsafe { Nexus::from_raw(self.device) };
-        nexus
-            .children
-            .iter()
-            .filter(|c| c.state() == ChildState::Open)
-            .filter(|c| {
-                // If there where previous retires, we do not have a reference
-                // to a BlockDevice. We do however, know it cant be the device
-                // we are attempting to retire in the first place so this
-                // condition is fine.
-                if let Ok(child) = c.get_device().as_ref() {
-                    child.device_name() == name
-                } else {
-                    false
-                }
-            })
-            .any(|c| {
-                ChildState::Open
-                    == c.state.compare_and_swap(
-                        ChildState::Open,
-                        ChildState::Faulted(Reason::IoError),
-                    )
-            })
+        fault_nexus_child(nexus, name)
     }
 
     /// Refreshing our channels simply means that we either have a child going
@@ -289,20 +295,15 @@ impl NexusChannel {
     pub extern "C" fn reconfigure(
         device: *mut c_void,
         ctx: Box<ReconfigureCtx>,
-        event: &DrEvent,
+        _event: &DrEvent,
     ) {
-        match event {
-            DrEvent::ChildOffline
-            | DrEvent::ChildRemove
-            | DrEvent::ChildFault
-            | DrEvent::ChildRebuild => unsafe {
-                spdk_for_each_channel(
-                    device,
-                    Some(NexusChannel::refresh_io_channels),
-                    Box::into_raw(ctx).cast(),
-                    Some(Self::reconfigure_completed),
-                );
-            },
+        unsafe {
+            spdk_for_each_channel(
+                device,
+                Some(NexusChannel::refresh_io_channels),
+                Box::into_raw(ctx).cast(),
+                Some(Self::reconfigure_completed),
+            );
         }
     }
 

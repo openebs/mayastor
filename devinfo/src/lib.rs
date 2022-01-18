@@ -3,7 +3,11 @@
 pub use block_device::BlkDev;
 mod block_device;
 use snafu::Snafu;
+pub mod mountinfo;
+pub mod partition;
 
+#[allow(non_camel_case_types)]
+pub mod blkid;
 #[derive(Debug, Snafu)]
 pub enum DevInfoError {
     #[snafu(display("Device {} not found", path))]
@@ -16,6 +20,10 @@ pub enum DevInfoError {
     NotSupported { value: String },
     #[snafu(display("udev internal error {}", value))]
     Udev { value: String },
+    #[snafu(display("I/O error: {}", source))]
+    Io { source: std::io::Error },
+    #[snafu(display("non-UTF8 string"))]
+    InvalidStr,
 }
 
 #[test]

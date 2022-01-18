@@ -16,7 +16,7 @@ use crate::{
 /// NOTE: The resulting string must be freed explicitly after use!
 macro_rules! c_str {
     ($lit:expr) => {
-        std::ffi::CString::new($lit).unwrap().into_raw();
+        std::ffi::CString::new($lit).unwrap().into_raw()
     };
 }
 
@@ -26,7 +26,6 @@ pub mod nexus_bdev_rebuild;
 pub mod nexus_bdev_snapshot;
 mod nexus_channel;
 pub(crate) mod nexus_child;
-mod nexus_config;
 pub mod nexus_fn_table;
 pub mod nexus_io;
 pub mod nexus_label;
@@ -124,12 +123,6 @@ pub fn fn_table() -> Option<&'static spdk_sys::spdk_bdev_fn_table> {
 /// get a reference to the global nexuses
 pub fn instances() -> &'static mut Vec<Box<Nexus>> {
     nexus_module::NexusModule::get_instances()
-}
-
-/// function used to create a new nexus when parsing a config file
-pub fn nexus_instance_new(name: String, size: u64, children: Vec<String>) {
-    let list = instances();
-    list.push(Nexus::new(&name, size, None, Some(&children)));
 }
 
 /// called during shutdown so that all nexus children are in Destroying state

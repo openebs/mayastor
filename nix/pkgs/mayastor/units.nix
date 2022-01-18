@@ -1,15 +1,13 @@
 { stdenv
-, clang
+, clang_11
 , dockerTools
 , e2fsprogs
 , lib
 , libaio
-, libiscsi
 , libspdk
 , libspdk-dev
 , libudev
 , liburing
-, llvmPackages
 , makeRustPlatform
 , numactl
 , openssl

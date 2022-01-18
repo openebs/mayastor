@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use blkid::probe::Probe;
+use devinfo::blkid::probe::Probe;
 
 pub(crate) async fn prepare_device(
     device: &str,

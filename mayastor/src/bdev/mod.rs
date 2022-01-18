@@ -5,8 +5,10 @@ pub use device::{bdev_io_ctx_pool_init, SpdkBlockDevice};
 pub use nexus::{
     nexus_bdev::{
         nexus_create,
+        nexus_create_v2,
         nexus_lookup,
         Nexus,
+        NexusNvmeParams,
         NexusState,
         NexusStatus,
         VerboseError,
@@ -30,8 +32,8 @@ pub use nvmx::{
 
 mod aio;
 pub(crate) mod dev;
+pub(crate) use dev::uri;
 pub(crate) mod device;
-mod iscsi;
 mod loopback;
 mod malloc;
 pub(crate) mod nexus;
@@ -60,5 +62,3 @@ pub trait CreateDestroy {
 pub trait GetName {
     fn get_name(&self) -> String;
 }
-
-pub struct Uri;

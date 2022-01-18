@@ -54,7 +54,8 @@ async fn fsfreeze(
     {
         let device_path = device.devname();
         if let Some(mnt) = mount::find_mount(Some(&device_path), None) {
-            let args = [freeze_op, &mnt.dest];
+            let dest = mnt.dest.display().to_string();
+            let args = [freeze_op, &dest];
             let output =
                 Command::new(FSFREEZE).args(&args).output().await.context(
                     IoError {

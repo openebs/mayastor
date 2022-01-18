@@ -30,6 +30,7 @@ use bollard::{
         PortMap,
     },
     Docker,
+    API_DEFAULT_VERSION,
 };
 use futures::{StreamExt, TryStreamExt};
 use ipnetwork::Ipv4Network;
@@ -112,6 +113,7 @@ pub struct Binary {
     arguments: Vec<String>,
     nats_arg: Option<String>,
     env: HashMap<String, String>,
+    binds: HashMap<String, String>,
 }
 
 impl Binary {
@@ -158,6 +160,11 @@ impl Binary {
         if let Some(old) = self.env.insert(key.into(), val.into()) {
             println!("Replaced key {} val {} with val {}", key, old, val);
         }
+        self
+    }
+    /// Add volume bind between host path and container path
+    pub fn with_bind(mut self, host: &str, container: &str) -> Self {
+        self.binds.insert(container.to_string(), host.to_string());
         self
     }
     /// pick up the nats argument name for a particular binary from nats_arg
@@ -286,6 +293,11 @@ impl ContainerSpec {
         self.binds.iter().for_each(|(container, host)| {
             vec.push(format!("{}:{}", host, container));
         });
+        if let Some(binary) = &self.binary {
+            binary.binds.iter().for_each(|(container, host)| {
+                vec.push(format!("{}:{}", host, container));
+            });
+        }
         vec
     }
 
@@ -558,7 +570,16 @@ impl Builder {
 
         let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
         let srcdir = path.parent().unwrap().to_string_lossy().into();
-        let docker = Docker::connect_with_unix_defaults()?;
+        // FIXME: We can just use `connect_with_unix_defaults` once this is
+        // resolved and released:
+        //
+        // https://github.com/fussybeaver/bollard/issues/166
+        let docker = match std::env::var("DOCKER_HOST") {
+            Ok(host) => {
+                Docker::connect_with_unix(&host, 120, API_DEFAULT_VERSION)
+            }
+            Err(_) => Docker::connect_with_unix_defaults(),
+        }?;
 
         let mut cfg = HashMap::new();
         cfg.insert(
@@ -698,7 +719,7 @@ impl Drop for ComposeTest {
                     .output()
                     .unwrap();
                 std::process::Command::new("docker")
-                    .args(&["rm", c])
+                    .args(&["rm", "-v", c])
                     .output()
                     .unwrap();
             });

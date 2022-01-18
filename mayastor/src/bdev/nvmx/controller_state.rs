@@ -14,9 +14,9 @@ pub enum NvmeControllerState {
 }
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ControllerFailureReason {
-    ResetFailed,
-    ShutdownFailed,
-    NamespaceInitFailed,
+    Reset,
+    Shutdown,
+    NamespaceInit,
 }
 
 impl ToString for NvmeControllerState {
@@ -171,8 +171,7 @@ impl ControllerStateMachine {
     ) -> Result<(), ControllerStateMachineError> {
         let f = self.lookup_flag(flag);
 
-        let current = f.compare_and_swap(false, true);
-        if current {
+        if let Err(current) = f.compare_exchange(false, true) {
             Err(ControllerStateMachineError::ControllerFlagUpdateError {
                 flag,
                 current_value: current,
@@ -190,15 +189,14 @@ impl ControllerStateMachine {
     ) -> Result<(), ControllerStateMachineError> {
         let f = self.lookup_flag(flag);
 
-        let current = f.compare_and_swap(true, false);
-        if current {
-            Ok(())
-        } else {
+        if let Err(current) = f.compare_exchange(true, false) {
             Err(ControllerStateMachineError::ControllerFlagUpdateError {
                 flag,
                 current_value: current,
                 new_value: false,
             })
+        } else {
+            Ok(())
         }
     }
 

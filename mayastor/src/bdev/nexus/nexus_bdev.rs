@@ -17,6 +17,7 @@ use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
+use uuid::Uuid;
 
 use rpc::mayastor::NvmeAnaState;
 use spdk_sys::{spdk_bdev, spdk_bdev_register, spdk_bdev_unregister};
@@ -57,6 +58,9 @@ use crate::{
     subsys::{NvmfError, NvmfSubsystem},
 };
 
+pub static NVME_MIN_CNTLID: u16 = 1;
+pub static NVME_MAX_CNTLID: u16 = 0xffef;
+
 /// Obtain the full error chain
 pub trait VerboseError {
     fn verbose(&self) -> String;
@@ -90,6 +94,12 @@ pub enum Error {
     NexusInitialising { name: String },
     #[snafu(display("Invalid nexus uuid \"{}\"", uuid))]
     InvalidUuid { uuid: String },
+    #[snafu(display(
+        "Nexus uuid \"{}\" already exists for nexus \"{}\"",
+        uuid,
+        nexus
+    ))]
+    UuidExists { uuid: String, nexus: String },
     #[snafu(display("Invalid encryption key"))]
     InvalidKey {},
     #[snafu(display("Failed to create crypto bdev for nexus {}", name))]
@@ -150,6 +160,16 @@ pub enum Error {
     ChildMissing { child: String, name: String },
     #[snafu(display("Child {} of nexus {} has no error store", child, name))]
     ChildMissingErrStore { child: String, name: String },
+    #[snafu(display(
+        "Failed to acquire write exclusive reservation on child {} of nexus {}",
+        child,
+        name
+    ))]
+    ChildWriteExclusiveResvFailed {
+        source: ChildError,
+        child: String,
+        name: String,
+    },
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
     OpenChild {
         source: ChildError,
@@ -170,6 +190,12 @@ pub enum Error {
     DestroyLastChild { child: String, name: String },
     #[snafu(display(
         "Cannot remove the last child {} of nexus {} from the IO path",
+        child,
+        name
+    ))]
+    DestroyLastHealthyChild { child: String, name: String },
+    #[snafu(display(
+        "Cannot remove the last healthy child {} of nexus {} from the IO path",
         child,
         name
     ))]
@@ -199,7 +225,7 @@ pub enum Error {
         child,
         name,
     ))]
-    CreateRebuildError {
+    CreateRebuild {
         source: RebuildError,
         child: String,
         name: String,
@@ -229,7 +255,7 @@ pub enum Error {
         job,
         name,
     ))]
-    RebuildOperationError {
+    RebuildOperation {
         job: String,
         name: String,
         source: RebuildError,
@@ -238,6 +264,8 @@ pub enum Error {
     InvalidShareProtocol { sp_value: i32 },
     #[snafu(display("Invalid NvmeAnaState value {}", ana_value))]
     InvalidNvmeAnaState { ana_value: i32 },
+    #[snafu(display("Invalid arguments for nexus {}: {}", name, args))]
+    InvalidArguments { name: String, args: String },
     #[snafu(display("Failed to create nexus {}", name))]
     NexusCreate { name: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
@@ -258,9 +286,9 @@ pub enum Error {
     #[snafu(display("Failed to create snapshot on nexus {}", name))]
     FailedCreateSnapshot { name: String, source: CoreError },
     #[snafu(display("NVMf subsystem error: {}", e))]
-    SubsysNvmfError { e: String },
+    SubsysNvmf { e: String },
     #[snafu(display("failed to pause {} current state {:?}", name, state))]
-    PauseError {
+    Pause {
         state: NexusPauseState,
         name: String,
     },
@@ -268,7 +296,7 @@ pub enum Error {
 
 impl From<NvmfError> for Error {
     fn from(error: NvmfError) -> Self {
-        Error::SubsysNvmfError {
+        Error::SubsysNvmf {
             e: error.to_string(),
         }
     }
@@ -334,6 +362,48 @@ pub enum NexusPauseState {
     Unpausing,
 }
 
+/// NVMe-specific parameters for the Nexus
+#[derive(Debug)]
+pub struct NexusNvmeParams {
+    /// minimum NVMe controller ID for sharing over NVMf
+    pub(crate) min_cntlid: u16,
+    /// maximum NVMe controller ID
+    pub(crate) max_cntlid: u16,
+    /// NVMe reservation key for children
+    pub(crate) resv_key: u64,
+    /// NVMe preempt key for children, 0 to not preempt
+    pub(crate) preempt_key: Option<std::num::NonZeroU64>,
+}
+
+impl Default for NexusNvmeParams {
+    fn default() -> Self {
+        NexusNvmeParams {
+            min_cntlid: NVME_MIN_CNTLID,
+            max_cntlid: NVME_MAX_CNTLID,
+            resv_key: 0x1234_5678,
+            preempt_key: None,
+        }
+    }
+}
+
+impl NexusNvmeParams {
+    pub fn set_min_cntlid(&mut self, min_cntlid: u16) {
+        self.min_cntlid = min_cntlid;
+    }
+    pub fn set_max_cntlid(&mut self, max_cntlid: u16) {
+        self.max_cntlid = max_cntlid;
+    }
+    pub fn set_resv_key(&mut self, resv_key: u64) {
+        self.resv_key = resv_key;
+    }
+    pub fn set_preempt_key(
+        &mut self,
+        preempt_key: Option<std::num::NonZeroU64>,
+    ) {
+        self.preempt_key = preempt_key;
+    }
+}
+
 /// The main nexus structure
 #[derive(Debug)]
 pub struct Nexus {
@@ -345,8 +415,12 @@ pub struct Nexus {
     pub(crate) child_count: u32,
     /// vector of children
     pub children: Vec<NexusChild>,
+    /// NVMe parameters
+    pub(crate) nvme_params: NexusNvmeParams,
     /// inner bdev
     pub(crate) bdev: Bdev,
+    /// uuid of the nexus (might not be the same as the nexus bdev!)
+    pub(crate) nexus_uuid: Uuid,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
@@ -452,7 +526,9 @@ impl Nexus {
     pub fn new(
         name: &str,
         size: u64,
-        uuid: Option<&str>,
+        bdev_uuid: Option<&str>,
+        nexus_uuid: Option<uuid::Uuid>,
+        nvme_params: NexusNvmeParams,
         child_bdevs: Option<&[String]>,
     ) -> Box<Self> {
         let mut b = Box::new(spdk_bdev::default());
@@ -476,14 +552,19 @@ impl Nexus {
             share_handle: None,
             size,
             nexus_target: None,
+            nvme_params,
             io_device: None,
             pause_state: AtomicCell::new(NexusPauseState::Unpaused),
             pause_waiters: Vec::new(),
             nexus_info: futures::lock::Mutex::new(Default::default()),
+            nexus_uuid: Default::default(),
         });
 
         // set the UUID of the underlying bdev
-        n.set_uuid(uuid);
+        n.set_uuid(bdev_uuid);
+        // set the nexus UUID to be the specified nexus UUID, otherwise inherit
+        // the bdev UUID
+        n.nexus_uuid = nexus_uuid.unwrap_or_else(|| n.bdev.uuid());
 
         // register children
         if let Some(child_bdevs) = child_bdevs {
@@ -525,6 +606,11 @@ impl Nexus {
             self.bdev.uuid(),
             self.name
         );
+    }
+
+    /// Get the Nexus uuid
+    pub(crate) fn uuid(&self) -> Uuid {
+        self.nexus_uuid
     }
 
     /// set the state of the nexus
@@ -701,12 +787,13 @@ impl Nexus {
     pub async fn resume(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
-        // if we are pausing we have concurrent requests for this
-        if matches!(self.pause_state.load(), NexusPauseState::Pausing) {
+        // In case nexus is already unpaused or is being paused, bail out.
+        if matches!(
+            self.pause_state.load(),
+            NexusPauseState::Pausing | NexusPauseState::Unpaused
+        ) {
             return Ok(());
         }
-
-        assert_eq!(self.pause_state.load(), NexusPauseState::Paused);
 
         info!(
             "{} resuming nexus, waiters: {}",
@@ -797,7 +884,7 @@ impl Nexus {
 
             // we must pause again, schedule pause operation
             Err(NexusPauseState::Unpausing) => {
-                return Err(Error::PauseError {
+                return Err(Error::Pause {
                     state: NexusPauseState::Unpausing,
                     name: self.name.clone(),
                 });
@@ -994,10 +1081,11 @@ impl Nexus {
     /// io type. Break the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
     pub fn io_is_supported(&self, io_type: IoType) -> bool {
-        self.children
+        !self
+            .children
             .iter()
             .filter_map(|e| e.get_device().ok())
-            .any(|b| b.io_type_supported(io_type))
+            .any(|b| !b.io_type_supported(io_type))
     }
 
     /// IO completion for local replica
@@ -1056,15 +1144,109 @@ pub async fn nexus_create(
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
+    nexus_create_internal(
+        name,
+        size,
+        uuid,
+        None,
+        NexusNvmeParams::default(),
+        children,
+    )
+    .await
+}
+
+/// As create_nexus with additional parameters:
+/// min_cntlid, max_cntldi: NVMe controller ID range when sharing over NVMf
+/// resv_key: NVMe reservation key for children
+pub async fn nexus_create_v2(
+    name: &str,
+    size: u64,
+    uuid: &str,
+    nvme_params: NexusNvmeParams,
+    children: &[String],
+) -> Result<(), Error> {
+    if nvme_params.min_cntlid < NVME_MIN_CNTLID
+        || nvme_params.min_cntlid > nvme_params.max_cntlid
+        || nvme_params.max_cntlid > NVME_MAX_CNTLID
+    {
+        let args = format!(
+            "invalid NVMe controller ID range [{:x}h, {:x}h]",
+            nvme_params.min_cntlid, nvme_params.max_cntlid
+        );
+        error!("failed to create nexus {}: {}", name, args);
+        return Err(Error::InvalidArguments {
+            name: name.to_owned(),
+            args,
+        });
+    }
+    if nvme_params.resv_key == 0 {
+        let args = "invalid NVMe reservation key";
+        error!("failed to create nexus {}: {}", name, args);
+        return Err(Error::InvalidArguments {
+            name: name.to_owned(),
+            args: args.to_string(),
+        });
+    }
+
+    match uuid::Uuid::parse_str(name) {
+        Ok(name_uuid) => {
+            let bdev_uuid = name_uuid.to_string();
+            let nexus_uuid = uuid::Uuid::parse_str(uuid).map_err(|_| {
+                Error::InvalidUuid {
+                    uuid: uuid.to_string(),
+                }
+            })?;
+            nexus_create_internal(
+                name,
+                size,
+                Some(bdev_uuid.as_str()),
+                Some(nexus_uuid),
+                nvme_params,
+                children,
+            )
+            .await
+        }
+        Err(_) => {
+            nexus_create_internal(
+                name,
+                size,
+                Some(uuid),
+                None,
+                nvme_params,
+                children,
+            )
+            .await
+        }
+    }
+}
+
+async fn nexus_create_internal(
+    name: &str,
+    size: u64,
+    bdev_uuid: Option<&str>,
+    nexus_uuid: Option<Uuid>,
+    nvme_params: NexusNvmeParams,
+    children: &[String],
+) -> Result<(), Error> {
     // global variable defined in the nexus module
     let nexus_list = instances();
 
-    if let Some(nexus) = nexus_list.iter().find(|n| n.name == name) {
+    if let Some(nexus) = nexus_list.iter().find(|n| {
+        n.name == name || (nexus_uuid.is_some() && Some(n.uuid()) == nexus_uuid)
+    }) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.
         if *nexus.state.lock() == NexusState::Init {
             return Err(Error::NexusInitialising {
                 name: name.to_owned(),
+            });
+        }
+        if nexus.name != name
+            || (nexus_uuid.is_some() && Some(nexus.nexus_uuid) != nexus_uuid)
+        {
+            return Err(Error::UuidExists {
+                uuid: nexus.nexus_uuid.to_string(),
+                nexus: name.to_string(),
             });
         }
         return Ok(());
@@ -1075,7 +1257,14 @@ pub async fn nexus_create(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    nexus_list.push(Nexus::new(name, size, uuid, None));
+    nexus_list.push(Nexus::new(
+        name,
+        size,
+        bdev_uuid,
+        nexus_uuid,
+        nvme_params,
+        None,
+    ));
 
     // Obtain a reference to the newly created Nexus object.
     let ni =

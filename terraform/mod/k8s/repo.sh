@@ -52,5 +52,17 @@ sudo sysctl --system
 sudo mkdir -p /etc/containerd
 sudo containerd config default | sudo tee /etc/containerd/config.toml
 
+# Rebooting a node does not kill the containers they are running resulting
+# in a vary long timeout before the system moves forward.
+#
+# There are various bugs upstream detailing this and it supposed to be fixed a few weeks ago (June)
+# This is *not* that fix rather a work around. The containers will not shut down "cleanly".
+sudo mkdir -p /etc/systemd/system/containerd.service.d
+sudo tee /etc/sysctl.d/system/containerd.service.d/override.conf >/dev/null <<EOF
+[Service]
+KillMode=mixed
+EOF
+
+
 # Restart containerd
 sudo systemctl restart containerd

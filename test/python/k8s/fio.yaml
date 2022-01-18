@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fiomap
+data:
+   fio.conf: |
+    [global]
+    direct=1
+    rw=randrw
+    ioengine=libaio
+    bs=4k
+    iodepth=16
+    verify=crc32
+    verify_fatal=1
+    verify_async=2
+    time_based=1
+    runtime=30
+    size=500mb
+
+    [volume-1]
+    filename=/volume-1/vol.test
+    [volume-2]
+    filename=/volume-2/vol.test
+    [volume-3]
+    filename=/volume-3/vol.test
+    [volume-4]
+    filename=/volume-4/vol.test
+---
+kind: Pod
+apiVersion: v1
+metadata:
+  name: fio
+spec:
+  volumes:
+    - name: ms-1-claim
+      persistentVolumeClaim:
+       claimName: ms-1
+    - name: ms-2-claim
+      persistentVolumeClaim:
+       claimName: ms-2
+    - name: ms-3-claim
+      persistentVolumeClaim:
+       claimName: ms-3
+    - name: ms-4-claim
+      persistentVolumeClaim:
+       claimName: ms-4
+    - name: ms-5-claim
+      persistentVolumeClaim:
+       claimName: ms-5
+    - name: ms-6-claim
+      persistentVolumeClaim:
+       claimName: ms-6
+    - name: config-volume
+      configMap:
+        name: fiomap
+  containers:
+    - name: fio
+      image: mayadata/fio
+      args:
+        - fio
+        - /config/fio.conf
+      volumeMounts:
+        - mountPath: /volume-1
+          name: ms-1-claim
+        - mountPath: /volume-2
+          name: ms-2-claim
+        - mountPath: /volume-3
+          name: ms-3-claim
+        - mountPath: /volume-4
+          name: ms-4-claim
+        - mountPath: /volume-5
+          name: ms-5-claim
+        - mountPath: /volume-6
+          name: ms-6-claim
+        - name: config-volume
+          mountPath: /config/fio.conf
+          subPath: fio.conf
+      imagePullPolicy: IfNotPresent
+  restartPolicy: Never

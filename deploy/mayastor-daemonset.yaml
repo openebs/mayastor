@@ -33,9 +33,11 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:v0.8.1
-        imagePullPolicy: Always
+        image: mayadata/mayastor:v1.0.0
+        imagePullPolicy: IfNotPresent
         env:
+        - name: RUST_LOG
+          value: info,mayastor=info
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
@@ -44,8 +46,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: IMPORT_NEXUSES
-          value: "false"
         args:
         # The -l argument accepts cpu-list. Indexing starts at zero.
         # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.
@@ -57,6 +57,8 @@ spec:
         - "-P/var/local/mayastor/pools.yaml"
         - "-l1"
         - "-pmayastor-etcd"
+        command:
+        - mayastor
         securityContext:
           privileged: true
         volumeMounts:

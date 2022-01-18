@@ -64,7 +64,10 @@ struct NatsMessageBus {
     connection: Connection,
 }
 impl NatsMessageBus {
-    pub async fn connect(server: &str) -> Connection {
+    pub async fn connect(
+        timeout_opts: TimeoutOptions,
+        server: &str,
+    ) -> Connection {
         info!("Connecting to the nats server {}...", server);
         // We retry in a loop until successful. Once connected the nats
         // library will handle reconnections for us.
@@ -73,6 +76,9 @@ impl NatsMessageBus {
         loop {
             match BusOptions::new()
                 .max_reconnects(None)
+                .tcp_read_timeout(timeout_opts.tcp_read_timeout())
+                .tcp_connect_timeout(timeout_opts.tcp_read_timeout())
+                .cache_connect_urls(false)
                 .disconnect_callback(|| {
                     warn!("Connection to the NATS server has been lost.");
                 })
@@ -81,7 +87,7 @@ impl NatsMessageBus {
                         "Connection to the NATS server has been reestablished."
                     )
                 })
-                .connect_async(server)
+                .connect(server)
                 .await
             {
                 Ok(connection) => {
@@ -112,8 +118,8 @@ impl NatsMessageBus {
         timeout_options: TimeoutOptions,
     ) -> Self {
         Self {
-            timeout_options,
-            connection: Self::connect(server).await,
+            timeout_options: timeout_options.clone(),
+            connection: Self::connect(timeout_options, server).await,
         }
     }
 }

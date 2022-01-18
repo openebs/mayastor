@@ -6,31 +6,32 @@
 # containerd triggered when there are too many layers:
 # https://github.com/containerd/containerd/issues/4684
 
-{ stdenv
-, busybox
+{ busybox
 , dockerTools
 , e2fsprogs
 , git
 , lib
-, moac
-, writeScriptBin
-, xfsprogs
 , mayastor
 , mayastor-dev
-, mayastor-adhoc
+, stdenv
 , utillinux
+, writeScriptBin
+, xfsprogs
 }:
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${versionDrv}";
-  env = lib.makeBinPath [ busybox xfsprogs e2fsprogs utillinux ];
+  path = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
 
   # common props for all mayastor images
   mayastorImageProps = {
     tag = version;
     created = "now";
     config = {
-      Env = [ "PATH=${env}" ];
+      Env = [
+        "PATH=${path}"
+        "RUST_BACKTRACE=1"
+      ];
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
@@ -44,7 +45,10 @@ let
     created = "now";
     config = {
       Entrypoint = [ "/bin/mayastor-csi" ];
-      Env = [ "PATH=${env}" ];
+      Env = [
+        "PATH=${path}"
+        "RUST_BACKTRACE=1"
+      ];
     };
     extraCommands = ''
       mkdir tmp
@@ -55,7 +59,7 @@ let
     tag = version;
     created = "now";
     config = {
-      Env = [ "PATH=${env}" ];
+      Env = [ "PATH=${path}" ];
     };
     extraCommands = ''
       mkdir tmp
@@ -66,11 +70,15 @@ let
     #!${stdenv.shell}
     chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
   '';
+
+  mctl = writeScriptBin "mctl" ''
+    /bin/mayastor-client "$@"
+  '';
 in
 {
   mayastor = dockerTools.buildImage (mayastorImageProps // {
     name = "mayadata/mayastor";
-    contents = [ busybox mayastor ];
+    contents = [ busybox mayastor mctl ];
   });
 
   mayastor-dev = dockerTools.buildImage (mayastorImageProps // {
@@ -78,11 +86,9 @@ in
     contents = [ busybox mayastor-dev ];
   });
 
-  mayastor-adhoc = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor-adhoc";
-    contents = [ busybox mayastor-adhoc ];
-  });
-
+  # The algorithm for placing packages into the layers is not optimal.
+  # There are a couple of layers with negligible size and then there is one
+  # big layer with everything else. That defeats the purpose of layering.
   mayastor-csi = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
     name = "mayadata/mayastor-csi";
     contents = [ busybox mayastor mayastorIscsiadm ];
@@ -93,28 +99,6 @@ in
     name = "mayadata/mayastor-csi-dev";
     contents = [ busybox mayastor-dev mayastorIscsiadm ];
   });
-
-  # The algorithm for placing packages into the layers is not optimal.
-  # There are a couple of layers with negligable size and then there is one
-  # big layer with everything else. That defeats the purpose of layering.
-  moac = dockerTools.buildLayeredImage {
-    name = "mayadata/moac";
-    tag = version;
-    created = "now";
-    contents = [ busybox moac ];
-    config = {
-      Entrypoint = [ "${moac.out}/lib/node_modules/moac/moac" ];
-      ExposedPorts = { "3000/tcp" = { }; };
-      Env = [ "PATH=${moac.env}:${moac.out}/lib/node_modules/moac" ];
-      WorkDir = "${moac.out}/lib/node_modules/moac";
-    };
-    extraCommands = ''
-      chmod u+w bin
-      ln -s ${moac.out}/lib/node_modules/moac/moac bin/moac
-      chmod u-w bin
-    '';
-    maxLayers = 42;
-  };
 
   mayastor-client = dockerTools.buildImage (clientImageProps // {
     name = "mayadata/mayastor-client";

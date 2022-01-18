@@ -1,15 +1,13 @@
 { stdenv
-, clang
+, clang_11
 , dockerTools
 , e2fsprogs
 , lib
 , libaio
-, libiscsi
 , libspdk
 , libspdk-dev
 , libudev
 , liburing
-, llvmPackages
 , makeRustPlatform
 , numactl
 , openssl
@@ -28,8 +26,8 @@
 let
   channel = import ../../lib/rust.nix { inherit sources; };
   rustPlatform = makeRustPlatform {
-    rustc = channel.stable.rust;
-    cargo = channel.stable.cargo;
+    rustc = channel.stable;
+    cargo = channel.stable;
   };
   whitelistSource = src: allowedPrefixes:
     builtins.filterSource
@@ -43,25 +41,22 @@ let
     "Cargo.lock"
     "Cargo.toml"
     "cli"
+    "composer"
     "csi"
     "devinfo"
     "jsonrpc"
     "mayastor"
+    "mbus-api"
     "nvmeadm"
     "rpc"
     "spdk-sys"
     "sysfs"
-    "mbus-api"
-    "composer"
   ];
   buildProps = rec {
     name = "mayastor";
-    # cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0m783ckamvr9143n0ahfqq3z5klix66fxq1vh466vvgpcw7jnnw5";
-
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
-    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+    LIBCLANG_PATH = "${llvmPackages_11.libclang.lib}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 
@@ -70,20 +65,26 @@ let
       llvmPackages_11.libclang
       protobuf
       libaio
-      libiscsi
       libudev
       liburing
       numactl
       openssl
       utillinux
     ];
-    verifyCargoDeps = false;
+    cargoLock = {
+      lockFile = ../../../Cargo.lock;
+      outputHashes = {
+        "h2-0.3.3" = "sha256-Y4AaBj10ZOutI37sVRY4yVUYmVWj5dwPbPhBhPWHNiQ=";
+        "nats-0.15.2" = "sha256:1whr0v4yv31q5zwxhcqmx4qykgn5cgzvwlaxgq847mymzajpcsln";
+      };
+    };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
   };
 in
 {
   release = rustPlatform.buildRustPackage (buildProps // {
+    cargoBuildFlags = "--bin mayastor --bin mayastor-client --bin mayastor-csi";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
     SPDK_PATH = "${libspdk}";
@@ -93,38 +94,4 @@ in
     buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
     SPDK_PATH = "${libspdk-dev}";
   });
-  # this is for an image that does not do a build of mayastor
-  adhoc = stdenv.mkDerivation {
-    name = "mayastor-adhoc";
-    inherit version;
-    src = [
-      ../../../target/debug/mayastor
-      ../../../target/debug/mayastor-csi
-      ../../../target/debug/mayastor-client
-      ../../../target/debug/jsonrpc
-    ];
-
-    buildInputs = [
-      libaio
-      libiscsi.lib
-      libspdk-dev
-      liburing
-      libudev
-      openssl
-      xfsprogs
-      e2fsprogs
-    ];
-
-    unpackPhase = ''
-      for srcFile in $src; do
-         cp $srcFile $(stripHash $srcFile)
-      done
-    '';
-    dontBuild = true;
-    dontConfigure = true;
-    installPhase = ''
-      mkdir -p $out/bin
-      install * $out/bin
-    '';
-  };
 }

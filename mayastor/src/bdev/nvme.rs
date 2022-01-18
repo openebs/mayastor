@@ -96,9 +96,11 @@ impl CreateDestroy for NVMe {
             )
         };
 
-        errno_result_from_i32((), errno).context(nexus_uri::InvalidParams {
-            name: self.name.clone(),
-        })?;
+        errno_result_from_i32((), errno).context(
+            nexus_uri::CreateBdevInvalidParams {
+                name: self.name.clone(),
+            },
+        )?;
 
         receiver
             .await
@@ -124,7 +126,8 @@ impl CreateDestroy for NVMe {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(_bdev) = Bdev::lookup_by_name(&self.get_name()) {
+        if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
+            bdev.remove_alias(&self.url.to_string());
             let errno = unsafe {
                 bdev_nvme_delete(
                     self.name.clone().into_cstring().as_ptr(),

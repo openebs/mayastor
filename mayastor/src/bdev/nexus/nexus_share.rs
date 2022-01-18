@@ -90,6 +90,10 @@ impl Share for Nexus {
     fn bdev_uri(&self) -> Option<String> {
         self.bdev.bdev_uri()
     }
+
+    fn bdev_uri_original(&self) -> Option<String> {
+        self.bdev.bdev_uri_original()
+    }
 }
 
 impl From<&NexusTarget> for ShareProtocolNexus {
@@ -141,7 +145,12 @@ impl Nexus {
                 Ok(uri)
             }
             ShareProtocolNexus::NexusNvmf => {
-                let uri = self.share_nvmf(None).await?;
+                let uri = self
+                    .share_nvmf(Some((
+                        self.nvme_params.min_cntlid,
+                        self.nvme_params.max_cntlid,
+                    )))
+                    .await?;
                 self.nexus_target = Some(NexusTarget::NexusNvmfTarget);
                 Ok(uri)
             }
