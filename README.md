@@ -40,19 +40,15 @@ Some targeted use cases are:
 
 The official user documentation for the Mayastor Project is published here in GitBook format: [mayastor.gitbook.io](https://mayastor.gitbook.io/)
 
-# Project Status
-
-Mayastor is currently beta software.  From Wikipedia: "it (beta software) will generally have many more bugs in it than completed software and speed or performance issues, and may still cause crashes or data loss."
-
-The project's maintainers operate a live issue tracking dashboard for defects which they have under active triage and investigation. It can be accessed [here](https://mayadata.atlassian.net/secure/Dashboard.jspa?selectPageId=10015). You are strongly encouraged to familiarise yourself with the issues identified there before deploying Mayastor and/or raising issue reports.
-
 ## Overview
 
 At a high-level, Mayastor consists of two major components.
 
 ### **Control plane:**
 
- * A single instance K8s controller which implements the [CSI](https://github.com/container-storage-interface/spec/blob/master/spec.md) controller spec but also private interfaces that otherwise would be implemented by your storage system.  This is called Mother Of All Containers native storage or [MOAC](https://github.com/openebs/moac) for short; it runs as a k8s deployment.
+ * A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.  This is extended by a dedicated operator responsible 
+ for managing the life cycle of "Mayastor Pools" (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant external provisioner (controller).
+ Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
 
  * A _per_ node instance *mayastor-csi* plugin which implements the identity and node grpc services from CSI protocol.
 
@@ -92,8 +88,8 @@ use mayastor::bdev::nexus::nexus_bdev::nexus_create;
 let children = vec![
       "aio:////disk1.img?blk_size=512".to_string(),
       // it is assumed these hosts are reachable over the network
-      "iscsi://foobar/iqn.2019-05.io.openebs:disk0".into(),
-      "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into()
+      "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into(),
+      "nvmf://barr/nqn.2019-05.io-openebs:disk0".into()
 ];
 
 // if no UUID given, one will be generated for you
@@ -129,9 +125,8 @@ buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
 We think this can help a lot of database projects as well, where they typically have all the smarts in their database engine
 and they want the most simple (but fast) storage device. For a more elaborate example see some of the tests in mayastor/tests.
 
-To communicate with the children, the Nexus uses industry standard protocols. Currently, the Nexus has support for
-direct access to local storage and remote storage using NVMF or iSCSI. The other advantage is that if you were to remove
-the Nexus out of the data path, you would still be able to access your data as if Mayastor was not there.
+To communicate with the children, the Nexus uses industry standard protocols. The Nexus supports direct access to local storage and remote storage using NVMe-oF TCP. Another advantage of the implementation is that if you were to remove
+the Nexus from the data path, you would still be able to access your data as if Mayastor was not there.
 
 The Nexus itself does not store any data and in its most simplistic form the Nexus is a proxy towards real storage
 devices where the transport may vary. It can however, as mentioned, "transform" the data, which makes it possible to
@@ -161,13 +156,8 @@ additional functionality that otherwise would require you setup kernel specific 
 ## Exporting the Nexus
 
 <p align="justify">
-Our current main focus of development is on NVMe and vhost-user. Vhost-user allows developers to expose virtio devices
-implemented as a user space process that the hyper-visor can use to submit IO to. This means that our Nexus can be exposed as a
-vhost-user device such that a micro-vm (which typically does not have a feature rich kernel with drivers) can submit IO
-to the Nexus.
-
-In turn, the Nexus can then use nvmf to replicate (if needed) the data to multiple devices and or nodes. Our
-vhost-user code can be seen in the link section (still in C).
+The primary focus of development is using NVMe as a transport protocol. The Nexus uses
+NVMe-oF to replicate a volume's data to multiple devices on multiple nodes (if required).
 
 <br>
 </p>
