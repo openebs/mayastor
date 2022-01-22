@@ -54,7 +54,6 @@ spec:
         - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
         - "-nnats"
-        - "-P/var/local/mayastor/pools.yaml"
         - "-l1"
         - "-pmayastor-etcd"
         command:
