@@ -3,8 +3,10 @@ from os import name
 import grpc
 import pool_pb2 as pool_pb
 import replica_pb2 as replica_pb
+import host_pb2 as host_pb
 import pool_pb2_grpc as pool_rpc
 import replica_pb2_grpc as replica_rpc
+import host_pb2_grpc as host_rpc
 from pytest_testconfig import config
 from functools import partial
 
@@ -23,14 +25,20 @@ class MayastorHandle(object):
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.pool_rpc = pool_rpc.PoolRpcStub(self.channel)
         self.replica_rpc = replica_rpc.ReplicaRpcStub(self.channel)
+        self.host_rpc = host_rpc.HostRpcStub(self.channel)
         self._readiness_check()
 
     def set_timeout(self, timeout):
         self.timeout = timeout
 
     def install_stub(self, name):
-        stub = getattr(pool_rpc, name)(self.channel)
-        stub = getattr(replica_rpc, name)(self.channel)
+        switcher = {
+            "PoolRpcStub": getattr(pool_rpc, "PoolRpcStub")(self.channel),
+            "ReplicaRpcStub": getattr(replica_rpc, "ReplicaRpcStub")(self.channel),
+            "HostRpcStub": getattr(replica_rpc, "HostRpcStub")(self.channel),
+        }
+
+        stub = switcher[name]
 
         # Install default timeout to all functions, ignore system attributes.
         for f in dir(stub):
@@ -51,6 +59,7 @@ class MayastorHandle(object):
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.pool_rpc = self.install_stub("PoolRpcStub")
         self.replica_rpc = self.install_stub("ReplicaRpcStub")
+        self.host_rpc = self.install_stub("HostRpcStub")
         self._readiness_check()
 
     def __del__(self):
@@ -89,7 +98,12 @@ class MayastorHandle(object):
         """Create a replica on the pool with the specified UUID and size."""
         return self.replica_rpc.CreateReplica(
             replica_pb.CreateReplicaRequest(
-                pooluuid=pooluuid, name=name, uuid=uuid, size=size, thin=False, share=share
+                pooluuid=pooluuid,
+                name=name,
+                uuid=uuid,
+                size=size,
+                thin=False,
+                share=share,
             )
         )
 
@@ -103,3 +117,11 @@ class MayastorHandle(object):
     def replica_list(self, opts):
         """List existing replicas along with their UUIDs"""
         return self.replica_rpc.ListReplicas(opts, wait_for_ready=True)
+
+    def stat_nvme_controllers(self, name):
+        """Statistics for all nvmx controllers"""
+        return self.host_rpc.StatNvmeControllers(name=name).controllers
+
+    def mayastor_info(self):
+        """Get information about Mayastor instance"""
+        return self.host_rpc.GetMayastorInfo()

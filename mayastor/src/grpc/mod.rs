@@ -42,6 +42,7 @@ mod nexus_grpc;
 mod server;
 pub mod v1 {
     pub mod bdev;
+    pub mod host;
     pub mod json;
     pub mod pool;
     pub mod replica;

@@ -41,6 +41,7 @@ fn main() {
                 "mayastor-api/protobuf/v1/json.proto",
                 "mayastor-api/protobuf/v1/pool.proto",
                 "mayastor-api/protobuf/v1/replica.proto",
+                "mayastor-api/protobuf/v1/host.proto",
             ],
             &["mayastor-api/protobuf/v1"],
         )

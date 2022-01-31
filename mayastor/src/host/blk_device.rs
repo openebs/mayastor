@@ -28,16 +28,46 @@ use std::{
 };
 
 use proc_mounts::{MountInfo, MountIter};
-use rpc::mayastor::{
-    block_device::{Filesystem, Partition},
-    BlockDevice,
-};
 use udev::{Device, Enumerator};
 
 // Struct representing a property value in a udev::Device struct (and possibly
 // elsewhere). It is used to provide conversions via various "From" trait
 // implementations below.
 struct Property<'a>(Option<&'a OsStr>);
+
+// struct representing the additional details if the block device is a partition
+pub struct Partition {
+    pub parent: String,
+    pub number: u32,
+    pub name: String,
+    pub scheme: String,
+    pub typeid: String,
+    pub uuid: String,
+}
+
+// struct representing the additional details if the block device has a
+// filesystem
+pub struct FileSystem {
+    pub fstype: String,
+    pub label: String,
+    pub uuid: String,
+    pub mountpoints: Vec<String>,
+}
+
+// represents a block device on the system
+pub struct BlockDevice {
+    pub devname: String,
+    pub devtype: String,
+    pub devmaj: u32,
+    pub devmin: u32,
+    pub model: String,
+    pub devpath: String,
+    pub devlinks: Vec<String>,
+    pub size: u64,
+    pub partition: Option<Partition>,
+    pub filesystem: Option<FileSystem>,
+    pub available: bool,
+}
 
 impl From<Property<'_>> for String {
     fn from(property: Property) -> Self {
@@ -156,19 +186,24 @@ fn new_partition(parent: Option<&str>, device: &Device) -> Option<Partition> {
     None
 }
 
-// Create a new Filesystem object from udev::Device properties
+// Create a new FileSystem object from udev::Device properties
 // and the list of current filesystem mounts.
 // Note that the result can be None if there is no filesystem
 // associated with this Device.
 fn new_filesystem(
     device: &Device,
-    mountinfo: Option<&MountInfo>,
-) -> Option<Filesystem> {
+    mountinfo: &[MountInfo],
+) -> Option<FileSystem> {
     let mut fstype: Option<String> =
         Property(device.property_value("ID_FS_TYPE")).into();
 
     if fstype.is_none() {
-        fstype = mountinfo.map(|m| m.fstype.clone());
+        fstype = if mountinfo.is_empty() {
+            None
+        } else {
+            // get fstype from the first mount
+            mountinfo.get(0).map(|m| m.fstype.clone())
+        }
     }
 
     let label: Option<String> =
@@ -182,18 +217,19 @@ fn new_filesystem(
     if fstype.is_none()
         && label.is_none()
         && uuid.is_none()
-        && mountinfo.is_none()
+        && mountinfo.is_empty()
     {
         return None;
     }
 
-    Some(Filesystem {
+    Some(FileSystem {
         fstype: fstype.unwrap_or_else(|| String::from("")),
         label: label.unwrap_or_else(|| String::from("")),
         uuid: uuid.unwrap_or_else(|| String::from("")),
-        mountpoint: mountinfo
+        mountpoints: mountinfo
+            .iter()
             .map(|m| String::from(m.dest.to_string_lossy()))
-            .unwrap_or_else(|| String::from("")),
+            .collect(),
     })
 }
 
@@ -204,11 +240,12 @@ fn new_device(
     parent: Option<&str>,
     include: bool,
     device: &Device,
-    mounts: &HashMap<OsString, MountInfo>,
+    mounts: &HashMap<OsString, Vec<MountInfo>>,
 ) -> Option<BlockDevice> {
     if let Some(devname) = device.property_value("DEVNAME") {
         let partition = new_partition(parent, device);
-        let filesystem = new_filesystem(device, mounts.get(devname));
+        let filesystem =
+            new_filesystem(device, mounts.get(devname).unwrap_or(&Vec::new()));
         let devmajor: u32 = Property(device.property_value("MAJOR")).into();
         let size: u64 = Property(device.attribute_value("size")).into();
 
@@ -222,8 +259,8 @@ fn new_device(
         return Some(BlockDevice {
             devname: String::from(devname.to_str().unwrap_or("")),
             devtype: Property(device.property_value("DEVTYPE")).into(),
-            devmajor,
-            devminor: Property(device.property_value("MINOR")).into(),
+            devmaj: devmajor,
+            devmin: Property(device.property_value("MINOR")).into(),
             model: Property(device.property_value("ID_MODEL")).into(),
             devpath: Property(device.property_value("DEVPATH")).into(),
             devlinks: device
@@ -245,11 +282,15 @@ fn new_device(
 }
 
 // Get the list of current filesystem mounts.
-fn get_mounts() -> Result<HashMap<OsString, MountInfo>, Error> {
-    let mut table: HashMap<OsString, MountInfo> = HashMap::new();
+fn get_mounts() -> Result<HashMap<OsString, Vec<MountInfo>>, Error> {
+    let mut table: HashMap<OsString, Vec<MountInfo>> = HashMap::new();
 
     for mount in (MountIter::new()?).flatten() {
-        table.insert(OsString::from(mount.source.clone()), mount);
+        let mount_source = OsString::from(mount.source.clone());
+        if !table.contains_key(&mount_source) {
+            table.insert(mount_source.clone(), Vec::new());
+        }
+        table.get_mut(&mount_source).unwrap().push(mount);
     }
 
     Ok(table)
@@ -259,7 +300,7 @@ fn get_mounts() -> Result<HashMap<OsString, MountInfo>, Error> {
 // with DEVTYPE == "disk"
 fn get_disks(
     all: bool,
-    mounts: &HashMap<OsString, MountInfo>,
+    mounts: &HashMap<OsString, Vec<MountInfo>>,
 ) -> Result<Vec<BlockDevice>, Error> {
     let mut list: Vec<BlockDevice> = Vec::new();
 
@@ -296,7 +337,7 @@ fn get_disks(
 fn get_partitions(
     parent: Option<&str>,
     disk: &Device,
-    mounts: &HashMap<OsString, MountInfo>,
+    mounts: &HashMap<OsString, Vec<MountInfo>>,
 ) -> Result<Vec<BlockDevice>, Error> {
     let mut list: Vec<BlockDevice> = Vec::new();
 

@@ -9,7 +9,7 @@
 //! without the need for setting up a grpc client.
 
 use crate::{
-    bdev::nexus,
+    bdev::{nexus, NvmeControllerState as ControllerState},
     core::{
         Bdev,
         BlockDeviceIoStats,
@@ -19,7 +19,11 @@ use crate::{
         Share,
     },
     grpc::{
-        controller_grpc::{controller_stats, list_controllers},
+        controller_grpc::{
+            controller_stats,
+            list_controllers,
+            NvmeControllerInfo,
+        },
         nexus_grpc::{
             nexus_add_child,
             nexus_destroy,
@@ -238,6 +242,106 @@ impl From<MayastorFeatures> for rpc::mayastor::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
+        }
+    }
+}
+
+impl From<blk_device::BlockDevice> for BlockDevice {
+    fn from(b: blk_device::BlockDevice) -> Self {
+        Self {
+            devname: b.devname,
+            devtype: b.devtype,
+            devmajor: b.devmaj,
+            devminor: b.devmin,
+            model: b.model,
+            devpath: b.devpath,
+            devlinks: b.devlinks,
+            size: b.size,
+            partition: b.partition.map(block_device::Partition::from),
+            filesystem: b.filesystem.map(block_device::Filesystem::from),
+            available: b.available,
+        }
+    }
+}
+
+impl From<blk_device::FileSystem> for block_device::Filesystem {
+    fn from(fs: blk_device::FileSystem) -> Self {
+        let mountpoint = fs.mountpoints.get(0).cloned().unwrap_or_default();
+        Self {
+            fstype: fs.fstype,
+            label: fs.label,
+            uuid: fs.uuid,
+            mountpoint,
+        }
+    }
+}
+
+impl From<blk_device::Partition> for block_device::Partition {
+    fn from(p: blk_device::Partition) -> Self {
+        Self {
+            parent: p.parent,
+            number: p.number,
+            name: p.name,
+            scheme: p.scheme,
+            typeid: p.typeid,
+            uuid: p.uuid,
+        }
+    }
+}
+
+impl From<resource::Usage> for ResourceUsage {
+    fn from(usage: resource::Usage) -> Self {
+        let rusage = usage.0;
+        ResourceUsage {
+            soft_faults: rusage.ru_minflt,
+            hard_faults: rusage.ru_majflt,
+            swaps: rusage.ru_nswap,
+            in_block_ops: rusage.ru_inblock,
+            out_block_ops: rusage.ru_oublock,
+            ipc_msg_send: rusage.ru_msgsnd,
+            ipc_msg_rcv: rusage.ru_msgrcv,
+            signals: rusage.ru_nsignals,
+            vol_csw: rusage.ru_nvcsw,
+            invol_csw: rusage.ru_nivcsw,
+        }
+    }
+}
+
+impl From<NvmeControllerInfo> for NvmeController {
+    fn from(n: NvmeControllerInfo) -> Self {
+        Self {
+            name: n.name,
+            state: NvmeControllerState::from(n.state) as i32,
+            size: n.size,
+            blk_size: n.blk_size,
+        }
+    }
+}
+
+impl From<ControllerState> for NvmeControllerState {
+    fn from(state: ControllerState) -> Self {
+        match state {
+            ControllerState::New => NvmeControllerState::New,
+            ControllerState::Initializing => NvmeControllerState::Initializing,
+            ControllerState::Running => NvmeControllerState::Running,
+            ControllerState::Faulted(_) => NvmeControllerState::Faulted,
+            ControllerState::Unconfiguring => {
+                NvmeControllerState::Unconfiguring
+            }
+            ControllerState::Unconfigured => NvmeControllerState::Unconfigured,
+        }
+    }
+}
+
+impl From<BlockDeviceIoStats> for NvmeControllerIoStats {
+    fn from(b: BlockDeviceIoStats) -> Self {
+        Self {
+            num_read_ops: b.num_read_ops,
+            num_write_ops: b.num_write_ops,
+            bytes_read: b.bytes_read,
+            bytes_written: b.bytes_written,
+            num_unmap_ops: b.num_unmap_ops,
+            bytes_unmapped: b.bytes_unmapped,
         }
     }
 }
@@ -1202,9 +1306,12 @@ impl mayastor_server::Mayastor for MayastorSvc {
         request: Request<ListBlockDevicesRequest>,
     ) -> GrpcResult<ListBlockDevicesReply> {
         let args = request.into_inner();
+        let block_devices = blk_device::list_block_devices(args.all).await?;
+
         let reply = ListBlockDevicesReply {
-            devices: blk_device::list_block_devices(args.all).await?,
+            devices: block_devices.into_iter().map(BlockDevice::from).collect(),
         };
+
         trace!("{:?}", reply);
         Ok(Response::new(reply))
     }
@@ -1215,24 +1322,73 @@ impl mayastor_server::Mayastor for MayastorSvc {
     ) -> GrpcResult<GetResourceUsageReply> {
         let usage = resource::get_resource_usage().await?;
         let reply = GetResourceUsageReply {
-            usage: Some(usage),
+            usage: Some(usage.into()),
         };
         trace!("{:?}", reply);
         Ok(Response::new(reply))
     }
 
+    #[named]
     async fn list_nvme_controllers(
         &self,
-        _request: Request<Null>,
+        request: Request<Null>,
     ) -> GrpcResult<ListNvmeControllersReply> {
-        list_controllers().await
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    let controllers = list_controllers()
+                        .await
+                        .into_iter()
+                        .map(NvmeController::from)
+                        .collect();
+                    Ok(ListNvmeControllersReply {
+                        controllers,
+                    })
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 
+    #[named]
     async fn stat_nvme_controllers(
         &self,
         _request: Request<Null>,
     ) -> GrpcResult<StatNvmeControllersReply> {
-        controller_stats().await
+        self.locked(
+            GrpcClientContext::new(&_request, function_name!()),
+            async move {
+                let rx = rpc_submit::<_, _, CoreError>(async move {
+                    let mut res: Vec<NvmeControllerStats> = Vec::new();
+                    let ctrls = list_controllers().await;
+                    for ctrl in ctrls {
+                        let stats = controller_stats(&ctrl.name).await;
+                        if stats.is_ok() {
+                            res.push(NvmeControllerStats {
+                                name: ctrl.name,
+                                stats: stats
+                                    .ok()
+                                    .map(NvmeControllerIoStats::from),
+                            });
+                        }
+                    }
+                    Ok(StatNvmeControllersReply {
+                        controllers: res,
+                    })
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 
     async fn get_mayastor_info(
