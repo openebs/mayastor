@@ -4,7 +4,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  namespace: mayastor
+  namespace: {{ $.Release.Namespace }}
   name: etcd-volume-{{ $index }}
   labels:
     statefulset.kubernetes.io/pod-name: mayastor-etcd-{{ $index }}
