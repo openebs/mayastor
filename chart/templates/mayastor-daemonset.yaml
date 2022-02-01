@@ -20,7 +20,7 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services from mayastor's namespace
+      # To resolve services in the namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
