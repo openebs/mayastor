@@ -150,6 +150,10 @@ pub struct NvmfTcpTransportOpts {
     dif_insert_or_strip: bool,
     /// abort execution timeout
     abort_timeout_sec: u32,
+    /// acceptor poll rate, microseconds
+    acceptor_poll_rate: u32,
+    /// Use zero-copy operations if the underlying bdev supports them
+    zcopy: bool,
 }
 
 /// try to read an env variable or returns the default when not found
@@ -188,6 +192,8 @@ impl Default for NvmfTcpTransportOpts {
             dif_insert_or_strip: false,
             max_aq_depth: 32,
             abort_timeout_sec: 1,
+            acceptor_poll_rate: try_from_env("NVMF_ACCEPTOR_POLL_RATE", 10_000),
+            zcopy: try_from_env("NVMF_ZCOPY", 1) == 1,
         }
     }
 }
@@ -211,6 +217,8 @@ impl From<NvmfTcpTransportOpts> for spdk_nvmf_transport_opts {
             association_timeout: 120000,
             transport_specific: std::ptr::null(),
             opts_size: std::mem::size_of::<spdk_nvmf_transport_opts>() as u64,
+            acceptor_poll_rate: o.acceptor_poll_rate,
+            zcopy: o.zcopy,
         }
     }
 }
@@ -227,8 +235,8 @@ pub struct NvmeBdevOpts {
     pub timeout_admin_us: u64,
     /// keep-alive timeout
     pub keep_alive_timeout_ms: u32,
-    /// retry count
-    pub retry_count: u32,
+    /// transport retry count
+    pub transport_retry_count: u32,
     /// TODO
     pub arbitration_burst: u32,
     /// max number of low priority cmds a controller may launch at one time
@@ -245,6 +253,8 @@ pub struct NvmeBdevOpts {
     pub io_queue_requests: u32,
     /// allow for batching of commands
     pub delay_cmd_submit: bool,
+    /// attempts per I/O in bdev layer before I/O fails
+    pub bdev_retry_count: i32,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -273,7 +283,7 @@ impl Default for NvmeBdevOpts {
             timeout_us: try_from_env("NVME_TIMEOUT_US", 5_000_000),
             timeout_admin_us: try_from_env("NVME_TIMEOUT_ADMIN_US", 5_000_000),
             keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 1_000),
-            retry_count: try_from_env("NVME_RETRY_COUNT", 0),
+            transport_retry_count: try_from_env("NVME_RETRY_COUNT", 0),
             arbitration_burst: 0,
             low_priority_weight: 0,
             medium_priority_weight: 0,
@@ -285,6 +295,7 @@ impl Default for NvmeBdevOpts {
             nvme_ioq_poll_period_us: try_from_env("NVME_IOQ_POLL_PERIOD_US", 0),
             io_queue_requests: 0,
             delay_cmd_submit: true,
+            bdev_retry_count: try_from_env("NVME_BDEV_RETRY_COUNT", 0),
         }
     }
 }
@@ -296,7 +307,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             timeout_us: o.timeout_us,
             timeout_admin_us: o.timeout_admin_us,
             keep_alive_timeout_ms: o.keep_alive_timeout_ms,
-            retry_count: o.retry_count,
+            transport_retry_count: o.transport_retry_count,
             arbitration_burst: o.arbitration_burst,
             low_priority_weight: o.low_priority_weight,
             medium_priority_weight: o.medium_priority_weight,
@@ -305,6 +316,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             nvme_ioq_poll_period_us: o.nvme_ioq_poll_period_us,
             io_queue_requests: o.io_queue_requests,
             delay_cmd_submit: o.delay_cmd_submit,
+            bdev_retry_count: o.bdev_retry_count,
         }
     }
 }
@@ -316,7 +328,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             timeout_us: o.timeout_us,
             timeout_admin_us: o.timeout_admin_us,
             keep_alive_timeout_ms: o.keep_alive_timeout_ms,
-            retry_count: o.retry_count,
+            transport_retry_count: o.transport_retry_count,
             arbitration_burst: o.arbitration_burst,
             low_priority_weight: o.low_priority_weight,
             medium_priority_weight: o.medium_priority_weight,
@@ -325,6 +337,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             nvme_ioq_poll_period_us: o.nvme_ioq_poll_period_us,
             io_queue_requests: o.io_queue_requests,
             delay_cmd_submit: o.delay_cmd_submit,
+            bdev_retry_count: o.bdev_retry_count,
         }
     }
 }

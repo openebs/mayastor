@@ -156,6 +156,7 @@ impl CreateDestroy for Malloc {
                 std::ptr::null_mut(),
                 self.num_blocks,
                 self.blk_size,
+                0,
             )
         };
 

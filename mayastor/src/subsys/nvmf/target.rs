@@ -7,7 +7,6 @@ use std::{
 use nix::errno::Errno;
 
 use spdk_rs::libspdk::{
-    nvmf_tgt_accept,
     spdk_env_get_core_count,
     spdk_nvmf_listen_opts,
     spdk_nvmf_listen_opts_init,
@@ -20,9 +19,6 @@ use spdk_rs::libspdk::{
     spdk_nvmf_tgt_destroy,
     spdk_nvmf_tgt_listen_ext,
     spdk_nvmf_tgt_stop_listen,
-    spdk_poller,
-    spdk_poller_register_named,
-    spdk_poller_unregister,
     spdk_subsystem_fini_next,
     spdk_subsystem_init_next,
     SPDK_NVMF_DISCOVERY_NQN,
@@ -55,8 +51,6 @@ pub (crate) static NVMF_TGT: RefCell<Target> = RefCell::new(Target::new());
 pub struct Target {
     /// the raw pointer to  our target
     pub(crate) tgt: NonNull<spdk_nvmf_tgt>,
-    /// poller used to accept new connections on
-    acceptor_poller: NonNull<spdk_poller>,
     /// the number of poll groups created for this target
     poll_group_count: u16,
     /// The current state of the target
@@ -76,8 +70,6 @@ pub(crate) enum TargetState {
     Init,
     /// initialize the poll groups
     PollGroupInit,
-    /// initialize the acceptor
-    AcceptorInit,
     /// add transport configurations
     AddTransport,
     /// add the listener for the target
@@ -106,7 +98,6 @@ impl Target {
         assert_eq!(Cores::current(), Cores::first());
         Self {
             tgt: NonNull::dangling(),
-            acceptor_poller: NonNull::dangling(),
             poll_group_count: 0,
             next_state: TargetState::Init,
         }
@@ -139,12 +130,8 @@ impl Target {
                 self.init().unwrap();
             }
             TargetState::PollGroupInit => {
-                self.next_state = TargetState::AcceptorInit;
-                self.init_poll_groups();
-            }
-            TargetState::AcceptorInit => {
                 self.next_state = TargetState::AddTransport;
-                self.init_acceptor();
+                self.init_poll_groups();
             }
             TargetState::AddTransport => {
                 self.next_state = TargetState::AddListener;
@@ -196,21 +183,6 @@ impl Target {
         })
     }
 
-    /// initialize the acceptor so that we accept new incoming connections
-    fn init_acceptor(&mut self) {
-        self.acceptor_poller = NonNull::new(unsafe {
-            spdk_poller_register_named(
-                Some(Self::acceptor_poll),
-                self.tgt.as_ptr() as *mut _,
-                10000,
-                "mayastor_nvmf_tgt_poller\0" as *const _ as *mut _,
-            )
-        })
-        .unwrap();
-
-        self.next_state();
-    }
-
     /// init the poll groups per core
     fn init_poll_groups(&self) {
         Reactors::iter().for_each(|r| {
@@ -245,12 +217,6 @@ impl Target {
                 });
             });
         });
-    }
-    /// poll function that the acceptor runs
-    extern "C" fn acceptor_poll(tgt: *mut c_void) -> i32 {
-        unsafe { nvmf_tgt_accept(tgt) };
-
-        0
     }
 
     /// Listen for incoming connections by default we only listen on the replica
@@ -400,8 +366,6 @@ impl Target {
                 spdk_subsystem_fini_next();
             }
         }
-
-        unsafe { spdk_poller_unregister(&mut self.acceptor_poller.as_ptr()) };
 
         let cfg = Config::get();
         let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
