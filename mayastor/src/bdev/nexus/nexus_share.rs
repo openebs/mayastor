@@ -32,11 +32,11 @@ impl<'n> Share for Nexus<'n> {
 
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
-            Some(Protocol::Off) | None => {
+            Some(Protocol::Off) | None => unsafe {
                 self.bdev().share_iscsi().await.context(ShareIscsiNexus {
                     name: self.name.clone(),
                 })?;
-            }
+            },
             Some(Protocol::Iscsi) => {}
             Some(protocol) => {
                 error!("nexus {} already shared as {:?}", self.name, protocol);
@@ -53,13 +53,13 @@ impl<'n> Share for Nexus<'n> {
         cntlid_range: Option<(u16, u16)>,
     ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
-            Some(Protocol::Off) | None => {
+            Some(Protocol::Off) | None => unsafe {
                 self.bdev().share_nvmf(cntlid_range).await.context(
                     ShareNvmfNexus {
                         name: self.name.clone(),
                     },
                 )?;
-            }
+            },
             Some(Protocol::Nvmf) => {}
             Some(protocol) => {
                 warn!("nexus {} already shared as {}", self.name, protocol);
@@ -72,25 +72,27 @@ impl<'n> Share for Nexus<'n> {
     }
 
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
-        self.bdev().unshare().await.context(UnshareNexus {
-            name: self.name.clone(),
-        })
+        unsafe {
+            self.bdev().unshare().await.context(UnshareNexus {
+                name: self.name.clone(),
+            })
+        }
     }
 
     fn shared(&self) -> Option<Protocol> {
-        self.bdev().shared()
+        unsafe { self.bdev().shared() }
     }
 
     fn share_uri(&self) -> Option<String> {
-        self.bdev().share_uri()
+        unsafe { self.bdev().share_uri() }
     }
 
     fn bdev_uri(&self) -> Option<String> {
-        self.bdev().bdev_uri()
+        unsafe { self.bdev().bdev_uri() }
     }
 
     fn bdev_uri_original(&self) -> Option<String> {
-        self.bdev().bdev_uri_original()
+        unsafe { self.bdev().bdev_uri_original() }
     }
 }
 

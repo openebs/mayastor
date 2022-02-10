@@ -40,6 +40,7 @@ use crate::{
     bdev::device_destroy,
     core::{
         Bdev,
+        BdevHandle,
         Command,
         CoreError,
         Cores,
@@ -435,7 +436,7 @@ pub struct Nexus<'n> {
     /// represents the current state of the Nexus
     pub state: parking_lot::Mutex<NexusState>,
     /// The offset in blocks where the data partition starts.
-    pub data_ent_offset: u64,
+    pub(crate) data_ent_offset: u64,
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
@@ -588,16 +589,6 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub(crate) fn bdev(&self) -> Bdev {
-        Bdev::from(self.bdev_raw.as_ptr())
-    }
-
-    /// TODO
-    pub(crate) unsafe fn bdev_mut(self: Pin<&mut Self>) -> Bdev {
-        Bdev::from(self.bdev_raw.as_ptr())
-    }
-
-    /// TODO
     pub(crate) fn get_event_sink(&self) -> DeviceEventSink {
         self.event_sink
             .clone()
@@ -645,19 +636,34 @@ impl<'n> Nexus<'n> {
         state
     }
 
+    /// Returns name of the underlying Bdev.
+    pub(crate) fn bdev_name(&self) -> String {
+        unsafe { self.bdev().name().to_string() }
+    }
+
     /// Returns the actual size of the Nexus instance, in bytes.
     pub fn size_in_bytes(&self) -> u64 {
-        self.bdev().size_in_bytes()
+        unsafe { self.bdev().size_in_bytes() }
     }
 
     /// Returns Nexus's block size in bytes.
     pub fn block_len(&self) -> u64 {
-        self.bdev().block_len() as u64
+        unsafe { self.bdev().block_len() as u64 }
     }
 
     /// Returns the actual size of the Nexus instance, in blocks.
     pub fn num_blocks(&self) -> u64 {
-        self.bdev().num_blocks()
+        unsafe { self.bdev().num_blocks() }
+    }
+
+    /// Returns the required alignment of the Nexus.
+    pub fn alignment(&self) -> u64 {
+        unsafe { self.bdev().alignment() }
+    }
+
+    /// Returns the required alignment of the Nexus.
+    pub fn required_alignment(&self) -> u8 {
+        unsafe { self.bdev().required_alignment() }
     }
 
     /// Reconfigures the child event handler.
@@ -753,7 +759,9 @@ impl<'n> Nexus<'n> {
 
         // no-op when not shared and will be removed once the old share bits are
         // gone
-        self.bdev().unshare().await.unwrap();
+        unsafe {
+            self.bdev().unshare().await.unwrap();
+        }
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
@@ -778,11 +786,13 @@ impl<'n> Nexus<'n> {
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
 
-        match self.bdev().as_mut().unregister_bdev_async().await {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::NexusDestroy {
-                name: self.name.clone(),
-            }),
+        unsafe {
+            match self.bdev().as_mut().unregister_bdev_async().await {
+                Ok(_) => Ok(()),
+                Err(_) => Err(Error::NexusDestroy {
+                    name: self.name.clone(),
+                }),
+            }
         }
     }
 
@@ -1085,6 +1095,45 @@ impl<'n> Nexus<'n> {
     }
 }
 
+// Unsafe part of Nexus.
+impl<'n> Nexus<'n> {
+    /// TODO
+    pub(crate) unsafe fn bdev(&self) -> Bdev {
+        Bdev::from(self.bdev_raw.as_ptr())
+    }
+
+    /// Sets the required alignment of the Nexus.
+    pub(crate) unsafe fn set_required_alignment(
+        self: Pin<&mut Self>,
+        new_val: u8,
+    ) {
+        (*self.bdev().as_ptr()).required_alignment = new_val;
+    }
+
+    /// Sets the block size of the underlying device.
+    pub(crate) unsafe fn set_block_len(self: Pin<&mut Self>, blk_size: u32) {
+        self.bdev().as_mut().set_block_len(blk_size)
+    }
+
+    /// Sets number of blocks for this device.
+    pub(crate) unsafe fn set_num_blocks(self: Pin<&mut Self>, count: u64) {
+        self.bdev().as_mut().set_num_blocks(count)
+    }
+
+    /// TODO
+    pub(crate) unsafe fn set_data_ent_offset(self: Pin<&mut Self>, val: u64) {
+        self.get_unchecked_mut().data_ent_offset = val;
+    }
+
+    /// Open Bdev handle for the Nexus.
+    pub(crate) unsafe fn open_bdev_handle(
+        &self,
+        read_write: bool,
+    ) -> Result<BdevHandle, CoreError> {
+        BdevHandle::open_with_bdev(&self.bdev(), read_write)
+    }
+}
+
 impl Drop for Nexus<'_> {
     fn drop(&mut self) {
         info!("Dropping Nexus instance: {}", self.name);
@@ -1098,8 +1147,8 @@ impl Display for Nexus<'_> {
             "{}: state: {:?} blk_cnt: {}, blk_size: {}",
             self.name,
             self.state,
-            self.bdev().num_blocks(),
-            self.bdev().block_len(),
+            self.num_blocks(),
+            self.block_len(),
         );
 
         self.children
@@ -1114,12 +1163,12 @@ impl IoDevice for Nexus<'_> {
     type ChannelData = NexusChannel;
 
     fn io_channel_create(self: Pin<&mut Self>) -> NexusChannel {
-        debug!("{}: Creating IO channels", self.bdev().name());
+        debug!("{}: Creating IO channels", self.bdev_name());
         NexusChannel::new(self)
     }
 
     fn io_channel_destroy(self: Pin<&mut Self>, chan: NexusChannel) {
-        debug!("{} Destroying IO channels", self.bdev().name());
+        debug!("{} Destroying IO channels", self.bdev_name());
         chan.clear(); // TODO: use chan drop.
     }
 }
@@ -1204,7 +1253,7 @@ impl<'n> BdevOps for Nexus<'n> {
                     trace!(
                         "IO type {:?} not supported for {}",
                         io_type,
-                        self.bdev().name()
+                        self.bdev_name()
                     );
                 }
                 supported
@@ -1213,7 +1262,7 @@ impl<'n> BdevOps for Nexus<'n> {
                 debug!(
                     "un matched IO type {:#?} not supported for {}",
                     io_type,
-                    self.bdev().name()
+                    self.bdev_name()
                 );
                 false
             }
@@ -1222,7 +1271,7 @@ impl<'n> BdevOps for Nexus<'n> {
 
     /// Called per core to create IO channels per Nexus instance.
     fn get_io_device(&self) -> &Self::IoDev {
-        trace!("{}: Get IO channel", self.bdev().name());
+        trace!("{}: Get IO channel", self.bdev_name());
         self
     }
 

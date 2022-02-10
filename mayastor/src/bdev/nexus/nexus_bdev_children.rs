@@ -542,9 +542,9 @@ impl<'n> Nexus<'n> {
         }
 
         unsafe {
-            self.as_mut().get_unchecked_mut().data_ent_offset = start_blk;
-            self.as_mut().bdev_mut().set_block_len(blk_size as u32);
-            self.as_mut().bdev_mut().set_num_blocks(end_blk - start_blk);
+            self.as_mut().set_data_ent_offset(start_blk);
+            self.as_mut().set_block_len(blk_size as u32);
+            self.as_mut().set_num_blocks(end_blk - start_blk);
         }
 
         let size = self.req_size;
@@ -644,21 +644,23 @@ impl<'n> Nexus<'n> {
             return Err(error);
         }
 
+        let mut new_alignment = self.alignment();
+
         for child in self.children.iter() {
             let alignment = child.get_device().as_ref().unwrap().alignment();
-            if self.bdev().alignment() < alignment {
+            if new_alignment < alignment {
                 info!(
                     "{}: child {} has alignment {}, updating \
                         required_alignment from {}",
-                    name,
-                    child.name,
-                    alignment,
-                    self.bdev().alignment()
+                    name, child.name, alignment, new_alignment
                 );
-                unsafe {
-                    (*self.bdev().as_ptr()).required_alignment =
-                        alignment as u8;
-                }
+                new_alignment = alignment;
+            }
+        }
+
+        if self.alignment() != new_alignment {
+            unsafe {
+                self.as_mut().set_required_alignment(new_alignment as u8);
             }
         }
 

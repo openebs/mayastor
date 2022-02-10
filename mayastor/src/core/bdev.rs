@@ -225,23 +225,9 @@ impl Bdev {
         self.0.block_len()
     }
 
-    /// set the block length of the device in bytes
-    /// # Safety
-    /// TODO
-    pub unsafe fn set_block_len(&mut self, len: u32) {
-        self.0.set_block_len(len)
-    }
-
     /// number of blocks for this device
     pub fn num_blocks(&self) -> u64 {
         self.0.num_blocks()
-    }
-
-    /// set the block count of this device
-    /// # Safety
-    /// TODO
-    pub unsafe fn set_num_blocks(&mut self, count: u64) {
-        self.0.set_num_blocks(count)
     }
 
     /// return the bdev size in bytes
@@ -252,6 +238,11 @@ impl Bdev {
     /// returns the alignment of the bdev
     pub fn alignment(&self) -> u64 {
         self.0.alignment()
+    }
+
+    /// returns the required alignment of the bdev
+    pub fn required_alignment(&self) -> u8 {
+        self.0.required_alignment()
     }
 
     /// returns the configured product name
