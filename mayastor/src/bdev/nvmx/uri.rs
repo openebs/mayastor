@@ -217,7 +217,7 @@ impl<'probe> NvmeControllerContext<'probe> {
                 Config::get().nvme_bdev_opts.keep_alive_timeout_ms,
             )
             .with_transport_retry_count(
-                Config::get().nvme_bdev_opts.retry_count as u8,
+                Config::get().nvme_bdev_opts.transport_retry_count as u8,
             );
 
         if let Ok(ext_host_id) = std::env::var("MAYASTOR_NVMF_HOSTID") {

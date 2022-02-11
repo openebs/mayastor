@@ -36,21 +36,15 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.10-8709a5789";
+    version = "22.01-13f9d281c";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "8709a578910d99359d011701a3a70337d727f790";
-      sha256 = "0wwggi2g015xq3lspz3r5cns1h1fb8r5gxg4y6r2nq0ds0gm21rb";
+      rev = "13f9d281c93af370069fe17328f5971e95c19a2d";
+      sha256 = "0avw6qsfqnsdzkk8ldbdvrfq0rrvi5wmjxa5p2cdq62mwdch3zz0";
       fetchSubmodules = true;
     };
-
-    patches = [
-      # intel-ipsec-mb enables CET if the compiler supports it
-      # but this is incompatible with separateDebugInfo
-      ./cet-disable.patch
-    ];
 
     nativeBuildInputs = [
       meson

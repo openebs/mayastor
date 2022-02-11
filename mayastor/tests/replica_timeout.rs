@@ -20,7 +20,7 @@ async fn replica_stop_cont() {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 5_000_000,
             keep_alive_timeout_ms: 5_000,
-            retry_count: 2,
+            transport_retry_count: 2,
             ..Default::default()
         },
         ..Default::default()

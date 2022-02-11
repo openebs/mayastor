@@ -3,7 +3,8 @@
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
 use spdk_rs::libspdk::{
-    nvme_qpair_abort_reqs,
+    nvme_qpair_abort_all_queued_reqs,
+    nvme_transport_qpair_abort_reqs,
     spdk_io_channel,
     spdk_nvme_ctrlr_alloc_io_qpair,
     spdk_nvme_ctrlr_connect_io_qpair,
@@ -237,8 +238,10 @@ impl Drop for IoQpair {
         let qpair = self.qpair.as_ptr();
 
         unsafe {
-            nvme_qpair_abort_reqs(qpair, 1);
+            nvme_qpair_abort_all_queued_reqs(qpair, 1);
             debug!(?qpair, "I/O requests successfully aborted,");
+            nvme_transport_qpair_abort_reqs(qpair, 1);
+            debug!(?qpair, "transport requests successfully aborted,");
             spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
             debug!(?qpair, "qpair successfully disconnected,");
             spdk_nvme_ctrlr_free_io_qpair(qpair);
@@ -463,7 +466,8 @@ extern "C" fn disconnected_qpair_cb(
 
     if let Some(ref qpair) = inner.qpair {
         unsafe {
-            nvme_qpair_abort_reqs(qpair.as_ptr(), 1);
+            nvme_qpair_abort_all_queued_reqs(qpair.as_ptr(), 1);
+            nvme_transport_qpair_abort_reqs(qpair.as_ptr(), 1);
         }
     }
 
