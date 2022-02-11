@@ -30,7 +30,7 @@ use url::Url;
 
 use crate::{
     bdev::uri,
-    core::{Bdev, IoType, Share},
+    core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
     nexus_uri::{bdev_destroy, NexusBdevError},
@@ -188,7 +188,7 @@ impl Lvs {
     }
 
     /// returns the base bdev of this lvs
-    pub fn base_bdev(&self) -> Bdev {
+    pub fn base_bdev(&self) -> UntypedBdev {
         Bdev::from(unsafe {
             (*vbdev_get_lvs_bdev_by_lvs(self.0.as_ptr())).bdev
         })
@@ -230,12 +230,13 @@ impl Lvs {
 
         debug!("Trying to import pool {} on {}", name, bdev);
 
-        let bdev = Bdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
-            source: NexusBdevError::BdevNotFound {
-                name: bdev.to_string(),
-            },
-            name: name.to_string(),
-        })?;
+        let bdev =
+            UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
+                source: NexusBdevError::BdevNotFound {
+                    name: bdev.to_string(),
+                },
+                name: name.to_string(),
+            })?;
 
         // examining a bdev that is in-use by an lvs, will hang to avoid this
         // we will determine the usage of the bdev prior to examining it.
@@ -593,7 +594,7 @@ impl Lvs {
     /// return an iterator that filters out all bdevs that patch the pool
     /// signature
     pub fn lvols(&self) -> Option<impl Iterator<Item = Lvol>> {
-        if let Some(bdev) = Bdev::bdev_first() {
+        if let Some(bdev) = UntypedBdev::bdev_first() {
             let pool_name = format!("{}/", self.name());
             Some(
                 bdev.into_iter()
@@ -626,7 +627,7 @@ impl Lvs {
         };
 
         if let Some(uuid) = uuid {
-            if Bdev::lookup_by_uuid(uuid).is_some() {
+            if UntypedBdev::lookup_by_uuid(uuid).is_some() {
                 return Err(Error::RepExists {
                     source: Errno::EEXIST,
                     name: uuid.to_string(),
@@ -634,7 +635,7 @@ impl Lvs {
             }
         }
 
-        if Bdev::lookup_by_name(name).is_some() {
+        if UntypedBdev::lookup_by_name(name).is_some() {
             return Err(Error::RepExists {
                 source: Errno::EEXIST,
                 name: name.to_string(),

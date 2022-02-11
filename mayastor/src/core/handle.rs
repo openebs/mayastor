@@ -27,7 +27,7 @@ use spdk_rs::{
 };
 
 use crate::{
-    core::{Bdev, CoreError, Descriptor, IoChannel},
+    core::{Bdev, CoreError, Descriptor, IoChannel, UntypedBdev},
     ffihelper::cb_arg,
     subsys,
 };
@@ -50,7 +50,7 @@ impl BdevHandle {
         read_write: bool,
         claim: bool,
     ) -> Result<BdevHandle, CoreError> {
-        if let Ok(desc) = Bdev::open_by_name(name, read_write) {
+        if let Ok(desc) = UntypedBdev::open_by_name(name, read_write) {
             if claim && !desc.claim() {
                 return Err(CoreError::BdevNotFound {
                     name: name.into(),
@@ -65,8 +65,8 @@ impl BdevHandle {
     }
 
     /// open a new bdev handle given a bdev
-    pub fn open_with_bdev(
-        bdev: &Bdev,
+    pub fn open_with_bdev<T: spdk_rs::BdevOps>(
+        bdev: &Bdev<T>,
         read_write: bool,
     ) -> Result<BdevHandle, CoreError> {
         let desc = bdev.open(read_write)?;
@@ -79,7 +79,7 @@ impl BdevHandle {
     }
 
     /// get the bdev associated with this handle
-    pub fn get_bdev(&self) -> Bdev {
+    pub fn get_bdev(&self) -> UntypedBdev {
         self.desc.get_bdev()
     }
 

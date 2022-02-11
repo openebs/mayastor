@@ -6,7 +6,6 @@ use rand::Rng;
 use mayastor::{
     core::{
         mayastor_env_stop,
-        Bdev,
         Cores,
         Descriptor,
         IoChannel,
@@ -14,6 +13,7 @@ use mayastor::{
         MayastorEnvironment,
         Mthread,
         Reactors,
+        UntypedBdev,
     },
     logger,
     nexus_uri::bdev_create,
@@ -51,7 +51,7 @@ const IO_SIZE: u64 = 512;
 #[derive(Debug)]
 #[allow(dead_code)]
 struct Job {
-    bdev: Bdev,
+    bdev: UntypedBdev,
     /// descriptor to the bdev
     desc: Descriptor,
     /// io channel being used to submit IO
@@ -137,7 +137,7 @@ impl Job {
                 eprintln!("Failed to open URI {}: {}", bdev, e);
                 std::process::exit(1);
             })
-            .map(|name| Bdev::lookup_by_name(&name).unwrap())
+            .map(|name| UntypedBdev::lookup_by_name(&name).unwrap())
             .unwrap();
 
         let desc = bdev.open(true).unwrap();

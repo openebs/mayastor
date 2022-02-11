@@ -12,7 +12,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Bdev, Cores, Descriptor, IoChannel, Mthread},
+    core::{Cores, Descriptor, IoChannel, Mthread, UntypedBdev},
     ffihelper::pair,
     nexus_uri::bdev_create,
 };
@@ -146,7 +146,7 @@ impl Io {
 #[allow(dead_code)]
 pub struct Job {
     /// that drives IO to a bdev using its own channel.
-    bdev: Bdev,
+    bdev: UntypedBdev,
     /// descriptor to the bdev
     desc: Descriptor,
     /// io channel used to submit IO
@@ -262,7 +262,7 @@ pub struct Builder {
     /// type of workload to generate
     iot: IoType,
     /// existing bdev to use instead of creating one
-    bdev: Option<Bdev>,
+    bdev: Option<UntypedBdev>,
     /// core to start the job on, the command will crash if the core is invalid
     core: u32,
 }
@@ -297,7 +297,7 @@ impl Builder {
     }
 
     /// use the given bdev instead of the URI to create the job
-    pub fn bdev(mut self, bdev: Bdev) -> Self {
+    pub fn bdev(mut self, bdev: UntypedBdev) -> Self {
         self.bdev = Some(bdev);
         self
     }
@@ -312,7 +312,7 @@ impl Builder {
             self.bdev.take().unwrap()
         } else {
             let name = bdev_create(&self.uri).await.unwrap();
-            Bdev::lookup_by_name(&name).unwrap()
+            UntypedBdev::lookup_by_name(&name).unwrap()
         };
 
         let desc = bdev.open(true).unwrap();

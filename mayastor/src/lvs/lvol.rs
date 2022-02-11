@@ -30,7 +30,7 @@ use spdk_rs::libspdk::{
 
 use crate::{
     bdev::nexus::Nexus,
-    core::{Bdev, CoreError, Mthread, Protocol, Share},
+    core::{Bdev, CoreError, Mthread, Protocol, Share, UntypedBdev},
     ffihelper::{
         cb_arg,
         errno_result_from_i32,
@@ -78,10 +78,10 @@ impl Display for PropName {
 /// struct representing an lvol
 pub struct Lvol(pub(crate) NonNull<spdk_lvol>);
 
-impl TryFrom<Bdev> for Lvol {
+impl TryFrom<UntypedBdev> for Lvol {
     type Error = Error;
 
-    fn try_from(b: Bdev) -> Result<Self, Self::Error> {
+    fn try_from(b: UntypedBdev) -> Result<Self, Self::Error> {
         if b.driver() == "lvol" {
             unsafe {
                 Ok(Lvol(NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
@@ -97,7 +97,7 @@ impl TryFrom<Bdev> for Lvol {
     }
 }
 
-impl From<Lvol> for Bdev {
+impl From<Lvol> for UntypedBdev {
     fn from(l: Lvol) -> Self {
         Bdev::from(unsafe { l.0.as_ref().bdev })
     }
@@ -202,7 +202,7 @@ impl Lvol {
     }
 
     /// returns the underlying bdev of the lvol
-    pub(crate) fn as_bdev(&self) -> Bdev {
+    pub(crate) fn as_bdev(&self) -> UntypedBdev {
         Bdev::from(unsafe { self.0.as_ref().bdev })
     }
     /// return the size of the lvol in bytes

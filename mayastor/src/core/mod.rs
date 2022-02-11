@@ -5,7 +5,7 @@ use std::{fmt::Debug, sync::atomic::AtomicUsize, time::Duration};
 use nix::errno::Errno;
 use snafu::Snafu;
 
-pub use bdev::{Bdev, BdevIter};
+pub use bdev::{Bdev, BdevIter, UntypedBdev};
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,

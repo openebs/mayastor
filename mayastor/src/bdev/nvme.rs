@@ -18,7 +18,7 @@ use spdk_rs::libspdk::{
 
 use crate::{
     bdev::{CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult, IntoCString},
     nexus_uri::{self, NexusBdevError},
 };
@@ -68,7 +68,7 @@ impl CreateDestroy for NVMe {
                 .expect("done callback receiver side disappeared");
         }
 
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.name.clone(),
             });
@@ -111,7 +111,7 @@ impl CreateDestroy for NVMe {
                 name: self.name.clone(),
             })?;
 
-        let success = Bdev::lookup_by_name(&self.get_name())
+        let success = UntypedBdev::lookup_by_name(&self.get_name())
             .map(|mut b| b.as_mut().add_alias(&self.url.to_string()))
             .expect("bdev created but not found!");
 
@@ -126,7 +126,7 @@ impl CreateDestroy for NVMe {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.get_name()) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
             bdev.as_mut().remove_alias(&self.url.to_string());
             let errno = unsafe {
                 bdev_nvme_delete(

@@ -1,6 +1,6 @@
 use common::MayastorTest;
 use mayastor::{
-    core::{Bdev, MayastorCliArgs, Protocol, Share},
+    core::{MayastorCliArgs, Protocol, Share, UntypedBdev},
     lvs::{Lvs, PropName, PropValue},
     nexus_uri::bdev_create,
     pool::PoolArgs,
@@ -324,7 +324,7 @@ async fn lvs_pool_test() {
 
         // no bdevs left
 
-        assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+        assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
 
         // importing a pool with the wrong name should fail
         Lvs::create_or_import(PoolArgs {

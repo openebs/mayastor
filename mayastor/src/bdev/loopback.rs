@@ -12,7 +12,7 @@ use crate::{
         CreateDestroy,
         GetName,
     },
-    core::Bdev,
+    core::UntypedBdev,
     nexus_uri::{self, NexusBdevError},
 };
 
@@ -66,7 +66,7 @@ impl CreateDestroy for Loopback {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if self.uuid.is_some() && Some(bdev.uuid()) != self.uuid {
                 return Err(NexusBdevError::BdevWrongUuid {
                     name: self.get_name(),
@@ -94,7 +94,7 @@ impl CreateDestroy for Loopback {
         if let Some(child) = lookup_nexus_child(&self.name) {
             child.remove();
         }
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             bdev.as_mut().remove_alias(&self.alias);
         }
         Ok(())

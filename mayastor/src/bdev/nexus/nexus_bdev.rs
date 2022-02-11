@@ -1156,8 +1156,8 @@ impl<'n> Nexus<'n> {
 // Unsafe part of Nexus.
 impl<'n> Nexus<'n> {
     /// TODO
-    pub(crate) unsafe fn bdev(&self) -> Bdev {
-        Bdev::from(self.bdev_raw.as_ptr())
+    pub(crate) unsafe fn bdev(&self) -> Bdev<Nexus<'n>> {
+        Bdev::from_ptr(self.bdev_raw.as_ptr()).unwrap()
     }
 
     /// Sets the required alignment of the Nexus.

@@ -16,13 +16,13 @@ use rpc::mayastor::{
 };
 
 use crate::{
-    core::{Bdev, CoreError, Share},
+    core::{CoreError, Share, UntypedBdev},
     grpc::{rpc_submit, GrpcResult},
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 
-impl From<Bdev> for RpcBdev {
-    fn from(b: Bdev) -> Self {
+impl From<UntypedBdev> for RpcBdev {
+    fn from(b: UntypedBdev) -> Self {
         Self {
             name: b.name().to_string(),
             uuid: b.uuid_as_string(),
@@ -59,7 +59,7 @@ impl BdevRpc for BdevSvc {
     async fn list(&self, _request: Request<Null>) -> GrpcResult<Bdevs> {
         let rx = rpc_submit::<_, _, NexusBdevError>(async {
             let mut list: Vec<RpcBdev> = Vec::new();
-            if let Some(bdev) = Bdev::bdev_first() {
+            if let Some(bdev) = UntypedBdev::bdev_first() {
                 bdev.into_iter().for_each(|bdev| list.push(bdev.into()))
             }
 
@@ -114,7 +114,7 @@ impl BdevRpc for BdevSvc {
         let name = r.name;
         let proto = r.proto;
 
-        if Bdev::lookup_by_name(&name).is_none() {
+        if UntypedBdev::lookup_by_name(&name).is_none() {
             return Err(Status::not_found(name));
         }
 
@@ -124,16 +124,16 @@ impl BdevRpc for BdevSvc {
         let bdev_name = name.clone();
         let rx = match proto.as_str() {
             "nvmf" => rpc_submit::<_, String, CoreError>(async move {
-                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
+                let bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
                 let share = bdev.share_nvmf(None).await?;
-                let bdev = Bdev::lookup_by_name(&name).unwrap();
+                let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
                 Ok(bdev.share_uri().unwrap_or(share))
             }),
 
             "iscsi" => rpc_submit::<_, String, CoreError>(async move {
-                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
+                let bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
                 let share = bdev.share_iscsi().await?;
-                let bdev = Bdev::lookup_by_name(&name).unwrap();
+                let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
                 Ok(bdev.share_uri().unwrap_or(share))
             }),
 
@@ -154,7 +154,7 @@ impl BdevRpc for BdevSvc {
     async fn unshare(&self, request: Request<CreateReply>) -> GrpcResult<Null> {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let name = request.into_inner().name;
-            if let Some(bdev) = Bdev::lookup_by_name(&name) {
+            if let Some(bdev) = UntypedBdev::lookup_by_name(&name) {
                 let _ = bdev.unshare().await?;
             }
             Ok(Null {})

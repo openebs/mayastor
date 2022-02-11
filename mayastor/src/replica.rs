@@ -10,7 +10,11 @@ use snafu::{ResultExt, Snafu};
 
 use spdk_rs::libspdk::{spdk_lvol, vbdev_lvol_get_from_bdev};
 
-use crate::{core::Bdev, subsys::NvmfError, target};
+use crate::{
+    core::{Bdev, UntypedBdev},
+    subsys::NvmfError,
+    target,
+};
 
 /// These are high-level context errors one for each rpc method.
 #[derive(Debug, Snafu)]
@@ -98,14 +102,14 @@ fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
 impl Replica {
     /// Lookup replica by uuid (=name).
     pub fn lookup(uuid: &str) -> Option<Self> {
-        match Bdev::lookup_by_name(uuid) {
+        match UntypedBdev::lookup_by_name(uuid) {
             Some(bdev) => Replica::from_bdev(&bdev),
             None => None,
         }
     }
 
     /// Look up replica from Bdev
-    pub fn from_bdev(bdev: &Bdev) -> Option<Self> {
+    pub fn from_bdev(bdev: &UntypedBdev) -> Option<Self> {
         let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
         if lvol.is_null() {
             None
@@ -175,7 +179,7 @@ impl Replica {
 
     /// Get size of the replica in bytes.
     pub fn get_size(&self) -> u64 {
-        let bdev: Bdev = unsafe { (*self.lvol_ptr).bdev.into() };
+        let bdev: UntypedBdev = unsafe { (*self.lvol_ptr).bdev.into() };
         u64::from(bdev.block_len()) * bdev.num_blocks()
     }
 
@@ -215,7 +219,7 @@ impl Replica {
 #[derive(Default)]
 pub struct ReplicaIter {
     /// Last bdev examined by the iterator during the call to next()
-    bdev: Option<Bdev>,
+    bdev: Option<UntypedBdev>,
 }
 
 impl ReplicaIter {
@@ -244,7 +248,7 @@ impl Iterator for ReplicaIter {
                         None
                     }
                 }
-                None => Bdev::bdev_first(),
+                None => UntypedBdev::bdev_first(),
             };
 
             let bdev = match maybe_bdev {

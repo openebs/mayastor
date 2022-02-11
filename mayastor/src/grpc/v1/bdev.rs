@@ -20,8 +20,11 @@ use std::convert::TryFrom;
 use tonic::{Request, Response, Status};
 use url::Url;
 
-impl From<core::Bdev> for Bdev {
-    fn from(b: crate::core::Bdev) -> Self {
+impl<T> From<core::Bdev<T>> for Bdev
+where
+    T: spdk_rs::BdevOps,
+{
+    fn from(b: core::Bdev<T>) -> Self {
         Self {
             name: b.name().to_string(),
             uuid: b.uuid_as_string(),

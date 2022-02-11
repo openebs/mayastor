@@ -10,7 +10,7 @@ use spdk_rs::libspdk::{bdev_aio_delete, create_aio_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
 };
@@ -80,7 +80,7 @@ impl CreateDestroy for Aio {
 
     /// Create an AIO bdev
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.get_name(),
             });
@@ -99,7 +99,7 @@ impl CreateDestroy for Aio {
             });
         }
 
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
                 unsafe { bdev.as_mut().set_uuid(uuid.into()) };
             }
@@ -122,7 +122,7 @@ impl CreateDestroy for Aio {
 
     /// Destroy the given AIO bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        match Bdev::lookup_by_name(&self.name) {
+        match UntypedBdev::lookup_by_name(&self.name) {
             Some(mut bdev) => {
                 bdev.as_mut().remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();

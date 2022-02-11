@@ -2,11 +2,11 @@ use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
         mayastor_env_stop,
-        Bdev,
         MayastorCliArgs,
         Protocol,
         Reactor,
         Share,
+        UntypedBdev,
     },
 };
 
@@ -71,7 +71,7 @@ async fn nexus_share_test() {
             // sharing the bdev directly, over iSCSI or nvmf should result
             // in an error
             Reactor::block_on(async {
-                let bdev = Bdev::lookup_by_name("nexus0").unwrap();
+                let bdev = UntypedBdev::lookup_by_name("nexus0").unwrap();
                 assert!(bdev.share_iscsi().await.is_err());
                 assert!(bdev.share_nvmf(None).await.is_err());
             });
@@ -85,7 +85,7 @@ async fn nexus_share_test() {
             Reactor::block_on(async {
                 let nexus = nexus_lookup_mut("nexus0").unwrap();
                 assert_eq!(nexus.shared(), Some(Protocol::Off));
-                let bdev = Bdev::lookup_by_name("nexus0").unwrap();
+                let bdev = UntypedBdev::lookup_by_name("nexus0").unwrap();
                 assert_eq!(bdev.shared(), Some(Protocol::Off));
                 nexus.destroy().await.unwrap();
             });

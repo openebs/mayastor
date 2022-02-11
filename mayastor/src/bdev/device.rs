@@ -48,6 +48,7 @@ use crate::core::{
     IoCompletionStatus,
     NvmeCommandStatus,
     NvmeStatus,
+    UntypedBdev,
 };
 
 /// TODO
@@ -63,7 +64,7 @@ static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
 pub struct SpdkBlockDevice {
-    bdev: Bdev,
+    bdev: UntypedBdev,
 }
 /// Wrapper around native SPDK block device descriptor, which mimics target SPDK
 /// descriptor as an abstract BlockDeviceDescriptor instance.
@@ -109,8 +110,8 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     }
 }
 
-impl From<Bdev> for SpdkBlockDevice {
-    fn from(bdev: Bdev) -> Self {
+impl From<UntypedBdev> for SpdkBlockDevice {
+    fn from(bdev: UntypedBdev) -> Self {
         Self {
             bdev,
         }
@@ -118,7 +119,7 @@ impl From<Bdev> for SpdkBlockDevice {
 }
 
 impl SpdkBlockDevice {
-    fn new(bdev: Bdev) -> Self {
+    fn new(bdev: UntypedBdev) -> Self {
         Self {
             bdev,
         }
@@ -126,7 +127,7 @@ impl SpdkBlockDevice {
 
     /// Lookup existing SPDK bdev by its name.
     pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
-        let bdev = Bdev::lookup_by_name(name)?;
+        let bdev = UntypedBdev::lookup_by_name(name)?;
         Some(Box::new(SpdkBlockDevice::new(bdev)))
     }
 
@@ -135,14 +136,14 @@ impl SpdkBlockDevice {
         name: &str,
         read_write: bool,
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
-        let descr = Bdev::open_by_name(name, read_write)?;
+        let descr = UntypedBdev::open_by_name(name, read_write)?;
         Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
     }
 
     /// Called by spdk when there is an asynchronous bdev event i.e. removal.
     pub(crate) fn bdev_event_callback(
         event: spdk_rs::BdevEvent,
-        bdev: spdk_rs::DummyBdev,
+        bdev: spdk_rs::UntypedBdev,
     ) {
         let dev = SpdkBlockDevice::new(Bdev::new(bdev));
 

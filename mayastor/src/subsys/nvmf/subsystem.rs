@@ -42,7 +42,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Bdev, Reactors},
+    core::{Bdev, Reactors, UntypedBdev},
     ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::{
         nvmf::{transport::TransportId, Error, NVMF_TGT},
@@ -120,10 +120,10 @@ impl From<*mut spdk_nvmf_subsystem> for NvmfSubsystem {
     }
 }
 
-impl TryFrom<Bdev> for NvmfSubsystem {
+impl TryFrom<UntypedBdev> for NvmfSubsystem {
     type Error = Error;
 
-    fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
+    fn try_from(bdev: UntypedBdev) -> Result<Self, Self::Error> {
         if bdev.is_claimed() {
             return Err(Error::CreateTarget {
                 msg: "already shared".to_string(),
@@ -185,7 +185,10 @@ impl NvmfSubsystem {
 
     /// unfortunately, we cannot always use the bdev UUID which is a shame and
     /// mostly due to testing.
-    pub fn new_with_uuid(uuid: &str, bdev: &Bdev) -> Result<Self, Error> {
+    pub fn new_with_uuid(
+        uuid: &str,
+        bdev: &UntypedBdev,
+    ) -> Result<Self, Error> {
         let ss = NvmfSubsystem::new(uuid)?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);
@@ -194,7 +197,7 @@ impl NvmfSubsystem {
     }
 
     /// add the given bdev to this namespace
-    pub fn add_namespace(&self, bdev: &Bdev) -> Result<(), Error> {
+    pub fn add_namespace(&self, bdev: &UntypedBdev) -> Result<(), Error> {
         let opts = spdk_nvmf_ns_opts {
             nguid: *bdev.uuid().as_bytes(),
             ..Default::default()
@@ -616,7 +619,7 @@ impl NvmfSubsystem {
 
     /// get the bdev associated with this subsystem -- we implicitly assume the
     /// first namespace
-    pub fn bdev(&self) -> Option<Bdev> {
+    pub fn bdev(&self) -> Option<UntypedBdev> {
         let ns = unsafe { spdk_nvmf_subsystem_get_first_ns(self.0.as_ptr()) };
 
         if ns.is_null() {

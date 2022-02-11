@@ -93,7 +93,7 @@ pub fn register_module() {
     nexus_module::register_module();
 
     use crate::{
-        core::{Bdev, Share},
+        core::{Share, UntypedBdev},
         jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
     };
 
@@ -109,7 +109,7 @@ pub fn register_module() {
                         message: "invalid protocol".to_string(),
                     });
                 }
-                if let Some(bdev) = Bdev::lookup_by_name(&args.name) {
+                if let Some(bdev) = UntypedBdev::lookup_by_name(&args.name) {
                     match proto.as_str() {
                         "nvmf" => {
                             bdev.share_nvmf(Some((args.cntlid_min, args.cntlid_max)))

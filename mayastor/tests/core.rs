@@ -9,7 +9,7 @@ use mayastor::{
         nexus::{nexus_create, nexus_lookup_mut},
         util::uring,
     },
-    core::{Bdev, BdevHandle, MayastorCliArgs, Protocol},
+    core::{Bdev, BdevHandle, MayastorCliArgs, Protocol, UntypedBdev},
     nexus_uri::{bdev_create, bdev_destroy},
 };
 
@@ -71,12 +71,12 @@ async fn core() {
 }
 
 async fn works() {
-    assert!(Bdev::lookup_by_name("core_nexus").is_none());
+    assert!(UntypedBdev::lookup_by_name("core_nexus").is_none());
     create_nexus().await;
-    let b = Bdev::lookup_by_name("core_nexus").unwrap();
+    let b = UntypedBdev::lookup_by_name("core_nexus").unwrap();
     assert_eq!(b.name(), "core_nexus");
 
-    let desc = Bdev::open_by_name("core_nexus", false).unwrap();
+    let desc = UntypedBdev::open_by_name("core_nexus", false).unwrap();
     let channel = desc.get_channel().expect("failed to get IO channel");
     drop(channel);
     drop(desc);
@@ -93,9 +93,9 @@ async fn core_2() {
             let n =
                 nexus_lookup_mut("core_nexus").expect("failed to lookup nexus");
 
-            let d1 = Bdev::open_by_name("core_nexus", true)
+            let d1 = UntypedBdev::open_by_name("core_nexus", true)
                 .expect("failed to open first desc to nexus");
-            let d2 = Bdev::open_by_name("core_nexus", true)
+            let d2 = UntypedBdev::open_by_name("core_nexus", true)
                 .expect("failed to open second desc to nexus");
 
             let ch1 = d1.get_channel().expect("failed to get channel!");

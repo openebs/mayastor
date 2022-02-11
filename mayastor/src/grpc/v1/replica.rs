@@ -1,5 +1,5 @@
 use crate::{
-    core::{Bdev, CoreError, Protocol, Share},
+    core::{Bdev, CoreError, Protocol, Share, UntypedBdev},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, Lvs},
     nexus_uri::NexusBdevError,
@@ -199,7 +199,7 @@ impl ReplicaRpc for ReplicaService {
             info!("{:?}", args);
             let rx = rpc_submit::<_, _, LvsError>(async move {
                 let mut lvols = Vec::new();
-                if let Some(bdev) = Bdev::bdev_first() {
+                if let Some(bdev) = UntypedBdev::bdev_first() {
                     lvols = bdev
                         .into_iter()
                         .filter(|b| b.driver() == "lvol")

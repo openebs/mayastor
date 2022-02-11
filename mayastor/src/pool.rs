@@ -21,7 +21,7 @@ use spdk_rs::libspdk::{
     vbdev_lvol_store_next,
 };
 
-use crate::core::Bdev;
+use crate::core::UntypedBdev;
 
 /// Structure representing a pool which comprises lvol store and
 /// underlying bdev.
@@ -53,7 +53,7 @@ impl Pool {
     }
 
     /// Get base bdev for the pool (in our case AIO or uring bdev).
-    pub fn get_base_bdev(&self) -> Bdev {
+    pub fn get_base_bdev(&self) -> UntypedBdev {
         let base_bdev_ptr = unsafe { (*self.lvs_bdev_ptr).bdev };
         base_bdev_ptr.into()
     }

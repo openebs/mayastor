@@ -3,7 +3,7 @@ use mayastor::{
         device_lookup,
         nexus::{nexus_create, nexus_lookup_mut},
     },
-    core::{Bdev, MayastorCliArgs},
+    core::{MayastorCliArgs, UntypedBdev},
     nexus_uri::bdev_create,
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
@@ -96,7 +96,7 @@ async fn compose_up_down() {
 
     let bdevs = mayastor
         .spawn(async {
-            Bdev::bdev_first()
+            UntypedBdev::bdev_first()
                 .unwrap()
                 .into_iter()
                 .map(|b| b.name().to_string())

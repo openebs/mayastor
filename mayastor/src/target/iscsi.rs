@@ -39,7 +39,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Bdev, Protocol, Reactor, Share},
+    core::{Protocol, Reactor, Share, UntypedBdev},
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     subsys::Config,
     target::Side,
@@ -171,7 +171,7 @@ pub fn fini() {
     // down.
 
     Reactor::block_on(async {
-        if let Some(bdevs) = Bdev::bdev_first() {
+        if let Some(bdevs) = UntypedBdev::bdev_first() {
             for b in bdevs {
                 if let Some(Protocol::Iscsi) = b.shared() {
                     if let Err(e) = b.unshare().await {
@@ -189,7 +189,7 @@ pub fn fini() {
 
 fn share_as_iscsi_target(
     bdev_name: &str,
-    bdev: &Bdev,
+    bdev: &UntypedBdev,
     mut pg_idx: c_int,
     mut ig_idx: c_int,
 ) -> Result<String, Error> {
@@ -234,7 +234,11 @@ fn share_as_iscsi_target(
 
 /// Export given bdev over iscsi. That involves creating iscsi target and
 /// adding the bdev as LUN to it.
-pub fn share(bdev_name: &str, bdev: &Bdev, side: Side) -> Result<String> {
+pub fn share(
+    bdev_name: &str,
+    bdev: &UntypedBdev,
+    side: Side,
+) -> Result<String> {
     if bdev.is_claimed() {
         return Err(Error::CreateTarget {
             msg: "already shared".to_string(),
@@ -276,7 +280,7 @@ pub async fn unshare(bdev_name: &str) -> Result<()> {
         .await
         .expect("Cancellation is not supported")
         .context(DestroyTarget {})?;
-    let bdev = Bdev::lookup_by_name(bdev_name)
+    let bdev = UntypedBdev::lookup_by_name(bdev_name)
         .expect("unshared a non-existing bdev?!");
     unsafe {
         spdk_bdev_module_release_bdev(bdev.as_ptr());

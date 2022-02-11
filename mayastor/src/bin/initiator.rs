@@ -17,11 +17,11 @@ use mayastor::{
     bdev::{device_create, device_open},
     core::{
         mayastor_env_stop,
-        Bdev,
         CoreError,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
+        UntypedBdev,
     },
     jsonrpc::print_error_chain,
     logger,
@@ -81,9 +81,9 @@ impl From<io::Error> for Error {
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Create initiator bdev.
-async fn create_bdev(uri: &str) -> Result<Bdev> {
+async fn create_bdev(uri: &str) -> Result<UntypedBdev> {
     let bdev_name = bdev_create(uri).await?;
-    let bdev = Bdev::lookup_by_name(&bdev_name)
+    let bdev = UntypedBdev::lookup_by_name(&bdev_name)
         .expect("Failed to lookup the created bdev");
     Ok(bdev)
 }

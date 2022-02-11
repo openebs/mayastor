@@ -11,12 +11,12 @@
 use crate::{
     bdev::{nexus, NvmeControllerState as ControllerState},
     core::{
-        Bdev,
         BlockDeviceIoStats,
         CoreError,
         MayastorFeatures,
         Protocol,
         Share,
+        UntypedBdev,
     },
     grpc::{
         controller_grpc::{
@@ -452,7 +452,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 });
             }
 
-            if let Some(b) = Bdev::lookup_by_name(&args.uuid) {
+            if let Some(b) = UntypedBdev::lookup_by_name(&args.uuid) {
                 let lvol = Lvol::try_from(b)?;
                 return Ok(Replica::from(lvol));
             }
@@ -521,7 +521,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 }
             };
 
-            if let Some(b) = Bdev::lookup_by_name(&args.name) {
+            if let Some(b) = UntypedBdev::lookup_by_name(&args.name) {
                 let lvol = Lvol::try_from(b)?;
                 return Ok(ReplicaV2::from(lvol));
             }
@@ -578,7 +578,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let args = request.into_inner();
             let rx = rpc_submit::<_, _, LvsError>(async move {
-                if let Some(bdev) = Bdev::lookup_by_name(&args.uuid) {
+                if let Some(bdev) = UntypedBdev::lookup_by_name(&args.uuid) {
                     let lvol = Lvol::try_from(bdev)?;
                     lvol.destroy().await?;
                 }
@@ -601,7 +601,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let rx = rpc_submit::<_, _, LvsError>(async move {
                 let mut replicas = Vec::new();
-                if let Some(bdev) = Bdev::bdev_first() {
+                if let Some(bdev) = UntypedBdev::bdev_first() {
                     replicas = bdev
                         .into_iter()
                         .filter(|b| b.driver() == "lvol")
@@ -630,7 +630,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let rx = rpc_submit::<_, _, LvsError>(async move {
                 let mut replicas = Vec::new();
-                if let Some(bdev) = Bdev::bdev_first() {
+                if let Some(bdev) = UntypedBdev::bdev_first() {
                     replicas = bdev
                         .into_iter()
                         .filter(|b| b.driver() == "lvol")
@@ -658,7 +658,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
     ) -> GrpcResult<StatReplicasReply> {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let mut lvols = Vec::new();
-            if let Some(bdev) = Bdev::bdev_first() {
+            if let Some(bdev) = UntypedBdev::bdev_first() {
                 bdev.into_iter()
                     .filter(|b| b.driver() == "lvol")
                     .for_each(|b| lvols.push(Lvol::try_from(b).unwrap()))
@@ -699,7 +699,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 let rx = rpc_submit(async move {
-                    match Bdev::lookup_by_name(&args.uuid) {
+                    match UntypedBdev::lookup_by_name(&args.uuid) {
                         Some(bdev) => {
                             let lvol = Lvol::try_from(bdev)?;
 

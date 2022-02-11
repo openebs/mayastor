@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mayastor::core::{Bdev, Cores, MayastorCliArgs, Mthread, Share};
+use mayastor::core::{Cores, MayastorCliArgs, Mthread, Share, UntypedBdev};
 
 pub mod common;
 use common::MayastorTest;
@@ -31,7 +31,7 @@ async fn runtime_to_mayastor() {
     let st = Mthread::get_init();
     let rx = st
         .spawn_local(async move {
-            let bdev = Bdev::lookup_by_name("malloc0").unwrap();
+            let bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
             bdev.share_nvmf(None).await.unwrap();
         })
         .unwrap();
