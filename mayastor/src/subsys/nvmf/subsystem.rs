@@ -227,6 +227,10 @@ impl NvmfSubsystem {
     /// destroy the subsystem
     pub fn destroy(&self) -> i32 {
         unsafe {
+            if (*self.0.as_ptr()).destroying {
+                warn!("Subsystem destruction already started");
+                return -libc::EALREADY;
+            }
             spdk_nvmf_subsystem_destroy(
                 self.0.as_ptr(),
                 None,
