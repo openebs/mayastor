@@ -78,7 +78,7 @@ impl<'n> Nexus<'n> {
             &dst_child_name,
             std::ops::Range::<u64> {
                 start: self.data_ent_offset,
-                end: self.bdev().num_blocks() + self.data_ent_offset,
+                end: self.num_blocks() + self.data_ent_offset,
             },
             |nexus, job| {
                 Reactors::current().send_future(async move {
