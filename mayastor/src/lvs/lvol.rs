@@ -315,12 +315,15 @@ impl Lvol {
 
         r.await
             .expect("lvol destroy callback is gone")
-            .to_result(|e| Error::RepDestroy {
-                source: Errno::from_i32(e),
-                name: self.name(),
+            .to_result(|e| {
+                warn!("error while destroying lvol {}", name);
+                Error::RepDestroy {
+                    source: Errno::from_i32(e),
+                    name: name.clone(),
+                }
             })?;
 
-        info!("Destroyed {}", name);
+        info!("destroyed lvol {}", name);
         Ok(name)
     }
 
