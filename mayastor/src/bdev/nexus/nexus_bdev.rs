@@ -7,9 +7,9 @@
 use std::{
     fmt::{Display, Formatter},
     marker::PhantomPinned,
+    mem::MaybeUninit,
     os::raw::c_void,
     pin::Pin,
-    ptr::NonNull,
 };
 
 use crossbeam::atomic::AtomicCell;
@@ -56,7 +56,6 @@ use crate::{
 };
 
 use spdk_rs::{
-    libspdk::spdk_bdev,
     BdevIo,
     BdevOps,
     ChannelTraverseStatus,
@@ -459,7 +458,7 @@ pub struct Nexus<'n> {
     /// uuid of the nexus (might not be the same as the nexus bdev!)
     nexus_uuid: Uuid,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
-    bdev_raw: NonNull<spdk_bdev>,
+    bdev_obj: MaybeUninit<Bdev<Nexus<'n>>>,
     /// represents the current state of the Nexus
     pub state: parking_lot::Mutex<NexusState>,
     /// The offset in blocks where the data partition starts.
@@ -571,7 +570,7 @@ impl<'n> Nexus<'n> {
             child_count: 0,
             children: Vec::new(),
             state: parking_lot::Mutex::new(NexusState::Init),
-            bdev_raw: NonNull::dangling(),
+            bdev_obj: MaybeUninit::uninit(),
             data_ent_offset: 0,
             share_handle: None,
             req_size: size,
@@ -599,7 +598,8 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             let n = bdev.data_mut().get_unchecked_mut();
-            n.bdev_raw = bdev.legacy_as_ptr();
+            n.bdev_obj
+                .write(Bdev::from_ptr(bdev.legacy_as_ptr().as_ptr()).unwrap());
             n.event_sink = Some(DeviceEventSink::new(bdev.data_mut()));
 
             // Set the nexus UUID to be the specified nexus UUID, otherwise
@@ -814,10 +814,11 @@ impl<'n> Nexus<'n> {
         self.persist(PersistOp::Shutdown).await;
 
         unsafe {
-            match self.bdev().as_mut().unregister_bdev_async().await {
+            let name = self.name.clone();
+            match self.bdev_mut().as_mut().unregister_bdev_async().await {
                 Ok(_) => Ok(()),
                 Err(_) => Err(Error::NexusDestroy {
-                    name: self.name.clone(),
+                    name,
                 }),
             }
         }
@@ -1156,8 +1157,15 @@ impl<'n> Nexus<'n> {
 // Unsafe part of Nexus.
 impl<'n> Nexus<'n> {
     /// TODO
-    pub(crate) unsafe fn bdev(&self) -> Bdev<Nexus<'n>> {
-        Bdev::from_ptr(self.bdev_raw.as_ptr()).unwrap()
+    pub(crate) unsafe fn bdev(&self) -> &Bdev<Nexus<'n>> {
+        &*self.bdev_obj.as_ptr()
+    }
+
+    /// TODO
+    pub(crate) unsafe fn bdev_mut(
+        self: Pin<&mut Self>,
+    ) -> &'n mut Bdev<Nexus<'n>> {
+        &mut *self.get_unchecked_mut().bdev_obj.as_mut_ptr()
     }
 
     /// Sets the required alignment of the Nexus.
@@ -1170,12 +1178,12 @@ impl<'n> Nexus<'n> {
 
     /// Sets the block size of the underlying device.
     pub(crate) unsafe fn set_block_len(self: Pin<&mut Self>, blk_size: u32) {
-        self.bdev().as_mut().set_block_len(blk_size)
+        self.bdev_mut().as_mut().set_block_len(blk_size)
     }
 
     /// Sets number of blocks for this device.
     pub(crate) unsafe fn set_num_blocks(self: Pin<&mut Self>, count: u64) {
-        self.bdev().as_mut().set_num_blocks(count)
+        self.bdev_mut().as_mut().set_num_blocks(count)
     }
 
     /// TODO
