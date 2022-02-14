@@ -9,7 +9,7 @@ use mayastor::{
         nexus::{nexus_create, nexus_lookup_mut},
         util::uring,
     },
-    core::{Bdev, BdevHandle, MayastorCliArgs, Protocol, UntypedBdev},
+    core::{BdevHandle, MayastorCliArgs, Protocol, UntypedBdev},
     nexus_uri::{bdev_create, bdev_destroy},
 };
 

@@ -1,5 +1,4 @@
 use std::{
-    convert::TryFrom,
     ffi::{c_void, CString},
     fmt::{self, Debug, Display, Formatter},
     mem::size_of,
@@ -120,10 +119,12 @@ impl From<*mut spdk_nvmf_subsystem> for NvmfSubsystem {
     }
 }
 
-impl TryFrom<UntypedBdev> for NvmfSubsystem {
-    type Error = Error;
-
-    fn try_from(bdev: UntypedBdev) -> Result<Self, Self::Error> {
+impl NvmfSubsystem {
+    /// TODO
+    pub fn try_from<T>(bdev: &Bdev<T>) -> Result<Self, Error>
+    where
+        T: spdk_rs::BdevOps,
+    {
         if bdev.is_claimed() {
             return Err(Error::CreateTarget {
                 msg: "already shared".to_string(),
@@ -132,7 +133,7 @@ impl TryFrom<UntypedBdev> for NvmfSubsystem {
         let ss = NvmfSubsystem::new(bdev.name())?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);
-        if let Err(e) = ss.add_namespace(&bdev) {
+        if let Err(e) = ss.add_namespace(bdev) {
             ss.destroy();
             return Err(e);
         }
@@ -197,7 +198,10 @@ impl NvmfSubsystem {
     }
 
     /// add the given bdev to this namespace
-    pub fn add_namespace(&self, bdev: &UntypedBdev) -> Result<(), Error> {
+    pub fn add_namespace<T>(&self, bdev: &Bdev<T>) -> Result<(), Error>
+    where
+        T: spdk_rs::BdevOps,
+    {
         let opts = spdk_nvmf_ns_opts {
             nguid: *bdev.uuid().as_bytes(),
             ..Default::default()
@@ -626,7 +630,7 @@ impl NvmfSubsystem {
             return None;
         }
 
-        Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
+        unsafe { Bdev::checked_from_ptr(spdk_nvmf_ns_get_bdev(ns)) }
     }
 
     fn listeners_to_vec(&self) -> Option<Vec<TransportId>> {

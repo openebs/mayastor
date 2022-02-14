@@ -169,7 +169,7 @@ impl CreateDestroy for Malloc {
 
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.set_uuid(uuid.into()) };
+                unsafe { bdev.set_raw_uuid(uuid.into()) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -195,7 +195,7 @@ impl CreateDestroy for Malloc {
 
             unsafe {
                 delete_malloc_disk(
-                    bdev.legacy_as_ptr().as_ptr(),
+                    bdev.unsafe_inner_mut_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
                 );

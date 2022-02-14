@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use mayastor::{
     core::{
         mayastor_env_stop,
@@ -32,7 +30,7 @@ fn nvmf_target() {
                 let b = bdev_create(BDEVNAME1).await.unwrap();
                 let bdev = UntypedBdev::lookup_by_name(&b).unwrap();
 
-                let ss = NvmfSubsystem::try_from(bdev).unwrap();
+                let ss = NvmfSubsystem::try_from(&bdev).unwrap();
                 ss.start().await.unwrap();
             });
 
@@ -40,7 +38,7 @@ fn nvmf_target() {
             Reactor::block_on(async {
                 let bdev = UntypedBdev::lookup_by_name(BDEVNAME1).unwrap();
 
-                let should_err = NvmfSubsystem::try_from(bdev);
+                let should_err = NvmfSubsystem::try_from(&bdev);
                 assert!(should_err.is_err());
             });
 

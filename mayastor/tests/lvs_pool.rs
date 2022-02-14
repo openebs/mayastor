@@ -6,6 +6,7 @@ use mayastor::{
     pool::PoolArgs,
     subsys::NvmfSubsystem,
 };
+use std::pin::Pin;
 
 pub mod common;
 
@@ -189,8 +190,8 @@ async fn lvs_pool_test() {
     // share all the replica's on the pool tpool2
     ms.spawn(async {
         let pool2 = Lvs::lookup("tpool2").unwrap();
-        for l in pool2.lvols().unwrap() {
-            l.share_nvmf(None).await.unwrap();
+        for mut l in pool2.lvols().unwrap() {
+            Pin::new(&mut l).share_nvmf(None).await.unwrap();
         }
     })
     .await;
@@ -209,38 +210,42 @@ async fn lvs_pool_test() {
     // test setting the share property that is stored on disk
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
-        let lvol = pool
+        let mut lvol = pool
             .create_lvol("vol-1", 1024 * 1024 * 8, None, false)
             .await
             .unwrap();
 
-        lvol.set(PropValue::Shared(true)).await.unwrap();
-        assert_eq!(
-            lvol.get(PropName::Shared).await.unwrap(),
-            PropValue::Shared(true)
-        );
+        {
+            let mut lvol = Pin::new(&mut lvol);
 
-        lvol.set(PropValue::Shared(false)).await.unwrap();
-        assert_eq!(
-            lvol.get(PropName::Shared).await.unwrap(),
-            PropValue::Shared(false)
-        );
+            lvol.as_mut().set(PropValue::Shared(true)).await.unwrap();
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(true)
+            );
 
-        // sharing should set the property on disk
+            lvol.as_mut().set(PropValue::Shared(false)).await.unwrap();
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(false)
+            );
 
-        lvol.share_nvmf(None).await.unwrap();
+            // sharing should set the property on disk
 
-        assert_eq!(
-            lvol.get(PropName::Shared).await.unwrap(),
-            PropValue::Shared(true)
-        );
+            lvol.as_mut().share_nvmf(None).await.unwrap();
 
-        lvol.unshare().await.unwrap();
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(true)
+            );
 
-        assert_eq!(
-            lvol.get(PropName::Shared).await.unwrap(),
-            PropValue::Shared(false)
-        );
+            lvol.as_mut().unshare().await.unwrap();
+
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(false)
+            );
+        }
 
         lvol.destroy().await.unwrap();
     })
@@ -261,7 +266,8 @@ async fn lvs_pool_test() {
             .unwrap();
         }
 
-        for l in pool.lvols().unwrap() {
+        for mut l in pool.lvols().unwrap() {
+            let l = Pin::new(&mut l);
             l.share_nvmf(None).await.unwrap();
         }
 

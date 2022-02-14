@@ -103,14 +103,15 @@ impl Replica {
     /// Lookup replica by uuid (=name).
     pub fn lookup(uuid: &str) -> Option<Self> {
         match UntypedBdev::lookup_by_name(uuid) {
-            Some(bdev) => Replica::from_bdev(&bdev),
+            Some(bdev) => Replica::from_bdev(bdev),
             None => None,
         }
     }
 
     /// Look up replica from Bdev
-    pub fn from_bdev(bdev: &UntypedBdev) -> Option<Self> {
-        let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
+    pub fn from_bdev(mut bdev: UntypedBdev) -> Option<Self> {
+        let lvol =
+            unsafe { vbdev_lvol_get_from_bdev(bdev.unsafe_inner_mut_ptr()) };
         if lvol.is_null() {
             None
         } else {
@@ -128,14 +129,16 @@ impl Replica {
             return Err(Error::ReplicaShared {});
         }
 
-        let bdev = unsafe { Bdev::from((*self.lvol_ptr).bdev) };
+        let mut bdev = unsafe {
+            UntypedBdev::checked_from_ptr((*self.lvol_ptr).bdev).unwrap()
+        };
 
         match kind {
             ShareType::Nvmf => target::nvmf::share(&name, &bdev)
                 .await
                 .context(ShareNvmf {})?,
             ShareType::Iscsi => {
-                target::iscsi::share(&name, &bdev, target::Side::Replica)
+                target::iscsi::share(&name, &mut bdev, target::Side::Replica)
                     .context(ShareIscsi {})?;
             }
         }
@@ -179,8 +182,11 @@ impl Replica {
 
     /// Get size of the replica in bytes.
     pub fn get_size(&self) -> u64 {
-        let bdev: UntypedBdev = unsafe { (*self.lvol_ptr).bdev.into() };
-        u64::from(bdev.block_len()) * bdev.num_blocks()
+        unsafe {
+            UntypedBdev::checked_from_ptr((*self.lvol_ptr).bdev)
+                .unwrap()
+                .size_in_bytes()
+        }
     }
 
     /// Get name of the pool which replica belongs to.
@@ -238,28 +244,26 @@ impl Iterator for ReplicaIter {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let maybe_bdev = match &mut self.bdev {
-                Some(bdev) => {
-                    let ptr = unsafe {
-                        spdk_rs::libspdk::spdk_bdev_next(bdev.as_ptr())
-                    };
-                    if !ptr.is_null() {
-                        Some(Bdev::from(ptr))
-                    } else {
-                        None
-                    }
-                }
+                Some(bdev) => unsafe {
+                    let ptr = spdk_rs::libspdk::spdk_bdev_next(
+                        bdev.unsafe_inner_mut_ptr(),
+                    );
+                    Bdev::checked_from_ptr(ptr)
+                },
                 None => UntypedBdev::bdev_first(),
             };
 
-            let bdev = match maybe_bdev {
+            let mut bdev = match maybe_bdev {
                 Some(bdev) => bdev,
                 None => return None,
             };
 
             // Skip all other bdevs which are not lvols (i.e. aio)
-            let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
+            let lvol = unsafe {
+                vbdev_lvol_get_from_bdev(bdev.unsafe_inner_mut_ptr())
+            };
             if !lvol.is_null() {
-                let mut aliases = bdev.as_ref().aliases();
+                let mut aliases = bdev.aliases();
                 // each lvol has a first alias of form "pool/lvol-name"
                 if !aliases.is_empty() {
                     let alias = aliases.remove(0);

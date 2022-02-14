@@ -18,12 +18,12 @@ async fn iscsi_target() {
     ms.spawn(async {
         // test we can create a nvmf subsystem
         let b = bdev_create(BDEV).await.unwrap();
-        let bdev = UntypedBdev::lookup_by_name(&b).unwrap();
-        iscsi::share(&b, &bdev, Side::Nexus).unwrap();
+        let mut bdev = UntypedBdev::lookup_by_name(&b).unwrap();
+        iscsi::share(&b, &mut bdev, Side::Nexus).unwrap();
 
         // test we can not create the same one again
-        let bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
-        let should_err = iscsi::share("malloc0", &bdev, Side::Nexus);
+        let mut bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
+        let should_err = iscsi::share("malloc0", &mut bdev, Side::Nexus);
         assert!(should_err.is_err());
 
         // verify the bdev is claimed by our target

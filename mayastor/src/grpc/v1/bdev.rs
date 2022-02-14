@@ -16,7 +16,7 @@ use rpc::mayastor::v1::bdev::{
     ListBdevOptions,
     ListBdevResponse,
 };
-use std::convert::TryFrom;
+use std::{convert::TryFrom, pin::Pin};
 use tonic::{Request, Response, Status};
 use url::Url;
 
@@ -32,7 +32,7 @@ where
             blk_size: b.block_len(),
             claimed: b.is_claimed(),
             claimed_by: b.claimed_by().unwrap_or_else(|| "Orphaned".into()),
-            aliases: b.as_ref().aliases().join(","),
+            aliases: b.aliases().join(","),
             product_name: b.product_name().to_string(),
             share_uri: b.share_uri().unwrap_or_else(|| "".into()),
             uri: Url::try_from(b).map_or("".into(), |u| u.to_string()),
@@ -67,10 +67,10 @@ impl BdevRpc for BdevService {
             let mut bdevs = Vec::new();
             let args = request.into_inner();
             if let Some(name) = args.name {
-                if let Some(bdev) = core::Bdev::lookup_by_name(&name) {
+                if let Some(bdev) = core::UntypedBdev::lookup_by_name(&name) {
                     bdevs.push(bdev.into());
                 }
-            } else if let Some(bdev) = core::Bdev::bdev_first() {
+            } else if let Some(bdev) = core::UntypedBdev::bdev_first() {
                 bdev.into_iter().for_each(|bdev| bdevs.push(bdev.into()))
             }
 
@@ -95,7 +95,7 @@ impl BdevRpc for BdevService {
         let rx = rpc_submit(async move {
             let name = bdev_create(&uri).await?;
 
-            if let Some(bdev) = core::Bdev::lookup_by_name(&name) {
+            if let Some(bdev) = core::UntypedBdev::lookup_by_name(&name) {
                 Ok(Response::new(CreateBdevResponse {
                     bdev: Some(bdev.into()),
                 }))
@@ -135,7 +135,7 @@ impl BdevRpc for BdevService {
         let name = r.name;
         let protocol = r.protocol;
 
-        if core::Bdev::lookup_by_name(&name).is_none() {
+        if core::UntypedBdev::lookup_by_name(&name).is_none() {
             return Err(Status::not_found(name));
         }
 
@@ -143,18 +143,22 @@ impl BdevRpc for BdevService {
         let rx = match Protocol::try_from(protocol) {
             Ok(Protocol::Nvmf) => {
                 rpc_submit::<_, Bdev, CoreError>(async move {
-                    let bdev = core::Bdev::lookup_by_name(&bdev_name).unwrap();
-                    bdev.share_nvmf(None).await?;
-                    let bdev = core::Bdev::lookup_by_name(&name).unwrap();
+                    let mut bdev =
+                        core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                    Pin::new(&mut bdev).share_nvmf(None).await?;
+                    let bdev =
+                        core::UntypedBdev::lookup_by_name(&name).unwrap();
                     Ok(bdev.into())
                 })
             }
 
             Ok(Protocol::Iscsi) => {
                 rpc_submit::<_, Bdev, CoreError>(async move {
-                    let bdev = core::Bdev::lookup_by_name(&bdev_name).unwrap();
-                    bdev.share_iscsi().await?;
-                    let bdev = core::Bdev::lookup_by_name(&name).unwrap();
+                    let mut bdev =
+                        core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                    Pin::new(&mut bdev).share_iscsi().await?;
+                    let bdev =
+                        core::UntypedBdev::lookup_by_name(&name).unwrap();
                     Ok(bdev.into())
                 })
             }
@@ -183,8 +187,8 @@ impl BdevRpc for BdevService {
     ) -> GrpcResult<()> {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let name = request.into_inner().name;
-            if let Some(bdev) = core::Bdev::lookup_by_name(&name) {
-                let _ = bdev.unshare().await?;
+            if let Some(mut bdev) = core::UntypedBdev::lookup_by_name(&name) {
+                let _ = Pin::new(&mut bdev).unshare().await?;
             }
             Ok(())
         })?;

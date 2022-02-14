@@ -1,7 +1,7 @@
 use common::{compose::Builder, MayastorTest};
 use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
-    core::{Bdev, MayastorCliArgs, Protocol, UntypedBdev},
+    core::{MayastorCliArgs, Protocol, UntypedBdev},
     nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };

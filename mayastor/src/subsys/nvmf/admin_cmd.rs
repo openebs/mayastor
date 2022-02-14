@@ -116,7 +116,7 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         return -1;
     }
 
-    let bd = Bdev::from(bdev);
+    let bd = unsafe { Bdev::checked_from_ptr(bdev).unwrap() };
     if bd.driver() == nexus::NEXUS_MODULE_NAME {
         // Received command on a published Nexus
         set_snapshot_time(unsafe { &mut *spdk_nvmf_request_get_cmd(req) });

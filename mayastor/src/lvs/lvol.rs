@@ -3,6 +3,7 @@ use std::{
     ffi::{c_void, CStr},
     fmt::Display,
     os::raw::c_char,
+    pin::Pin,
     ptr::NonNull,
 };
 
@@ -81,11 +82,11 @@ pub struct Lvol(pub(crate) NonNull<spdk_lvol>);
 impl TryFrom<UntypedBdev> for Lvol {
     type Error = Error;
 
-    fn try_from(b: UntypedBdev) -> Result<Self, Self::Error> {
+    fn try_from(mut b: UntypedBdev) -> Result<Self, Self::Error> {
         if b.driver() == "lvol" {
             unsafe {
                 Ok(Lvol(NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
-                    b.as_ptr(),
+                    b.unsafe_inner_mut_ptr(),
                 ))))
             }
         } else {
@@ -99,7 +100,7 @@ impl TryFrom<UntypedBdev> for Lvol {
 
 impl From<Lvol> for UntypedBdev {
     fn from(l: Lvol) -> Self {
-        Bdev::from(unsafe { l.0.as_ref().bdev })
+        unsafe { Bdev::checked_from_ptr(l.0.as_ref().bdev).unwrap() }
     }
 }
 
@@ -115,7 +116,9 @@ impl Share for Lvol {
     type Output = String;
 
     /// we dont (want to) support replica's over iSCSI
-    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
+    async fn share_iscsi(
+        self: Pin<&mut Self>,
+    ) -> Result<Self::Output, Self::Error> {
         Err(Error::LvolShare {
             source: CoreError::NotSupported {
                 source: Errno::EINVAL,
@@ -126,34 +129,35 @@ impl Share for Lvol {
 
     /// share the lvol as a nvmf target
     async fn share_nvmf(
-        &self,
+        mut self: Pin<&mut Self>,
         cntlid_range: Option<(u16, u16)>,
     ) -> Result<Self::Output, Self::Error> {
-        let share =
-            self.as_bdev().share_nvmf(cntlid_range).await.map_err(|e| {
-                Error::LvolShare {
-                    source: e,
-                    name: self.name(),
-                }
+        let share = Pin::new(&mut self.as_bdev())
+            .share_nvmf(cntlid_range)
+            .await
+            .map_err(|e| Error::LvolShare {
+                source: e,
+                name: self.name(),
             })?;
 
-        self.set(PropValue::Shared(true)).await?;
+        self.as_mut().set(PropValue::Shared(true)).await?;
         info!("shared {}", self);
         Ok(share)
     }
 
     /// unshare the nvmf target
-    async fn unshare(&self) -> Result<Self::Output, Self::Error> {
+    async fn unshare(
+        mut self: Pin<&mut Self>,
+    ) -> Result<Self::Output, Self::Error> {
         let share =
-            self.as_bdev()
-                .unshare()
-                .await
-                .map_err(|e| Error::LvolUnShare {
+            Pin::new(&mut self.as_bdev()).unshare().await.map_err(|e| {
+                Error::LvolUnShare {
                     source: e,
                     name: self.name(),
-                })?;
+                }
+            })?;
 
-        self.set(PropValue::Shared(false)).await?;
+        self.as_mut().set(PropValue::Shared(false)).await?;
         info!("unshared {}", self);
         Ok(share)
     }
@@ -203,7 +207,7 @@ impl Lvol {
 
     /// returns the underlying bdev of the lvol
     pub(crate) fn as_bdev(&self) -> UntypedBdev {
-        Bdev::from(unsafe { self.0.as_ref().bdev })
+        unsafe { Bdev::checked_from_ptr(self.0.as_ref().bdev).unwrap() }
     }
     /// return the size of the lvol in bytes
     pub fn size(&self) -> u64 {
@@ -296,7 +300,7 @@ impl Lvol {
     }
 
     /// destroy the lvol
-    pub async fn destroy(self) -> Result<String, Error> {
+    pub async fn destroy(mut self) -> Result<String, Error> {
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
                 unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
@@ -304,7 +308,7 @@ impl Lvol {
         }
 
         // we must always unshare before destroying bdev
-        let _ = self.unshare().await;
+        let _ = Pin::new(&mut self).unshare().await;
 
         let name = self.name();
 
@@ -335,7 +339,10 @@ impl Lvol {
     }
 
     /// write the property prop on to the lvol which is stored on disk
-    pub async fn set(&self, prop: PropValue) -> Result<(), Error> {
+    pub async fn set(
+        self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error> {
         let blob = unsafe { self.0.as_ref().blob };
         assert!(!blob.is_null());
 

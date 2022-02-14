@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 
 use mayastor::core::{Cores, MayastorCliArgs, Mthread, Share, UntypedBdev};
 
@@ -31,7 +31,8 @@ async fn runtime_to_mayastor() {
     let st = Mthread::get_init();
     let rx = st
         .spawn_local(async move {
-            let bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
+            let mut bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
+            let bdev = Pin::new(&mut bdev);
             bdev.share_nvmf(None).await.unwrap();
         })
         .unwrap();

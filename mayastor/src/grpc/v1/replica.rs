@@ -8,7 +8,7 @@ use ::function_name::named;
 use futures::FutureExt;
 use nix::errno::Errno;
 use rpc::mayastor::v1::replica::*;
-use std::{convert::TryFrom, panic::AssertUnwindSafe};
+use std::{convert::TryFrom, panic::AssertUnwindSafe, pin::Pin};
 use tonic::{Request, Response, Status};
 
 #[derive(Debug)]
@@ -122,9 +122,9 @@ impl ReplicaRpc for ReplicaService {
                 // if pooltype is not Lvs, the provided replica uuid need to be added as
                 // a metadata on the volume.
                 match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), false).await {
-                    Ok(lvol)
+                    Ok(mut lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf => {
-                        match lvol.share_nvmf(None).await {
+                        match Pin::new(&mut lvol).share_nvmf(None).await {
                             Ok(s) => {
                                 debug!("created and shared {} as {}", lvol, s);
                                 Ok(Replica::from(lvol))
@@ -163,7 +163,7 @@ impl ReplicaRpc for ReplicaService {
             let args = request.into_inner();
             info!("{:?}", args);
             let rx = rpc_submit::<_, _, LvsError>(async move {
-                if let Some(b) = Bdev::lookup_by_uuid(&args.uuid) {
+                if let Some(b) = Bdev::lookup_by_uuid_str(&args.uuid) {
                     return if b.driver() == "lvol" {
                         let lvol = Lvol::try_from(b)?;
                         lvol.destroy().await?;
@@ -251,9 +251,9 @@ impl ReplicaRpc for ReplicaService {
                 let args = request.into_inner();
                 info!("{:?}", args);
                 let rx = rpc_submit(async move {
-                    match Bdev::lookup_by_uuid(&args.uuid) {
+                    match Bdev::lookup_by_uuid_str(&args.uuid) {
                         Some(bdev) => {
-                            let lvol = Lvol::try_from(bdev)?;
+                            let mut lvol = Lvol::try_from(bdev)?;
 
                             // if we are already shared with the same protocol
                             if lvol.shared()
@@ -271,7 +271,9 @@ impl ReplicaRpc for ReplicaService {
                                     })
                                 }
                                 Protocol::Nvmf => {
-                                    lvol.share_nvmf(None).await?;
+                                    Pin::new(&mut lvol)
+                                        .share_nvmf(None)
+                                        .await?;
                                 }
                                 Protocol::Iscsi => {
                                     return Err(LvsError::LvolShare {
@@ -315,11 +317,11 @@ impl ReplicaRpc for ReplicaService {
                 let args = request.into_inner();
                 info!("{:?}", args);
                 let rx = rpc_submit(async move {
-                    match Bdev::lookup_by_uuid(&args.uuid) {
+                    match Bdev::lookup_by_uuid_str(&args.uuid) {
                         Some(bdev) => {
-                            let lvol = Lvol::try_from(bdev)?;
+                            let mut lvol = Lvol::try_from(bdev)?;
                             if lvol.shared().is_some() {
-                                lvol.unshare().await?;
+                                Pin::new(&mut lvol).unshare().await?;
                             }
                             Ok(Replica::from(lvol))
                         }

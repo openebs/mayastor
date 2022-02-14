@@ -598,8 +598,9 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             let n = bdev.data_mut().get_unchecked_mut();
-            n.bdev_obj
-                .write(Bdev::from_ptr(bdev.legacy_as_ptr().as_ptr()).unwrap());
+            n.bdev_obj.write(
+                Bdev::checked_from_ptr(bdev.unsafe_inner_mut_ptr()).unwrap(),
+            );
             n.event_sink = Some(DeviceEventSink::new(bdev.data_mut()));
 
             // Set the nexus UUID to be the specified nexus UUID, otherwise
@@ -781,14 +782,7 @@ impl<'n> Nexus<'n> {
     pub async fn destroy(mut self: Pin<&mut Self>) -> Result<(), Error> {
         info!("Destroying nexus {}", self.name);
 
-        let _ = self.as_mut().unshare_nexus().await;
-        assert_eq!(self.share_handle, None);
-
-        // no-op when not shared and will be removed once the old share bits are
-        // gone
-        unsafe {
-            self.bdev().unshare().await.unwrap();
-        }
+        self.as_mut().destroy_shares().await;
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
@@ -815,7 +809,7 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             let name = self.name.clone();
-            match self.bdev_mut().as_mut().unregister_bdev_async().await {
+            match self.bdev_mut().unregister_bdev_async().await {
                 Ok(_) => Ok(()),
                 Err(_) => Err(Error::NexusDestroy {
                     name,
@@ -1173,17 +1167,17 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         new_val: u8,
     ) {
-        (*self.bdev().as_ptr()).required_alignment = new_val;
+        (*self.bdev_mut().unsafe_inner_mut_ptr()).required_alignment = new_val;
     }
 
     /// Sets the block size of the underlying device.
     pub(crate) unsafe fn set_block_len(self: Pin<&mut Self>, blk_size: u32) {
-        self.bdev_mut().as_mut().set_block_len(blk_size)
+        self.bdev_mut().set_block_len(blk_size)
     }
 
     /// Sets number of blocks for this device.
     pub(crate) unsafe fn set_num_blocks(self: Pin<&mut Self>, count: u64) {
-        self.bdev_mut().as_mut().set_num_blocks(count)
+        self.bdev_mut().set_num_blocks(count)
     }
 
     /// TODO
@@ -1196,7 +1190,7 @@ impl<'n> Nexus<'n> {
         &self,
         read_write: bool,
     ) -> Result<BdevHandle, CoreError> {
-        BdevHandle::open_with_bdev(&self.bdev(), read_write)
+        BdevHandle::open_with_bdev(self.bdev(), read_write)
     }
 }
 

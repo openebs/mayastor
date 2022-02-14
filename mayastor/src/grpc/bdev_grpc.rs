@@ -1,7 +1,7 @@
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom, pin::Pin};
 use url::Url;
 
 use rpc::mayastor::{
@@ -30,7 +30,7 @@ impl From<UntypedBdev> for RpcBdev {
             blk_size: b.block_len(),
             claimed: b.is_claimed(),
             claimed_by: b.claimed_by().unwrap_or_else(|| "Orphaned".into()),
-            aliases: b.as_ref().aliases().join(","),
+            aliases: b.aliases().join(","),
             product_name: b.product_name().to_string(),
             share_uri: b.share_uri().unwrap_or_else(|| "".into()),
             uri: Url::try_from(b).map_or("".into(), |u| u.to_string()),
@@ -124,15 +124,15 @@ impl BdevRpc for BdevSvc {
         let bdev_name = name.clone();
         let rx = match proto.as_str() {
             "nvmf" => rpc_submit::<_, String, CoreError>(async move {
-                let bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
-                let share = bdev.share_nvmf(None).await?;
+                let mut bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                let share = Pin::new(&mut bdev).share_nvmf(None).await?;
                 let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
                 Ok(bdev.share_uri().unwrap_or(share))
             }),
 
             "iscsi" => rpc_submit::<_, String, CoreError>(async move {
-                let bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
-                let share = bdev.share_iscsi().await?;
+                let mut bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                let share = Pin::new(&mut bdev).share_iscsi().await?;
                 let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
                 Ok(bdev.share_uri().unwrap_or(share))
             }),
@@ -154,8 +154,8 @@ impl BdevRpc for BdevSvc {
     async fn unshare(&self, request: Request<CreateReply>) -> GrpcResult<Null> {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let name = request.into_inner().name;
-            if let Some(bdev) = UntypedBdev::lookup_by_name(&name) {
-                let _ = bdev.unshare().await?;
+            if let Some(mut bdev) = UntypedBdev::lookup_by_name(&name) {
+                let _ = Pin::new(&mut bdev).unshare().await?;
             }
             Ok(Null {})
         })?;

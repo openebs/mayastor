@@ -1,4 +1,10 @@
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, ptr::NonNull};
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    os::raw::c_void,
+    pin::Pin,
+    ptr::NonNull,
+};
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
@@ -189,9 +195,12 @@ impl Lvs {
 
     /// returns the base bdev of this lvs
     pub fn base_bdev(&self) -> UntypedBdev {
-        Bdev::from(unsafe {
-            (*vbdev_get_lvs_bdev_by_lvs(self.0.as_ptr())).bdev
-        })
+        unsafe {
+            Bdev::checked_from_ptr(
+                (*vbdev_get_lvs_bdev_by_lvs(self.0.as_ptr())).bdev,
+            )
+            .unwrap()
+        }
     }
 
     /// returns the UUID of the lvs
@@ -230,7 +239,7 @@ impl Lvs {
 
         debug!("Trying to import pool {} on {}", name, bdev);
 
-        let bdev =
+        let mut bdev =
             UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
                 source: NexusBdevError::BdevNotFound {
                     name: bdev.to_string(),
@@ -252,7 +261,7 @@ impl Lvs {
             // EXISTS is SHOULD be returned when we import a lvs with different
             // names this however is not the case.
             vbdev_lvs_examine(
-                bdev.as_ptr(),
+                bdev.unsafe_inner_mut_ptr(),
                 Some(Self::lvs_cb),
                 cb_arg(sender),
             );
@@ -520,8 +529,8 @@ impl Lvs {
         for l in self.lvols().unwrap() {
             // notice we dont use the unshare impl of the bdev
             // here. we do this to avoid the on disk persistence
-            let bdev = l.as_bdev();
-            if let Err(e) = bdev.unshare().await {
+            let mut bdev = l.as_bdev();
+            if let Err(e) = Pin::new(&mut bdev).unshare().await {
                 error!("failed to unshare lvol {} error {}", l, e.to_string())
             }
         }
@@ -531,14 +540,17 @@ impl Lvs {
     /// shared over nvmf
     async fn share_all(&self) {
         if let Some(lvols) = self.lvols() {
-            for l in lvols {
+            for mut l in lvols {
                 if let Ok(prop) = l.get(PropName::Shared).await {
                     match prop {
                         PropValue::Shared(true) => {
-                            if let Err(e) = l.share_nvmf(None).await {
+                            let name = l.name().clone();
+                            if let Err(e) =
+                                Pin::new(&mut l).share_nvmf(None).await
+                            {
                                 error!(
                                     "failed to share {} {}",
-                                    l.name(),
+                                    name,
                                     e.to_string()
                                 );
                             }
@@ -600,8 +612,7 @@ impl Lvs {
                 bdev.into_iter()
                     .filter(move |b| {
                         b.driver() == "lvol"
-                            && b.as_ref()
-                                .aliases()
+                            && b.aliases()
                                 .iter()
                                 .any(|a| a.contains(&pool_name))
                     })
@@ -627,7 +638,7 @@ impl Lvs {
         };
 
         if let Some(uuid) = uuid {
-            if UntypedBdev::lookup_by_uuid(uuid).is_some() {
+            if UntypedBdev::lookup_by_uuid_str(uuid).is_some() {
                 return Err(Error::RepExists {
                     source: Errno::EEXIST,
                     name: uuid.to_string(),

@@ -1,20 +1,21 @@
 //! Methods for creating nvmf targets
 
-use std::convert::TryFrom;
-
 use crate::{
-    core::UntypedBdev,
+    core::Bdev,
     subsys::{NvmfError, NvmfSubsystem},
 };
 
 /// Export given bdev over nvmf target.
-pub async fn share(uuid: &str, bdev: &UntypedBdev) -> Result<(), NvmfError> {
+pub async fn share<T>(uuid: &str, bdev: &Bdev<T>) -> Result<(), NvmfError>
+where
+    T: spdk_rs::BdevOps,
+{
     if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
         assert_eq!(bdev.name(), ss.bdev().unwrap().name());
         return Ok(());
     };
 
-    let ss = NvmfSubsystem::try_from(bdev.clone())?;
+    let ss = NvmfSubsystem::try_from(bdev)?;
     ss.start().await?;
 
     Ok(())

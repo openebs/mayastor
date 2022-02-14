@@ -166,7 +166,7 @@ where
     type Error = NexusBdevError;
 
     fn try_from(bdev: Bdev<T>) -> Result<Self, Self::Error> {
-        for alias in bdev.as_ref().aliases().iter() {
+        for alias in bdev.aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if bdev_uri_eq(&bdev, &uri) {
                     if !uri.query_pairs().any(|e| e.0 == "uuid") {
@@ -180,7 +180,7 @@ where
 
         Err(NexusBdevError::BdevNoUri {
             name: bdev.name().to_string(),
-            aliases: bdev.as_ref().aliases(),
+            aliases: bdev.aliases(),
         })
     }
 }

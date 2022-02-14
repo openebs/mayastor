@@ -109,10 +109,11 @@ pub fn register_module() {
                         message: "invalid protocol".to_string(),
                     });
                 }
-                if let Some(bdev) = UntypedBdev::lookup_by_name(&args.name) {
+                if let Some(mut bdev) = UntypedBdev::lookup_by_name(&args.name) {
+                    let mut bdev = Pin::new(&mut bdev);
                     match proto.as_str() {
                         "nvmf" => {
-                            bdev.share_nvmf(Some((args.cntlid_min, args.cntlid_max)))
+                            bdev.as_mut().share_nvmf(Some((args.cntlid_min, args.cntlid_max)))
                                 .await
                                 .map_err(|e| {
                                     JsonRpcError {
@@ -127,7 +128,7 @@ pub fn register_module() {
                             })
                         },
                         "iscsi" => {
-                            bdev.share_iscsi()
+                            bdev.as_mut().share_iscsi()
                                 .await
                                 .map_err(|e| {
                                     JsonRpcError {
