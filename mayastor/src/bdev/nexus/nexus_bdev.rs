@@ -11,7 +11,6 @@ use std::{
     ptr::NonNull,
 };
 
-use crossbeam::atomic::AtomicCell;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
@@ -35,6 +34,7 @@ use crate::{
                 ReconfigureCtx,
             },
             nexus_child::{ChildError, ChildState, NexusChild},
+            nexus_io_subsystem::NexusIoSubsystem,
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
             nexus_persistence::{NexusInfo, PersistOp},
@@ -44,7 +44,6 @@ use crate::{
         Bdev,
         Command,
         CoreError,
-        Cores,
         IoDevice,
         IoType,
         Protocol,
@@ -434,11 +433,10 @@ pub struct Nexus {
     pub nexus_target: Option<NexusTarget>,
     /// Nexus I/O device.
     pub io_device: Option<IoDevice>,
-    /// Nexus pause counter to allow concurrent pause/resume.
-    pause_state: AtomicCell<NexusPauseState>,
-    pause_waiters: Vec<oneshot::Sender<i32>>,
     /// information saved to a persistent store
     pub nexus_info: futures::lock::Mutex<NexusInfo>,
+    /// Nexus I/O subsystem.
+    io_subsystem: NexusIoSubsystem,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -546,6 +544,10 @@ impl Nexus {
             child_count: 0,
             children: Vec::new(),
             bdev: Bdev::from(&*b as *const _ as *mut spdk_bdev),
+            io_subsystem: NexusIoSubsystem::new(
+                name.to_string(),
+                Bdev::from(&*b as *const _ as *mut spdk_bdev),
+            ),
             state: parking_lot::Mutex::new(NexusState::Init),
             bdev_raw: Box::into_raw(b),
             data_ent_offset: 0,
@@ -554,8 +556,6 @@ impl Nexus {
             nexus_target: None,
             nvme_params,
             io_device: None,
-            pause_state: AtomicCell::new(NexusPauseState::Unpaused),
-            pause_waiters: Vec::new(),
             nexus_info: futures::lock::Mutex::new(Default::default()),
             nexus_uuid: Default::default(),
         });
@@ -785,52 +785,7 @@ impl Nexus {
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
     pub async fn resume(&mut self) -> Result<(), Error> {
-        assert_eq!(Cores::current(), Cores::first());
-
-        // In case nexus is already unpaused or is being paused, bail out.
-        if matches!(
-            self.pause_state.load(),
-            NexusPauseState::Pausing | NexusPauseState::Unpaused
-        ) {
-            return Ok(());
-        }
-
-        info!(
-            "{} resuming nexus, waiters: {}",
-            self.name,
-            self.pause_waiters.len(),
-        );
-
-        if let Some(Protocol::Nvmf) = self.shared() {
-            if self.pause_waiters.is_empty() {
-                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
-                    self.pause_state.store(NexusPauseState::Unpausing);
-                    subsystem.resume().await.unwrap();
-                    // The trickiest case: a new waiter appeared during nexus
-                    // unpausing. By the agreement we keep
-                    // nexus paused for the waiters, so pause
-                    // the nexus to restore status quo.
-                    if !self.pause_waiters.is_empty() {
-                        info!(
-                            "{} concurrent nexus pausing requested during unpausing, re-pausing",
-                            self.name,
-                        );
-                        subsystem.pause().await.unwrap();
-                        self.pause_state.store(NexusPauseState::Paused);
-                    }
-                }
-            }
-        }
-
-        // Keep the Nexus paused in case there are waiters.
-        if !self.pause_waiters.is_empty() {
-            let s = self.pause_waiters.pop().unwrap();
-            s.send(0).expect("Nexus pause waiter disappeared");
-        } else {
-            self.pause_state.store(NexusPauseState::Unpaused);
-        }
-
-        Ok(())
+        self.io_subsystem.resume().await
     }
 
     /// Suspend any incoming IO to the bdev pausing the controller allows us to
@@ -841,60 +796,7 @@ impl Nexus {
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
     pub async fn pause(&mut self) -> Result<(), Error> {
-        assert_eq!(Cores::current(), Cores::first());
-
-        let state = self.pause_state.compare_exchange(
-            NexusPauseState::Unpaused,
-            NexusPauseState::Pausing,
-        );
-
-        match state {
-            // Pause nexus if it is in the unpaused state.
-            Ok(NexusPauseState::Unpaused) => {
-                if let Some(Protocol::Nvmf) = self.shared() {
-                    if let Some(subsystem) =
-                        NvmfSubsystem::nqn_lookup(&self.name)
-                    {
-                        info!(
-                            "{} pausing subsystem {}",
-                            self.name,
-                            subsystem.get_nqn()
-                        );
-                        subsystem.pause().await.unwrap();
-                        info!(
-                            "{} subsystem {} paused",
-                            self.name,
-                            subsystem.get_nqn()
-                        );
-                    }
-                }
-                // the fist pause will win
-                self.pause_state
-                    .compare_exchange(
-                        NexusPauseState::Pausing,
-                        NexusPauseState::Paused,
-                    )
-                    .unwrap();
-            }
-
-            Err(NexusPauseState::Pausing) | Err(NexusPauseState::Paused) => {
-                // we are already pausing or paused
-                return Ok(());
-            }
-
-            // we must pause again, schedule pause operation
-            Err(NexusPauseState::Unpausing) => {
-                return Err(Error::Pause {
-                    state: NexusPauseState::Unpausing,
-                    name: self.name.clone(),
-                });
-            }
-            _ => {
-                panic!("Corrupted nexus state");
-            }
-        }
-
-        Ok(())
+        self.io_subsystem.suspend().await
     }
 
     // Abort all active I/O for target child and set I/O fail-fast flag
