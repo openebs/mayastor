@@ -23,18 +23,16 @@ use spdk_rs::libspdk::{
     spdk_subsystem_depend,
 };
 
-pub use mbus::{
-    mbus_endpoint,
-    message_bus_init,
-    registration::Registration,
-    MessageBusSubsystem,
+pub use registration::{
+    registration_grpc::Registration,
+    RegistrationSubsystem,
 };
 
 use crate::subsys::nvmf::Nvmf;
 
 mod config;
-mod mbus;
 mod nvmf;
+mod registration;
 
 /// Register initial subsystems
 pub(crate) fn register_subsystem() {
@@ -46,5 +44,5 @@ pub(crate) fn register_subsystem() {
         spdk_add_subsystem(Nvmf::new().0);
         spdk_add_subsystem_depend(Box::into_raw(depend));
     }
-    MessageBusSubsystem::register();
+    RegistrationSubsystem::register();
 }

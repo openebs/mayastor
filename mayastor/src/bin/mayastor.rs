@@ -20,7 +20,6 @@ use mayastor::{
     grpc,
     logger,
     persistent_store::PersistentStore,
-    subsys,
     subsys::Registration,
 };
 
@@ -31,25 +30,24 @@ const PAGES_NEEDED: u32 = 1024;
 mayastor::CPS_INIT!();
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
+    let registration_addr = args.registration_endpoint.clone();
     let rpc_address = args.rpc_address.clone();
     let node_name = args
         .node_name
         .clone()
         .unwrap_or_else(|| "mayastor-node".into());
 
-    let endpoint = args.mbus_endpoint.clone();
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
             let mut futures = Vec::new();
-            if let Some(endpoint) = endpoint {
-                debug!("mayastor mbus subsystem init");
-                mbus_api::message_bus_init_tokio(endpoint);
-                Registration::init(&node_name, &grpc_address.to_string());
-                futures.push(subsys::Registration::run().boxed());
-            }
-
+            Registration::init(
+                &node_name,
+                &grpc_address.to_string(),
+                registration_addr,
+            );
+            futures.push(Registration::run().boxed());
             PersistentStore::init(persistent_store_endpoint).await;
             runtime::spawn(device_monitor());
 
