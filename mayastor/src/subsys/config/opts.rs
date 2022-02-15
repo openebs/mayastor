@@ -181,7 +181,10 @@ impl Default for NvmfTcpTransportOpts {
             in_capsule_data_size: 4096,
             max_io_size: 131_072,
             io_unit_size: 131_072,
-            max_qpairs_per_ctrl: 32,
+            max_qpairs_per_ctrl: try_from_env(
+                "NVMF_TCP_MAX_QPAIRS_PER_CTRL",
+                32,
+            ),
             num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2048),
             buf_cache_size: try_from_env("NVMF_TCP_BUF_CACHE_SIZE", 64),
             dif_insert_or_strip: false,
