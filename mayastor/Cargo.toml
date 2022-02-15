@@ -85,10 +85,8 @@ udev = "0.6.2"
 url = "2.2.2"
 async-channel = "1.6.1"
 dns-lookup = "1.0.8"
-mbus_api = { path = "../mbus-api" }
 etcd-client = "0.7.1"
 parking_lot = "0.11.1"
-
 
 [dependencies.rpc]
 path = "../rpc"

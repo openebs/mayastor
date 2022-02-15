@@ -151,3 +151,7 @@ pub mod mayastor {
         }
     }
 }
+
+pub mod registration {
+    include!(concat!(env!("OUT_DIR"), "/v1.registration.rs"));
+}

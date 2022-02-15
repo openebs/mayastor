@@ -41,7 +41,6 @@ use bollard::{
     models::ContainerInspectResponse,
     network::DisconnectNetworkOptions,
 };
-use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
     json_rpc_client::JsonRpcClient,
@@ -108,7 +107,6 @@ impl RpcHandle {
 pub struct Binary {
     path: String,
     arguments: Vec<String>,
-    nats_arg: Option<String>,
     env: HashMap<String, String>,
     binds: HashMap<String, String>,
 }
@@ -129,14 +127,11 @@ impl Binary {
     /// Only one argument can be passed per use. So instead of:
     ///
     /// # Self::from_dbg("hello")
-    /// .with_arg("-n nats")
     /// # ;
     ///
     /// usage would be:
     ///
     /// # Self::from_dbg("hello")
-    /// .with_arg("-n")
-    /// .with_arg("nats")
     /// # ;
     pub fn with_arg(mut self, arg: &str) -> Self {
         self.arguments.push(arg.into());
@@ -145,11 +140,6 @@ impl Binary {
     /// Add multiple arguments via a vector
     pub fn with_args<S: Into<String>>(mut self, mut args: Vec<S>) -> Self {
         self.arguments.extend(args.drain(..).map(|s| s.into()));
-        self
-    }
-    /// Set the nats endpoint via the provided argument
-    pub fn with_nats(mut self, arg: &str) -> Self {
-        self.nats_arg = Some(arg.to_string());
         self
     }
     /// Add environment variables for the container
@@ -163,16 +153,6 @@ impl Binary {
     pub fn with_bind(mut self, host: &str, container: &str) -> Self {
         self.binds.insert(container.to_string(), host.to_string());
         self
-    }
-    /// pick up the nats argument name for a particular binary from nats_arg
-    /// and fill up the nats server endpoint using the network name
-    fn setup_nats(&mut self, network: &str) {
-        if let Some(nats_arg) = self.nats_arg.take() {
-            if !nats_arg.is_empty() {
-                self.arguments.push(nats_arg);
-                self.arguments.push(format!("nats.{}:4222", network));
-            }
-        }
     }
 
     fn commands(&self) -> Vec<String> {
@@ -308,10 +288,9 @@ impl ContainerSpec {
         vec
     }
     /// Command/entrypoint followed by/and arguments
-    fn commands(&self, network: &str) -> Vec<String> {
+    fn commands(&self) -> Vec<String> {
         let mut commands = vec![];
-        if let Some(mut binary) = self.binary.clone() {
-            binary.setup_nats(network);
+        if let Some(binary) = self.binary.clone() {
             commands.extend(binary.commands());
         } else if let Some(command) = self.command.clone() {
             commands.push(command);
@@ -981,7 +960,7 @@ impl ComposeTest {
         }
 
         let name = spec.name.as_str();
-        let cmd = spec.commands(&self.name);
+        let cmd = spec.commands();
         let cmd = cmd.iter().map(|s| s.as_str()).collect();
         let image = spec
             .image
@@ -1315,24 +1294,6 @@ impl ComposeTest {
     pub async fn down(&self) {
         self.remove_all().await.unwrap();
     }
-
-    /// connect to message bus helper for the cargo test code
-    pub async fn connect_to_bus(&self, name: &str) {
-        let (_, ip) = self.containers.get(name).unwrap();
-        let url = format!("{}", ip);
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            mbus_api::message_bus_init_options(
-                url,
-                TimeoutOptions::new()
-                    .with_timeout(Duration::from_millis(500))
-                    .with_timeout_backoff(Duration::from_millis(500))
-                    .with_max_retries(10),
-            )
-            .await
-        })
-        .await
-        .unwrap();
-    }
 }
 
 #[cfg(test)]
@@ -1345,19 +1306,8 @@ mod tests {
         let test = Builder::new()
             .name("composer")
             .network("10.1.0.0/16")
-            .add_container_spec(
-                ContainerSpec::from_binary(
-                    "nats",
-                    Binary::from_nix("nats-server").with_arg("-DV"),
-                )
-                .with_portmap("4222", "4222"),
-            )
             .add_container("mayastor")
-            .add_container_bin(
-                "mayastor2",
-                Binary::from_dbg("mayastor")
-                    .with_args(vec!["-n", "nats.composer"]),
-            )
+            .add_container_bin("mayastor2", Binary::from_dbg("mayastor"))
             .with_clean(true)
             .build()
             .await
