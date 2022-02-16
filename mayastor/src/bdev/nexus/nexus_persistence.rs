@@ -26,20 +26,25 @@ pub struct ChildInfo {
 }
 
 /// Defines the type of persist operations.
-pub(crate) enum PersistOp {
+pub(crate) enum PersistOp<'a> {
     /// Create a persistent entry.
     Create,
     /// Add a child to an existing persistent entry.
     AddChild((ChildUri, ChildState)),
     /// Update a persistent entry.
     Update((ChildUri, ChildState)),
+    /// Update a persistent entry only when a precondition on this NexusInfo
+    /// holds. Predicate is called under protection of the NexusInfo lock,
+    /// so the check is assumed to be atomic and not interfering with other
+    /// modifications of the same NexusInfo.
+    UpdateCond((ChildUri, ChildState, &'a dyn Fn(&NexusInfo) -> bool)),
     /// Save the clean shutdown variable.
     Shutdown,
 }
 
 impl<'n> Nexus<'n> {
     /// Persist information to the store.
-    pub(crate) async fn persist(&self, op: PersistOp) {
+    pub(crate) async fn persist(&self, op: PersistOp<'_>) {
         if !PersistentStore::enabled() {
             return;
         }
@@ -78,6 +83,22 @@ impl<'n> Nexus<'n> {
                 // Only update the state of the child that has changed. Do not
                 // update the other children or "clean shutdown" information.
                 // This should only be called on a child state change.
+                nexus_info.children.iter_mut().for_each(|c| {
+                    if c.uuid == uuid {
+                        c.healthy = Self::child_healthy(&state);
+                    }
+                });
+            }
+            // Only update the state of the child if the precondition holds.
+            PersistOp::UpdateCond((uri, state, f)) => {
+                // Do not persist the state if predicate fails.
+                if !f(&nexus_info) {
+                    return;
+                }
+
+                let uuid =
+                    NexusChild::uuid(&uri).expect("Failed to get child UUID.");
+
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
                         c.healthy = Self::child_healthy(&state);

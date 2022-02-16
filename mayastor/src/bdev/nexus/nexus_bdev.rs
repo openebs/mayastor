@@ -987,8 +987,43 @@ impl<'n> Nexus<'n> {
             // schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
             // complete anyway.
-            MWQ.enqueue(Command::RemoveDevice(self.name.clone(), name));
-            self.persist(PersistOp::Update((uri.clone(), child.state())))
+            MWQ.enqueue(Command::RemoveDevice(self.name.clone(), name.clone()));
+
+            // Do not persist child state in case it's the last healthy child of
+            // the nexus: let Control Plane reconstruct the nexus
+            // using this device as the replica with the most recent
+            // user data.
+            self.persist(PersistOp::UpdateCond(
+                (uri.clone(), child.state(), &|nexus_info| {
+                    // Determine the amount of healthy replicas in the persistent state and
+                    // check against the last healthy replica remaining.
+                    let num_healthy = nexus_info.children.iter().fold(0, |n, c| {
+                        if c.healthy {
+                            n + 1
+                        } else {
+                            n
+                        }
+                    });
+
+                    match num_healthy {
+                        0 => {
+                            warn!(
+                                "nexus {}: no healthy replicas persent in persistent store when retiring replica {}:
+                                not persisting the replica state",
+                                &name, &uri,
+                            );
+                            false
+                        }
+                        1 => {
+                            warn!(
+                                "nexus {}: retiring the last healthy replica {}, not persisting the replica state",
+                                &name, &uri,
+                            );
+                            false
+                        },
+                        _ => true,
+                    }
+                })))
                 .await;
         }
         self.resume().await
