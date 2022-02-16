@@ -2,7 +2,7 @@
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 name = "mayastor"
-version = "0.9.0"
+version = "1.0.0"
 default-run = "mayastor-client"
 build = "build.rs"
 
@@ -114,5 +114,5 @@ version = "0.8.2"
 [dev-dependencies]
 assert_matches = "1.5.0"
 composer = { path = "../composer" }
-nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
+nvmeadm = { path = "../nvmeadm" }
 run_script = "0.8.0"
