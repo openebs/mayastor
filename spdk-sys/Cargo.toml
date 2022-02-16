@@ -1,7 +1,7 @@
 [package]
 name = "spdk-sys"
 description = "Rust bindings for SPDK library"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2018"
 links = "spdk"
 build = "build.rs"
