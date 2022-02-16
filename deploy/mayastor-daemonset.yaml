@@ -40,9 +40,9 @@ spec:
           value: info,mayastor=info
         - name: NVMF_TCP_MAX_QPAIRS_PER_CTRL
           # Current recommendation is to set this value to be the number of cores provided to mayastor (see -l argument) plus 1.
-          value: 2
+          value: "2"
         - name: NVMF_TCP_MAX_QUEUE_DEPTH
-          value: 32
+          value: "32"
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
@@ -60,7 +60,7 @@ spec:
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
-        - "-l0"
+        - "-l1"
         - "-pmayastor-etcd"
         command:
         - mayastor
@@ -81,12 +81,12 @@ spec:
           # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
             cpu: "1"
-            memory: "512Mi"
-            hugepages-2Mi: "1Gi"
+            memory: "1Gi"
+            hugepages-2Mi: "2Gi"
           requests:
             cpu: "1"
-            memory: "512Mi"
-            hugepages-2Mi: "1Gi"
+            memory: "1Gi"
+            hugepages-2Mi: "2Gi"
         ports:
         - containerPort: 10124
           protocol: TCP

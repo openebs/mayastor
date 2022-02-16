@@ -13,6 +13,6 @@
 {{- if gt $i 0 }}
 {{- printf "," }}
 {{- end }}
-{{- printf "%d" $i }}
+{{- printf "%d" (add $i 1) }}
 {{- end }}
 {{- end }}
