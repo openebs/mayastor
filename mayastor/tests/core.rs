@@ -9,10 +9,9 @@ use mayastor::{
         nexus::{nexus_create, nexus_lookup_mut},
         util::uring,
     },
-    core::{Bdev, BdevHandle, MayastorCliArgs},
+    core::{Bdev, BdevHandle, MayastorCliArgs, Protocol},
     nexus_uri::{bdev_create, bdev_destroy},
 };
-use rpc::mayastor::ShareProtocolNexus;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -237,12 +236,10 @@ async fn core_5() {
                 .await
                 .unwrap();
                 let mut nexus = nexus_lookup_mut(nexus_name).unwrap();
+                // need to refactor this test to use nvmf instead of nbd
+                // once the libnvme-rs refactoring is done
                 let device = common::device_path_from_uri(
-                    &nexus
-                        .as_mut()
-                        .share(ShareProtocolNexus::NexusNbd, None)
-                        .await
-                        .unwrap(),
+                    &nexus.as_mut().share(Protocol::Off, None).await.unwrap(),
                 );
 
                 let size = common::get_device_size(&device);

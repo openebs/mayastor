@@ -2,8 +2,6 @@ use async_trait::async_trait;
 use snafu::ResultExt;
 use std::pin::Pin;
 
-use rpc::mayastor::ShareProtocolNexus;
-
 use super::{
     Error,
     NbdDisk,
@@ -96,12 +94,12 @@ impl<'n> Share for Nexus<'n> {
     }
 }
 
-impl From<&NexusTarget> for ShareProtocolNexus {
-    fn from(target: &NexusTarget) -> ShareProtocolNexus {
+impl From<&NexusTarget> for Protocol {
+    fn from(target: &NexusTarget) -> Protocol {
         match target {
-            NexusTarget::NbdDisk(_) => ShareProtocolNexus::NexusNbd,
-            NexusTarget::NexusIscsiTarget => ShareProtocolNexus::NexusIscsi,
-            NexusTarget::NexusNvmfTarget => ShareProtocolNexus::NexusNvmf,
+            NexusTarget::NexusIscsiTarget => Protocol::Iscsi,
+            NexusTarget::NexusNvmfTarget => Protocol::Nvmf,
+            _ => Protocol::Off,
         }
     }
 }
@@ -109,14 +107,14 @@ impl From<&NexusTarget> for ShareProtocolNexus {
 impl<'n> Nexus<'n> {
     pub async fn share(
         mut self: Pin<&mut Self>,
-        protocol: ShareProtocolNexus,
+        protocol: Protocol,
         _key: Option<String>,
     ) -> Result<String, Error> {
         // This function should be idempotent as it's possible that
         // we get called more than once for some odd reason.
         if let Some(target) = &self.nexus_target {
             // We're already shared ...
-            if ShareProtocolNexus::from(target) == protocol {
+            if Protocol::from(target) == protocol {
                 // Same protocol as that requested, simply return Ok()
                 warn!("{} is already shared", self.name);
                 return Ok(self.get_share_uri().unwrap());
@@ -129,7 +127,9 @@ impl<'n> Nexus<'n> {
         }
 
         match protocol {
-            ShareProtocolNexus::NexusNbd => {
+            // right now Off is mapped to Nbd, will clean up the Nbd related
+            // code once we refactor the rust tests that use nbd.
+            Protocol::Off => {
                 let disk = NbdDisk::create(&self.name).await.context(
                     ShareNbdNexus {
                         name: self.name.clone(),
@@ -142,7 +142,7 @@ impl<'n> Nexus<'n> {
                 }
                 Ok(uri)
             }
-            ShareProtocolNexus::NexusIscsi => {
+            Protocol::Iscsi => {
                 let uri = self.share_iscsi().await?;
                 unsafe {
                     self.as_mut().get_unchecked_mut().nexus_target =
@@ -150,7 +150,7 @@ impl<'n> Nexus<'n> {
                 }
                 Ok(uri)
             }
-            ShareProtocolNexus::NexusNvmf => {
+            Protocol::Nvmf => {
                 let uri = self
                     .share_nvmf(Some((
                         self.nvme_params.min_cntlid,

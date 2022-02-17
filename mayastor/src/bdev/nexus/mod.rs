@@ -25,6 +25,7 @@ pub use nexus_bdev::{
     NexusState,
     NexusStatus,
     NexusTarget,
+    NvmeAnaState,
     VerboseError,
 };
 pub(crate) use nexus_bdev::{

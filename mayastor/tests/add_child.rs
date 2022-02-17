@@ -3,7 +3,7 @@ extern crate assert_matches;
 
 use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, ChildState, Reason},
-    core::MayastorCliArgs,
+    core::{MayastorCliArgs, Protocol},
 };
 
 static NEXUS_NAME: &str = "nexus";
@@ -77,7 +77,7 @@ async fn add_child() {
     ms.spawn(async {
         let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
-            .share(rpc::mayastor::ShareProtocolNexus::NexusIscsi, None)
+            .share(Protocol::Iscsi, None)
             .await
             .expect("Failed to share nexus");
     })

@@ -38,14 +38,15 @@ pub mod mayastor {
         pub mod bdev {
             pub use super::pb::{
                 bdev_rpc_server::{BdevRpc, BdevRpcServer},
-                nullable_string::Kind,
-                BdevRequest,
-                BdevResponse,
+                Bdev,
                 BdevShareRequest,
                 BdevShareResponse,
                 BdevUnshareRequest,
+                CreateBdevRequest,
+                CreateBdevResponse,
+                DestroyBdevRequest,
+                ListBdevOptions,
                 ListBdevResponse,
-                NullableString,
             };
         }
 
@@ -103,6 +104,35 @@ pub mod mayastor {
                 ResourceUsage,
                 StatNvmeControllerRequest,
                 StatNvmeControllerResponse,
+            };
+        }
+
+        pub mod nexus {
+            pub use super::pb::{
+                nexus_rpc_server::{NexusRpc, NexusRpcServer},
+                AddChildNexusRequest,
+                AddChildNexusResponse,
+                Child,
+                ChildState,
+                CreateNexusRequest,
+                CreateNexusResponse,
+                DestroyNexusRequest,
+                FaultNexusChildRequest,
+                GetNvmeAnaStateRequest,
+                GetNvmeAnaStateResponse,
+                ListNexusOptions,
+                ListNexusResponse,
+                Nexus,
+                NexusState,
+                NvmeAnaState,
+                PublishNexusRequest,
+                PublishNexusResponse,
+                RemoveChildNexusRequest,
+                RemoveChildNexusResponse,
+                SetNvmeAnaStateRequest,
+                SetNvmeAnaStateResponse,
+                UnpublishNexusRequest,
+                UnpublishNexusResponse,
             };
         }
     }

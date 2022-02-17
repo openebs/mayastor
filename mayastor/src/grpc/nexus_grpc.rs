@@ -13,6 +13,7 @@ use crate::{
             Nexus,
             NexusChild,
             NexusStatus,
+            NvmeAnaState,
             Reason,
         },
     },
@@ -43,6 +44,29 @@ impl From<NexusStatus> for rpc::NexusState {
             NexusStatus::Faulted => rpc::NexusState::NexusFaulted,
             NexusStatus::Degraded => rpc::NexusState::NexusDegraded,
             NexusStatus::Online => rpc::NexusState::NexusOnline,
+        }
+    }
+}
+
+impl From<NvmeAnaState> for rpc::NvmeAnaState {
+    fn from(state: NvmeAnaState) -> Self {
+        match state {
+            NvmeAnaState::InvalidState => {
+                rpc::NvmeAnaState::NvmeAnaInvalidState
+            }
+            NvmeAnaState::OptimizedState => {
+                rpc::NvmeAnaState::NvmeAnaOptimizedState
+            }
+            NvmeAnaState::NonOptimizedState => {
+                rpc::NvmeAnaState::NvmeAnaNonOptimizedState
+            }
+            NvmeAnaState::InaccessibleState => {
+                rpc::NvmeAnaState::NvmeAnaInaccessibleState
+            }
+            NvmeAnaState::PersistentLossState => {
+                rpc::NvmeAnaState::NvmeAnaPersistentLossState
+            }
+            NvmeAnaState::ChangeState => rpc::NvmeAnaState::NvmeAnaChangeState,
         }
     }
 }
@@ -87,7 +111,7 @@ impl<'n> Nexus<'n> {
         // Get ANA state only for published nexuses.
         if let Some(Protocol::Nvmf) = self.shared() {
             if let Ok(state) = self.get_ana_state().await {
-                ana_state = state;
+                ana_state = rpc::NvmeAnaState::from(state);
             }
         }
 

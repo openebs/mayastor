@@ -6,8 +6,9 @@ use mayastor::{
         nexus_create_v2,
         nexus_lookup_mut,
         NexusNvmeParams,
+        NvmeAnaState,
     },
-    core::MayastorCliArgs,
+    core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
     pool::PoolArgs,
 };
@@ -19,9 +20,7 @@ use rpc::mayastor::{
     CreateReplicaRequest,
     DestroyNexusRequest,
     Null,
-    NvmeAnaState,
     PublishNexusRequest,
-    ShareProtocolNexus,
 };
 use std::process::{Command, ExitStatus};
 
@@ -198,7 +197,7 @@ async fn nexus_io_multipath() {
             // publish nexus on local node over nvmf
             nexus_lookup_mut(&name)
                 .unwrap()
-                .share(ShareProtocolNexus::NexusNvmf, None)
+                .share(Protocol::Nvmf, None)
                 .await
                 .unwrap();
         })
@@ -210,7 +209,7 @@ async fn nexus_io_multipath() {
         .publish_nexus(PublishNexusRequest {
             uuid: UUID.to_string(),
             key: "".to_string(),
-            share: ShareProtocolNexus::NexusNvmf as i32,
+            share: Protocol::Nvmf as i32,
         })
         .await
         .unwrap();
@@ -239,7 +238,7 @@ async fn nexus_io_multipath() {
             // set nexus on local node ANA state to non-optimized
             nexus_lookup_mut(&nexus_name)
                 .unwrap()
-                .set_ana_state(NvmeAnaState::NvmeAnaNonOptimizedState)
+                .set_ana_state(NvmeAnaState::NonOptimizedState)
                 .await
                 .unwrap();
         })

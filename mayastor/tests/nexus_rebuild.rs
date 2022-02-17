@@ -6,10 +6,9 @@ use tracing::error;
 
 use mayastor::{
     bdev::{device_open, nexus::nexus_lookup_mut},
-    core::{MayastorCliArgs, Mthread},
+    core::{MayastorCliArgs, Mthread, Protocol},
     rebuild::{RebuildJob, RebuildState},
 };
-use rpc::mayastor::ShareProtocolNexus;
 
 pub mod common;
 use common::{compose::MayastorTest, wait_for_rebuild};
@@ -103,10 +102,7 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
 async fn nexus_share() -> String {
     let nexus = nexus_lookup_mut(nexus_name()).unwrap();
     let device = common::device_path_from_uri(
-        &nexus
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap(),
+        &nexus.share(Protocol::Off, None).await.unwrap(),
     );
     reactor_poll!(200);
     device
