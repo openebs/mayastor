@@ -7,7 +7,7 @@ use tracing::error;
 use mayastor::{
     bdev::{device_open, nexus::nexus_lookup_mut},
     core::{MayastorCliArgs, Mthread, Protocol},
-    rebuild::{RebuildJob, RebuildState},
+    rebuild::{RebuildJob, RebuildState, RebuildState::Completed},
 };
 
 pub mod common;
@@ -123,7 +123,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
                     Err(_e) => true, /* Rebuild task completed and was
                                        * removed */
                     // discarded.
-                    Ok(s) => s.state == "complete",
+                    Ok(s) => s == Completed,
                 }
             })
             .await;

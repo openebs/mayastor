@@ -39,6 +39,7 @@ use crate::{
     lvs::{Error as LvsError, Lvol, Lvs},
     nexus_uri::NexusBdevError,
     pool::PoolArgs,
+    rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
 };
 
@@ -234,6 +235,28 @@ impl From<Lvol> for ReplicaV2 {
             size: l.size(),
             share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
+        }
+    }
+}
+
+impl From<RebuildState> for RebuildStateReply {
+    fn from(rs: RebuildState) -> Self {
+        RebuildStateReply {
+            state: rs.to_string(),
+        }
+    }
+}
+
+impl From<RebuildStats> for RebuildStatsReply {
+    fn from(stats: RebuildStats) -> Self {
+        RebuildStatsReply {
+            blocks_total: stats.blocks_total,
+            blocks_recovered: stats.blocks_recovered,
+            progress: stats.progress,
+            segment_size_blks: stats.segment_size_blks,
+            block_size: stats.block_size,
+            tasks_total: stats.tasks_total,
+            tasks_active: stats.tasks_active,
         }
     }
 }
@@ -1216,7 +1239,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let args = request.into_inner();
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     trace!("{:?}", args);
-                    nexus_lookup(&args.uuid)?.get_rebuild_state(&args.uri).await
+                    nexus_lookup(&args.uuid)?
+                        .get_rebuild_state(&args.uri)
+                        .await
+                        .map(RebuildStateReply::from)
                 })?;
 
                 rx.await
@@ -1239,7 +1265,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let args = request.into_inner();
                 trace!("{:?}", args);
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?.get_rebuild_stats(&args.uri).await
+                    nexus_lookup(&args.uuid)?
+                        .get_rebuild_stats(&args.uri)
+                        .await
+                        .map(RebuildStatsReply::from)
                 })?;
                 rx.await
                     .map_err(|_| Status::cancelled("cancelled"))?
@@ -1261,7 +1290,11 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let args = request.into_inner();
                 trace!("{:?}", args);
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?.get_rebuild_progress(&args.uri)
+                    nexus_lookup(&args.uuid)?
+                        .get_rebuild_progress(&args.uri)
+                        .map(|p| RebuildProgressReply {
+                            progress: p,
+                        })
                 })?;
 
                 rx.await
