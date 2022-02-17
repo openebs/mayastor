@@ -80,11 +80,11 @@ spec:
           limits:
             cpu: "{{ .Values.mayastorCpuCount }}"
             memory: "1Gi"
-            hugepages-2Mi: "{{ add .Values.mayastorHugePagesGiB 1 }}Gi"
+            hugepages-2Mi: "{{ max .Values.mayastorHugePagesGiB 2 }}Gi"
           requests:
             cpu: "{{ .Values.mayastorCpuCount }}"
             memory: "1Gi"
-            hugepages-2Mi: "{{ add .Values.mayastorHugePagesGiB 1 }}Gi"
+            hugepages-2Mi: "{{ max .Values.mayastorHugePagesGiB 2 }}Gi"
         ports:
         - containerPort: 10124
           protocol: TCP
