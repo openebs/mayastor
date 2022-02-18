@@ -1,6 +1,6 @@
 [package]
 name = "rpc"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 
