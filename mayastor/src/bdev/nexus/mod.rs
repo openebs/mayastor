@@ -28,7 +28,6 @@ mod nexus_channel;
 pub(crate) mod nexus_child;
 pub mod nexus_fn_table;
 pub mod nexus_io;
-pub mod nexus_io_subsystem;
 pub mod nexus_label;
 pub mod nexus_metadata;
 pub mod nexus_module;
