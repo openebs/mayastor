@@ -1,6 +1,6 @@
 [package]
 name = "composer"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
 edition = "2018"
 
