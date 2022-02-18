@@ -41,10 +41,10 @@
         "homepage": "",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "aa5f9c64c8865966b36726787721d6dc9f4948b5",
-        "sha256": "0pzaiqx4k43i3vfc74d25ins4k5zvwadqmijakkfpl4l5qr30sc6",
+        "rev": "c43ac5a913306abe22c9d1ed8453c7819864f31b",
+        "sha256": "0z0j0iyd2zdc1cqppbnlwgklgbhfks907dhh367w0cdn5kvr93m4",
         "type": "tarball",
-        "url": "https://github.com/oxalica/rust-overlay/archive/aa5f9c64c8865966b36726787721d6dc9f4948b5.tar.gz",
+        "url": "https://github.com/oxalica/rust-overlay/archive/c43ac5a913306abe22c9d1ed8453c7819864f31b.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }

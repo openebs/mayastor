@@ -214,7 +214,7 @@ async fn main() -> Result<(), String> {
             .expect("nvme_core io_timeout should be an integer number, representing the timeout in seconds");
 
         if let Err(error) = dev::nvmf::set_nvmecore_iotimeout(io_timeout_secs) {
-            panic!("Failed to set nvme_core io_timeout: {}", error.to_string());
+            panic!("Failed to set nvme_core io_timeout: {}", error);
         }
     }
 
@@ -256,7 +256,8 @@ impl CsiServer {
             info!("CSI plugin bound to {}", csi_socket);
 
             async_stream::stream! {
-                while let item = uds.accept().map_ok(|(st, _)| UnixStream(st)).await {
+                loop {
+                    let item = uds.accept().map_ok(|(st, _)| UnixStream(st)).await;
                     yield item;
                 }
             }

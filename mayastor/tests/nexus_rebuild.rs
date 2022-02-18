@@ -5,11 +5,10 @@ use once_cell::sync::{Lazy, OnceCell};
 use tracing::error;
 
 use mayastor::{
-    bdev::{device_open, nexus_lookup},
-    core::{MayastorCliArgs, Mthread},
+    bdev::{device_open, nexus::nexus_lookup_mut},
+    core::{MayastorCliArgs, Mthread, Protocol},
     rebuild::{RebuildJob, RebuildState},
 };
-use rpc::mayastor::ShareProtocolNexus;
 
 pub mod common;
 use common::{compose::MayastorTest, wait_for_rebuild};
@@ -77,7 +76,7 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
         ch.push(get_dev(i));
     }
 
-    mayastor::bdev::nexus_create(nexus_name(), size, None, &ch)
+    mayastor::bdev::nexus::nexus_create(nexus_name(), size, None, &ch)
         .await
         .unwrap();
 
@@ -101,12 +100,9 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
 }
 
 async fn nexus_share() -> String {
-    let nexus = nexus_lookup(nexus_name()).unwrap();
+    let nexus = nexus_lookup_mut(nexus_name()).unwrap();
     let device = common::device_path_from_uri(
-        &nexus
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap(),
+        &nexus.share(Protocol::Off, None).await.unwrap(),
     );
     reactor_poll!(200);
     device
@@ -120,7 +116,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let replica_name = new_replica.to_string();
         let complete = ms
             .spawn(async move {
-                let nexus = nexus_lookup(nexus_name()).unwrap();
+                let nexus = nexus_lookup_mut(nexus_name()).unwrap();
                 let state = nexus.get_rebuild_state(&replica_name).await;
 
                 match state {
@@ -154,9 +150,9 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let src_hdl = src_desc.into_handle().unwrap();
         let dst_hdl = dst_desc.into_handle().unwrap();
 
-        let nexus = nexus_lookup(nexus_name()).unwrap();
-        let mut src_buf = src_hdl.dma_malloc(nexus.size()).unwrap();
-        let mut dst_buf = dst_hdl.dma_malloc(nexus.size()).unwrap();
+        let nexus = nexus_lookup_mut(nexus_name()).unwrap();
+        let mut src_buf = src_hdl.dma_malloc(nexus.size_in_bytes()).unwrap();
+        let mut dst_buf = dst_hdl.dma_malloc(nexus.size_in_bytes()).unwrap();
 
         // Skip Mayastor partition and read only disk data at offset 10240
         // sectors.
@@ -169,7 +165,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
             .expect("Failed to read source replica");
         assert_eq!(
             r,
-            nexus.size(),
+            nexus.size_in_bytes(),
             "Amount of data read from source replica mismatches"
         );
 
@@ -180,13 +176,13 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
             .expect("Failed to read new replica");
         assert_eq!(
             r,
-            nexus.size(),
+            nexus.size_in_bytes(),
             "Amount of data read from new replica mismatches"
         );
 
         println!(
             "Validating new replica, {} bytes to check using MD5 checksum ...",
-            nexus.size()
+            nexus.size_in_bytes()
         );
         // Make sure checksums of all 2 buffers do match.
         assert_eq!(
@@ -207,8 +203,12 @@ async fn rebuild_replica() {
 
     ms.spawn(async move {
         nexus_create(NEXUS_SIZE, NUM_CHILDREN, true).await;
-        let nexus = nexus_lookup(nexus_name()).unwrap();
-        nexus.add_child(&get_dev(NUM_CHILDREN), true).await.unwrap();
+        let mut nexus = nexus_lookup_mut(nexus_name()).unwrap();
+        nexus
+            .as_mut()
+            .add_child(&get_dev(NUM_CHILDREN), true)
+            .await
+            .unwrap();
 
         for child in 0 .. NUM_CHILDREN {
             RebuildJob::lookup(&get_dev(child)).expect_err("Should not exist");
@@ -224,7 +224,12 @@ async fn rebuild_replica() {
                 .any(|_| panic!("Should not have found any jobs!"));
         }
 
-        let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN)).await.unwrap();
+        let _ = nexus
+            .as_mut()
+            .start_rebuild(&get_dev(NUM_CHILDREN))
+            .await
+            .unwrap();
+
         for child in 0 .. NUM_CHILDREN {
             RebuildJob::lookup(&get_dev(child))
                 .expect_err("rebuild job not created yet");
@@ -266,10 +271,15 @@ async fn rebuild_replica() {
             Duration::from_secs(1),
         );
 
-        nexus.pause_rebuild(&get_dev(NUM_CHILDREN)).await.unwrap();
+        nexus
+            .as_mut()
+            .pause_rebuild(&get_dev(NUM_CHILDREN))
+            .await
+            .unwrap();
         assert_eq!(RebuildJob::lookup_src(&src).len(), 1);
 
         nexus
+            .as_mut()
             .add_child(&get_dev(NUM_CHILDREN + 1), true)
             .await
             .unwrap();
@@ -285,14 +295,22 @@ async fn rebuild_replica() {
     wait_for_replica_rebuild(&get_dev(0), &get_dev(NUM_CHILDREN + 1)).await;
 
     ms.spawn(async move {
-        let nexus = nexus_lookup(nexus_name()).unwrap();
+        let mut nexus = nexus_lookup_mut(nexus_name()).unwrap();
 
-        nexus.remove_child(&get_dev(NUM_CHILDREN)).await.unwrap();
+        nexus
+            .as_mut()
+            .remove_child(&get_dev(NUM_CHILDREN))
+            .await
+            .unwrap();
         nexus
             .remove_child(&get_dev(NUM_CHILDREN + 1))
             .await
             .unwrap();
-        nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
+        nexus_lookup_mut(nexus_name())
+            .unwrap()
+            .destroy()
+            .await
+            .unwrap();
         test_fini();
     })
     .await;

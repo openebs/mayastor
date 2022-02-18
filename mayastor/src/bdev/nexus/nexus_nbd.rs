@@ -1,6 +1,9 @@
 //! Utility functions and wrappers for working with nbd devices in SPDK.
 
 use core::sync::atomic::Ordering::SeqCst;
+use futures::channel::oneshot;
+use nix::{convert_ioctl_res, errno::Errno, libc};
+use snafu::{ResultExt, Snafu};
 use std::{
     ffi::{c_void, CStr, CString},
     fmt,
@@ -11,18 +14,14 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
+use sysfs::parse_value;
 
-use futures::channel::oneshot;
-use nix::{convert_ioctl_res, errno::Errno, libc};
-use snafu::{ResultExt, Snafu};
-
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nbd_disk_find_by_nbd_path,
     spdk_nbd_disk,
     spdk_nbd_get_path,
     spdk_nbd_start,
 };
-use sysfs::parse_value;
 
 use crate::{
     core::{Mthread, Reactors},

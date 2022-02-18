@@ -1,6 +1,6 @@
 use common::compose::{Builder, ComposeTest, MayastorTest};
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{MayastorCliArgs, Share},
     nexus_uri::bdev_destroy,
 };
@@ -41,7 +41,7 @@ async fn nexus_3_way_create() {
             .await
             .unwrap();
 
-            let n = nexus_lookup("nexus0").unwrap();
+            let n = nexus_lookup_mut("nexus0").unwrap();
             n.share_nvmf(None).await.unwrap();
         })
         .await;
@@ -52,12 +52,12 @@ async fn nexus_destroy() {
         .get()
         .unwrap()
         .spawn(async move {
-            nexus_lookup("nexus0").unwrap().destroy().await.unwrap();
+            nexus_lookup_mut("nexus0").unwrap().destroy().await.unwrap();
         })
         .await;
 }
 async fn nexus_share() {
-    let n = nexus_lookup("nexus0").unwrap();
+    let n = nexus_lookup_mut("nexus0").unwrap();
     n.share_nvmf(None).await.unwrap();
 }
 
@@ -98,18 +98,19 @@ async fn nexus_create_2_way_add_one() {
         .get()
         .unwrap()
         .spawn(async move {
-            let n = nexus_lookup("nexus0").unwrap();
+            let mut n = nexus_lookup_mut("nexus0").unwrap();
 
             assert_eq!(n.children.len(), 2);
-            n.add_child(
-                &format!(
-                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                    hdls[2].endpoint.ip()
-                ),
-                true,
-            )
-            .await
-            .unwrap();
+            n.as_mut()
+                .add_child(
+                    &format!(
+                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        hdls[2].endpoint.ip()
+                    ),
+                    true,
+                )
+                .await
+                .unwrap();
             assert_eq!(n.children.len(), 3);
         })
         .await;
@@ -154,18 +155,19 @@ async fn nexus_2_way_destroy_destroy_child() {
         .get()
         .unwrap()
         .spawn(async move {
-            let n = nexus_lookup("nexus0").unwrap();
+            let mut n = nexus_lookup_mut("nexus0").unwrap();
 
             assert_eq!(n.children.len(), 2);
-            n.add_child(
-                &format!(
-                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                    hdls[2].endpoint.ip()
-                ),
-                true,
-            )
-            .await
-            .unwrap();
+            n.as_mut()
+                .add_child(
+                    &format!(
+                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        hdls[2].endpoint.ip()
+                    ),
+                    true,
+                )
+                .await
+                .unwrap();
             assert_eq!(n.children.len(), 3);
         })
         .await;

@@ -1,9 +1,16 @@
 //! Nexus IO tests for multipath NVMf, reservation, and write-zeroes
 use common::bdev_io;
 use mayastor::{
-    bdev::{nexus_create, nexus_create_v2, nexus_lookup, NexusNvmeParams},
-    core::MayastorCliArgs,
+    bdev::nexus::{
+        nexus_create,
+        nexus_create_v2,
+        nexus_lookup_mut,
+        NexusNvmeParams,
+        NvmeAnaState,
+    },
+    core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
+    pool::PoolArgs,
 };
 use once_cell::sync::OnceCell;
 use rpc::mayastor::{
@@ -13,9 +20,7 @@ use rpc::mayastor::{
     CreateReplicaRequest,
     DestroyNexusRequest,
     Null,
-    NvmeAnaState,
     PublishNexusRequest,
-    ShareProtocolNexus,
 };
 use std::process::{Command, ExitStatus};
 
@@ -190,9 +195,9 @@ async fn nexus_io_multipath() {
             .await
             .unwrap();
             // publish nexus on local node over nvmf
-            nexus_lookup(&name)
+            nexus_lookup_mut(&name)
                 .unwrap()
-                .share(ShareProtocolNexus::NexusNvmf, None)
+                .share(Protocol::Nvmf, None)
                 .await
                 .unwrap();
         })
@@ -204,7 +209,7 @@ async fn nexus_io_multipath() {
         .publish_nexus(PublishNexusRequest {
             uuid: UUID.to_string(),
             key: "".to_string(),
-            share: ShareProtocolNexus::NexusNvmf as i32,
+            share: Protocol::Nvmf as i32,
         })
         .await
         .unwrap();
@@ -231,9 +236,9 @@ async fn nexus_io_multipath() {
     mayastor
         .spawn(async move {
             // set nexus on local node ANA state to non-optimized
-            nexus_lookup(&nexus_name)
+            nexus_lookup_mut(&nexus_name)
                 .unwrap()
-                .set_ana_state(NvmeAnaState::NvmeAnaNonOptimizedState)
+                .set_ana_state(NvmeAnaState::NonOptimizedState)
                 .await
                 .unwrap();
         })
@@ -499,7 +504,7 @@ async fn nexus_io_resv_acquire() {
                 .await
                 .expect("reads should succeed");
 
-            nexus_lookup(&NXNAME.to_string())
+            nexus_lookup_mut(&NXNAME.to_string())
                 .unwrap()
                 .destroy()
                 .await
@@ -563,9 +568,10 @@ async fn nexus_io_write_zeroes() {
     mayastor
         .spawn(async move {
             // Create local pool and replica
-            Lvs::create_or_import(CreatePoolRequest {
+            Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEVNAME1.to_string()],
+                uuid: None,
             })
             .await
             .unwrap();

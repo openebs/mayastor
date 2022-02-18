@@ -9,7 +9,7 @@ use std::{
 use futures::channel::oneshot;
 use nix::errno::Errno;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
     nvmf_subsystem_set_cntlid_range,
@@ -129,7 +129,7 @@ impl TryFrom<Bdev> for NvmfSubsystem {
                 msg: "already shared".to_string(),
             });
         }
-        let ss = NvmfSubsystem::new(bdev.name().as_str())?;
+        let ss = NvmfSubsystem::new(bdev.name())?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);
         if let Err(e) = ss.add_namespace(&bdev) {
@@ -215,7 +215,7 @@ impl NvmfSubsystem {
 
         if ns_id < 1 {
             Err(Error::Namespace {
-                bdev: bdev.name(),
+                bdev: bdev.name().to_string(),
                 msg: "failed to add namespace ID".to_string(),
             })
         } else {
@@ -225,8 +225,18 @@ impl NvmfSubsystem {
     }
 
     /// destroy the subsystem
-    pub fn destroy(&self) {
-        unsafe { spdk_nvmf_subsystem_destroy(self.0.as_ptr()) }
+    pub fn destroy(&self) -> i32 {
+        unsafe {
+            if (*self.0.as_ptr()).destroying {
+                warn!("Subsystem destruction already started");
+                return -libc::EALREADY;
+            }
+            spdk_nvmf_subsystem_destroy(
+                self.0.as_ptr(),
+                None,
+                std::ptr::null_mut(),
+            )
+        }
     }
 
     /// Get NVMe subsystem's NQN
@@ -520,7 +530,7 @@ impl NvmfSubsystem {
                 trid: trid_replica.to_string(),
             })
         } else {
-            Ok(unsafe { (*listener).ana_state })
+            Ok(unsafe { *(*listener).ana_state })
         }
     }
 
@@ -541,6 +551,7 @@ impl NvmfSubsystem {
                 self.0.as_ptr(),
                 trid_replica.as_ptr(),
                 ana_state,
+                0,
                 Some(set_ana_state_cb),
                 cb_arg(s),
             );

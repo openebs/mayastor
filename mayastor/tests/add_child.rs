@@ -2,8 +2,8 @@
 extern crate assert_matches;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, ChildState, Reason},
-    core::MayastorCliArgs,
+    bdev::nexus::{nexus_create, nexus_lookup_mut, ChildState, Reason},
+    core::{MayastorCliArgs, Protocol},
 };
 
 static NEXUS_NAME: &str = "nexus";
@@ -45,8 +45,9 @@ async fn add_child() {
 
     // Test adding a child to an unshared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let mut nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
+            .as_mut()
             .add_child(BDEVNAME2, false)
             .await
             .expect("Failed to add child");
@@ -62,8 +63,9 @@ async fn add_child() {
 
     // Test removing a child from an unshared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let mut nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
+            .as_mut()
             .remove_child(BDEVNAME2)
             .await
             .expect("Failed to remove child");
@@ -73,9 +75,9 @@ async fn add_child() {
 
     // Share nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
-            .share(rpc::mayastor::ShareProtocolNexus::NexusIscsi, None)
+            .share(Protocol::Iscsi, None)
             .await
             .expect("Failed to share nexus");
     })
@@ -83,8 +85,9 @@ async fn add_child() {
 
     // Test adding a child to a shared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let mut nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
+            .as_mut()
             .add_child(BDEVNAME2, false)
             .await
             .expect("Failed to add child");
@@ -100,8 +103,9 @@ async fn add_child() {
 
     // Test removing a child from a shared nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let mut nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
+            .as_mut()
             .remove_child(BDEVNAME2)
             .await
             .expect("Failed to remove child");
@@ -111,7 +115,7 @@ async fn add_child() {
 
     // Unshare nexus
     ms.spawn(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
             .unshare_nexus()
             .await

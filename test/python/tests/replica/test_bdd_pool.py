@@ -119,9 +119,14 @@ def attempt_to_create_pool_from_multiple_disks(get_mayastor_instance, create_poo
     assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
-@when("the user creates a pool with the name of an existing pool")
+@when(
+    "the user creates a pool with the name of an existing pool",
+    target_fixture="create_pool_that_already_exists",
+)
 def create_pool_that_already_exists(get_mayastor_instance, create_pool, get_pool_name):
-    create_pool(get_pool_name, ["malloc:///disk0?size_mb=100"])
+    with pytest.raises(grpc.RpcError) as error:
+        create_pool(get_pool_name, ["malloc:///disk0?size_mb=100"])
+    return error
 
 
 @when("the user destroys a pool that does not exist")
@@ -147,7 +152,11 @@ def pool_creation_should_fail(find_pool):
     assert find_pool("p0") == None
 
 
-@then("the pool creation should succeed")
+@then("the pool create command should fail")
+def the_pool_create_command_should_fail(create_pool_that_already_exists):
+    assert create_pool_that_already_exists.value.code() == grpc.StatusCode.INTERNAL
+
+
 @then("the pool should be created")
 def pool_creation_should_succeed(find_pool):
     assert find_pool("p0") != None

@@ -1,9 +1,9 @@
 use common::MayastorTest;
 use mayastor::{
-    core::{Bdev, DmaBuf, MayastorCliArgs},
+    core::{Bdev, MayastorCliArgs},
     nexus_uri::{bdev_create, bdev_destroy},
 };
-
+use spdk_rs::DmaBuf;
 pub mod common;
 
 #[tokio::test]

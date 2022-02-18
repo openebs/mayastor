@@ -11,14 +11,13 @@ use mayastor::{
         BlockDevice,
         BlockDeviceHandle,
         DeviceTimeoutAction,
-        DmaBuf,
         IoCompletionStatus,
         MayastorCliArgs,
     },
     subsys::{Config, NvmeBdevOpts},
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
-use spdk_sys::iovec;
+use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
 
@@ -32,7 +31,7 @@ static CALLBACK_FLAG: AtomicCell<bool> = AtomicCell::new(false);
 const BUF_SIZE: u64 = 32768;
 
 struct IoOpCtx {
-    iov: iovec,
+    iov: IoVec,
     device_url: String,
     dma_buf: DmaBuf,
     handle: Box<dyn BlockDeviceHandle>,
@@ -43,7 +42,7 @@ fn get_config() -> &'static Config {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 7_000_000,
             keep_alive_timeout_ms: 5_000,
-            retry_count: 2,
+            transport_retry_count: 2,
             ..Default::default()
         },
         ..Default::default()
@@ -170,7 +169,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
             };
 
             let mut io_ctx = IoOpCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 device_url: ctx.device_url,
                 dma_buf: DmaBuf::new(BUF_SIZE, alignment).unwrap(),
                 handle: ctx.handle,
@@ -360,7 +359,7 @@ async fn io_timeout_ignore() {
             };
 
             let mut io_ctx = IoOpCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 device_url: ctx.device_url,
                 dma_buf: DmaBuf::new(BUF_SIZE, alignment).unwrap(),
                 handle: ctx.handle,

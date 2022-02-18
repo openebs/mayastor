@@ -1,8 +1,5 @@
-use crate::{
-    bdev::{nexus::nexus_child::NexusChild, ChildState, Nexus},
-    persistent_store::PersistentStore,
-    sleep::mayastor_sleep,
-};
+use super::{ChildState, Nexus, NexusChild};
+use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -45,7 +42,7 @@ pub(crate) enum PersistOp<'a> {
     Shutdown,
 }
 
-impl Nexus {
+impl<'n> Nexus<'n> {
     /// Persist information to the store.
     pub(crate) async fn persist(&self, op: PersistOp<'_>) {
         if !PersistentStore::enabled() {

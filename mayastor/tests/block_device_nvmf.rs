@@ -9,7 +9,6 @@ use mayastor::{
         BlockDevice,
         BlockDeviceHandle,
         DeviceEventType,
-        DmaBuf,
         IoCompletionStatus,
         MayastorCliArgs,
     },
@@ -19,6 +18,7 @@ use rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null};
 
 use std::{
     alloc::Layout,
+    pin::Pin,
     slice,
     str,
     sync::{
@@ -27,9 +27,10 @@ use std::{
     },
 };
 
-use spdk_sys::{self, iovec};
+use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
+use mayastor::core::{DeviceEventListener, DeviceEventSink};
 use uuid::Uuid;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
@@ -63,7 +64,7 @@ async fn launch_instance() -> (ComposeTest, String) {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 2_000_000,
             keep_alive_timeout_ms: 5_000,
-            retry_count: 2,
+            transport_retry_count: 2,
             ..Default::default()
         },
         ..Default::default()
@@ -178,16 +179,28 @@ async fn nvmf_device_events() {
 
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 
-    fn device_event_cb(event: DeviceEventType, device: &str) {
-        // Check event type and device name.
-        assert_eq!(event, DeviceEventType::DeviceRemoved);
-        assert_eq!(
-            device,
-            DEVICE_NAME.get().unwrap(),
-            "device name provided with event mismatches"
-        );
-        flag_callback_invocation();
+    struct TestEventListener {}
+
+    impl DeviceEventListener for TestEventListener {
+        fn handle_device_event(
+            self: Pin<&mut Self>,
+            event: DeviceEventType,
+            device: &str,
+        ) {
+            // Check event type and device name.
+            assert_eq!(event, DeviceEventType::DeviceRemoved);
+            assert_eq!(
+                device,
+                DEVICE_NAME.get().unwrap(),
+                "device name provided with event mismatches"
+            );
+            flag_callback_invocation();
+        }
     }
+
+    let mut listener = Box::pin(TestEventListener {});
+    let sink = DeviceEventSink::new(listener.as_mut());
+    let sink_clone = sink.clone();
 
     ms.spawn(async move {
         let name = device_create(&url).await.unwrap();
@@ -198,7 +211,7 @@ async fn nvmf_device_events() {
 
         DEVICE_NAME.set(name.clone()).unwrap();
 
-        device.add_event_listener(device_event_cb).unwrap();
+        device.add_event_listener(sink_clone).unwrap();
     })
     .await;
 
@@ -298,7 +311,7 @@ async fn nvmf_io_stats() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -367,7 +380,7 @@ async fn nvmf_io_stats() {
             );
 
             let mut ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 dma_buf: create_io_buffer(alignment, 6 * BUF_SIZE, IO_PATTERN),
                 handle,
             };
@@ -541,7 +554,7 @@ async fn nvmf_device_readv_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         iovcnt: i32,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
@@ -601,7 +614,7 @@ async fn nvmf_device_readv_test() {
 
             // Create a buffer with the guard pattern.
             let mut io_ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 iovcnt: 1,
                 dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
                 handle,
@@ -708,7 +721,7 @@ async fn nvmf_device_writev_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -743,7 +756,7 @@ async fn nvmf_device_writev_test() {
             assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
             let mut ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 dma_buf: create_io_buffer(alignment, BUF_SIZE, IO_PATTERN),
                 handle,
             };
@@ -879,7 +892,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iovs: *mut iovec,
+        iovs: *mut IoVec,
         buffers: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -903,11 +916,11 @@ async fn nvmf_device_readv_iovs_test() {
             let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
 
             // Allocate phsycally continous memory for storing raw I/O vectors.
-            let l = Layout::array::<iovec>(IOVCNT).unwrap();
-            let iovs = unsafe { std::alloc::alloc(l) } as *mut iovec;
+            let l = Layout::array::<IoVec>(IOVCNT).unwrap();
+            let iovs = unsafe { std::alloc::alloc(l) } as *mut IoVec;
 
             for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
-                let mut iov = iovec::default();
+                let mut iov = IoVec::default();
                 let buf = create_io_buffer(alignment, *s, GUARD_PATTERN);
 
                 iov.iov_base = *buf;
@@ -1041,7 +1054,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iovs: *mut iovec,
+        iovs: *mut IoVec,
         buffers: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -1062,11 +1075,11 @@ async fn nvmf_device_writev_iovs_test() {
             let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
 
             // Allocate phsycally continous memory for storing raw I/O vectors.
-            let l = Layout::array::<iovec>(IOVCNT).unwrap();
-            let iovs = unsafe { std::alloc::alloc(l) } as *mut iovec;
+            let l = Layout::array::<IoVec>(IOVCNT).unwrap();
+            let iovs = unsafe { std::alloc::alloc(l) } as *mut IoVec;
 
             for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
-                let mut iov = iovec::default();
+                let mut iov = IoVec::default();
                 let buf = create_io_buffer(alignment, *s, IO_PATTERN);
 
                 iov.iov_base = *buf;
@@ -1494,7 +1507,7 @@ async fn nvmf_reset_abort_io() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: iovec,
+        iov: IoVec,
         iovcnt: i32,
         dma_buf: DmaBuf,
         handle: Box<dyn BlockDeviceHandle>,
@@ -1612,7 +1625,7 @@ async fn nvmf_reset_abort_io() {
             DEVICE_NAME.set(name.clone()).unwrap();
 
             let mut io_ctx = IoCtx {
-                iov: iovec::default(),
+                iov: IoVec::default(),
                 iovcnt: 1,
                 dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
                 handle,
@@ -1790,16 +1803,28 @@ async fn nvmf_device_hot_remove() {
 
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 
-    fn device_event_cb(event: DeviceEventType, device: &str) {
-        // Check event type and device name.
-        assert_eq!(event, DeviceEventType::DeviceRemoved);
-        assert_eq!(
-            device,
-            DEVICE_NAME.get().unwrap(),
-            "device name provided with event mismatches"
-        );
-        flag_callback_invocation();
+    struct TestEventListener {}
+
+    impl DeviceEventListener for TestEventListener {
+        fn handle_device_event(
+            self: Pin<&mut Self>,
+            event: DeviceEventType,
+            device: &str,
+        ) {
+            // Check event type and device name.
+            assert_eq!(event, DeviceEventType::DeviceRemoved);
+            assert_eq!(
+                device,
+                DEVICE_NAME.get().unwrap(),
+                "device name provided with event mismatches"
+            );
+            flag_callback_invocation();
+        }
     }
+
+    let mut listener = Box::pin(TestEventListener {});
+    let sink = DeviceEventSink::new(listener.as_mut());
+    let sink_clone = sink.clone();
 
     // Create device and register a listener.
     ms.spawn(async move {
@@ -1811,7 +1836,7 @@ async fn nvmf_device_hot_remove() {
 
         DEVICE_NAME.set(name.clone()).unwrap();
 
-        device.add_event_listener(device_event_cb).unwrap();
+        device.add_event_listener(sink_clone).unwrap();
     })
     .await;
 

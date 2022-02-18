@@ -1,11 +1,11 @@
 use common::{compose::Builder, MayastorTest};
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, NexusStatus},
-    core::{Bdev, MayastorCliArgs},
+    bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
+    core::{Bdev, MayastorCliArgs, Protocol},
     nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null, ShareProtocolNexus};
+use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use std::process::{Command, Stdio};
 use tokio::time::Duration;
 
@@ -20,7 +20,7 @@ async fn replica_stop_cont() {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 5_000_000,
             keep_alive_timeout_ms: 5_000,
-            retry_count: 2,
+            transport_retry_count: 2,
             ..Default::default()
         },
         ..Default::default()
@@ -69,9 +69,9 @@ async fn replica_stop_cont() {
             nexus_create(NXNAME, 1024 * 1024 * 50, None, &[c.clone()])
                 .await
                 .unwrap();
-            nexus_lookup(NXNAME)
+            nexus_lookup_mut(NXNAME)
                 .unwrap()
-                .share(ShareProtocolNexus::NexusNvmf, None)
+                .share(Protocol::Nvmf, None)
                 .await
                 .expect("should publish nexus over nvmf");
             assert!(
@@ -127,7 +127,7 @@ async fn replica_stop_cont() {
                 Bdev::lookup_by_name(&bdev_get_name(&c).unwrap()).is_none(),
                 "child bdev must be destroyed"
             );
-            let nx = nexus_lookup(NXNAME).unwrap();
+            let nx = nexus_lookup_mut(NXNAME).unwrap();
             assert_eq!(nx.status(), NexusStatus::Faulted);
             assert_eq!(nx.children.len(), 1, "nexus child must still exist");
             nx.unshare_nexus().await.expect("should unpublish nexus");

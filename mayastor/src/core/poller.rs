@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_poller,
     spdk_poller_pause,
     spdk_poller_register,
@@ -31,6 +31,9 @@ pub struct Poller<'a> {
     stopped: bool,
     name: String,
 }
+
+// TODO: is `Poller` really a Send type?
+unsafe impl<'a> Send for Poller<'a> {}
 
 impl<'a> fmt::Debug for Poller<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

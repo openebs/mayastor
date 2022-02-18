@@ -11,11 +11,13 @@ use nix::errno::Errno;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{create_malloc_disk, delete_malloc_disk};
+use spdk_rs::{
+    libspdk::{create_malloc_disk, delete_malloc_disk, spdk_bdev},
+    DummyBdev,
+};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
     nexus_uri::{self, NexusBdevError},
 };
@@ -138,7 +140,7 @@ impl CreateDestroy for Malloc {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if DummyBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.name.clone(),
             });
@@ -147,13 +149,14 @@ impl CreateDestroy for Malloc {
         let cname = self.name.clone().into_cstring();
 
         let errno = unsafe {
-            let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
+            let mut bdev: *mut spdk_bdev = std::ptr::null_mut();
             create_malloc_disk(
                 &mut bdev,
                 cname.as_ptr(),
                 std::ptr::null_mut(),
                 self.num_blocks,
                 self.blk_size,
+                0,
             )
         };
 
@@ -164,9 +167,9 @@ impl CreateDestroy for Malloc {
             });
         }
 
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = DummyBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.set_uuid(uuid.into()) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -186,13 +189,13 @@ impl CreateDestroy for Malloc {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = DummyBdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
 
             unsafe {
                 delete_malloc_disk(
-                    bdev.as_ptr(),
+                    bdev.legacy_as_ptr().as_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
                 );

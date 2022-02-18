@@ -1565,7 +1565,7 @@ dependencies = [
  "serde_yaml",
  "signal-hook",
  "snafu",
- "spdk-sys",
+ "spdk-rs",
  "structopt",
  "sysfs",
  "tokio",
@@ -2266,6 +2266,7 @@ dependencies = [
  "prost",
  "prost-build",
  "prost-derive",
+ "prost-types",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2572,6 +2573,14 @@ version = "1.0.0"
 dependencies = [
  "bindgen 0.59.1",
  "cc",
+ "futures",
+ "nix",
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "snafu",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

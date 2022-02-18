@@ -16,7 +16,7 @@ use std::{
 };
 
 use mayastor::delay;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_app_fini,
     spdk_app_opts,
     spdk_app_opts_init,
@@ -51,7 +51,7 @@ fn main() -> Result<(), std::io::Error> {
             null_mut(), // extra long options
             None,       // extra options parse callback
             None,       // usage
-        ) != spdk_sys::SPDK_APP_PARSE_ARGS_SUCCESS
+        ) != spdk_rs::libspdk::SPDK_APP_PARSE_ARGS_SUCCESS
         {
             return Err(Error::new(
                 ErrorKind::Other,

@@ -12,7 +12,7 @@ use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_json_write_ctx,
     spdk_json_write_val_raw,
     spdk_subsystem,
@@ -114,7 +114,7 @@ impl ConfigSubsystem {
 }
 
 /// Main config structure of Mayastor. This structure can be persisted to disk.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// location of the config file that we loaded
@@ -130,19 +130,6 @@ pub struct Config {
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            source: None,
-            nvmf_tcp_tgt_conf: Default::default(),
-            iscsi_tgt_conf: Default::default(),
-            nvme_bdev_opts: Default::default(),
-            bdev_opts: Default::default(),
-            nexus_opts: Default::default(),
-        }
-    }
 }
 
 impl Config {

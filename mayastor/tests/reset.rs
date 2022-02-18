@@ -1,4 +1,4 @@
-use mayastor::bdev::nexus_create;
+use mayastor::bdev::nexus::nexus_create;
 
 use mayastor::core::{BdevHandle, MayastorCliArgs};
 use rpc::mayastor::{BdevShareRequest, BdevUri};

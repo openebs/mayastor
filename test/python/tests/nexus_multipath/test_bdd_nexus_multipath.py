@@ -7,12 +7,26 @@ from common.fio import Fio
 from common.mayastor import container_mod, mayastor_mod
 
 import grpc
+import subprocess
 import mayastor_pb2 as pb
 from common.nvme import (
     nvme_connect,
     nvme_disconnect,
     nvme_list_subsystems,
+    nvme_disconnect_all,
+    nvme_disconnect_controller,
 )
+
+FIO_RUNTIME = 10
+
+
+@pytest.fixture(scope="module")
+def setup(container_mod):
+    nvme_disconnect_all()
+    yield
+    nvme_disconnect_all()
+    # Restart MS3 as it might be needed by other tests.
+    container_mod.get("ms3").start()
 
 
 @scenario(
@@ -20,6 +34,14 @@ from common.nvme import (
 )
 def test_running_io_against_ana_nvme_ctrlr():
     "Running IO against an ANA NVMe controller."
+
+
+@scenario(
+    "features/nexus-multipath.feature",
+    "replace failed I/O path on demand for NVMe controller",
+)
+def test_replace_failed_io_path_on_demand(setup):
+    """replace failed I/O path to NVMe controller on demand"""
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +78,10 @@ def create_nexus(
 
     yield dev
     nvme_disconnect(uri)
-    hdls["ms3"].nexus_destroy(NEXUS_NAME)
+    try:
+        hdls["ms3"].nexus_destroy(NEXUS_NAME)
+    except:
+        pass
 
 
 @pytest.fixture(scope="module")
@@ -253,3 +278,146 @@ def remote_instance():
 @pytest.fixture(scope="module")
 def nexus_instance():
     yield "ms1"
+
+
+@pytest.fixture(scope="module")
+def create_1_replica_connected_nexus(
+    mayastor_mod, nexus_name, nexus_uuid, create_replica, min_cntlid, resv_key
+):
+    """ Create a nexus on ms3 with one replica on ms1 """
+    hdls = mayastor_mod
+    replicas = [create_replica[0].uri]
+
+    NEXUS_UUID, size_mb = nexus_uuid
+    NEXUS_NAME = nexus_name
+
+    hdls["ms3"].nexus_create_v2(
+        NEXUS_NAME,
+        NEXUS_UUID,
+        size_mb,
+        min_cntlid,
+        min_cntlid + 9,
+        resv_key,
+        0,
+        replicas,
+    )
+    uri = hdls["ms3"].nexus_publish(NEXUS_NAME)
+    dev = nvme_connect(uri)
+
+    yield dev
+    nvme_disconnect(uri)
+    try:
+        hdls["ms3"].nexus_destroy(NEXUS_NAME)
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="module")
+def create_1_replica_disconnected_nexus(
+    mayastor_mod, nexus_name, nexus_uuid, create_replica, min_cntlid_2, resv_key
+):
+    """ Create a nexus on ms2 with one replica on ms1 """
+    hdls = mayastor_mod
+    replicas = [create_replica[0].uri]
+
+    NEXUS_UUID, size_mb = nexus_uuid
+    NEXUS_NAME = nexus_name
+
+    hdls["ms2"].nexus_create_v2(
+        NEXUS_NAME,
+        NEXUS_UUID,
+        size_mb,
+        min_cntlid_2,
+        min_cntlid_2 + 9,
+        resv_key,
+        0,
+        replicas,
+    )
+    uri = hdls["ms2"].nexus_publish(NEXUS_NAME)
+    yield uri
+    hdls["ms2"].nexus_destroy(NEXUS_NAME)
+
+
+@given(
+    "a client connected to one nexus via single I/O path",
+    target_fixture="a_client_connected_to_one_path_nexus",
+)
+def a_client_connected_to_one_path_nexus(create_1_replica_connected_nexus):
+    return create_1_replica_connected_nexus
+
+
+@given(
+    "fio client is running against target nexus",
+    target_fixture="run_fio_against_single_path_nexus",
+)
+def run_fio_against_single_path_nexus(a_client_connected_to_one_path_nexus):
+    dev = a_client_connected_to_one_path_nexus
+
+    desc = nvme_list_subsystems(dev)
+    assert (
+        len(desc["Subsystems"]) == 1
+    ), "Must be exactly one NVMe subsystem for target nexus"
+
+    subsystem = desc["Subsystems"][0]
+    assert len(subsystem["Paths"]) == 1, "Must be exactly one I/O path to target nexus"
+    assert subsystem["Paths"][0]["State"] == "live", "I/O path is not healthy"
+    # Launch fio in background and let it always run along with the test.
+    fio = Fio("job2", "randwrite", dev, runtime=FIO_RUNTIME).build()
+    return subprocess.Popen(fio, shell=True)
+
+
+@when("the only I/O path degrades")
+def degrade_single_io_path(container_mod, a_client_connected_to_one_path_nexus):
+    ms3 = container_mod.get("ms3")
+    ms3.stop()
+
+
+@then(
+    "it should be possible to create a second nexus and connect it as the second path"
+)
+def check_add_second_io_path(create_1_replica_disconnected_nexus):
+    # Connect the second nexus and check the paths.
+    nexus2_uri = create_1_replica_disconnected_nexus
+    dev = nvme_connect(nexus2_uri)
+    desc = nvme_list_subsystems(dev)
+    subsystem = desc["Subsystems"][0]
+    assert len(subsystem["Paths"]) == 2, "Second nexus must be added to I/O path"
+
+    good_path_checked = False
+    broken_path_checked = False
+    for p in subsystem["Paths"]:
+        if p["Name"] in dev:
+            assert p["State"] == "connecting", "Degraded I/O path has incorrect state"
+            broken_path_checked = True
+        else:
+            assert p["State"] == "live", "Healthy I/O path has incorrect state"
+            good_path_checked = True
+    assert good_path_checked, "No state reported for healthy I/O path"
+    assert broken_path_checked, "No state reported for broken I/O path"
+
+
+@then("it should be possible to remove the first failed I/O path")
+def check_remove_the_degraded_path(a_client_connected_to_one_path_nexus):
+    dev = a_client_connected_to_one_path_nexus
+    desc = nvme_list_subsystems(dev)
+    # Find the name of the failed controller and disconnect it.
+    broken_ctrlrs = [
+        p["Name"] for p in desc["Subsystems"][0]["Paths"] if p["State"] == "connecting"
+    ]
+    assert len(broken_ctrlrs) == 1, "No degraded paths reported"
+    nvme_disconnect_controller(broken_ctrlrs[0])
+
+    # Check that there is only 1 healthy path left.
+    desc = nvme_list_subsystems(dev)
+    subsystem = desc["Subsystems"][0]
+    assert len(subsystem["Paths"]) == 1, "Insufficient number of I/O paths reported"
+    assert subsystem["Paths"][0]["State"] == "live", "No healthy path reported"
+
+
+@then("fio client should successfully complete with the replaced I/O path")
+def check_fio_client_completion(run_fio_against_single_path_nexus):
+    try:
+        code = run_fio_against_single_path_nexus.wait(timeout=FIO_RUNTIME * 2)
+    except subprocess.TimeoutExpired:
+        assert False, "FIO timed out"
+    assert code == 0, "FIO failed, exit code: %d" % code

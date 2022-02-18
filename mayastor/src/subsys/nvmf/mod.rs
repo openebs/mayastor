@@ -15,7 +15,7 @@ use snafu::Snafu;
 
 pub use admin_cmd::{create_snapshot, set_snapshot_time, NvmeCpl, NvmfReq};
 use poll_groups::PollGroup;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_subsystem,
     spdk_subsystem_fini_next,
     spdk_subsystem_init_next,

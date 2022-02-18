@@ -4,8 +4,10 @@
 , e2fsprogs
 , lib
 , libaio
+, libbsd
 , libspdk
 , libspdk-dev
+, libpcap
 , libudev
 , liburing
 , makeRustPlatform
@@ -49,7 +51,7 @@ let
     "mbus-api"
     "nvmeadm"
     "rpc"
-    "spdk-sys"
+    "spdk-rs"
     "sysfs"
   ];
   buildProps = rec {
@@ -65,6 +67,8 @@ let
       llvmPackages_11.libclang
       protobuf
       libaio
+      libbsd
+      libpcap
       libudev
       liburing
       numactl
@@ -80,6 +84,17 @@ let
     };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
+    fixupPhase = ''
+      local ms_lib_path
+      local new_rpath
+      echo "fixing rpaths in mayastor binaries to point to $out/lib"
+      ms_lib_path=$(echo "$out/lib" | sed 's/\//\\\//g')
+      new_rpath=$(patchelf --print-rpath "$out/bin/mayastor" | sed -r 's/\/build\/mayastor(\/[^:]*)+/'"$ms_lib_path"'/')
+      patchelf \
+          --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+          --set-rpath "$new_rpath" \
+          "$out/bin/mayastor"
+    '';
   };
 in
 {
