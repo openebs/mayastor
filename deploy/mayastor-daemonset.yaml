@@ -38,9 +38,6 @@ spec:
         env:
         - name: RUST_LOG
           value: info,mayastor=info
-        - name: NVMF_TCP_MAX_QPAIRS_PER_CTRL
-          # Current recommendation is to set this value to be the number of cores provided to mayastor (see -l argument) plus 1.
-          value: "2"
         - name: NVMF_TCP_MAX_QUEUE_DEPTH
           value: "32"
         - name: MY_NODE_NAME
