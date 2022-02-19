@@ -19,10 +19,17 @@ csi:
     io_timeout_enabled: true
 
 nats:
-  cluster:
-    enabled: false
+  image: nats
+  tag: 2.7.2-alpine3.15
+
+  reloader:
+    image: natsio/nats-server-config-reloader
+    tag: 0.6.3
+
   exporter:
     enabled: false
+    image: natsio/prometheus-nats-exporter
+    tag: 0.9.1
 
   replicas: 3
 
