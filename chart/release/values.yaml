@@ -1,17 +1,3 @@
-nats:
-  cluster:
-    enabled: true
-    replicas: 3
-  exporter:
-    enabled: false
-  logging:
-    debug: false
-    trace: false
-
-etcd:
-  auth:
-    rbac:
-      enabled: false
-  replicaCount: 3
-
-mayastorLogLevel: info
+mayastorPools:
+  - node: "NODE_NAME"
+    device: "DEVICE"

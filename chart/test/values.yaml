@@ -1,7 +1,4 @@
 nats:
-  cluster:
-    enabled: true
-    replicas: 3
   exporter:
     enabled: true
   logging:
@@ -9,10 +6,6 @@ nats:
     trace: false
 
 etcd:
-  auth:
-    rbac:
-      enabled: false
-  replicaCount: 3
   persistence:
     enabled: false
 

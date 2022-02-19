@@ -17,12 +17,12 @@ data:
 
     http: 8222
 
-    {{- if .Values.nats.cluster.enabled }}
+    {{- if gt (.Values.nats.replicas | int) 1 }}
     cluster {
       port: 6222
 
       routes [
-        {{- range $index, $end := until (.Values.nats.cluster.replicas | int) }}
+        {{- range $index, $end := until (.Values.nats.replicas | int) }}
         {{ printf "nats://nats-%d.nats.%s.svc:6222" $index $.Release.Namespace }}
         {{- end }}
       ]
@@ -46,8 +46,10 @@ spec:
   ports:
   - name: client
     port: 4222
+  {{- if gt (.Values.nats.replicas | int) 1 }}
   - name: cluster
     port: 6222
+  {{- end }}
   - name: monitor
     port: 8222
   - name: metrics
@@ -64,11 +66,7 @@ spec:
   selector:
     matchLabels:
       app: nats
-  {{- if .Values.nats.cluster.enabled }}
-  replicas: {{ .Values.nats.cluster.replicas }}
-  {{- else }}
-  replicas: 1
-  {{- end }}
+  replicas: {{ .Values.nats.replicas }}
   serviceName: "nats"
   template:
     metadata:
@@ -106,8 +104,10 @@ spec:
         - containerPort: 4222
           name: client
           hostPort: 4222
+        {{- if gt (.Values.nats.replicas | int) 1 }}
         - containerPort: 6222
           name: cluster
+        {{- end }}
         - containerPort: 8222
           name: monitor
         - containerPort: 7777

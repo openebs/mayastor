@@ -1,11 +1,11 @@
 mayastorImagesTag: latest
 mayastorImagePullPolicy: Always
+mayastorLogLevel: info
 mayastorCpuCount: "1"
 mayastorHugePagesGiB: "1"
 mayastorImagesRegistry: ""
-mayastorPools:
-  - node: "NODE_NAME"
-    device: "DEVICE"
+mayastorPools: []
+
 # This option is intended for development yamls and motivated by the problem of
 # moac that does not update status of msp resource in some cases. Feel free to
 # remove when no longer needed.
@@ -23,14 +23,21 @@ nats:
     enabled: false
   exporter:
     enabled: false
+
+  replicas: 3
+
   logging:
     debug: false
     trace: false
 
 etcd:
+  auth:
+    rbac:
+      enabled: false
+
   ## Number of replicas
   ##
-  replicaCount: 1
+  replicaCount: 3
   ## Kubernetes Cluster Domain
   ##
   clusterDomain: cluster.local

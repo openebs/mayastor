@@ -1,6 +1,5 @@
 nats:
-  cluster:
-    enabled: false
+  replicas: 1
   exporter:
     enabled: false
   logging:
@@ -8,9 +7,6 @@ nats:
     trace: false
 
 etcd:
-  auth:
-    rbac:
-      enabled: false
   replicaCount: 1
 
 mayastorLogLevel: debug
