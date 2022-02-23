@@ -4,9 +4,11 @@ use url::{ParseError, Url};
 
 use crate::{
     error::NvmeError,
+    nvme_device::NvmeDevice,
     nvme_tree::{
         NvmeCtrlrIterator,
         NvmeHostIterator,
+        NvmeNamespaceInCtrlrIterator,
         NvmeNamespaceIterator,
         NvmeRoot,
         NvmeSubsystemIterator,
@@ -267,6 +269,69 @@ impl NvmeTarget {
             }
         }
         Ok(i)
+    }
+
+    fn get_device_from_ns(n: *mut crate::bindings::nvme_ns) -> NvmeDevice {
+        let lba = unsafe { crate::nvme_ns_get_lba_size(n) };
+        let nsze = unsafe { crate::nvme_ns_get_lba_count(n) } * lba as u64;
+        let nuse = unsafe { crate::nvme_ns_get_lba_util(n) } * lba as u64;
+
+        NvmeDevice {
+            namespace: unsafe { crate::nvme_ns_get_nsid(n) },
+            device: unsafe {
+                std::ffi::CStr::from_ptr(crate::nvme_ns_get_name(n))
+            }
+            .to_str()
+            .unwrap()
+            .to_string(),
+            firmware: unsafe {
+                std::ffi::CStr::from_ptr(crate::nvme_ns_get_firmware(n))
+            }
+            .to_str()
+            .unwrap()
+            .to_string(),
+            model: unsafe {
+                std::ffi::CStr::from_ptr(crate::nvme_ns_get_model(n))
+            }
+            .to_str()
+            .unwrap()
+            .to_string(),
+            serial: unsafe {
+                std::ffi::CStr::from_ptr(crate::nvme_ns_get_serial(n))
+            }
+            .to_str()
+            .unwrap()
+            .to_string(),
+            utilisation: nuse,
+            max_lba: unsafe { crate::nvme_ns_get_lba_count(n) },
+            capacity: nsze,
+            sector_size: lba as u32,
+        }
+    }
+
+    pub fn list() -> Vec<NvmeDevice> {
+        let r = NvmeRoot::new(unsafe { crate::nvme_scan(std::ptr::null()) });
+        let mut nvme_devices = Vec::<NvmeDevice>::new();
+        let hostiter = NvmeHostIterator::new(&r);
+        for host in hostiter {
+            let subsysiter = NvmeSubsystemIterator::new(host);
+            for subsys in subsysiter {
+                let nsiter = NvmeNamespaceIterator::new(subsys);
+                for ns in nsiter {
+                    let dev = NvmeTarget::get_device_from_ns(ns);
+                    nvme_devices.push(dev);
+                }
+                let ctrlriter = NvmeCtrlrIterator::new(subsys);
+                for c in ctrlriter {
+                    let nsiter = NvmeNamespaceInCtrlrIterator::new(c);
+                    for ns in nsiter {
+                        let dev = NvmeTarget::get_device_from_ns(ns);
+                        nvme_devices.push(dev);
+                    }
+                }
+            }
+        }
+        nvme_devices
     }
 }
 

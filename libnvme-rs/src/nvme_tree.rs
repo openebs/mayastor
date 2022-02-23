@@ -116,7 +116,7 @@ impl Iterator for NvmeCtrlrIterator {
     }
 }
 
-/// Iterator for nvme_ns_t
+/// Iterator for nvme_ns_t given nvme_subsystem
 pub(crate) struct NvmeNamespaceIterator {
     subsys: *mut crate::bindings::nvme_subsystem,
     ns: *mut crate::bindings::nvme_ns,
@@ -139,6 +139,38 @@ impl Iterator for NvmeNamespaceIterator {
             unsafe { crate::nvme_subsystem_first_ns(self.subsys) }
         } else {
             unsafe { crate::nvme_subsystem_next_ns(self.subsys, self.ns) }
+        };
+        if self.ns.is_null() {
+            None
+        } else {
+            Some(self.ns)
+        }
+    }
+}
+
+/// Iterator for nvme_ns_t given nvme_ctrl
+pub(crate) struct NvmeNamespaceInCtrlrIterator {
+    ctrlr: *mut crate::bindings::nvme_ctrl,
+    ns: *mut crate::bindings::nvme_ns,
+}
+
+impl NvmeNamespaceInCtrlrIterator {
+    pub(crate) fn new(ctrlr: *mut crate::bindings::nvme_ctrl) -> Self {
+        Self {
+            ctrlr,
+            ns: std::ptr::null_mut(),
+        }
+    }
+}
+
+impl Iterator for NvmeNamespaceInCtrlrIterator {
+    type Item = *mut crate::bindings::nvme_ns;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ns = if self.ns.is_null() {
+            unsafe { crate::nvme_ctrl_first_ns(self.ctrlr) }
+        } else {
+            unsafe { crate::nvme_ctrl_next_ns(self.ctrlr, self.ns) }
         };
         if self.ns.is_null() {
             None
