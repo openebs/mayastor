@@ -77,7 +77,7 @@ async fn add_child() {
     ms.spawn(async {
         let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus
-            .share(Protocol::Iscsi, None)
+            .share(Protocol::Nvmf, None)
             .await
             .expect("Failed to share nexus");
     })

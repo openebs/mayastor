@@ -28,7 +28,6 @@ mkShell {
     fio
     libaio
     libbsd
-    libiscsi
     libpcap
     libudev
     liburing

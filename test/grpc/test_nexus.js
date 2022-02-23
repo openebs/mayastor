@@ -32,8 +32,6 @@ const uringFile = '/tmp/uring-backend';
 const diskSize = 64 * 1024 * 1024;
 // external IP address detected by common lib
 const externIp = common.getMyIp();
-// port at which iscsi replicas are available
-const iscsiReplicaPort = '3261';
 
 // The config just for nvmf target which cannot run in the same process as
 // the nvmf initiator (SPDK limitation).
@@ -41,13 +39,8 @@ const configNvmfTarget = `
 nexus_opts:
   nvmf_nexus_port: 4422
   nvmf_replica_port: 8420
-  iscsi_enable: false
 nvmf_tcp_tgt_conf:
   max_namespaces: 2
-# although not used we still have to reduce mem requirements for iSCSI
-iscsi_tgt_conf:
-  max_sessions: 1
-  max_connections_per_session: 1
 `;
 
 let client;
@@ -89,7 +82,7 @@ function controlPlaneTest (thisProtocol) {
   });
 
   it('should fail another publish request using a different protocol', (done) => {
-    const differentProtocol = (thisProtocol === enums.NEXUS_NBD ? enums.NEXUS_ISCSI : enums.NEXUS_NBD);
+    const differentProtocol = (thisProtocol === enums.NEXUS_NBD ? enums.NEXUS_NVMF : enums.NEXUS_NBD);
     client.publishNexus(
       {
         uuid: UUID,
@@ -487,7 +480,6 @@ describe('nexus', function () {
       uuid: UUID2,
       size: 131072,
       children: [
-        `iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.spdk:disk2`,
         'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk3'
       ]
     };
@@ -550,47 +542,6 @@ describe('nexus', function () {
       });
     });
   }); // End describe('nbd datapath')
-
-  describe('iscsi control', function () {
-    controlPlaneTest(enums.NEXUS_ISCSI);
-  }); // End describe('iscsi control')
-
-  describe('iscsi datapath', function () {
-    let uri;
-
-    it('should publish the nexus', (done) => {
-      client.publishNexus(
-        {
-          uuid: UUID,
-          share: enums.NEXUS_ISCSI
-        },
-        (err, res) => {
-          if (err) done(err);
-          assert(res.device_uri);
-          uri = res.device_uri;
-          done();
-        }
-      );
-    });
-
-    it('should send io to the iscsi nexus device', (done) => {
-      // runs the perf test for 1 second
-      exec('iscsi-perf -t 1 ' + uri, (err, stdout, stderr) => {
-        if (err) {
-          done(stderr);
-        } else {
-          done();
-        }
-      });
-    });
-
-    it('should un-publish the iscsi nexus device', (done) => {
-      client.unpublishNexus({ uuid: UUID }, (err, res) => {
-        if (err) done(err);
-        done();
-      });
-    });
-  }); // End describe('iscsi datapath')
 
   describe('nvmf control', function () {
     controlPlaneTest(enums.NEXUS_NVMF);
@@ -872,18 +823,6 @@ describe('nexus', function () {
       }
     });
 
-    it('should create, publish, un-publish and finally destroy the same iSCSI nexus', async () => {
-      for (let i = 0; i < 10; i++) {
-        await createNexus(createArgs);
-        await publish({
-          uuid: UUID,
-          share: enums.NEXUS_ISCSI
-        });
-        await unpublish({ uuid: UUID });
-        await destroyNexus({ uuid: UUID });
-      }
-    });
-
     it('should have zero nexus devices left', (done) => {
       client.listNexus({}, (err, res) => {
         if (err) return done(err);
@@ -898,17 +837,6 @@ describe('nexus', function () {
         await publish({
           uuid: UUID,
           share: enums.NEXUS_NBD
-        });
-        await destroyNexus({ uuid: UUID });
-      }
-    });
-
-    it('should create, publish, and destroy but without un-publishing the same nexus, with iSCSI protocol', async () => {
-      for (let i = 0; i < 10; i++) {
-        await createNexus(createArgs);
-        await publish({
-          uuid: UUID,
-          share: enums.NEXUS_ISCSI
         });
         await destroyNexus({ uuid: UUID });
       }
@@ -953,7 +881,7 @@ describe('nexus', function () {
         if (err) return done(err);
         const bdevs = JSON.parse(out);
         const match = `127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}n1`;
-        var i;
+        let i;
         for (i in bdevs) {
           if (bdevs[i].name === match) {
             return done();

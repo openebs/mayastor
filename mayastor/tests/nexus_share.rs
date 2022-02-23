@@ -23,7 +23,7 @@ async fn nexus_share_test() {
 
     MayastorTest::new(args)
         .spawn(async {
-            // create a nexus and share it via iSCSI
+            // create a nexus and share it via nvmf
             Reactor::block_on(async {
                 nexus_create(
                     "nexus0",
@@ -40,41 +40,18 @@ async fn nexus_share_test() {
                 let mut nexus = nexus_lookup_mut("nexus0").unwrap();
 
                 // this should be idempotent so validate that sharing the
-                // same thing over the same protocol
-                // works
-                let share = nexus.as_mut().share_iscsi().await.unwrap();
-                let share2 = nexus.as_mut().share_iscsi().await.unwrap();
+                // same thing over the same protocol works
+                let share = nexus.as_mut().share_nvmf(None).await.unwrap();
+                let share2 = nexus.as_mut().share_nvmf(None).await.unwrap();
                 assert_eq!(share, share2);
-                assert_eq!(nexus.shared(), Some(Protocol::Iscsi));
-            });
-
-            // sharing the nexus over nvmf should fail
-            Reactor::block_on(async {
-                let mut nexus = nexus_lookup_mut("nexus0").unwrap();
-                assert!(nexus.as_mut().share_nvmf(None).await.is_err());
-                assert_eq!(nexus.as_mut().shared(), Some(Protocol::Iscsi));
-            });
-
-            // unshare the nexus and then share over nvmf
-            Reactor::block_on(async {
-                let mut nexus = nexus_lookup_mut("nexus0").unwrap();
-                nexus.as_mut().unshare().await.unwrap();
-                let shared = nexus.shared();
-                assert_eq!(shared, Some(Protocol::Off));
-
-                let shared = nexus.as_mut().share_nvmf(None).await.unwrap();
-                let shared2 = nexus.as_mut().share_nvmf(None).await.unwrap();
-
-                assert_eq!(shared, shared2);
                 assert_eq!(nexus.shared(), Some(Protocol::Nvmf));
             });
 
-            // sharing the bdev directly, over iSCSI or nvmf should result
+            // sharing the bdev directly, over nvmf should result
             // in an error
             Reactor::block_on(async {
                 let mut bdev = UntypedBdev::lookup_by_name("nexus0").unwrap();
                 let mut bdev = Pin::new(&mut bdev);
-                assert!(bdev.as_mut().share_iscsi().await.is_err());
                 assert!(bdev.as_mut().share_nvmf(None).await.is_err());
             });
 

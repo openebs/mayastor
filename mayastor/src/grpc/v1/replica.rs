@@ -1,5 +1,5 @@
 use crate::{
-    core::{Bdev, CoreError, Protocol, Share, UntypedBdev},
+    core::{Bdev, Protocol, Share, UntypedBdev},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, Lvs},
     nexus_uri::NexusBdevError,
@@ -274,14 +274,6 @@ impl ReplicaRpc for ReplicaService {
                                     Pin::new(&mut lvol)
                                         .share_nvmf(None)
                                         .await?;
-                                }
-                                Protocol::Iscsi => {
-                                    return Err(LvsError::LvolShare {
-                                        source: CoreError::NotSupported {
-                                            source: Errno::ENOSYS,
-                                        },
-                                        name: args.uuid,
-                                    });
                                 }
                             }
 

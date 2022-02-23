@@ -750,9 +750,8 @@ impl<'c> NexusChild<'c> {
     pub fn is_local(&self) -> Option<bool> {
         match &self.device {
             Some(dev) => {
-                // A local child is not exported over nvme or iscsi.
-                let local =
-                    dev.driver_name() != "nvme" && dev.driver_name() != "iscsi";
+                // A local child is not exported over nvme.
+                let local = dev.driver_name() != "nvme";
                 Some(local)
             }
             None => None,

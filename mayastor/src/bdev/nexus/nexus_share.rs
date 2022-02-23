@@ -7,7 +7,6 @@ use super::{
     NbdDisk,
     Nexus,
     NexusTarget,
-    ShareIscsiNexus,
     ShareNbdNexus,
     ShareNvmfNexus,
     UnshareNexus,
@@ -21,39 +20,13 @@ use crate::core::{Bdev, Protocol, Share};
 /// the Impl of ['Share'] handles this accordingly
 ///
 /// The nexus and replicas are typically shared over different
-/// endpoints (not targets) however, we want to avoid too much
-/// iSCSI specifics and for bdevs the need for different endpoints
+/// endpoints (not targets) however, we want to avoid too many
+/// protocol specifics and for bdevs the need for different endpoints
 /// is not implemented yet as the need for it has not arrived yet.
 impl<'n> Share for Nexus<'n> {
     type Error = Error;
     type Output = String;
 
-    /// TODO
-    async fn share_iscsi(
-        mut self: Pin<&mut Self>,
-    ) -> Result<Self::Output, Self::Error> {
-        match self.shared() {
-            Some(Protocol::Off) | None => {
-                self.as_mut()
-                    .pinned_bdev_mut()
-                    .share_iscsi()
-                    .await
-                    .context(ShareIscsiNexus {
-                        name: self.name.clone(),
-                    })?;
-            }
-            Some(Protocol::Iscsi) => {}
-            Some(protocol) => {
-                error!("nexus {} already shared as {:?}", self.name, protocol);
-                return Err(Error::AlreadyShared {
-                    name: self.name.clone(),
-                });
-            }
-        }
-        Ok(self.share_uri().unwrap())
-    }
-
-    /// TODO
     async fn share_nvmf(
         mut self: Pin<&mut Self>,
         cntlid_range: Option<(u16, u16)>,
@@ -70,12 +43,6 @@ impl<'n> Share for Nexus<'n> {
                     })?;
             }
             Some(Protocol::Nvmf) => {}
-            Some(protocol) => {
-                warn!("nexus {} already shared as {}", self.name, protocol);
-                return Err(Error::AlreadyShared {
-                    name: self.name.clone(),
-                });
-            }
         }
         Ok(self.share_uri().unwrap())
     }
@@ -117,7 +84,6 @@ impl<'n> Share for Nexus<'n> {
 impl From<&NexusTarget> for Protocol {
     fn from(target: &NexusTarget) -> Protocol {
         match target {
-            NexusTarget::NexusIscsiTarget => Protocol::Iscsi,
             NexusTarget::NexusNvmfTarget => Protocol::Nvmf,
             _ => Protocol::Off,
         }
@@ -168,14 +134,6 @@ impl<'n> Nexus<'n> {
                 }
                 Ok(uri)
             }
-            Protocol::Iscsi => {
-                let uri = self.as_mut().share_iscsi().await?;
-                unsafe {
-                    self.as_mut().get_unchecked_mut().nexus_target =
-                        Some(NexusTarget::NexusIscsiTarget);
-                }
-                Ok(uri)
-            }
             Protocol::Nvmf => {
                 let args = Some((
                     self.nvme_params.min_cntlid,
@@ -198,9 +156,6 @@ impl<'n> Nexus<'n> {
             match self.as_mut().get_unchecked_mut().nexus_target.take() {
                 Some(NexusTarget::NbdDisk(disk)) => {
                     disk.destroy();
-                }
-                Some(NexusTarget::NexusIscsiTarget) => {
-                    self.as_mut().unshare().await?;
                 }
                 Some(NexusTarget::NexusNvmfTarget) => {
                     self.as_mut().unshare().await?;
@@ -228,7 +183,6 @@ impl<'n> Nexus<'n> {
     pub fn get_share_uri(&self) -> Option<String> {
         match self.nexus_target {
             Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.as_uri()),
-            Some(NexusTarget::NexusIscsiTarget) => self.share_uri(),
             Some(NexusTarget::NexusNvmfTarget) => self.share_uri(),
             None => None,
         }

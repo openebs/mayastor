@@ -17,14 +17,12 @@ use crate::{
         BlockDeviceIoStats,
         CoreError,
         Descriptor,
-        ShareIscsi,
         ShareNvmf,
-        UnshareIscsi,
         UnshareNvmf,
     },
     nexus_uri::bdev_uri_eq,
     subsys::NvmfSubsystem,
-    target::{iscsi, nvmf, Side},
+    target::nvmf,
 };
 
 /// Newtype structure that represents a block device. The soundness of the API
@@ -181,16 +179,6 @@ where
     type Error = CoreError;
     type Output = String;
 
-    /// share the bdev over iscsi
-    async fn share_iscsi(
-        self: Pin<&mut Self>,
-    ) -> Result<Self::Output, Self::Error> {
-        let name = self.name().to_string();
-        let me = unsafe { self.get_unchecked_mut() };
-
-        iscsi::share(&name, me, Side::Nexus).context(ShareIscsi {})
-    }
-
     /// share the bdev over NVMe-OF TCP
     async fn share_nvmf(
         self: Pin<&mut Self>,
@@ -219,9 +207,6 @@ where
                     subsystem.destroy();
                 }
             }
-            Some(Protocol::Iscsi) => {
-                iscsi::unshare(self.name()).await.context(UnshareIscsi {})?;
-            }
             Some(Protocol::Off) | None => {}
         }
 
@@ -233,17 +218,14 @@ where
     fn shared(&self) -> Option<Protocol> {
         match self.claimed_by() {
             Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
-            Some(t) if t == "iSCSI Target" => Some(Protocol::Iscsi),
             _ => Some(Protocol::Off),
         }
     }
 
-    /// return share URI for nvmf and iscsi (does "share path" not sound
-    /// better?)
+    /// return share URI for nvmf (does "share path" not sound better?)
     fn share_uri(&self) -> Option<String> {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(self.name()),
-            Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, self.name()),
             _ => Some(format!("bdev:///{}", self.name())),
         }
     }

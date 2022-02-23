@@ -148,7 +148,7 @@ def io_timeout():
     yield "33"
 
 
-@pytest.fixture(params=["nvmf", "iscsi"])
+@pytest.fixture(params=["nvmf"])
 def share_type(request):
     import mayastor_pb2
 

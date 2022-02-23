@@ -366,7 +366,7 @@ def attempt_to_share_replica_with_different_protocol(
         mayastor_instance.replica_rpc.ShareReplica(
             replica_pb.ShareReplicaRequest(uuid=replica.uuid, share=share)
         )
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
 @when("the user shares the replica with the same protocol")
@@ -387,7 +387,7 @@ def attempt_to_share_replica_over_iscsi(mayastor_instance, replica_uuid):
                 uuid=replica_uuid, share=share_protocol("iscsi")
             )
         )
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
 @when(
