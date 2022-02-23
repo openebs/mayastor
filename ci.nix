@@ -34,6 +34,7 @@ mkShell {
     kubernetes-helm
     libaio
     libbsd
+    libnvme
     libpcap
     libudev
     liburing
