@@ -808,6 +808,15 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
+
+                // If the control plane has supplied a key, use it to store the
+                // NexusInfo.
+                let nexus_info_key = if args.nexus_info_key.is_empty() {
+                    None
+                } else {
+                    Some(args.nexus_info_key.to_string())
+                };
+
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus::nexus_create_v2(
                         &args.name,
@@ -823,6 +832,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             },
                         },
                         &args.children,
+                        nexus_info_key,
                     )
                     .await?;
                     let nexus = nexus_lookup(&args.name)?;

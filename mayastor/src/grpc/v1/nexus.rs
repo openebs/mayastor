@@ -237,6 +237,14 @@ impl NexusRpc for NexusService {
                         });
                     }
 
+                    // If the control plane has supplied a key, use it to store
+                    // the NexusInfo.
+                    let nexus_info_key = if args.nexus_info_key.is_empty() {
+                        None
+                    } else {
+                        Some(args.nexus_info_key.to_string())
+                    };
+
                     nexus::nexus_create_v2(
                         &args.name,
                         args.size,
@@ -251,6 +259,7 @@ impl NexusRpc for NexusService {
                             },
                         },
                         &args.children,
+                        nexus_info_key,
                     )
                     .await?;
                     let nexus = nexus_lookup(&args.uuid)?;

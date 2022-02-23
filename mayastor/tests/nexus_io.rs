@@ -401,6 +401,7 @@ async fn nexus_io_resv_acquire() {
                 UUID,
                 nvme_params,
                 &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
+                None,
             )
             .await
             .unwrap();
@@ -461,6 +462,7 @@ async fn nexus_io_resv_acquire() {
             preempt_key: 0,
             children: [format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)]
                 .to_vec(),
+            nexus_info_key: "".to_string(),
         })
         .await
         .unwrap();
