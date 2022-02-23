@@ -9,7 +9,7 @@ use spdk_rs::libspdk::{create_uring_bdev, delete_uring_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
 };
@@ -79,7 +79,7 @@ impl CreateDestroy for Uring {
 
     /// Create a uring bdev
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.get_name(),
             });
@@ -87,14 +87,18 @@ impl CreateDestroy for Uring {
 
         let cname = CString::new(self.get_name()).unwrap();
 
-        if let Some(mut bdev) = Bdev::from_ptr(unsafe {
-            create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
-        }) {
+        if let Some(mut bdev) = unsafe {
+            UntypedBdev::checked_from_ptr(create_uring_bdev(
+                cname.as_ptr(),
+                cname.as_ptr(),
+                self.blk_size,
+            ))
+        } {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.as_mut().set_uuid(uuid.into()) };
+                unsafe { bdev.set_raw_uuid(uuid.into()) };
             }
 
-            if !bdev.as_mut().add_alias(&self.alias) {
+            if !bdev.add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -112,13 +116,13 @@ impl CreateDestroy for Uring {
 
     /// Destroy the given uring bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        match Bdev::lookup_by_name(&self.name) {
+        match UntypedBdev::lookup_by_name(&self.name) {
             Some(mut bdev) => {
-                bdev.as_mut().remove_alias(&self.alias);
+                bdev.remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     delete_uring_bdev(
-                        bdev.as_ptr(),
+                        bdev.unsafe_inner_mut_ptr(),
                         Some(done_errno_cb),
                         cb_arg(sender),
                     );

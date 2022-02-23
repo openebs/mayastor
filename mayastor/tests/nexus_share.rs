@@ -2,13 +2,14 @@ use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
         mayastor_env_stop,
-        Bdev,
         MayastorCliArgs,
         Protocol,
         Reactor,
         Share,
+        UntypedBdev,
     },
 };
+use std::pin::Pin;
 
 pub mod common;
 use common::MayastorTest;
@@ -36,33 +37,33 @@ async fn nexus_share_test() {
                 .await
                 .unwrap();
 
-                let nexus = nexus_lookup_mut("nexus0").unwrap();
+                let mut nexus = nexus_lookup_mut("nexus0").unwrap();
 
                 // this should be idempotent so validate that sharing the
                 // same thing over the same protocol
                 // works
-                let share = nexus.share_iscsi().await.unwrap();
-                let share2 = nexus.share_iscsi().await.unwrap();
+                let share = nexus.as_mut().share_iscsi().await.unwrap();
+                let share2 = nexus.as_mut().share_iscsi().await.unwrap();
                 assert_eq!(share, share2);
                 assert_eq!(nexus.shared(), Some(Protocol::Iscsi));
             });
 
             // sharing the nexus over nvmf should fail
             Reactor::block_on(async {
-                let nexus = nexus_lookup_mut("nexus0").unwrap();
-                assert!(nexus.share_nvmf(None).await.is_err());
-                assert_eq!(nexus.shared(), Some(Protocol::Iscsi));
+                let mut nexus = nexus_lookup_mut("nexus0").unwrap();
+                assert!(nexus.as_mut().share_nvmf(None).await.is_err());
+                assert_eq!(nexus.as_mut().shared(), Some(Protocol::Iscsi));
             });
 
             // unshare the nexus and then share over nvmf
             Reactor::block_on(async {
-                let nexus = nexus_lookup_mut("nexus0").unwrap();
-                nexus.unshare().await.unwrap();
+                let mut nexus = nexus_lookup_mut("nexus0").unwrap();
+                nexus.as_mut().unshare().await.unwrap();
                 let shared = nexus.shared();
                 assert_eq!(shared, Some(Protocol::Off));
 
-                let shared = nexus.share_nvmf(None).await.unwrap();
-                let shared2 = nexus.share_nvmf(None).await.unwrap();
+                let shared = nexus.as_mut().share_nvmf(None).await.unwrap();
+                let shared2 = nexus.as_mut().share_nvmf(None).await.unwrap();
 
                 assert_eq!(shared, shared2);
                 assert_eq!(nexus.shared(), Some(Protocol::Nvmf));
@@ -71,9 +72,10 @@ async fn nexus_share_test() {
             // sharing the bdev directly, over iSCSI or nvmf should result
             // in an error
             Reactor::block_on(async {
-                let bdev = Bdev::lookup_by_name("nexus0").unwrap();
-                assert!(bdev.share_iscsi().await.is_err());
-                assert!(bdev.share_nvmf(None).await.is_err());
+                let mut bdev = UntypedBdev::lookup_by_name("nexus0").unwrap();
+                let mut bdev = Pin::new(&mut bdev);
+                assert!(bdev.as_mut().share_iscsi().await.is_err());
+                assert!(bdev.as_mut().share_nvmf(None).await.is_err());
             });
 
             // unshare the nexus
@@ -85,7 +87,7 @@ async fn nexus_share_test() {
             Reactor::block_on(async {
                 let nexus = nexus_lookup_mut("nexus0").unwrap();
                 assert_eq!(nexus.shared(), Some(Protocol::Off));
-                let bdev = Bdev::lookup_by_name("nexus0").unwrap();
+                let bdev = UntypedBdev::lookup_by_name("nexus0").unwrap();
                 assert_eq!(bdev.shared(), Some(Protocol::Off));
                 nexus.destroy().await.unwrap();
             });

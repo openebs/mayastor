@@ -13,7 +13,7 @@ use url::Url;
 
 use spdk_rs::{
     libspdk::{create_malloc_disk, delete_malloc_disk, spdk_bdev},
-    DummyBdev,
+    UntypedBdev,
 };
 
 use crate::{
@@ -140,7 +140,7 @@ impl CreateDestroy for Malloc {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if DummyBdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.name.clone(),
             });
@@ -167,9 +167,9 @@ impl CreateDestroy for Malloc {
             });
         }
 
-        if let Some(mut bdev) = DummyBdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.set_uuid(uuid.into()) };
+                unsafe { bdev.set_raw_uuid(uuid.into()) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -189,13 +189,13 @@ impl CreateDestroy for Malloc {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(mut bdev) = DummyBdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
 
             unsafe {
                 delete_malloc_disk(
-                    bdev.legacy_as_ptr().as_ptr(),
+                    bdev.unsafe_inner_mut_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
                 );

@@ -1,7 +1,7 @@
 use common::{compose::Builder, MayastorTest};
 use mayastor::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
-    core::{Bdev, MayastorCliArgs, Protocol},
+    core::{MayastorCliArgs, Protocol, UntypedBdev},
     nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };
@@ -75,7 +75,8 @@ async fn replica_stop_cont() {
                 .await
                 .expect("should publish nexus over nvmf");
             assert!(
-                Bdev::lookup_by_name(&bdev_get_name(&c).unwrap()).is_some(),
+                UntypedBdev::lookup_by_name(&bdev_get_name(&c).unwrap())
+                    .is_some(),
                 "child bdev must exist"
             );
         })
@@ -124,7 +125,8 @@ async fn replica_stop_cont() {
     mayastor
         .spawn(async move {
             assert!(
-                Bdev::lookup_by_name(&bdev_get_name(&c).unwrap()).is_none(),
+                UntypedBdev::lookup_by_name(&bdev_get_name(&c).unwrap())
+                    .is_none(),
                 "child bdev must be destroyed"
             );
             let nx = nexus_lookup_mut(NXNAME).unwrap();

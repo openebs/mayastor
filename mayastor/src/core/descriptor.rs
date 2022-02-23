@@ -18,7 +18,14 @@ use spdk_rs::{
 
 use crate::{
     bdev::nexus::NEXUS_MODULE_NAME,
-    core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
+    core::{
+        channel::IoChannel,
+        Bdev,
+        BdevHandle,
+        CoreError,
+        Mthread,
+        UntypedBdev,
+    },
 };
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
@@ -89,7 +96,7 @@ impl Descriptor {
 
     /// Return the bdev associated with this descriptor, a descriptor cannot
     /// exist without a bdev
-    pub fn get_bdev(&self) -> Bdev {
+    pub fn get_bdev(&self) -> UntypedBdev {
         Bdev::new(self.0.bdev())
     }
 

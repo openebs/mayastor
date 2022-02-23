@@ -1,6 +1,6 @@
 use common::MayastorTest;
 use mayastor::{
-    core::{Bdev, MayastorCliArgs},
+    core::{MayastorCliArgs, UntypedBdev},
     nexus_uri::{bdev_create, bdev_destroy},
 };
 use spdk_rs::DmaBuf;
@@ -24,8 +24,8 @@ async fn malloc_bdev() {
     .await;
 
     ms.spawn(async {
-        let m0 = Bdev::open_by_name("malloc0", true).unwrap();
-        let m1 = Bdev::open_by_name("malloc1", true).unwrap();
+        let m0 = UntypedBdev::open_by_name("malloc0", true).unwrap();
+        let m1 = UntypedBdev::open_by_name("malloc1", true).unwrap();
 
         assert_eq!(
             m0.get_bdev().size_in_bytes(),

@@ -18,12 +18,12 @@ use spdk_rs::{
 use crate::{
     bdev::{device_open, nexus::VerboseError},
     core::{
-        Bdev,
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
         RangeContext,
         Reactors,
+        UntypedBdev,
     },
     nexus_uri::bdev_get_name,
 };
@@ -184,8 +184,8 @@ impl RebuildJob {
             nexus.to_string(),
         );
 
-        let nexus_descriptor =
-            Bdev::open_by_name(&nexus, false).context(BdevNotFound {
+        let nexus_descriptor = UntypedBdev::open_by_name(&nexus, false)
+            .context(BdevNotFound {
                 bdev: nexus.to_string(),
             })?;
 

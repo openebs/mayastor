@@ -13,7 +13,7 @@ use super::{
     UnshareNexus,
 };
 
-use crate::core::{Protocol, Share};
+use crate::core::{Bdev, Protocol, Share};
 
 #[async_trait(? Send)]
 ///
@@ -28,13 +28,20 @@ impl<'n> Share for Nexus<'n> {
     type Error = Error;
     type Output = String;
 
-    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
+    /// TODO
+    async fn share_iscsi(
+        mut self: Pin<&mut Self>,
+    ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
-            Some(Protocol::Off) | None => unsafe {
-                self.bdev().share_iscsi().await.context(ShareIscsiNexus {
-                    name: self.name.clone(),
-                })?;
-            },
+            Some(Protocol::Off) | None => {
+                self.as_mut()
+                    .pinned_bdev_mut()
+                    .share_iscsi()
+                    .await
+                    .context(ShareIscsiNexus {
+                        name: self.name.clone(),
+                    })?;
+            }
             Some(Protocol::Iscsi) => {}
             Some(protocol) => {
                 error!("nexus {} already shared as {:?}", self.name, protocol);
@@ -46,18 +53,22 @@ impl<'n> Share for Nexus<'n> {
         Ok(self.share_uri().unwrap())
     }
 
+    /// TODO
     async fn share_nvmf(
-        &self,
+        mut self: Pin<&mut Self>,
         cntlid_range: Option<(u16, u16)>,
     ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
-            Some(Protocol::Off) | None => unsafe {
-                self.bdev().share_nvmf(cntlid_range).await.context(
-                    ShareNvmfNexus {
-                        name: self.name.clone(),
-                    },
-                )?;
-            },
+            Some(Protocol::Off) | None => {
+                let name = self.name.clone();
+                self.as_mut()
+                    .pinned_bdev_mut()
+                    .share_nvmf(cntlid_range)
+                    .await
+                    .context(ShareNvmfNexus {
+                        name,
+                    })?;
+            }
             Some(Protocol::Nvmf) => {}
             Some(protocol) => {
                 warn!("nexus {} already shared as {}", self.name, protocol);
@@ -69,26 +80,35 @@ impl<'n> Share for Nexus<'n> {
         Ok(self.share_uri().unwrap())
     }
 
-    async fn unshare(&self) -> Result<Self::Output, Self::Error> {
-        unsafe {
-            self.bdev().unshare().await.context(UnshareNexus {
-                name: self.name.clone(),
+    /// TODO
+    async fn unshare(
+        self: Pin<&mut Self>,
+    ) -> Result<Self::Output, Self::Error> {
+        let name = self.name.clone();
+        self.pinned_bdev_mut()
+            .unshare()
+            .await
+            .context(UnshareNexus {
+                name,
             })
-        }
     }
 
+    /// TODO
     fn shared(&self) -> Option<Protocol> {
         unsafe { self.bdev().shared() }
     }
 
+    /// TODO
     fn share_uri(&self) -> Option<String> {
         unsafe { self.bdev().share_uri() }
     }
 
+    /// TODO
     fn bdev_uri(&self) -> Option<String> {
         unsafe { self.bdev().bdev_uri() }
     }
 
+    /// TODO
     fn bdev_uri_original(&self) -> Option<String> {
         unsafe { self.bdev().bdev_uri_original() }
     }
@@ -105,6 +125,12 @@ impl From<&NexusTarget> for Protocol {
 }
 
 impl<'n> Nexus<'n> {
+    /// Returns a pinned Bdev reference for share API.
+    fn pinned_bdev_mut(self: Pin<&mut Self>) -> Pin<&mut Bdev<Self>> {
+        unsafe { Pin::new_unchecked(self.bdev_mut()) }
+    }
+
+    /// TODO
     pub async fn share(
         mut self: Pin<&mut Self>,
         protocol: Protocol,
@@ -143,7 +169,7 @@ impl<'n> Nexus<'n> {
                 Ok(uri)
             }
             Protocol::Iscsi => {
-                let uri = self.share_iscsi().await?;
+                let uri = self.as_mut().share_iscsi().await?;
                 unsafe {
                     self.as_mut().get_unchecked_mut().nexus_target =
                         Some(NexusTarget::NexusIscsiTarget);
@@ -151,12 +177,11 @@ impl<'n> Nexus<'n> {
                 Ok(uri)
             }
             Protocol::Nvmf => {
-                let uri = self
-                    .share_nvmf(Some((
-                        self.nvme_params.min_cntlid,
-                        self.nvme_params.max_cntlid,
-                    )))
-                    .await?;
+                let args = Some((
+                    self.nvme_params.min_cntlid,
+                    self.nvme_params.max_cntlid,
+                ));
+                let uri = self.as_mut().share_nvmf(args).await?;
 
                 unsafe {
                     self.as_mut().get_unchecked_mut().nexus_target =
@@ -167,6 +192,7 @@ impl<'n> Nexus<'n> {
         }
     }
 
+    /// TODO
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
         unsafe {
             match self.as_mut().get_unchecked_mut().nexus_target.take() {
@@ -174,10 +200,10 @@ impl<'n> Nexus<'n> {
                     disk.destroy();
                 }
                 Some(NexusTarget::NexusIscsiTarget) => {
-                    self.unshare().await?;
+                    self.as_mut().unshare().await?;
                 }
                 Some(NexusTarget::NexusNvmfTarget) => {
-                    self.unshare().await?;
+                    self.as_mut().unshare().await?;
                 }
                 None => {
                     warn!("{} was not shared", self.name);
@@ -188,6 +214,17 @@ impl<'n> Nexus<'n> {
         Ok(())
     }
 
+    /// Shutdowns all shares.
+    pub(crate) async fn destroy_shares(mut self: Pin<&mut Self>) {
+        let _ = self.as_mut().unshare_nexus().await;
+        assert_eq!(self.share_handle, None);
+
+        // no-op when not shared and will be removed once the old share bits are
+        // gone
+        self.as_mut().unshare().await.unwrap();
+    }
+
+    /// TODO
     pub fn get_share_uri(&self) -> Option<String> {
         match self.nexus_target {
             Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.as_uri()),

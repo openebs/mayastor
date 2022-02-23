@@ -1,7 +1,7 @@
 use crate::lvs::Error;
 use async_trait::async_trait;
 use pin_utils::core_reexport::fmt::Formatter;
-use std::{convert::TryFrom, fmt::Display};
+use std::{convert::TryFrom, fmt::Display, pin::Pin};
 
 #[derive(Debug, PartialOrd, PartialEq)]
 /// Indicates what protocol the bdev is shared as
@@ -46,14 +46,31 @@ impl Display for Protocol {
 pub trait Share: std::fmt::Debug {
     type Error;
     type Output: std::fmt::Display + std::fmt::Debug;
-    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error>;
+
+    /// TODO
+    async fn share_iscsi(
+        self: Pin<&mut Self>,
+    ) -> Result<Self::Output, Self::Error>;
+
+    /// TODO
     async fn share_nvmf(
-        &self,
+        self: Pin<&mut Self>,
         cntlid_range: Option<(u16, u16)>,
     ) -> Result<Self::Output, Self::Error>;
-    async fn unshare(&self) -> Result<Self::Output, Self::Error>;
+
+    /// TODO
+    async fn unshare(self: Pin<&mut Self>)
+        -> Result<Self::Output, Self::Error>;
+
+    /// TODO
     fn shared(&self) -> Option<Protocol>;
+
+    /// TODO
     fn share_uri(&self) -> Option<String>;
+
+    /// TODO
     fn bdev_uri(&self) -> Option<String>;
+
+    /// TODO
     fn bdev_uri_original(&self) -> Option<String>;
 }

@@ -11,12 +11,12 @@
 use crate::{
     bdev::{nexus, NvmeControllerState as ControllerState},
     core::{
-        Bdev,
         BlockDeviceIoStats,
         CoreError,
         MayastorFeatures,
         Protocol,
         Share,
+        UntypedBdev,
     },
     grpc::{
         controller_grpc::{
@@ -54,7 +54,7 @@ struct UnixStream(tokio::net::UnixStream);
 
 use ::function_name::named;
 use git_version::git_version;
-use std::panic::AssertUnwindSafe;
+use std::{panic::AssertUnwindSafe, pin::Pin};
 
 impl GrpcClientContext {
     #[track_caller]
@@ -452,7 +452,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 });
             }
 
-            if let Some(b) = Bdev::lookup_by_name(&args.uuid) {
+            if let Some(b) = UntypedBdev::lookup_by_name(&args.uuid) {
                 let lvol = Lvol::try_from(b)?;
                 return Ok(Replica::from(lvol));
             }
@@ -468,10 +468,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
             let p = Lvs::lookup(&args.pool).unwrap();
             match p.create_lvol(&args.uuid, args.size, None, false).await {
-                Ok(lvol)
+                Ok(mut lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf =>
                 {
-                    match lvol.share_nvmf(None).await {
+                    match Pin::new(&mut lvol).share_nvmf(None).await {
                         Ok(s) => {
                             debug!("created and shared {} as {}", lvol, s);
                             Ok(Replica::from(lvol))
@@ -521,7 +521,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 }
             };
 
-            if let Some(b) = Bdev::lookup_by_name(&args.name) {
+            if let Some(b) = UntypedBdev::lookup_by_name(&args.name) {
                 let lvol = Lvol::try_from(b)?;
                 return Ok(ReplicaV2::from(lvol));
             }
@@ -536,10 +536,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
             }
 
             match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), false).await {
-                Ok(lvol)
+                Ok(mut lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf =>
                 {
-                    match lvol.share_nvmf(None).await {
+                    match Pin::new(&mut lvol).share_nvmf(None).await {
                         Ok(s) => {
                             debug!("created and shared {} as {}", lvol, s);
                             Ok(ReplicaV2::from(lvol))
@@ -578,7 +578,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let args = request.into_inner();
             let rx = rpc_submit::<_, _, LvsError>(async move {
-                if let Some(bdev) = Bdev::lookup_by_name(&args.uuid) {
+                if let Some(bdev) = UntypedBdev::lookup_by_name(&args.uuid) {
                     let lvol = Lvol::try_from(bdev)?;
                     lvol.destroy().await?;
                 }
@@ -601,7 +601,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let rx = rpc_submit::<_, _, LvsError>(async move {
                 let mut replicas = Vec::new();
-                if let Some(bdev) = Bdev::bdev_first() {
+                if let Some(bdev) = UntypedBdev::bdev_first() {
                     replicas = bdev
                         .into_iter()
                         .filter(|b| b.driver() == "lvol")
@@ -630,7 +630,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let rx = rpc_submit::<_, _, LvsError>(async move {
                 let mut replicas = Vec::new();
-                if let Some(bdev) = Bdev::bdev_first() {
+                if let Some(bdev) = UntypedBdev::bdev_first() {
                     replicas = bdev
                         .into_iter()
                         .filter(|b| b.driver() == "lvol")
@@ -658,7 +658,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
     ) -> GrpcResult<StatReplicasReply> {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let mut lvols = Vec::new();
-            if let Some(bdev) = Bdev::bdev_first() {
+            if let Some(bdev) = UntypedBdev::bdev_first() {
                 bdev.into_iter()
                     .filter(|b| b.driver() == "lvol")
                     .for_each(|b| lvols.push(Lvol::try_from(b).unwrap()))
@@ -699,9 +699,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 let rx = rpc_submit(async move {
-                    match Bdev::lookup_by_name(&args.uuid) {
+                    match UntypedBdev::lookup_by_name(&args.uuid) {
                         Some(bdev) => {
-                            let lvol = Lvol::try_from(bdev)?;
+                            let mut lvol = Lvol::try_from(bdev)?;
 
                             // if we are already shared ...
                             if lvol.shared()
@@ -712,12 +712,13 @@ impl mayastor_server::Mayastor for MayastorSvc {
                                 });
                             }
 
+                            let mut lvol = Pin::new(&mut lvol);
                             match Protocol::try_from(args.share)? {
                                 Protocol::Off => {
-                                    lvol.unshare().await?;
+                                    lvol.as_mut().unshare().await?;
                                 }
                                 Protocol::Nvmf => {
-                                    lvol.share_nvmf(None).await?;
+                                    lvol.as_mut().share_nvmf(None).await?;
                                 }
                                 Protocol::Iscsi => {
                                     return Err(LvsError::LvolShare {

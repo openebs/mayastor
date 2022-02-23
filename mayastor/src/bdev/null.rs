@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
     nexus_uri::{
         NexusBdevError,
@@ -131,7 +131,7 @@ impl CreateDestroy for Null {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.name.clone(),
             });
@@ -163,12 +163,12 @@ impl CreateDestroy for Null {
             });
         }
 
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.as_mut().set_uuid(uuid.into()) };
+                unsafe { bdev.set_raw_uuid(uuid.into()) };
             }
 
-            if !bdev.as_mut().add_alias(&self.alias) {
+            if !bdev.add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -185,12 +185,12 @@ impl CreateDestroy for Null {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
-            bdev.as_mut().remove_alias(&self.alias);
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
+            bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
                 spdk_rs::libspdk::bdev_null_delete(
-                    bdev.as_ptr(),
+                    bdev.unsafe_inner_mut_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
                 )

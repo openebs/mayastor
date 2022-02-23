@@ -23,7 +23,7 @@ use spdk_rs::libspdk::{
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
 };
@@ -140,7 +140,7 @@ impl CreateDestroy for Nvmf {
 
     /// Create an NVMF bdev
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.get_name()).is_some() {
+        if UntypedBdev::lookup_by_name(&self.get_name()).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.get_name(),
             });
@@ -211,13 +211,13 @@ impl CreateDestroy for Nvmf {
                 name: self.name.clone(),
             });
         }
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.get_name()) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
             if let Some(u) = self.uuid {
                 if bdev.uuid_as_string() != u.to_hyphenated().to_string() {
                     error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.to_hyphenated().to_string());
                 }
             };
-            if !bdev.as_mut().add_alias(&self.alias) {
+            if !bdev.add_alias(&self.alias) {
                 error!(
                     "Failed to add alias {} to device {}",
                     self.alias,
@@ -234,9 +234,9 @@ impl CreateDestroy for Nvmf {
 
     /// Destroy the given NVMF bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        match Bdev::lookup_by_name(&self.get_name()) {
+        match UntypedBdev::lookup_by_name(&self.get_name()) {
             Some(mut bdev) => {
-                bdev.as_mut().remove_alias(&self.alias);
+                bdev.remove_alias(&self.alias);
                 let cname = CString::new(self.name.clone()).unwrap();
 
                 let errno = unsafe {
