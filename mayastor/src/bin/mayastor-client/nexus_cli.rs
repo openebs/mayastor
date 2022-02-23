@@ -74,6 +74,11 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("NVMe preempt key for children, 0 for no preemption"),
         )
         .arg(
+            Arg::with_name("nexus-info-key")
+                .required(true)
+                .help("Key used to persist the NexusInfo structure to the persistent store"),
+        )
+        .arg(
             Arg::with_name("children")
                 .required(true)
                 .multiple(true)
@@ -309,6 +314,10 @@ async fn nexus_create_v2(
         .unwrap_or_else(|e| e.exit());
     let preempt_key = value_t!(matches.value_of("preempt-key"), u64)
         .unwrap_or_else(|e| e.exit());
+    let nexus_info_key = matches
+        .value_of("nexus-info-key")
+        .unwrap_or_default()
+        .to_string();
 
     let response = ctx
         .client
@@ -321,6 +330,7 @@ async fn nexus_create_v2(
             resv_key,
             preempt_key,
             children,
+            nexus_info_key,
         })
         .await
         .context(GrpcStatus)?;

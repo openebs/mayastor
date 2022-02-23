@@ -30,13 +30,12 @@ use super::{
     NbdError,
     NexusChannel,
     NexusChild,
-    NexusInfo,
     NexusModule,
     PersistOp,
 };
 
 use crate::{
-    bdev::device_destroy,
+    bdev::{device_destroy, nexus::nexus_persistence::PersistentNexusInfo},
     core::{
         Bdev,
         BdevHandle,
@@ -470,8 +469,8 @@ pub struct Nexus<'n> {
     /// Nexus pause counter to allow concurrent pause/resume.
     pause_state: AtomicCell<NexusPauseState>,
     pause_waiters: Vec<oneshot::Sender<i32>>,
-    /// information saved to a persistent store
-    pub nexus_info: futures::lock::Mutex<NexusInfo>,
+    /// Information associated with the persisted NexusInfo structure.
+    pub nexus_info: futures::lock::Mutex<PersistentNexusInfo>,
     /// TODO
     event_sink: Option<DeviceEventSink>,
     /// Prevent auto-Unpin.
@@ -561,6 +560,7 @@ impl<'n> Nexus<'n> {
         nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
         child_bdevs: Option<&[String]>,
+        nexus_info_key: Option<String>,
     ) -> spdk_rs::Bdev<Nexus<'n>> {
         let n = Nexus {
             name: name.to_string(),
@@ -576,7 +576,9 @@ impl<'n> Nexus<'n> {
             has_io_device: false,
             pause_state: AtomicCell::new(NexusPauseState::Unpaused),
             pause_waiters: Vec::new(),
-            nexus_info: futures::lock::Mutex::new(Default::default()),
+            nexus_info: futures::lock::Mutex::new(PersistentNexusInfo::new(
+                nexus_info_key,
+            )),
             nexus_uuid: Default::default(),
             event_sink: None,
             _pin: Default::default(),
@@ -1362,6 +1364,7 @@ pub async fn nexus_create(
         None,
         NexusNvmeParams::default(),
         children,
+        None,
     )
     .await
 }
@@ -1375,6 +1378,7 @@ pub async fn nexus_create_v2(
     uuid: &str,
     nvme_params: NexusNvmeParams,
     children: &[String],
+    nexus_info_key: Option<String>,
 ) -> Result<(), Error> {
     if nvme_params.min_cntlid < NVME_MIN_CNTLID
         || nvme_params.min_cntlid > nvme_params.max_cntlid
@@ -1414,6 +1418,7 @@ pub async fn nexus_create_v2(
                 Some(nexus_uuid),
                 nvme_params,
                 children,
+                nexus_info_key,
             )
             .await
         }
@@ -1425,6 +1430,7 @@ pub async fn nexus_create_v2(
                 None,
                 nvme_params,
                 children,
+                nexus_info_key,
             )
             .await
         }
@@ -1438,6 +1444,7 @@ async fn nexus_create_internal(
     nexus_uuid: Option<Uuid>,
     nvme_params: NexusNvmeParams,
     children: &[String],
+    nexus_info_key: Option<String>,
 ) -> Result<(), Error> {
     if let Some(nexus) = nexus_lookup_name_uuid(name, nexus_uuid) {
         // FIXME: Instead of error, we return Ok without checking
@@ -1463,8 +1470,15 @@ async fn nexus_create_internal(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    let mut nexus_bdev =
-        Nexus::new(name, size, bdev_uuid, nexus_uuid, nvme_params, None);
+    let mut nexus_bdev = Nexus::new(
+        name,
+        size,
+        bdev_uuid,
+        nexus_uuid,
+        nvme_params,
+        None,
+        nexus_info_key,
+    );
 
     for child in children {
         if let Err(error) =

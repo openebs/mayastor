@@ -5,6 +5,30 @@ use std::time::Duration;
 
 type ChildUri = String;
 
+/// Information associated with the persisted NexusInfo structure.
+pub struct PersistentNexusInfo {
+    // Structure that is written to the persistent store.
+    inner: NexusInfo,
+    // Key to use to persist the NexusInfo structure.
+    // If `Some` the key has been supplied by the control plane.
+    key: Option<String>,
+}
+
+impl PersistentNexusInfo {
+    /// Create a new instance of PersistentNexusInfo.
+    pub(crate) fn new(key: Option<String>) -> Self {
+        Self {
+            inner: Default::default(),
+            key,
+        }
+    }
+
+    /// Get a mutable reference to the inner NexusInfo structure.
+    fn inner_mut(&mut self) -> &mut NexusInfo {
+        &mut self.inner
+    }
+}
+
 /// Definition of the nexus information that gets saved in the persistent
 /// store.
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -49,7 +73,9 @@ impl<'n> Nexus<'n> {
             return;
         }
 
-        let mut nexus_info = self.nexus_info.lock().await;
+        let mut persistent_nexus_info = self.nexus_info.lock().await;
+        let mut nexus_info = persistent_nexus_info.inner_mut();
+
         match op {
             PersistOp::Create => {
                 // Initialisation of the persistent info will overwrite any
@@ -92,7 +118,7 @@ impl<'n> Nexus<'n> {
             // Only update the state of the child if the precondition holds.
             PersistOp::UpdateCond((uri, state, f)) => {
                 // Do not persist the state if predicate fails.
-                if !f(&nexus_info) {
+                if !f(nexus_info) {
                     return;
                 }
 
@@ -112,7 +138,7 @@ impl<'n> Nexus<'n> {
                 nexus_info.clean_shutdown = true;
             }
         }
-        self.save(&nexus_info).await;
+        self.save(&persistent_nexus_info).await;
     }
 
     /// Determine child health.
@@ -124,11 +150,18 @@ impl<'n> Nexus<'n> {
     // consistency across restarts of Mayastor. Therefore, keep retrying
     // until successful.
     // TODO: Should we give up retrying eventually?
-    async fn save(&self, info: &NexusInfo) {
+    async fn save(&self, info: &PersistentNexusInfo) {
         let mut output_err = true;
         let nexus_uuid = self.uuid().to_string();
+        // If a key has been provided use this to store the NexusInfo.
+        // If a key is not provided, use the nexus uuid as the key.
+        let key = match &info.key {
+            Some(k) => k.clone(),
+            None => self.uuid().to_string(),
+        };
+
         loop {
-            match PersistentStore::put(&nexus_uuid, info).await {
+            match PersistentStore::put(&key, &info.inner).await {
                 Ok(_) => {
                     // The state was saved successfully.
                     break;
