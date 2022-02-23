@@ -9,12 +9,10 @@ use serde::{Deserialize, Serialize};
 use spdk_rs::libspdk::{
     bdev_nvme_get_opts,
     bdev_nvme_set_opts,
-    iscsi_opts_copy,
     spdk_bdev_get_opts,
     spdk_bdev_nvme_opts,
     spdk_bdev_opts,
     spdk_bdev_set_opts,
-    spdk_iscsi_opts,
     spdk_nvmf_target_opts,
     spdk_nvmf_transport_opts,
     spdk_sock_impl_get_opts,
@@ -46,12 +44,6 @@ pub struct NexusOpts {
     /// NOTE: we do not (yet) differentiate between
     /// the nexus and replica nvmf target
     pub nvmf_replica_port: u16,
-    /// enable iSCSI support
-    pub iscsi_enable: bool,
-    /// Port for nexus target portal
-    pub iscsi_nexus_port: u16,
-    /// Port for replica target portal
-    pub iscsi_replica_port: u16,
 }
 
 /// Default nvmf port used for replicas.
@@ -60,10 +52,6 @@ pub struct NexusOpts {
 const NVMF_PORT_REPLICA: u16 = 8420;
 const NVMF_PORT_NEXUS: u16 = 4421;
 
-/// Default iSCSI target (portal) port numbers
-const ISCSI_PORT_NEXUS: u16 = 3260;
-const ISCSI_PORT_REPLICA: u16 = 3262;
-
 impl Default for NexusOpts {
     fn default() -> Self {
         Self {
@@ -71,9 +59,6 @@ impl Default for NexusOpts {
             nvmf_discovery_enable: true,
             nvmf_nexus_port: NVMF_PORT_NEXUS,
             nvmf_replica_port: NVMF_PORT_REPLICA,
-            iscsi_enable: true,
-            iscsi_nexus_port: ISCSI_PORT_NEXUS,
-            iscsi_replica_port: ISCSI_PORT_REPLICA,
         }
     }
 }
@@ -411,154 +396,6 @@ impl From<&BdevOpts> for spdk_bdev_opts {
             small_buf_pool_size: o.small_buf_pool_size,
             large_buf_pool_size: o.large_buf_pool_size,
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct IscsiTgtOpts {
-    authfile: String,
-    /// none iqn name
-    nodebase: String,
-    /// timeout in seconds
-    timeout: i32,
-    /// nop interval in seconds
-    nop_ininterval: i32,
-    /// chap enabled
-    disable_chap: bool,
-    /// chap is required
-    require_chap: bool,
-    /// mutual chap
-    mutual_chap: bool,
-    /// chap group
-    chap_group: i32,
-    /// max number of sessions in the host
-    max_sessions: u32,
-    /// max connections per session
-    max_connections_per_session: u32,
-    /// max connections
-    max_connections: u32,
-    /// max queue depth
-    max_queue_depth: u32,
-    /// default
-    default_time2wait: u32,
-    /// todo
-    default_time2retain: u32,
-    /// todo
-    first_burst_length: u32,
-    ///todo
-    immediate_data: bool,
-    /// todo
-    error_recovery_level: u32,
-    /// todo
-    allow_duplicate_isid: bool,
-    /// todo
-    max_large_data_in_per_connection: u32,
-    /// todo
-    max_r2t_per_connection: u32,
-    /// todo
-    pdu_pool_size: u32,
-    /// todo
-    immediate_data_pool_size: u32,
-    /// todo
-    data_out_pool_size: u32,
-}
-
-impl Default for IscsiTgtOpts {
-    fn default() -> Self {
-        Self {
-            authfile: "".to_string(),
-            nodebase: "iqn.2019-05.io.openebs".to_string(),
-            timeout: try_from_env("ISCSI_TIMEOUT_SEC", 30),
-            nop_ininterval: 1,
-            disable_chap: false,
-            require_chap: false,
-            mutual_chap: false,
-            chap_group: 0,
-            max_sessions: 110,
-            max_connections_per_session: 1,
-            max_connections: 110,
-            max_queue_depth: 32,
-            default_time2wait: 2,
-            default_time2retain: 20,
-            first_burst_length: 8192,
-            immediate_data: true,
-            error_recovery_level: 0,
-            allow_duplicate_isid: false,
-            max_large_data_in_per_connection: 64,
-            max_r2t_per_connection: 4,
-            // 2 * (MaxQueueDepth + MaxLargeDataInPerConnection + 2 *
-            // MaxR2TPerConnection + 8)
-            pdu_pool_size: 110 * (2 * (32 + 64 + 2 * 4 + 8)),
-            immediate_data_pool_size: 110 * 128,
-            // MaxSessions * MAX_DATA_OUT_PER_CONNECTION
-            data_out_pool_size: 110 * 16,
-        }
-    }
-}
-
-impl From<&IscsiTgtOpts> for spdk_iscsi_opts {
-    fn from(o: &IscsiTgtOpts) -> Self {
-        Self {
-            authfile: std::ffi::CString::new(o.authfile.clone())
-                .unwrap()
-                .into_raw(),
-            nodebase: std::ffi::CString::new(o.nodebase.clone())
-                .unwrap()
-                .into_raw(),
-            timeout: o.timeout,
-            nopininterval: o.nop_ininterval,
-            disable_chap: o.disable_chap,
-            require_chap: o.require_chap,
-            mutual_chap: o.mutual_chap,
-            chap_group: o.chap_group,
-            MaxSessions: o.max_sessions,
-            MaxConnectionsPerSession: o.max_connections_per_session,
-            MaxConnections: o.max_connections,
-            MaxQueueDepth: o.max_queue_depth,
-            DefaultTime2Wait: o.default_time2wait,
-            DefaultTime2Retain: o.default_time2wait,
-            FirstBurstLength: o.first_burst_length,
-            ImmediateData: o.immediate_data,
-            ErrorRecoveryLevel: o.error_recovery_level,
-            AllowDuplicateIsid: o.allow_duplicate_isid,
-            MaxLargeDataInPerConnection: o.max_large_data_in_per_connection,
-            MaxR2TPerConnection: o.max_r2t_per_connection,
-            pdu_pool_size: o.pdu_pool_size,
-            immediate_data_pool_size: o.immediate_data_pool_size,
-            data_out_pool_size: o.data_out_pool_size,
-        }
-    }
-}
-
-extern "C" {
-    /// global shared variable defined by tgt implementation
-    static mut g_spdk_iscsi_opts: *mut spdk_iscsi_opts;
-}
-
-impl GetOpts for IscsiTgtOpts {
-    fn get(&self) -> Self {
-        // as per the set method, g_spdk_iscsi_opts is not set to NULL. We can
-        // not get the information back unless we read and parse g_spdk_iscsi.
-        // as the options cannot change, we do not bother.
-        self.clone()
-    }
-
-    fn set(&self) -> bool {
-        unsafe {
-            // spdk_iscsi_opts_copy copies our struct to a new portion of
-            // memory and returns a pointer to it which we store into the
-            // defined global. Later on, when iscsi initializes, those options
-            // are verified and then -- copied to g_spdk_iscsi. Once they
-            // are copied g_spdk_iscsi_opts is freed.
-            g_spdk_iscsi_opts = iscsi_opts_copy(&mut self.into());
-
-            if g_spdk_iscsi_opts.is_null() {
-                panic!("iSCSI_init failed");
-            }
-        }
-
-        true
     }
 }
 

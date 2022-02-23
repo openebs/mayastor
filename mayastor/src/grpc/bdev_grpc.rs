@@ -118,7 +118,7 @@ impl BdevRpc for BdevSvc {
             return Err(Status::not_found(name));
         }
 
-        if proto != "iscsi" && proto != "nvmf" {
+        if proto != "nvmf" {
             return Err(Status::invalid_argument(proto));
         }
         let bdev_name = name.clone();
@@ -126,13 +126,6 @@ impl BdevRpc for BdevSvc {
             "nvmf" => rpc_submit::<_, String, CoreError>(async move {
                 let mut bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
                 let share = Pin::new(&mut bdev).share_nvmf(None).await?;
-                let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
-                Ok(bdev.share_uri().unwrap_or(share))
-            }),
-
-            "iscsi" => rpc_submit::<_, String, CoreError>(async move {
-                let mut bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
-                let share = Pin::new(&mut bdev).share_iscsi().await?;
                 let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
                 Ok(bdev.share_uri().unwrap_or(share))
             }),

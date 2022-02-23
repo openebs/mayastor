@@ -152,17 +152,6 @@ impl BdevRpc for BdevService {
                 })
             }
 
-            Ok(Protocol::Iscsi) => {
-                rpc_submit::<_, Bdev, CoreError>(async move {
-                    let mut bdev =
-                        core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
-                    Pin::new(&mut bdev).share_iscsi().await?;
-                    let bdev =
-                        core::UntypedBdev::lookup_by_name(&name).unwrap();
-                    Ok(bdev.into())
-                })
-            }
-
             Err(_) => {
                 return Err(Status::invalid_argument(protocol.to_string()))
             }

@@ -126,8 +126,6 @@ pub enum Error {
     NotSharedNvmf { name: String },
     #[snafu(display("Failed to share nexus over NBD {}", name))]
     ShareNbdNexus { source: NbdError, name: String },
-    #[snafu(display("Failed to share iscsi nexus {}", name))]
-    ShareIscsiNexus { source: CoreError, name: String },
     #[snafu(display("Failed to share nvmf nexus {}", name))]
     ShareNvmfNexus { source: CoreError, name: String },
     #[snafu(display("Failed to unshare nexus {}", name))]
@@ -361,7 +359,6 @@ pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 #[derive(Debug)]
 pub enum NexusTarget {
     NbdDisk(NbdDisk),
-    NexusIscsiTarget,
     NexusNvmfTarget,
 }
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

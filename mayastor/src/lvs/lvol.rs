@@ -31,7 +31,7 @@ use spdk_rs::libspdk::{
 
 use crate::{
     bdev::nexus::Nexus,
-    core::{Bdev, CoreError, Mthread, Protocol, Share, UntypedBdev},
+    core::{Bdev, Mthread, Protocol, Share, UntypedBdev},
     ffihelper::{
         cb_arg,
         errno_result_from_i32,
@@ -114,18 +114,6 @@ impl Display for Lvol {
 impl Share for Lvol {
     type Error = Error;
     type Output = String;
-
-    /// we dont (want to) support replica's over iSCSI
-    async fn share_iscsi(
-        self: Pin<&mut Self>,
-    ) -> Result<Self::Output, Self::Error> {
-        Err(Error::LvolShare {
-            source: CoreError::NotSupported {
-                source: Errno::EINVAL,
-            },
-            name: self.name(),
-        })
-    }
 
     /// share the lvol as a nvmf target
     async fn share_nvmf(

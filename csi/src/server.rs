@@ -1,7 +1,7 @@
 //! Mayastor CSI plugin.
 //!
 //! Implementation of gRPC methods from the CSI spec. This includes mounting
-//! of mayastor volumes using iscsi/nvmf protocols on the node.
+//! of mayastor volumes using nvmf protocol on the node.
 
 extern crate clap;
 #[macro_use]

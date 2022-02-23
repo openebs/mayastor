@@ -50,7 +50,7 @@ pub use spdk_rs::{
 };
 pub use thread::Mthread;
 
-use crate::{subsys::NvmfError, target::iscsi};
+use crate::subsys::NvmfError;
 
 mod bdev;
 mod block_device;
@@ -189,14 +189,6 @@ pub enum CoreError {
     #[snafu(display("failed to unshare {}", source))]
     UnshareNvmf {
         source: NvmfError,
-    },
-    #[snafu(display("failed to share {}", source))]
-    ShareIscsi {
-        source: iscsi::Error,
-    },
-    #[snafu(display("failed to unshare {}", source))]
-    UnshareIscsi {
-        source: iscsi::Error,
     },
     #[snafu(display("the operation is invalid for this bdev: {}", source))]
     NotSupported {

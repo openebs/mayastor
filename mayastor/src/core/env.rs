@@ -1,7 +1,5 @@
 use std::{
-    env,
     ffi::CString,
-    net::Ipv4Addr,
     os::raw::{c_char, c_void},
     pin::Pin,
     sync::{
@@ -49,7 +47,6 @@ use crate::{
     logger,
     persistent_store::PersistentStore,
     subsys::{self, Config, PoolConfig},
-    target::iscsi,
 };
 
 fn parse_mb(src: &str) -> Result<i32, String> {
@@ -315,7 +312,6 @@ async fn do_shutdown(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
-    iscsi::fini();
     nexus::nexus_children_to_destroying_state().await;
     crate::lvs::Lvs::export_all().await;
     unsafe {
@@ -577,41 +573,6 @@ impl MayastorEnvironment {
         Ok(())
     }
 
-    /// We implement our own default target init code here. Note that if there
-    /// is an existing target we will fail the init process.
-    extern "C" fn target_init() -> bool {
-        let address = MayastorEnvironment::get_pod_ip()
-            .map_err(|e| {
-                error!("Invalid IP address: MY_POD_IP={}", e);
-                mayastor_env_stop(-1);
-            })
-            .unwrap();
-
-        let cfg = Config::get();
-
-        if cfg.nexus_opts.iscsi_enable {
-            if let Err(msg) = iscsi::init(&address) {
-                error!("Failed to initialize Mayastor iSCSI target: {}", msg);
-                return false;
-            }
-        }
-
-        true
-    }
-
-    pub(crate) fn get_pod_ip() -> Result<String, String> {
-        match env::var("MY_POD_IP") {
-            Ok(val) => {
-                if val.parse::<Ipv4Addr>().is_ok() {
-                    Ok(val)
-                } else {
-                    Err(val)
-                }
-            }
-            Err(_) => Ok("127.0.0.1".to_owned()),
-        }
-    }
-
     /// start the JSON rpc server which listens only to a local path
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
         let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
@@ -625,7 +586,7 @@ impl MayastorEnvironment {
                 spdk_rpc_set_state(SPDK_RPC_RUNTIME);
             };
 
-            let success = Self::target_init();
+            let success = true;
 
             ctx.sender.send(success).unwrap();
         }

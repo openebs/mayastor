@@ -35,7 +35,6 @@ pub(crate) use nexus_bdev::{
     RebuildJobNotFound,
     RebuildOperation,
     RemoveRebuildJob,
-    ShareIscsiNexus,
     ShareNbdNexus,
     ShareNvmfNexus,
     UnshareNexus,
@@ -103,7 +102,7 @@ pub fn register_module() {
             // FIXME: shares bdev, not a nexus
             let f = async move {
                 let proto = args.protocol;
-                if proto != "iscsi" && proto != "nvmf" {
+                if proto != "nvmf" {
                     return Err(JsonRpcError {
                         code: Code::InvalidParams,
                         message: "invalid protocol".to_string(),
@@ -114,21 +113,6 @@ pub fn register_module() {
                     match proto.as_str() {
                         "nvmf" => {
                             bdev.as_mut().share_nvmf(Some((args.cntlid_min, args.cntlid_max)))
-                                .await
-                                .map_err(|e| {
-                                    JsonRpcError {
-                                        code: Code::InternalError,
-                                        message: e.to_string(),
-                                    }
-                                })
-                                .map(|share| {
-                                    NexusShareReply {
-                                        uri: bdev.share_uri().unwrap_or(share),
-                                }
-                            })
-                        },
-                        "iscsi" => {
-                            bdev.as_mut().share_iscsi()
                                 .await
                                 .map_err(|e| {
                                     JsonRpcError {

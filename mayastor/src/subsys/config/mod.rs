@@ -25,7 +25,6 @@ use crate::{
     subsys::config::opts::{
         BdevOpts,
         GetOpts,
-        IscsiTgtOpts,
         NexusOpts,
         NvmeBdevOpts,
         NvmfTgtConfig,
@@ -122,8 +121,6 @@ pub struct Config {
     /// these options are not set/copied but are applied
     /// on target creation.
     pub nvmf_tcp_tgt_conf: NvmfTgtConfig,
-    /// generic iSCSI options
-    pub iscsi_tgt_conf: IscsiTgtOpts,
     /// options specific to NVMe bdev types
     pub nvme_bdev_opts: NvmeBdevOpts,
     /// generic bdev options
@@ -188,7 +185,6 @@ impl Config {
         Config {
             source: self.source.clone(),
             nvmf_tcp_tgt_conf: self.nvmf_tcp_tgt_conf.get(),
-            iscsi_tgt_conf: self.iscsi_tgt_conf.get(),
             nvme_bdev_opts: self.nvme_bdev_opts.get(),
             bdev_opts: self.bdev_opts.get(),
             nexus_opts: self.nexus_opts.get(),
@@ -221,8 +217,6 @@ impl Config {
         assert!(self.nvme_bdev_opts.set());
         assert!(self.bdev_opts.set());
 
-        // no way to validate this
-        self.iscsi_tgt_conf.set();
         debug!("{:#?}", self);
     }
 }

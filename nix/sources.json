@@ -1,16 +1,4 @@
 {
-    "libiscsi": {
-        "branch": "1.19.0",
-        "description": "iscsi client library and utilities",
-        "homepage": "",
-        "owner": "sahlberg",
-        "repo": "libiscsi",
-        "rev": "eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba",
-        "sha256": "0ajrkkg5awmi8m4b3mha7h07ylg18k252qprvk1sgq0qbyd66zy7",
-        "type": "tarball",
-        "url": "https://github.com/sahlberg/libiscsi/archive/eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
-    },
     "niv": {
         "branch": "master",
         "description": "Easy dependency management for Nix projects",

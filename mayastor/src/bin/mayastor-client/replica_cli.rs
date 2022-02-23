@@ -30,7 +30,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .long("protocol")
                 .takes_value(true)
                 .value_name("PROTOCOL")
-                .help("Name of a protocol (nvmf, iSCSI) used for sharing the replica (default none)"))
+                .help("Name of a protocol (nvmf) used for sharing the replica (default none)"))
         .arg(
             Arg::with_name("size")
                 .short("s")
@@ -68,7 +68,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                         .long("protocol")
                         .takes_value(true)
                         .value_name("PROTOCOL")
-                        .help("Name of a protocol (nvmf, iSCSI) used for sharing the replica (default none)"))
+                        .help("Name of a protocol (nvmf) used for sharing the replica (default none)"))
                 .arg(
                     Arg::with_name("size")
                         .short("s")
@@ -103,7 +103,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("protocol")
                 .required(true)
                 .index(2)
-                .help("Name of a protocol (nvmf, iscsi) used for sharing or \"none\" to unshare the replica"));
+                .help("Name of a protocol (nvmf) used for sharing or \"none\" to unshare the replica"));
 
     SubCommand::with_name("replica")
         .settings(&[
@@ -493,7 +493,6 @@ fn parse_replica_protocol(pcol: Option<&str>) -> Result<i32, Status> {
     match pcol {
         None => Ok(rpc::ShareProtocolReplica::ReplicaNone as i32),
         Some("nvmf") => Ok(rpc::ShareProtocolReplica::ReplicaNvmf as i32),
-        Some("iscsi") => Ok(rpc::ShareProtocolReplica::ReplicaIscsi as i32),
         Some("none") => Ok(rpc::ShareProtocolReplica::ReplicaNone as i32),
         Some(_) => Err(Status::new(
             Code::Internal,

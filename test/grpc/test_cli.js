@@ -19,7 +19,6 @@ const DISK = '/dev/disk';
 const UUID = '753b391c-9b04-4ce3-9c74-9d949152e547';
 const UUID1 = '753b391c-9b04-4ce3-9c74-9d949152e541';
 const UUID2 = '753b391c-9b04-4ce3-9c74-9d949152e542';
-const UUID3 = '753b391c-9b04-4ce3-9c74-9d949152e543';
 const CLIENT_CMD = path.join(
   __dirname,
   '..',
@@ -232,16 +231,6 @@ describe('mayastor-client', function () {
           output: {}
         },
         {
-          method: 'ShareReplica',
-          input: {
-            uuid: UUID,
-            share: 2
-          },
-          output: {
-            uri: 'iscsi://192.168.0.1:4444/' + UUID
-          }
-        },
-        {
           method: 'ListReplicas',
           input: {},
           output: {
@@ -260,14 +249,6 @@ describe('mayastor-client', function () {
                 thin: false,
                 share: 1,
                 uri: 'nvmf://192.168.0.1:4444/' + UUID,
-                size: 10 * (1024 * 1024)
-              },
-              {
-                uuid: UUID3,
-                pool: POOL,
-                thin: false,
-                share: 2,
-                uri: 'iscsi://192.168.0.1:4444/' + UUID,
                 size: 10 * (1024 * 1024)
               }
             ]
@@ -615,19 +596,6 @@ describe('mayastor-client', function () {
       });
     });
 
-    it('should share the replica', function (done) {
-      const cmd = util.format('%s replica share %s iscsi', EGRESS_CMD, UUID);
-
-      exec(cmd, (err, stdout, stderr) => {
-        if (err) {
-          return done(err);
-        }
-        assert.isEmpty(stderr);
-        assert.match(stdout, /iscsi:\/\/./);
-        done();
-      });
-    });
-
     it('should list replicas', function (done) {
       const cmd = util.format('%s -ui -q replica list', EGRESS_CMD);
 
@@ -660,7 +628,7 @@ describe('mayastor-client', function () {
           });
         });
 
-        assert.lengthOf(repls, 3);
+        assert.lengthOf(repls, 2);
 
         assert.equal(repls[0].name, UUID1);
         assert.equal(repls[0].pool, POOL);
@@ -677,14 +645,6 @@ describe('mayastor-client', function () {
         assert.equal(repls[1].size, '10.00');
         assert.equal(repls[1].size_unit, 'MiB');
         assert.match(repls[1].uri, /^nvmf:\/\/\d+/);
-
-        assert.equal(repls[2].name, UUID3);
-        assert.equal(repls[2].pool, POOL);
-        assert.equal(repls[2].thin, 'false');
-        assert.equal(repls[2].share, 'iscsi');
-        assert.equal(repls[2].size, '10.00');
-        assert.equal(repls[2].size_unit, 'MiB');
-        assert.match(repls[2].uri, /^iscsi:\/\/\d+/);
 
         done();
       });

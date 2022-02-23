@@ -198,10 +198,9 @@ fn main() {
         None => 0,
     };
 
-    // This tool is just a client, so don't start iSCSI or NVMEoF services.
+    // This tool is just a client, so don't start NVMe-oF services.
     Config::get_or_init(|| {
         let mut cfg = Config::default();
-        cfg.nexus_opts.iscsi_enable = false;
         cfg.nexus_opts.nvmf_enable = false;
         cfg
     });

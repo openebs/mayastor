@@ -13,13 +13,8 @@ use std::{
 static CONFIG_TEXT: &str = "nexus_opts:
   nvmf_nexus_port: 4422
   nvmf_replica_port: NVMF_PORT
-  iscsi_enable: false
 nvmf_tcp_tgt_conf:
   max_namespaces: 2
-# although not used we still have to reduce mem requirements for iSCSI
-iscsi_tgt_conf:
-  max_sessions: 1
-  max_connections_per_session: 1
 ";
 
 const CONFIG_FILE: &str = "/tmp/nvmeadm_nvmf_target.yaml";

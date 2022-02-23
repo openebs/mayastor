@@ -323,10 +323,9 @@ extern "C" fn perf_tick(_: *mut c_void) -> i32 {
 fn main() {
     logger::init("INFO");
 
-    // dont not start the target(s)
+    // do not start the target(s)
     Config::get_or_init(|| {
         let mut cfg = Config::default();
-        cfg.nexus_opts.iscsi_enable = false;
         cfg.nexus_opts.nvmf_enable = false;
         cfg
     });
