@@ -2,12 +2,6 @@ use futures::channel::oneshot::Receiver;
 use snafu::ResultExt;
 use std::pin::Pin;
 
-use rpc::mayastor::{
-    RebuildProgressReply,
-    RebuildStateReply,
-    RebuildStatsReply,
-};
-
 use super::{
     nexus_lookup_mut,
     ChildState,
@@ -166,32 +160,25 @@ impl<'n> Nexus<'n> {
     pub async fn get_rebuild_state(
         self: Pin<&mut Self>,
         name: &str,
-    ) -> Result<RebuildStateReply, Error> {
+    ) -> Result<RebuildState, Error> {
         let rj = self.get_rebuild_job(name)?;
-        Ok(RebuildStateReply {
-            state: rj.state().to_string(),
-        })
+        Ok(rj.state())
     }
 
     /// Return the stats of a rebuild job
     pub async fn get_rebuild_stats(
         self: Pin<&mut Self>,
         name: &str,
-    ) -> Result<RebuildStatsReply, Error> {
+    ) -> Result<RebuildStats, Error> {
         let rj = self.get_rebuild_job(name)?;
-        Ok(rj.stats().into())
+        Ok(rj.stats())
     }
 
     /// Returns the rebuild progress of child target `name`
-    pub fn get_rebuild_progress(
-        &self,
-        name: &str,
-    ) -> Result<RebuildProgressReply, Error> {
+    pub fn get_rebuild_progress(&self, name: &str) -> Result<u32, Error> {
         let rj = self.get_rebuild_job(name)?;
 
-        Ok(RebuildProgressReply {
-            progress: rj.as_client().stats().progress as u32,
-        })
+        Ok(rj.as_client().stats().progress as u32)
     }
 
     /// Cancels all rebuilds jobs associated with the child.
@@ -356,20 +343,6 @@ impl<'n> Nexus<'n> {
             }
         } else {
             error!("Failed to find nexus {} for rebuild job {}", nexus, job);
-        }
-    }
-}
-
-impl From<RebuildStats> for RebuildStatsReply {
-    fn from(stats: RebuildStats) -> Self {
-        RebuildStatsReply {
-            blocks_total: stats.blocks_total,
-            blocks_recovered: stats.blocks_recovered,
-            progress: stats.progress,
-            segment_size_blks: stats.segment_size_blks,
-            block_size: stats.block_size,
-            tasks_total: stats.tasks_total,
-            tasks_active: stats.tasks_active,
         }
     }
 }

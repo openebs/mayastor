@@ -5,7 +5,7 @@ use crate::{
     },
     core::{Protocol, Share},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
-    rebuild::RebuildJob,
+    rebuild::{RebuildJob, RebuildState, RebuildStats},
 };
 use futures::FutureExt;
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, pin::Pin};
@@ -117,6 +117,28 @@ impl<'c> From<&NexusChild<'c>> for Child {
             uri: ch.get_name().to_string(),
             state: ChildState::from(ch.state()) as i32,
             rebuild_progress: ch.get_rebuild_progress(),
+        }
+    }
+}
+
+impl From<RebuildState> for RebuildStateResponse {
+    fn from(rs: RebuildState) -> Self {
+        RebuildStateResponse {
+            state: rs.to_string(),
+        }
+    }
+}
+
+impl From<RebuildStats> for RebuildStatsResponse {
+    fn from(stats: RebuildStats) -> Self {
+        RebuildStatsResponse {
+            blocks_total: stats.blocks_total,
+            blocks_recovered: stats.blocks_recovered,
+            progress: stats.progress,
+            segment_size_blks: stats.segment_size_blks,
+            block_size: stats.block_size,
+            tasks_total: stats.tasks_total,
+            tasks_active: stats.tasks_active,
         }
     }
 }
@@ -499,5 +521,221 @@ impl NexusRpc for NexusService {
                     nexus: Some(nexus),
                 })
             })
+    }
+
+    #[named]
+    async fn child_operation(
+        &self,
+        request: Request<ChildOperationRequest>,
+    ) -> GrpcResult<ChildOperationResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    let args = request.into_inner();
+                    info!("{:?}", args);
+
+                    let online = match args.action {
+                        1 => Ok(true),
+                        0 => Ok(false),
+                        _ => Err(nexus::Error::InvalidKey {}),
+                    }?;
+
+                    let nexus = nexus_lookup(&args.nexus_uuid)?;
+                    if online {
+                        nexus.online_child(&args.uri).await?;
+                    } else {
+                        nexus.offline_child(&args.uri).await?;
+                    }
+
+                    Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(|n| {
+                        Response::new(ChildOperationResponse {
+                            nexus: Some(n),
+                        })
+                    })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn start_rebuild(
+        &self,
+        request: Request<StartRebuildRequest>,
+    ) -> GrpcResult<StartRebuildResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus_lookup(&args.nexus_uuid)?
+                        .start_rebuild(&args.uri)
+                        .await
+                        // todo
+                        .map(|_| {})?;
+                    Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(|n| {
+                        Response::new(StartRebuildResponse {
+                            nexus: Some(n),
+                        })
+                    })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn stop_rebuild(
+        &self,
+        request: Request<StopRebuildRequest>,
+    ) -> GrpcResult<StopRebuildResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus_lookup(&args.nexus_uuid)?
+                        .stop_rebuild(&args.uri)
+                        .await?;
+
+                    Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(|n| {
+                        Response::new(StopRebuildResponse {
+                            nexus: Some(n),
+                        })
+                    })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn pause_rebuild(
+        &self,
+        request: Request<PauseRebuildRequest>,
+    ) -> GrpcResult<PauseRebuildResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus_lookup(&args.nexus_uuid)?
+                        .pause_rebuild(&args.uri)
+                        .await?;
+
+                    Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(|n| {
+                        Response::new(PauseRebuildResponse {
+                            nexus: Some(n),
+                        })
+                    })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn resume_rebuild(
+        &self,
+        request: Request<ResumeRebuildRequest>,
+    ) -> GrpcResult<ResumeRebuildResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus_lookup(&args.nexus_uuid)?
+                        .resume_rebuild(&args.uri)
+                        .await?;
+                    Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(|n| {
+                        Response::new(ResumeRebuildResponse {
+                            nexus: Some(n),
+                        })
+                    })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn get_rebuild_state(
+        &self,
+        request: Request<RebuildStateRequest>,
+    ) -> GrpcResult<RebuildStateResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus_lookup(&args.nexus_uuid)?
+                        .get_rebuild_state(&args.uri)
+                        .await
+                        .map(RebuildStateResponse::from)
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn get_rebuild_stats(
+        &self,
+        request: Request<RebuildStatsRequest>,
+    ) -> GrpcResult<RebuildStatsResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    nexus_lookup(&args.nexus_uuid)?
+                        .get_rebuild_stats(&args.uri)
+                        .await
+                        .map(RebuildStatsResponse::from)
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 }
