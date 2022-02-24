@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: hugepage
+  name: hugepage2
 spec:
   selector:
     matchLabels:
-      name: hugepage-container
+      name: hugepage2-container
   template:
     metadata:
       labels:
-        name: hugepage-container
+        name: hugepage2-container
     spec:
       containers:
       - name: busybox
         image: busybox
         command: ["/bin/sh","-c"]
-        args: ["mkdir -p host/mnt/huge; mount -t hugetlbfs nodev host/mnt/huge; echo 1024 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages; echo vm.nr_hugepages=1024 >> host/etc/sysctl.conf; echo EOF > /var/run/reboot-required; while true; echo Polling; sleep 1m; done"]
+        args: ["mkdir -p host/mnt/huge; mount -t hugetlbfs nodev host/mnt/huge; echo 1024 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages; echo 'vm.nr_hugepages=1024' >> host/etc/sysctl.conf; echo EOF > /var/run/reboot-required; while true; do echo Polling; sleep 1m; done"]
         resources:
           limits:
             cpu: 200m
