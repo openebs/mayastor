@@ -1,0 +1,61 @@
+{
+    "apiVersion": "vlabs",
+    "location": "eastus2",
+    "properties": {
+        "orchestratorProfile": {
+            "orchestratorType": "Kubernetes",
+            "orchestratorRelease": "1.21",
+            "kubernetesConfig": {
+                "networkPlugin": "azure",
+                "containerRuntime": "containerd",
+                "useCloudControllerManager": true,
+                "cloudProviderRateLimitQPS": 6,
+                "cloudProviderRateLimitBucket": 20,
+                "controllerManagerConfig": {
+                    "--feature-gates": "CSIInlineVolume=true,LocalStorageCapacityIsolation=true,ServiceNodeExclusion=true"
+                },
+                "apiServerConfig": {
+                    "--enable-admission-plugins": "NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,AlwaysPullImages"
+                },
+                "outboundRuleIdleTimeoutInMinutes": 30,
+                "addons": [
+                    {
+                        "name": "azuredisk-csi-driver",
+                        "enabled": false
+                    },
+                    {
+                        "name": "azurefile-csi-driver",
+                        "enabled": false
+                    }
+                ]
+            }
+        },
+        "masterProfile": {
+            "count": 1,
+            "dnsPrefix": "{dnsPrefix}",
+            "vmSize": "Standard_D2s_v3"
+        },
+        "agentPoolProfiles": [
+            {
+                "name": "nodepool",
+                "count": 1,
+                "vmSize": "Standard_D2s_v3",
+                "availabilityProfile": "AvailabilitySet"
+            }
+        ],
+        "linuxProfile": {
+            "adminUsername": "azureuser",
+            "ssh": {
+                "publicKeys": [
+                    {
+                        "keyData": "{keyData}"
+                    }
+                ]
+            }
+        },
+        "servicePrincipalProfile": {
+            "clientID": "{clientID}",
+            "secret": "{secret}"
+        }
+    }
+}

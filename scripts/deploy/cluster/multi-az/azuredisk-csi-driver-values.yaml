@@ -1,0 +1,7 @@
+controller:
+  replicas: 3
+  runOnMaster: true
+snapshot:
+  enabled: true
+windows:
+  enabled: false

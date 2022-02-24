@@ -1,0 +1,20 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: fio
+spec:
+  nodeSelector:
+    openebs.io/engine: mayastor
+  volumes:
+    - name: ms-volume
+      persistentVolumeClaim:
+        claimName: ms-volume-claim
+  containers:
+    - name: fio
+      image: nixery.dev/shell/fio
+      args:
+        - sleep
+        - "1000000"
+      volumeMounts:
+        - mountPath: "/volume"
+          name: ms-volume

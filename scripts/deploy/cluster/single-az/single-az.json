@@ -1,0 +1,55 @@
+{
+    "apiVersion": "vlabs",
+    "location": "westus2",
+    "properties": {
+        "orchestratorProfile": {
+            "orchestratorType": "Kubernetes",
+            "orchestratorRelease": "1.21",
+            "kubernetesConfig": {
+                "useManagedIdentity": true,
+                "userAssignedID": "azuredisk-csi-driver-e2e-test-id",
+                "useCloudControllerManager": true,
+                "networkPolicy": "none",
+                "cloudProviderRateLimitQPS": 6,
+                "cloudProviderRateLimitBucket": 20,
+                "apiServerConfig": {
+                    "--enable-admission-plugins": "NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,AlwaysPullImages"
+                },
+                "addons": [
+                    {
+                        "name": "azuredisk-csi-driver",
+                        "enabled": false
+                    },
+                    {
+                        "name": "azurefile-csi-driver",
+                        "enabled": false
+                    }
+                ]
+            }
+        },
+        "masterProfile": {
+            "count": 1,
+            "dnsPrefix": "{dnsPrefix}",
+            "vmSize": "Standard_D2s_v3"
+        },
+        "agentPoolProfiles": [
+            {
+                "name": "agentpool1",
+                "count": 3,
+                "vmSize": "Standard_D2s_v3",
+                "availabilityProfile": "AvailabilitySet",
+                "distro": "aks-ubuntu-18.04"
+            }
+        ],
+        "linuxProfile": {
+            "adminUsername": "azureuser",
+            "ssh": {
+                "publicKeys": [
+                    {
+                        "keyData": "{keyData}"
+                    }
+                ]
+            }
+        }
+    }
+}

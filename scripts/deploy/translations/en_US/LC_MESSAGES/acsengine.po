@@ -1,0 +1,132 @@
+# English translations for aks-engine package.
+# Copyright (C) 2017
+# This file is distributed under the same license as the aks-engine package.
+# Jiangtian Li <jiangtianli@hotmail.com>, 2017.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: acsengine\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2017-07-25 00:04+0000\n"
+"PO-Revision-Date: 2017-07-24 17:23-0700\n"
+"Last-Translator: Jiangtian Li <jiangtianli@hotmail.com>\n"
+"Language-Team: English\n"
+"Language: en_US\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 2.0.3\n"
+
+#: pkg/operations/kubernetesupgrade/upgrader.go:202
+#: pkg/operations/kubernetesupgrade/upgrader.go:217
+#, c-format
+msgid "Error generating upgrade template: %s"
+msgstr "Error generating upgrade template: %s"
+
+#: pkg/acsengine/engine.go:251
+#, c-format
+msgid "Error reading file %s, Error: %s"
+msgstr "Error reading file %s, Error: %s"
+
+#: pkg/operations/kubernetesupgrade/upgradecluster.go:76
+#, c-format
+msgid "Error while querying ARM for resources: %+v"
+msgstr "Error while querying ARM for resources: %+v"
+
+#: pkg/acsengine/transform/transform.go:121
+#: pkg/acsengine/transform/transform.go:129
+#, c-format
+msgid "Found 2 resources with type %s in the template. There should only be 1"
+msgstr "Found 2 resources with type %s in the template. There should only be 1"
+
+#: pkg/acsengine/transform/transform.go:158
+#, c-format
+msgid ""
+"Found no resources with type %s in the template. There should have been 1"
+msgstr ""
+"Found no resources with type %s in the template. There should have been 1"
+
+#: pkg/operations/kubernetesupgrade/upgradeagentnode.go:125
+#, c-format
+msgid "Node was not ready within %v"
+msgstr "Node was not ready within %v"
+
+#: pkg/api/apiloader.go:205 pkg/api/apiloader.go:210 pkg/api/apiloader.go:225
+#: pkg/api/apiloader.go:230
+#, c-format
+msgid "The selected orchestrator version '%s' is not supported"
+msgstr "The selected orchestrator version '%s' is not supported"
+
+#: pkg/operations/kubernetesupgrade/upgrader.go:120
+#, c-format
+msgid "Total count of master VMs: %d exceeded expected count: %d"
+msgstr "Total count of master VMs: %d exceeded expected count: %d"
+
+#: pkg/operations/kubernetesupgrade/upgradecluster.go:110
+#, c-format
+msgid "Upgrade to Kubernetes version %s is not supported"
+msgstr "Upgrade to Kubernetes version %s is not supported"
+
+#: pkg/acsengine/filesaver.go:26
+#, c-format
+msgid "error creating directory '%s': %s"
+msgstr "error creating directory '%s': %s"
+
+#: pkg/acsengine/engine.go:2545
+#, c-format
+msgid "error executing template for file %s: %v"
+msgstr "error executing template for file %s: %v"
+
+#: pkg/operations/kubernetesupgrade/upgrader.go:78
+#: pkg/operations/kubernetesupgrade/upgrader.go:391
+#, c-format
+msgid "error generating upgrade template: %s"
+msgstr "error generating upgrade template: %s"
+
+#: pkg/acsengine/engine.go:2540
+#, c-format
+msgid "error parsing file %s: %v"
+msgstr "error parsing file %s: %v"
+
+#: pkg/api/apiloader.go:32
+#, c-format
+msgid "error reading file %s: %s"
+msgstr "error reading file %s: %s"
+
+#: pkg/operations/kubernetesupgrade/upgrader.go:385
+#, c-format
+msgid "failed to initialize template generator: %s"
+msgstr "failed to initialize template generator: %s"
+
+#: pkg/api/apiloader.go:342 pkg/api/apiloader.go:369
+#, c-format
+msgid "invalid version %s for conversion back from unversioned object"
+msgstr "invalid version %s for conversion back from unversioned object"
+
+#: pkg/acsengine/engine.go:399
+#, c-format
+msgid "orchestrator '%s' is unsupported"
+msgstr "orchestrator '%s' is unsupported"
+
+#: pkg/acsengine/engine.go:195
+#, c-format
+msgid "template file %s does not exist"
+msgstr "template file %s does not exist"
+
+#: pkg/api/apiloader.go:184
+#, c-format
+msgid "unrecognized APIVersion '%s'"
+msgstr "unrecognized APIVersion '%s'"
+
+#: pkg/api/apiloader.go:272
+#, c-format
+msgid ""
+"unrecognized APIVersion in LoadContainerServiceForAgentPoolOnlyCluster '%s'"
+msgstr ""
+"unrecognized APIVersion in LoadContainerServiceForAgentPoolOnlyCluster '%s'"
+
+#: pkg/acsengine/engine.go:2534
+#, c-format
+msgid "yaml file %s does not exist"
+msgstr "yaml file %s does not exist"
