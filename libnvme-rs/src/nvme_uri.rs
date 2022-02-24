@@ -1,6 +1,8 @@
-use std::{convert::TryFrom, time::Duration};
+use std::{convert::TryFrom, io, time::Duration};
 
 use url::{ParseError, Url};
+
+use mio08::{Events, Interest, Poll, Token};
 
 use crate::{
     error::NvmeError,
@@ -332,6 +334,45 @@ impl NvmeTarget {
             }
         }
         nvme_devices
+    }
+
+    fn poll(&self, mut socket: udev::MonitorSocket) -> io::Result<()> {
+        let mut poll = Poll::new()?;
+        let mut events = Events::with_capacity(1024);
+
+        poll.registry().register(
+            &mut socket,
+            Token(0),
+            Interest::READABLE | Interest::WRITABLE,
+        )?;
+
+        loop {
+            poll.poll(&mut events, None)?;
+
+            for event in &events {
+                if event.token() == Token(0) && event.is_writable() {
+                    socket.clone().for_each(|x| self.handle_event(x));
+                }
+            }
+        }
+    }
+
+    fn handle_event(&self, event: udev::Event) {
+        if let Some(parent) = event.parent() {
+            if let Some(subsysnqn) = parent.attribute_value("subsysnqn") {
+                if subsysnqn.to_str().unwrap() == self.subsysnqn {
+                    // FIXME do callback
+                }
+            }
+        }
+    }
+
+    pub fn start_poll(&self) -> io::Result<()> {
+        let socket = udev::MonitorBuilder::new()?
+            .match_subsystem_devtype("block", "disk")?
+            .listen()?;
+
+        self.poll(socket)
     }
 }
 

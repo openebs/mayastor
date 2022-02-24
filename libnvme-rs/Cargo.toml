@@ -19,3 +19,12 @@ glob = "0.3.0"
 libc = "0.2"
 snafu = "0.6.10"
 url = "2.2.2"
+
+[dependencies.mio08]
+package = "mio"
+features = ["os-ext"]
+version = "0.8"
+
+[dependencies.udev]
+features = ["hwdb", "mio"]
+version = "^0.6.3"
