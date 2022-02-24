@@ -196,19 +196,6 @@ function startMayastor (config, args, env, suffix) {
   );
 }
 
-// Start mayastor-csi process and return immediately.
-function startMayastorCsi () {
-  startProcess('mayastor-csi', [
-    '-v',
-    '-n',
-    'test-node-id',
-    '-c',
-    CSI_ENDPOINT,
-    '-g',
-    LOCALHOST
-  ]);
-}
-
 function killSudoedProcess (name, pid, done) {
   find('name', name).then((res) => {
     let whichPid;
@@ -283,39 +270,6 @@ function restartMayastor (ping, done) {
       },
       (next) => {
         startMayastor();
-        waitFor(ping, next);
-      }
-    ],
-    done
-  );
-}
-
-// Restart mayastor-csi process.
-//
-// TODO: We don't restart the process with the same parameters as we
-// don't remember params which were used for starting it.
-function restartMayastorCsi (ping, done) {
-  const proc = procs['mayastor-csi'];
-  assert(proc);
-
-  async.series(
-    [
-      (next) => {
-        killSudoedProcess('mayastor-csi', proc.pid, (err) => {
-          if (err) return next(err);
-          if (procs['mayastor-csi']) {
-            procs['mayastor-csi'].once('close', next);
-          } else {
-            next();
-          }
-        });
-      },
-      (next) => {
-        // let other close event handlers on the process run
-        setTimeout(next, 0);
-      },
-      (next) => {
-        startMayastorCsi();
         waitFor(ping, next);
       }
     ],
@@ -473,11 +427,9 @@ module.exports = {
   CSI_ID,
   SOCK,
   startMayastor,
-  startMayastorCsi,
   stopAll,
   waitFor,
   restartMayastor,
-  restartMayastorCsi,
   fixSocketPerms,
   grpcEndpoint,
   jsonrpcCommand,

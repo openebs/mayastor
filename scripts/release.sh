@@ -119,9 +119,9 @@ cd $SCRIPTDIR/..
 
 if [ -z "$IMAGES" ]; then
   if [ -z "$DEBUG" ]; then
-    IMAGES="mayastor mayastor-csi mayastor-client"
+    IMAGES="mayastor mayastor-client"
   else
-    IMAGES="mayastor-dev mayastor-csi-dev mayastor-client"
+    IMAGES="mayastor-dev mayastor-client"
   fi
 fi
 

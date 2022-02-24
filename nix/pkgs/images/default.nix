@@ -40,21 +40,6 @@ let
       mkdir -p var/tmp
     '';
   };
-  mayastorCsiImageProps = {
-    tag = version;
-    created = "now";
-    config = {
-      Entrypoint = [ "/bin/mayastor-csi" ];
-      Env = [
-        "PATH=${path}"
-        "RUST_BACKTRACE=1"
-      ];
-    };
-    extraCommands = ''
-      mkdir tmp
-      mkdir -p var/tmp
-    '';
-  };
   clientImageProps = {
     tag = version;
     created = "now";
@@ -66,10 +51,6 @@ let
       mkdir -p var/tmp
     '';
   };
-  mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
-    #!${stdenv.shell}
-    chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
-  '';
 
   mctl = writeScriptBin "mctl" ''
     /bin/mayastor-client "$@"
@@ -84,20 +65,6 @@ in
   mayastor-dev = dockerTools.buildImage (mayastorImageProps // {
     name = "mayadata/mayastor-dev";
     contents = [ busybox mayastor-dev ];
-  });
-
-  # The algorithm for placing packages into the layers is not optimal.
-  # There are a couple of layers with negligible size and then there is one
-  # big layer with everything else. That defeats the purpose of layering.
-  mayastor-csi = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
-    name = "mayadata/mayastor-csi";
-    contents = [ busybox mayastor mayastorIscsiadm ];
-    maxLayers = 42;
-  });
-
-  mayastor-csi-dev = dockerTools.buildImage (mayastorCsiImageProps // {
-    name = "mayadata/mayastor-csi-dev";
-    contents = [ busybox mayastor-dev mayastorIscsiadm ];
   });
 
   mayastor-client = dockerTools.buildImage (clientImageProps // {
