@@ -47,6 +47,7 @@ let
     "csi"
     "devinfo"
     "jsonrpc"
+    "libnvme-rs"
     "mayastor"
     "mbus-api"
     "nvmeadm"
