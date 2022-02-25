@@ -502,36 +502,12 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f2c43f534ea4b0b049015d00269734195e6d3f0f6635cb692251aca6f9f8b3c"
-dependencies = [
- "darling_core 0.12.4",
- "darling_macro 0.12.4",
-]
-
-[[package]]
-name = "darling"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "757c0ded2af11d8e739c4daea1ac623dd1624b06c844cf3f5a39f1bdbd99bb12"
 dependencies = [
- "darling_core 0.13.0",
- "darling_macro 0.13.0",
-]
-
-[[package]]
-name = "darling_core"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e91455b86830a1c21799d94524df0845183fa55bafd9aa137b01c7d1065fa36"
-dependencies = [
- "fnv",
- "ident_case",
- "proc-macro2 1.0.32",
- "quote 1.0.10",
- "strsim 0.10.0",
- "syn 1.0.81",
+ "darling_core",
+ "darling_macro",
 ]
 
 [[package]]
@@ -550,22 +526,11 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29b5acf0dea37a7f66f7b25d2c5e93fd46f8f6968b1a5d7a3e02e97768afc95a"
-dependencies = [
- "darling_core 0.12.4",
- "quote 1.0.10",
- "syn 1.0.81",
-]
-
-[[package]]
-name = "darling_macro"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ade7bff147130fe5e6d39f089c6bd49ec0250f35d70b2eebf72afdfc919f15cc"
 dependencies = [
- "darling_core 0.13.0",
+ "darling_core",
  "quote 1.0.10",
  "syn 1.0.81",
 ]
@@ -575,48 +540,6 @@ name = "data-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
-
-[[package]]
-name = "derive_builder"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d13202debe11181040ae9063d739fa32cfcaaebe2275fe387703460ae2365b30"
-dependencies = [
- "derive_builder_macro",
-]
-
-[[package]]
-name = "derive_builder_core"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66e616858f6187ed828df7c64a6d71720d83767a7f19740b2d1b6fe6327b36e5"
-dependencies = [
- "darling 0.12.4",
- "proc-macro2 1.0.32",
- "quote 1.0.10",
- "syn 1.0.81",
-]
-
-[[package]]
-name = "derive_builder_macro"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58a94ace95092c5acb1e97a7e846b310cfbd499652f72297da7493f618a98d73"
-dependencies = [
- "derive_builder_core",
- "syn 1.0.81",
-]
-
-[[package]]
-name = "devinfo"
-version = "1.0.0"
-dependencies = [
- "bindgen",
- "snafu",
- "udev",
- "url",
- "uuid",
-]
 
 [[package]]
 name = "digest"
@@ -725,17 +648,6 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
-
-[[package]]
-name = "enum-primitive-derive"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c375b9c5eadb68d0a6efee2999fef292f45854c3444c86f09d8ab086ba942b0e"
-dependencies = [
- "num-traits",
- "quote 1.0.10",
- "syn 1.0.81",
-]
 
 [[package]]
 name = "env_logger"
@@ -1308,7 +1220,7 @@ dependencies = [
 name = "libnvme-rs"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.59.1",
+ "bindgen",
  "cc",
  "glob",
  "libc",
@@ -1656,23 +1568,6 @@ checksum = "05499f3756671c15885fee9034446956fff3f243d6077b91e5767df161f766b3"
 dependencies = [
  "hermit-abi",
  "libc",
-]
-
-[[package]]
-name = "nvmeadm"
-version = "1.0.0"
-dependencies = [
- "derive_builder",
- "enum-primitive-derive",
- "glob",
- "ioctl-gen",
- "libc",
- "nix",
- "num-traits",
- "once_cell",
- "snafu",
- "url",
- "uuid",
 ]
 
 [[package]]
@@ -2274,7 +2169,7 @@ version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12e47be9471c72889ebafb5e14d5ff930d89ae7a67bbdb5f8abb564f845a927e"
 dependencies = [
- "darling 0.13.0",
+ "darling",
  "proc-macro2 1.0.32",
  "quote 1.0.10",
  "syn 1.0.81",

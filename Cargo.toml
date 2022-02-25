@@ -7,12 +7,10 @@ panic = "abort"
 
 [workspace]
 members = [
-	"devinfo",
 	"jsonrpc",
 	"libnvme-rs",
 	"mayastor",
 	"mbus-api",
-	"nvmeadm",
 	"rpc",
 	"sysfs",
 	"composer",

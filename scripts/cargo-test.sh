@@ -25,4 +25,3 @@ export PATH=$PATH:${HOME}/.cargo/bin
 # test dependencies
 cargo build --bins
 ( cd mayastor && cargo test -- --test-threads=1 )
-( cd nvmeadm && cargo test )
