@@ -581,6 +581,10 @@ pipeline {
         }
       }
       steps {
+        // Clean the workspace and unstash the source to ensure we build and push the correct images.
+        cleanWs()
+        unstash 'source'
+
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
