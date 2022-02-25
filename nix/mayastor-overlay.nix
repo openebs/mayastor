@@ -2,6 +2,7 @@ self: super: {
 
   fio = super.callPackage ./pkgs/fio { };
   images = super.callPackage ./pkgs/images { };
+  libnvme = super.callPackage ./pkgs/libnvme { };
   libspdk = (super.callPackage ./pkgs/libspdk { }).release;
   libspdk-dev = (super.callPackage ./pkgs/libspdk { }).debug;
   mayastor = (super.callPackage ./pkgs/mayastor { }).release;

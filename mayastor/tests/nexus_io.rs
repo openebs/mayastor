@@ -27,6 +27,8 @@ use std::process::{Command, ExitStatus};
 pub mod common;
 use common::{compose::Builder, MayastorTest};
 
+extern crate libnvme_rs;
+
 static POOL_NAME: &str = "tpool";
 static NXNAME: &str = "nexus0";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
@@ -77,20 +79,14 @@ fn nvme_connect(
 }
 
 fn get_mayastor_nvme_device() -> String {
-    let output_list = Command::new("nvme").args(&["list"]).output().unwrap();
-    assert!(
-        output_list.status.success(),
-        "failed to list nvme devices, {}",
-        output_list.status
-    );
-    let sl = String::from_utf8(output_list.stdout).unwrap();
-    let nvmems: Vec<&str> = sl
-        .lines()
-        .filter(|line| line.contains("Mayastor NVMe controller"))
+    let nvme_devices = libnvme_rs::NvmeTarget::list();
+    let nvme_ms: Vec<&String> = nvme_devices
+        .iter()
+        .filter(|dev| dev.model.contains("Mayastor NVMe controller"))
+        .map(|dev| &dev.device)
         .collect();
-    assert_eq!(nvmems.len(), 1);
-    let ns = nvmems[0].split(' ').collect::<Vec<_>>()[0];
-    ns.to_string()
+    assert_eq!(nvme_ms.len(), 1);
+    format!("/dev/{}", nvme_ms[0])
 }
 
 fn get_nvme_resv_report(nvme_dev: &str) -> serde_json::Value {
