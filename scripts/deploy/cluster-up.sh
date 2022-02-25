@@ -228,14 +228,14 @@ kubectl label nodes --selector agentpool=agentpool openebs.io/engine=mayastor
 # Enable hugepages and prepare the nodes for reboot
 #
 echo "Enabling HugePages and marking all the nodes for reboot..."
-kubectl apply -f actions/hugepage-enabler-daemonset.yaml
+kubectl apply -f $GIT_ROOT/scripts/deploy/actions/hugepage-enabler-daemonset.yaml
 sleep 2m
 
 #
 # Restart nodes
 #
 echo "Restarting nodes..."
-kubectl apply -f actions/kured-config.yaml
+kubectl apply -f $GIT_ROOT/scripts/deploy/actions/kured-config.yaml
 sleep 3m
 getNodesStatus
 echo "Nodes restart successful"

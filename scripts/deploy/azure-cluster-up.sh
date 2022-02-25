@@ -450,35 +450,10 @@ AZURE_CLUSTER_KUBECONFIG_FILE="$OUTPUT_DIR/kubeconfig/kubeconfig.$AZURE_LOCATION
 echo "Waiting for cluster to become available"
 retry 30 10 kubectl --kubeconfig="$AZURE_CLUSTER_KUBECONFIG_FILE" get nodes 1> /dev/null
 
-#
-# Create setup and clean-up shell scripts.
-#
-SETUP_FILE="$OUTPUT_DIR/e2e-setup.sh"
->$SETUP_FILE cat <<EOF
-export ARTIFACTS="$OUTPUT_DIR/artifacts"
-export AZURE_TENANT_ID="$AZURE_TENANT_ID"
-export AZURE_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
-export AZURE_CLIENT_ID="$AZURE_CLIENT_ID"
-export AZURE_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
-export AZURE_RESOURCE_GROUP="$AZURE_RESOURCE_GROUP"
-export AZURE_LOCATION="$AZURE_LOCATION"
-export KUBECONFIG="$AZURE_CLUSTER_KUBECONFIG_FILE"
-EOF
-
-if [[ ${IS_WINDOWS_CLUSTER} -ne 0 ]]; then
-  >>$SETUP_FILE echo "export TEST_WINDOWS=\"true\""
-fi
-
-chmod +x "$SETUP_FILE"
-
 mkdir -p "$OUTPUT_DIR/artifacts"
 
 echo
 echo "To use the $AZURE_CLUSTER_DNS_NAME cluster, set KUBECONFIG to the following:"
 echo
 echo "$ export KUBECONFIG=\"$AZURE_CLUSTER_KUBECONFIG_FILE\""
-echo
-echo "To setup for e2e tests, run the following command:"
-echo
-echo "$ source \"$SETUP_FILE\""
 echo

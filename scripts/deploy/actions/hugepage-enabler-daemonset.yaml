@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: hugepage2
+  name: hugepage
 spec:
   selector:
     matchLabels:
-      name: hugepage2-container
+      name: hugepage-container
   template:
     metadata:
       labels:
-        name: hugepage2-container
+        name: hugepage-container
     spec:
       containers:
       - name: busybox
