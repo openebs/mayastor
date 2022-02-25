@@ -1,5 +1,4 @@
 [patch.crates-io]
-h2 = { git = "https://github.com/openebs/h2",  rev = "0.3.3"}
 # Nats with the tcp stream timeout fix: CAS-1192
 nats = { git = "https://github.com/openebs/nats.rs", rev="main_fixes" }
 
@@ -8,13 +7,10 @@ panic = "abort"
 
 [workspace]
 members = [
-	"csi",
-	"devinfo",
 	"jsonrpc",
 	"libnvme-rs",
 	"mayastor",
 	"mbus-api",
-	"nvmeadm",
 	"rpc",
 	"sysfs",
 	"composer",

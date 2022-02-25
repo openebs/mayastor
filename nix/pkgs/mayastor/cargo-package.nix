@@ -44,13 +44,10 @@ let
     "Cargo.toml"
     "cli"
     "composer"
-    "csi"
-    "devinfo"
     "jsonrpc"
     "libnvme-rs"
     "mayastor"
     "mbus-api"
-    "nvmeadm"
     "rpc"
     "spdk-rs"
     "sysfs"
@@ -79,7 +76,6 @@ let
     cargoLock = {
       lockFile = ../../../Cargo.lock;
       outputHashes = {
-        "h2-0.3.3" = "sha256-Y4AaBj10ZOutI37sVRY4yVUYmVWj5dwPbPhBhPWHNiQ=";
         "nats-0.15.2" = "sha256:1whr0v4yv31q5zwxhcqmx4qykgn5cgzvwlaxgq847mymzajpcsln";
       };
     };
@@ -100,7 +96,7 @@ let
 in
 {
   release = rustPlatform.buildRustPackage (buildProps // {
-    cargoBuildFlags = "--bin mayastor --bin mayastor-client --bin mayastor-csi";
+    cargoBuildFlags = "--bin mayastor --bin mayastor-client";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
     SPDK_PATH = "${libspdk}";
