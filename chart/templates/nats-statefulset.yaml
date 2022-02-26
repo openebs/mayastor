@@ -20,6 +20,7 @@ data:
     {{- if gt (.Values.nats.replicas | int) 1 }}
     cluster {
       port: 6222
+      name: "nats-{{ .Release.Namespace }}"
 
       routes [
         {{- range $index, $end := until (.Values.nats.replicas | int) }}
