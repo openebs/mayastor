@@ -1,5 +1,4 @@
 use std::{
-    convert::TryFrom,
     ffi::CString,
     os::raw::{c_char, c_void},
     pin::Pin,
@@ -82,7 +81,7 @@ pub struct MayastorCliArgs {
     #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
     /// IP address and port (optional) for the gRPC server to listen on.
     pub grpc_endpoint: String,
-    #[structopt(short = "R", default_value = "https://core:50051")]
+    #[structopt(short = "R", default_value = subsys::registration::default_endpoint_str())]
     /// Registration
     pub registration_endpoint: Uri,
     #[structopt(short = "L")]
@@ -172,7 +171,7 @@ impl Default for MayastorCliArgs {
             core_list: None,
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
-            registration_endpoint: Uri::try_from("https://core:50051").unwrap(),
+            registration_endpoint: subsys::registration::default_endpoint(),
         }
     }
 }
@@ -262,7 +261,7 @@ impl Default for MayastorEnvironment {
         Self {
             node_name: "mayastor-node".into(),
             grpc_endpoint: None,
-            registration_endpoint: Uri::try_from("https://core:50051").unwrap(),
+            registration_endpoint: subsys::registration::default_endpoint(),
             persistent_store_endpoint: None,
             mayastor_config: None,
             pool_config: None,

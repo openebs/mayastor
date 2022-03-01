@@ -32,7 +32,8 @@ use crate::subsys::nvmf::Nvmf;
 
 mod config;
 mod nvmf;
-mod registration;
+/// Module for registration of the data-plane with control-plane
+pub mod registration;
 
 /// Register initial subsystems
 pub(crate) fn register_subsystem() {

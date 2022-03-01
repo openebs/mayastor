@@ -1,6 +1,7 @@
 //! A Registration subsystem is used to keep control-plane in the loop
 //! about the lifecycle of mayastor instances.
 
+/// Module for grpc registration implementation
 pub mod registration_grpc;
 
 pub mod misc {
@@ -103,6 +104,7 @@ pub mod misc {
 }
 
 use crate::core::MayastorEnvironment;
+use http::Uri;
 use registration_grpc::Registration;
 use spdk_rs::libspdk::{
     spdk_add_subsystem,
@@ -110,6 +112,33 @@ use spdk_rs::libspdk::{
     spdk_subsystem_fini_next,
     spdk_subsystem_init_next,
 };
+use std::convert::TryFrom;
+
+macro_rules! default_addr {
+    () => {
+        "https://core"
+    };
+}
+macro_rules! default_port {
+    () => {
+        50051
+    };
+}
+
+/// Default grpc server port
+pub fn default_port() -> u16 {
+    default_port!()
+}
+
+/// Default endpoint string - addr:port
+pub fn default_endpoint_str() -> &'static str {
+    concat!(default_addr!(), ":", default_port!())
+}
+
+/// Default endpoint Uri - ip:port
+pub fn default_endpoint() -> Uri {
+    Uri::try_from(default_endpoint_str()).expect("Expected a valid endpoint")
+}
 
 // wrapper around our Registration subsystem used for registration
 pub struct RegistrationSubsystem(*mut spdk_subsystem);
