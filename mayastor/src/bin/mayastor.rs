@@ -42,12 +42,16 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
             let mut futures = Vec::new();
-            Registration::init(
-                &node_name,
-                &grpc_address.to_string(),
-                registration_addr,
-            );
-            futures.push(Registration::run().boxed());
+            if let Some(registration_addr) = registration_addr {
+                debug!("mayastor grpc registration init");
+                Registration::init(
+                    &node_name,
+                    &grpc_address.to_string(),
+                    registration_addr,
+                );
+                futures.push(Registration::run().boxed());
+            }
+
             PersistentStore::init(persistent_store_endpoint).await;
             runtime::spawn(device_monitor());
 

@@ -1,6 +1,5 @@
 #![warn(missing_docs)]
 
-use crate::subsys::registration::misc::ReplyError;
 use futures::{select, FutureExt, StreamExt};
 use http::Uri;
 use once_cell::sync::OnceCell;
@@ -15,6 +14,10 @@ use std::{env, time::Duration};
 const HB_INTERVAL_SEC: Duration = Duration::from_secs(5);
 /// How long we wait to send a registration message before timing out
 const HB_TIMEOUT_SEC: Duration = Duration::from_secs(5);
+/// The http2 keep alive interval.
+const HTTP_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
+/// The http2 keep alive TIMEOUT.
+const HTTP_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Clone)]
 struct Configuration {
@@ -33,8 +36,8 @@ struct Configuration {
 pub struct Registration {
     /// Configuration of the registration
     config: Configuration,
-    /// Registration server grpc endpoint
-    registration_endpoint: tonic::transport::Endpoint,
+    /// Registration client
+    client: registration_client::RegistrationClient<tonic::transport::Channel>,
     /// Receive channel for messages and termination
     rcv_chan: async_channel::Receiver<()>,
     /// Termination channel
@@ -75,10 +78,13 @@ impl Registration {
         };
         let endpoint = tonic::transport::Endpoint::from(registration_addr)
             .connect_timeout(config.hb_timeout_sec)
-            .timeout(config.hb_timeout_sec);
+            .timeout(config.hb_timeout_sec)
+            .http2_keep_alive_interval(HTTP_KEEP_ALIVE_INTERVAL)
+            .keep_alive_timeout(HTTP_KEEP_ALIVE_TIMEOUT);
+        let channel = endpoint.connect_lazy().unwrap();
         Self {
             config,
-            registration_endpoint: endpoint,
+            client: registration_client::RegistrationClient::new(channel),
             rcv_chan: msg_receiver,
             fini_chan: msg_sender,
         }
@@ -93,29 +99,10 @@ impl Registration {
         self.fini_chan.close();
     }
 
-    /// Create a new RegistrationClient for rpc transport
-    pub async fn client(
-        &self,
-    ) -> Result<
-        registration_client::RegistrationClient<tonic::transport::Channel>,
-        ReplyError,
-    > {
-        match registration_client::RegistrationClient::connect(
-            self.registration_endpoint.clone(),
-        )
-        .await
-        {
-            Ok(client) => Ok(client),
-            Err(e) => Err(e.into()),
-        }
-    }
-
     /// Register a new node over rpc
-    pub async fn register(&self) -> Result<(), ReplyError> {
+    pub async fn register(&mut self) -> Result<(), tonic::Status> {
         match self
-            .client()
-            .await?
-            .clone()
+            .client
             .register(tonic::Request::new(RegisterRequest {
                 id: self.config.node.to_string(),
                 grpc_endpoint: self.config.grpc_endpoint.clone(),
@@ -124,19 +111,14 @@ impl Registration {
             .await
         {
             Ok(_) => Ok(()),
-            Err(e) => {
-                tracing::error!("{}", e.to_string());
-                Err(e.into())
-            }
+            Err(e) => Err(e),
         }
     }
 
     /// Deregister a new node over rpc
-    pub async fn deregister(&self) -> Result<(), ReplyError> {
+    pub async fn deregister(&mut self) -> Result<(), tonic::Status> {
         match self
-            .client()
-            .await?
-            .clone()
+            .client
             .deregister(tonic::Request::new(DeregisterRequest {
                 id: self.config.node.to_string(),
             }))
@@ -150,10 +132,7 @@ impl Registration {
                 );
                 Ok(())
             }
-            Err(e) => {
-                tracing::error!("{}", e.to_string());
-                Err(e.into())
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -169,13 +148,20 @@ impl Registration {
     /// Connect to the server and start emitting periodic register
     /// requests.
     pub async fn run_loop(&mut self) {
+        let mut show_error: bool = true;
         info!(
             "Registering '{:?}' and grpc server {} ...",
             self.config.node, self.config.grpc_endpoint
         );
         loop {
-            if let Err(err) = self.register().await {
-                error!("Registration failed: {:?}", err);
+            match self.register().await {
+                Ok(_) => show_error = true,
+                Err(err) => {
+                    if show_error {
+                        error!("Registration failed: {:?}", err);
+                        show_error = false;
+                    }
+                }
             };
             select! {
                 _ = tokio::time::sleep(self.config.hb_interval_sec).fuse() => continue,

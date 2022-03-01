@@ -87,7 +87,6 @@ async-channel = "1.6.1"
 dns-lookup = "1.0.8"
 etcd-client = "0.7.1"
 parking_lot = "0.11.1"
-strum_macros = "0.21.1"
 
 [dependencies.rpc]
 path = "../rpc"

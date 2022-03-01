@@ -1079,7 +1079,6 @@ dependencies = [
  "snafu",
  "spdk-rs",
  "structopt",
- "strum_macros",
  "sysfs",
  "tokio",
  "tonic",
@@ -1833,18 +1832,6 @@ checksum = "dcb5ae327f9cc13b68763b5749770cb9e048a99bd9dfdfa58d0cf05d5f64afe0"
 dependencies = [
  "heck",
  "proc-macro-error",
- "proc-macro2 1.0.36",
- "quote 1.0.15",
- "syn 1.0.86",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
-dependencies = [
- "heck",
  "proc-macro2 1.0.36",
  "quote 1.0.15",
  "syn 1.0.86",

@@ -81,9 +81,9 @@ pub struct MayastorCliArgs {
     #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
     /// IP address and port (optional) for the gRPC server to listen on.
     pub grpc_endpoint: String,
-    #[structopt(short = "R", default_value = subsys::registration::default_endpoint_str())]
-    /// Registration
-    pub registration_endpoint: Uri,
+    #[structopt(short = "R")]
+    /// Registration grpc endpoint
+    pub registration_endpoint: Option<Uri>,
     #[structopt(short = "L")]
     /// Enable logging for sub components.
     pub log_components: Vec<String>,
@@ -171,7 +171,7 @@ impl Default for MayastorCliArgs {
             core_list: None,
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
-            registration_endpoint: subsys::registration::default_endpoint(),
+            registration_endpoint: None,
         }
     }
 }
@@ -223,7 +223,7 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 pub struct MayastorEnvironment {
     pub node_name: String,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
-    pub registration_endpoint: Uri,
+    pub registration_endpoint: Option<Uri>,
     persistent_store_endpoint: Option<String>,
     mayastor_config: Option<String>,
     pool_config: Option<String>,
@@ -261,7 +261,7 @@ impl Default for MayastorEnvironment {
         Self {
             node_name: "mayastor-node".into(),
             grpc_endpoint: None,
-            registration_endpoint: subsys::registration::default_endpoint(),
+            registration_endpoint: None,
             persistent_store_endpoint: None,
             mayastor_config: None,
             pool_config: None,
