@@ -332,6 +332,9 @@ pipeline {
             stage('run tests') {
               steps {
                 sh 'printenv'
+                // Cleanup any existing containers.
+                // They could be lingering if there were previous test failures.
+                sh 'docker system prune -f'
                 sh 'nix-shell --run "./scripts/pytest-tests.sh" ci.nix'
               }
             }
