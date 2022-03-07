@@ -40,7 +40,6 @@ mkShell {
     liburing
     llvmPackages_11.libclang
     meson
-    nats-server
     ninja
     nodejs-16_x
     nvme-cli

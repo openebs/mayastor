@@ -28,9 +28,9 @@ spec:
         openebs.io/engine: mayastor
         kubernetes.io/arch: amd64
       initContainers:
-      - name: message-bus-probe
+      - name: registration-probe
         image: busybox:latest
-        command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
+        command: ['sh', '-c', 'until nc -vz core 50051; do echo "Waiting for registration service..."; sleep 1; done;']
       containers:
       - name: mayastor
         image: mayadata/mayastor:develop
@@ -55,7 +55,7 @@ spec:
         #       If you use 2 CPUs, the CPU: field should also read 2.
         - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
-        - "-nnats"
+        - "-Rhttps://core:50051"
         - "-y/var/local/mayastor/config.yaml"
         - "-l1"
         - "-pmayastor-etcd"

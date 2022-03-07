@@ -1,12 +1,3 @@
-nats:
-  cluster:
-    enabled: false
-  exporter:
-    enabled: false
-  logging:
-    debug: false
-    trace: false
-
 etcd:
   auth:
     rbac:
