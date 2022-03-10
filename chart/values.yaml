@@ -4,6 +4,8 @@ mayastorCpuCount: "1"
 mayastorHugePagesGiB: "1"
 mayastorImagesRegistry: ""
 mayastorConfigLocation: /var/local/mayastor
+mayastorLogLevel: info
+
 mayastorExtraVolumeMounts: []
 mayastorExtraVolumes: []
 mayastorExtraInitContainers: []
