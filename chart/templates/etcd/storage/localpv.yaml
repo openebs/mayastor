@@ -1,5 +1,5 @@
 ---
-{{ if and .Values.etcd.persistence.enabled (eq .Values.etcd.persistence.storageClass "manual") }}
+{{ if and .Values.etcd.enabled .Values.etcd.persistence.enabled (eq .Values.etcd.persistence.storageClass "manual") }}
 {{- range $index, $end := until (.Values.etcd.replicaCount | int) }}
 apiVersion: v1
 kind: PersistentVolume

@@ -19,6 +19,10 @@ csi:
     io_timeout_enabled: true
 
 etcd:
+  ## Deploy bitnami helm chart
+  ##
+  enabled: true
+
   ## Number of replicas
   ##
   replicaCount: 1

@@ -10,3 +10,4 @@ dependencies:
     tags:
       - bitnami-etcd
     version: 6.2.3
+    condition: etcd.enabled
