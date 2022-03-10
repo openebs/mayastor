@@ -21,6 +21,9 @@ spec:
     spec:
       hostNetwork: true
       # To resolve services in the namespace
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName | quote }}
+      {{- end }}
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
       affinity: {{ .Values.affinity | toYaml | nindent 8 }}

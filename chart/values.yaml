@@ -23,6 +23,8 @@ nodeSelector:
 
 affinity: {}
 
+serviceAccountName: ""
+
 csi:
   nvme:
     # nvme_core module io timeout in seconds
