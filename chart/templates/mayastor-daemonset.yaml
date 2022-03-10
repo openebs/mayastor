@@ -56,7 +56,7 @@ spec:
         - "-Rhttps://core:50051"
         - "-y/var/local/mayastor/config.yaml"
         - "-l{{ include "mayastorCpuSpec" . }}"
-        - "-pmayastor-etcd"
+        - "-p{{- include "etcdEndpoint" . -}}"
         command:
         - mayastor
         securityContext:

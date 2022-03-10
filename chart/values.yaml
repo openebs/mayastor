@@ -18,6 +18,9 @@ csi:
     io_timeout: "30"
     io_timeout_enabled: true
 
+# Use an external etcd endpoint, if etcd.enabled=false
+etcdEndpoint: ""
+
 etcd:
   ## Deploy bitnami helm chart
   ##

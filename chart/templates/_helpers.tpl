@@ -16,3 +16,12 @@
 {{- printf "%d" (add $i 1) }}
 {{- end }}
 {{- end }}
+
+{{/* Generate the etcd endpoint that should be used by mayastor */}}
+{{- define "etcdEndpoint" -}}
+    {{- if or .Values.etcd.enabled (not .Values.etcdEndpoint) }}
+        {{- printf "mayastor-etcd" }}
+    {{- else }}
+        {{- .Values.etcdEndpoint }}
+    {{- end }}
+{{- end }}
