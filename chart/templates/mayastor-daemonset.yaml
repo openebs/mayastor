@@ -22,9 +22,8 @@ spec:
       hostNetwork: true
       # To resolve services in the namespace
       dnsPolicy: ClusterFirstWithHostNet
-      nodeSelector:
-        openebs.io/engine: mayastor
-        kubernetes.io/arch: amd64
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
+      affinity: {{ .Values.affinity | toYaml | nindent 8 }}
       initContainers:
       - name: registration-probe
         image: busybox:latest

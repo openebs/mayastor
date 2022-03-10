@@ -12,6 +12,12 @@ mayastorImagesRegistry: ""
 moacDebug: false
 moac: false
 
+nodeSelector:
+  openebs.io/engine: mayastor
+  kubernetes.io/arch: amd64
+
+affinity: {}
+
 csi:
   nvme:
     # nvme_core module io timeout in seconds
