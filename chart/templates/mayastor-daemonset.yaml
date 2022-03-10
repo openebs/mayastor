@@ -112,7 +112,7 @@ spec:
           medium: HugePages
       - name: configlocation
         hostPath:
-          path: /var/local/mayastor/
+          path: {{ .Values.mayastorConfigLocation | quote }}
           type: DirectoryOrCreate
       {{- if .Values.mayastorExtraVolumes -}}
       {{ .Values.mayastorExtraVolumes | toYaml | nindent 6 }}

@@ -3,6 +3,7 @@ mayastorImagePullPolicy: Always
 mayastorCpuCount: "1"
 mayastorHugePagesGiB: "1"
 mayastorImagesRegistry: ""
+mayastorConfigLocation: /var/local/mayastor
 mayastorExtraVolumeMounts: []
 mayastorExtraVolumes: []
 mayastorExtraInitContainers: []
