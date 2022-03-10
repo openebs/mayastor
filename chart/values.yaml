@@ -3,7 +3,10 @@ mayastorImagePullPolicy: Always
 mayastorCpuCount: "1"
 mayastorHugePagesGiB: "1"
 mayastorImagesRegistry: ""
+mayastorExtraVolumeMounts: []
+mayastorExtraVolumes: []
 mayastorExtraInitContainers: []
+
 #mayastorPools:
 #  - node: "NODE_NAME"
 #    device: "DEVICE"
