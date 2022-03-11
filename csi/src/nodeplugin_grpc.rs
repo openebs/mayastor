@@ -3,7 +3,7 @@
 //! node as a Mayastor CSI node plugin, but it is not possible to do so within
 //! the CSI framework. This service must be deployed on all nodes the
 //! Mayastor CSI node plugin is deployed.
-use crate::nodeplugin_svc;
+use crate::{nodeplugin_svc, shutdown_event};
 use mayastor_node_plugin::{
     mayastor_node_plugin_server::{
         MayastorNodePlugin,
@@ -114,7 +114,7 @@ impl MayastorNodePluginGrpcServer {
             .add_service(MayastorNodePluginServer::new(
                 MayastorNodePluginSvc {},
             ))
-            .serve(endpoint)
+            .serve_with_shutdown(endpoint, shutdown_event::wait())
             .await
         {
             error!("gRPC server failed with error: {}", e);

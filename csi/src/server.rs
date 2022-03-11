@@ -44,6 +44,7 @@ pub mod csi {
 }
 
 mod block_vol;
+pub(crate) mod config;
 mod dev;
 mod error;
 mod filesystem_vol;
@@ -55,6 +56,7 @@ mod mount;
 mod node;
 mod nodeplugin_grpc;
 mod nodeplugin_svc;
+pub(crate) mod shutdown_event;
 
 #[derive(Clone, Debug)]
 pub struct UdsConnectInfo {
@@ -169,6 +171,14 @@ async fn main() -> Result<(), String> {
                 .required(false)
                 .help("Sets the global nvme_core module io_timeout, in seconds"),
         )
+        .arg(
+            Arg::with_name("nvme-nr-io-queues")
+                .long("nvme-nr-io-queues")
+                .value_name("NUMBER")
+                .takes_value(true)
+                .required(false)
+                .help("Sets the nvme-nr-io-queues parameter when connecting to a volume target"),
+        )
         .get_matches();
 
     let node_name = normalize_hostname(matches.value_of("node-name").unwrap());
@@ -237,6 +247,9 @@ async fn main() -> Result<(), String> {
         format!("{}:{}", endpoint, GRPC_PORT)
     };
 
+    *config::config().nvme_as_mut() =
+        std::convert::TryFrom::try_from(&matches)?;
+
     let _ = tokio::join!(
         CsiServer::run(csi_socket, node_name),
         MayastorNodePluginGrpcServer::run(
@@ -268,7 +281,7 @@ impl CsiServer {
                 filesystems: probe_filesystems(),
             }))
             .add_service(IdentityServer::new(Identity {}))
-            .serve_with_incoming(incoming)
+            .serve_with_incoming_shutdown(incoming, shutdown_event::wait())
             .await
         {
             error!("CSI server failed with error: {}", e);
