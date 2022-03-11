@@ -468,6 +468,8 @@ pub struct ConnectArgs {
     /// keep alive timeout period in seconds
     #[builder(default = "None")]
     keep_alive_tmo: Option<u32>,
+    #[builder(default = "None")]
+    nr_io_queues: Option<u32>,
 }
 
 impl ConnectArgsBuilder {
@@ -509,6 +511,9 @@ impl fmt::Display for ConnectArgs {
         }
         if let Some(val) = self.ctrl_loss_tmo {
             write!(f, ",ctrl_loss_tmo={}", val)?;
+        }
+        if let Some(val) = self.nr_io_queues {
+            write!(f, ",nr_io_queues={}", val)?;
         }
         Ok(())
     }

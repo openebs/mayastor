@@ -113,7 +113,7 @@ impl Default for NvmfTgtConfig {
     fn default() -> Self {
         Self {
             name: "mayastor_target".to_string(),
-            max_namespaces: 110,
+            max_namespaces: 2048,
             opts: NvmfTcpTransportOpts::default(),
         }
     }
