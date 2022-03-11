@@ -6,7 +6,6 @@ use std::{env, path::Path};
 use futures::future::FutureExt;
 use structopt::StructOpt;
 
-use git_version::git_version;
 use mayastor::{
     bdev::util::uring,
     core::{
@@ -22,9 +21,8 @@ use mayastor::{
     persistent_store::PersistentStore,
     subsys::Registration,
 };
+use version_info::fmt_package_info;
 
-const GIT_VERSION: &str =
-    git_version!(args = ["--tags", "--abbrev=12"], fallback = "unknown");
 const PAGES_NEEDED: u32 = 1024;
 
 mayastor::CPS_INIT!();
@@ -131,6 +129,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         logger::init("INFO");
     }
 
+    info!("{}", fmt_package_info!());
+
     hugepage_check();
 
     let nvme_core_path = Path::new("/sys/module/nvme_core/parameters");
@@ -154,7 +154,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-    info!("Starting Mayastor version: {}", GIT_VERSION);
     info!(
         "kernel io_uring support: {}",
         if uring::kernel_support() { "yes" } else { "no" }

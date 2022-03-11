@@ -2,6 +2,7 @@
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 name = "mayastor"
+description = "Mayastor"
 version = "1.0.0"
 default-run = "mayastor-client"
 build = "build.rs"
@@ -51,7 +52,6 @@ crossbeam-sync = "0.0.0"
 env_logger = "0.9.0"
 function_name = "0.2.0"
 futures = "0.3.16"
-git-version = "0.3.5"
 http = "0.2.4"
 io-uring = "0.5.1"
 ioctl-gen = "0.1.1"
@@ -87,6 +87,7 @@ async-channel = "1.6.1"
 dns-lookup = "1.0.8"
 etcd-client = "0.7.1"
 parking_lot = "0.11.1"
+version-info = { path = "../utils/mayastor-dependencies/version-info" }
 
 [dependencies.rpc]
 path = "../rpc"

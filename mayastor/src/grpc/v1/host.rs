@@ -15,10 +15,10 @@ use crate::{
     host::{blk_device, resource},
 };
 use futures::FutureExt;
-use git_version::git_version;
 use rpc::mayastor::v1::host as rpc;
 use std::panic::AssertUnwindSafe;
 use tonic::{Request, Response, Status};
+use version_info::raw_version_string;
 
 use ::function_name::named;
 
@@ -209,11 +209,7 @@ impl rpc::HostRpc for HostService {
         let features = MayastorFeatures::get_features().into();
 
         let response = rpc::MayastorInfoResponse {
-            version: git_version!(
-                args = ["--tags", "--abbrev=12"],
-                fallback = "unknown"
-            )
-            .to_string(),
+            version: raw_version_string(),
             supported_features: Some(features),
         };
 

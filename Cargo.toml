@@ -10,4 +10,5 @@ members = [
 	"sysfs",
 	"composer",
 	"spdk-rs",
+	"utils/mayastor-dependencies/version-info",
 ]
