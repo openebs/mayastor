@@ -20,8 +20,8 @@ moacDebug: false
 moac: false
 
 nodeSelector:
-  openebs.io/engine: mayastor
-  kubernetes.io/arch: amd64
+  - openebs.io/engine: mayastor
+  - kubernetes.io/arch: amd64
 
 affinity: {}
 

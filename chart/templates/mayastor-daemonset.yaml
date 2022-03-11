@@ -25,7 +25,10 @@ spec:
       serviceAccountName: {{ .Values.serviceAccountName | quote }}
       {{- end }}
       dnsPolicy: ClusterFirstWithHostNet
-      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
+      nodeSelector:
+        {{- range .Values.nodeSelector -}}
+        {{ . | toYaml | nindent 8 }}
+        {{- end }}
       affinity: {{ .Values.affinity | toYaml | nindent 8 }}
       initContainers:
       - name: registration-probe
