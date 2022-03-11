@@ -3,10 +3,11 @@ extern crate clap;
 use clap::App;
 
 use mayastor::bdev::util::uring;
+use version_info::version_info_str;
 
 fn main() {
-    let _matches = App::new("io_uring support")
-        .version("0.1.0")
+    let _matches = App::new("Detect io_uring support")
+        .version(version_info_str!())
         .author("Jonathan Teh <jonathan.teh@mayadata.io>")
         .about("Determines io_uring support")
         .get_matches();
