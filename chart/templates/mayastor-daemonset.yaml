@@ -38,7 +38,7 @@ spec:
         image: busybox:latest
         command: ['sh', '-c', 'until nc -vz {{ include "etcdEndpoint" . }} 2379; do echo "Waiting for etcd..."; sleep 1; done;']
       {{- if .Values.mayastorExtraInitContainers -}}
-      {{ .Values.mayastorExtraInitContainers | toYaml | nindent 6 }}
+      {{ tpl (.Values.mayastorExtraInitContainers | toYaml) . | nindent 6 }}
       {{- end }}
       containers:
       - name: mayastor
