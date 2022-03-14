@@ -42,7 +42,7 @@ spec:
       {{- end }}
       containers:
       - name: mayastor
-        image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor:{{ .Values.mayastorImagesTag }}
+        image: {{ include "mayastorImagesPrefix" . }}{{ .Values.mayastorImage }}:{{ .Values.mayastorImagesTag }}
         imagePullPolicy: {{ .Values.mayastorImagePullPolicy }}
         env:
         - name: RUST_LOG

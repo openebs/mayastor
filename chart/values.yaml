@@ -1,4 +1,5 @@
 mayastorImagesTag: latest
+mayastorImage: mayadata/mayastor
 mayastorImagePullPolicy: Always
 mayastorCpuCount: "1"
 mayastorHugePagesGiB: "1"
