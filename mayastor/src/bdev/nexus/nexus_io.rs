@@ -133,7 +133,7 @@ impl<'n> NexusBio<'n> {
 
     /// assess the IO if we need to mark it failed or ok.
     /// obtain the Nexus struct embedded within the bdev
-    pub(crate) fn nexus_as_ref(&self) -> Pin<&Nexus> {
+    pub(crate) fn nexus_as_ref(&self) -> Pin<&Nexus<'n>> {
         self.bdev_checked(NEXUS_PRODUCT_ID).data()
     }
 
