@@ -1,4 +1,5 @@
 use std::{
+    env,
     ffi::CString,
     os::raw::{c_char, c_void},
     pin::Pin,
@@ -373,7 +374,9 @@ impl MayastorEnvironment {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             registration_endpoint: args.registration_endpoint,
             persistent_store_endpoint: args.persistent_store_endpoint,
-            node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
+            node_name: args.node_name.unwrap_or_else(|| {
+                env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
+            }),
             mayastor_config: args.mayastor_config,
             pool_config: args.pool_config,
             log_component: args.log_components,
