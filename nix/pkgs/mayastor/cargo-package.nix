@@ -5,6 +5,7 @@
 , lib
 , libaio
 , libbsd
+, libnvme
 , libspdk
 , libspdk-dev
 , libpcap
@@ -69,6 +70,7 @@ let
       protobuf
       libaio
       libbsd
+      libnvme
       libpcap
       libudev
       liburing
