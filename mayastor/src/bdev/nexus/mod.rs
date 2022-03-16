@@ -10,6 +10,7 @@ mod nexus_bdev_snapshot;
 mod nexus_channel;
 mod nexus_child;
 mod nexus_io;
+mod nexus_io_subsystem;
 mod nexus_iter;
 mod nexus_module;
 mod nexus_nbd;
@@ -54,6 +55,7 @@ pub use nexus_child::{
     Reason,
 };
 pub(crate) use nexus_io::{nexus_submit_request, NioCtx};
+pub(self) use nexus_io_subsystem::NexusIoSubsystem;
 pub use nexus_iter::{
     nexus_iter,
     nexus_iter_mut,
