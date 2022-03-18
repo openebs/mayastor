@@ -20,10 +20,10 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services in the namespace
       {{- if .Values.serviceAccountName }}
       serviceAccountName: {{ .Values.serviceAccountName | quote }}
       {{- end }}
+      # To resolve services in the namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         {{- range .Values.nodeSelector -}}
