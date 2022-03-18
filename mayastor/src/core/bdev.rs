@@ -61,18 +61,21 @@ where
     }
 }
 
-// impl<T> Clone for Bdev<T>
-// where
-//     T: spdk_rs::BdevOps,
-// {
-//     fn clone(&self) -> Self {
-//         Self {
-//             inner: self.inner.clone(),
-//         }
-//     }
-// }
+impl<T> Clone for Bdev<T>
+where
+    T: spdk_rs::BdevOps,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
 
-impl<T: spdk_rs::BdevOps> Bdev<T> {
+impl<T> Bdev<T>
+where
+    T: spdk_rs::BdevOps,
+{
     /// TODO
     pub(crate) fn new(b: spdk_rs::Bdev<T>) -> Self {
         Self {

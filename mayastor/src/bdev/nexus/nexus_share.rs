@@ -12,7 +12,7 @@ use super::{
     UnshareNexus,
 };
 
-use crate::core::{Bdev, Protocol, Share};
+use crate::core::{Protocol, Share};
 
 #[async_trait(? Send)]
 ///
@@ -35,7 +35,7 @@ impl<'n> Share for Nexus<'n> {
             Some(Protocol::Off) | None => {
                 let name = self.name.clone();
                 self.as_mut()
-                    .pinned_bdev_mut()
+                    .pin_bdev_mut()
                     .share_nvmf(cntlid_range)
                     .await
                     .context(ShareNvmfNexus {
@@ -52,12 +52,9 @@ impl<'n> Share for Nexus<'n> {
         self: Pin<&mut Self>,
     ) -> Result<Self::Output, Self::Error> {
         let name = self.name.clone();
-        self.pinned_bdev_mut()
-            .unshare()
-            .await
-            .context(UnshareNexus {
-                name,
-            })
+        self.pin_bdev_mut().unshare().await.context(UnshareNexus {
+            name,
+        })
     }
 
     /// TODO
@@ -91,11 +88,6 @@ impl From<&NexusTarget> for Protocol {
 }
 
 impl<'n> Nexus<'n> {
-    /// Returns a pinned Bdev reference for share API.
-    fn pinned_bdev_mut(self: Pin<&mut Self>) -> Pin<&mut Bdev<Self>> {
-        unsafe { Pin::new_unchecked(self.bdev_mut()) }
-    }
-
     /// TODO
     pub async fn share(
         mut self: Pin<&mut Self>,
