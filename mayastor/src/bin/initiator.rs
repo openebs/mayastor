@@ -30,6 +30,7 @@ use mayastor::{
     subsys::Config,
 };
 use spdk_rs::DmaError;
+use version_info::version_info_str;
 
 unsafe extern "C" fn run_static_initializers() {
     spdk_rs::libspdk::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)
@@ -149,6 +150,7 @@ async fn connect(uri: &str) -> Result<()> {
 
 fn main() {
     let matches = App::new("Test initiator for nexus replica")
+        .version(version_info_str!())
         .about("Connect, read or write a block to a nexus replica using its URI")
         .arg(Arg::with_name("URI")
             .help("URI of the replica to connect to")

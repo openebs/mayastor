@@ -55,6 +55,7 @@ let
     "rpc"
     "spdk-rs"
     "sysfs"
+    "utils"
   ];
   buildProps = rec {
     name = "mayastor";

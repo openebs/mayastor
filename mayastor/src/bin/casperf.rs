@@ -31,6 +31,7 @@ use spdk_rs::{
     },
     DmaBuf,
 };
+use version_info::version_info_str;
 
 #[derive(Debug)]
 enum IoType {
@@ -330,8 +331,8 @@ fn main() {
         cfg
     });
 
-    let matches = App::new("\nMayastor performance tool")
-        .version("0.1")
+    let matches = App::new("Mayastor performance tool")
+        .version(version_info_str!())
         .settings(&[AppSettings::ColoredHelp, AppSettings::ColorAlways])
         .about("Perform IO to storage URIs")
         .arg(

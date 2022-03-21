@@ -54,8 +54,8 @@ use tonic::{Request, Response, Status};
 struct UnixStream(tokio::net::UnixStream);
 
 use ::function_name::named;
-use git_version::git_version;
 use std::{panic::AssertUnwindSafe, pin::Pin};
+use version_info::raw_version_string;
 
 impl GrpcClientContext {
     #[track_caller]
@@ -1425,11 +1425,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let features = MayastorFeatures::get_features().into();
 
         let reply = MayastorInfoRequest {
-            version: git_version!(
-                args = ["--tags", "--abbrev=12"],
-                fallback = "unknown"
-            )
-            .to_string(),
+            version: raw_version_string(),
             supported_features: Some(features),
         };
 
