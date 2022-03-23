@@ -8,10 +8,12 @@ use mayastor::{
         NexusNvmeParams,
         NvmeAnaState,
     },
+    constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
     pool::PoolArgs,
 };
+
 use once_cell::sync::OnceCell;
 use rpc::mayastor::{
     CreateNexusRequest,
@@ -32,7 +34,7 @@ extern crate libnvme_rs;
 static POOL_NAME: &str = "tpool";
 static NXNAME: &str = "nexus0";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
-static HOSTNQN: &str = "nqn.2019-05.io.openebs";
+static HOSTNQN: &str = NVME_NQN_PREFIX;
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
 
@@ -82,7 +84,7 @@ fn get_mayastor_nvme_device() -> String {
     let nvme_devices = libnvme_rs::NvmeTarget::list();
     let nvme_ms: Vec<&String> = nvme_devices
         .iter()
-        .filter(|dev| dev.model.contains("Mayastor NVMe controller"))
+        .filter(|dev| dev.model.contains(NVME_CONTROLLER_MODEL_ID))
         .map(|dev| &dev.device)
         .collect();
     assert_eq!(nvme_ms.len(), 1);

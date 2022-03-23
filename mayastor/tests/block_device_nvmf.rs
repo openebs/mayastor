@@ -30,7 +30,10 @@ use std::{
 use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
-use mayastor::core::{DeviceEventListener, DeviceEventSink};
+use mayastor::{
+    constants::NVME_CONTROLLER_MODEL_ID,
+    core::{DeviceEventListener, DeviceEventSink},
+};
 use uuid::Uuid;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
@@ -52,8 +55,7 @@ impl Default for IoStats {
 
 static IO_STATS: Lazy<IoStats> = Lazy::new(IoStats::default);
 
-const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controller";
-//const MAYASTOR_NQN_PREFIX: &str = "nqn.2019-05.io.openebs:";
+const MAYASTOR_CTRLR_TITLE: &str = NVME_CONTROLLER_MODEL_ID;
 
 fn get_ms() -> &'static MayastorTest<'static> {
     MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))

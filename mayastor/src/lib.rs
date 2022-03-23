@@ -15,6 +15,7 @@ pub mod core;
 pub mod bdev;
 pub mod delay;
 pub use spdk_rs::ffihelper;
+pub mod constants;
 pub mod grpc;
 pub mod host;
 pub mod jsonrpc;

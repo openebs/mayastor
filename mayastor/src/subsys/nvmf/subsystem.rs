@@ -41,6 +41,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
+    constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{Bdev, Reactors, UntypedBdev},
     ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::{
@@ -141,6 +142,18 @@ impl NvmfSubsystem {
     }
 }
 
+/// Makes a subsystem serial number from a subsystem UUID or name.
+fn make_sn<T: AsRef<[u8]>>(uuid: T) -> CString {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(uuid);
+    let s = hasher.finalize().to_vec();
+    // SPDK requires serial number string to be no more than 20 chars.
+    let s = format!("DCS{:.17}", hex::encode_upper(&s));
+    CString::new(s).unwrap()
+}
+
 impl NvmfSubsystem {
     /// create a new subsystem where the NQN is based on the UUID
     pub fn new(uuid: &str) -> Result<Self, Error> {
@@ -163,8 +176,13 @@ impl NvmfSubsystem {
                 msg: "ss ptr is null".into(),
             })?;
 
-        // look closely, its a race car!
-        let sn = CString::new("33' ~'~._`o##o>").unwrap();
+        // Use truncated SHA256 digest of Bdev UUID or name for subsystem
+        // serial number.
+        let sn = if let Some(nn) = Bdev::<()>::lookup_by_name(uuid) {
+            make_sn(nn.uuid().as_bytes())
+        } else {
+            make_sn(&uuid)
+        };
 
         unsafe { spdk_nvmf_subsystem_set_sn(ss.as_ptr(), sn.as_ptr()) }
             .to_result(|e| Error::Subsystem {
@@ -173,7 +191,7 @@ impl NvmfSubsystem {
                 msg: "failed to set serial".into(),
             })?;
 
-        let mn = CString::new("Mayastor NVMe controller").unwrap();
+        let mn = CString::new(NVME_CONTROLLER_MODEL_ID).unwrap();
         unsafe { spdk_nvmf_subsystem_set_mn(ss.as_ptr(), mn.as_ptr()) }
             .to_result(|e| Error::Subsystem {
                 source: Errno::from_i32(e),
@@ -690,5 +708,5 @@ impl NvmfSubsystem {
 }
 
 fn gen_nqn(id: &str) -> String {
-    format!("nqn.2019-05.io.openebs:{}", id)
+    format!("{}:{}", NVME_NQN_PREFIX, id)
 }

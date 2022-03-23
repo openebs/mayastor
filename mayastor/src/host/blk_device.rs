@@ -27,6 +27,7 @@ use std::{
     io::Error,
 };
 
+use crate::constants::{NEXUS_CAS_DRIVER, NVME_CONTROLLER_MODEL_ID};
 use proc_mounts::{MountInfo, MountIter};
 use udev::{Device, Enumerator};
 
@@ -162,7 +163,7 @@ fn mayastor_device(device: &Device) -> bool {
             .property_value("ID_MODEL")
             .map(|s| s.to_str())
             .flatten(),
-        Some("Mayastor NVMe controller") | Some("Nexus_CAS_Driver")
+        Some(NVME_CONTROLLER_MODEL_ID) | Some(NEXUS_CAS_DRIVER)
     )
 }
 

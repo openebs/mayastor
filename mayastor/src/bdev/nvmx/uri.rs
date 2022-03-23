@@ -42,6 +42,7 @@ use crate::{
         CreateDestroy,
         GetName,
     },
+    constants::NVME_NQN_PREFIX,
     core::poller,
     ffihelper::ErrnoResult,
     nexus_uri::{self, NexusBdevError},
@@ -225,8 +226,8 @@ impl<'probe> NvmeControllerContext<'probe> {
                 opts = opts.with_ext_host_id(*uuid.as_bytes());
                 if std::env::var("HOSTNQN").is_err() {
                     opts = opts.with_hostnqn(format!(
-                        "nqn.2019-05.io.openebs:uuid:{}",
-                        uuid
+                        "{}:uuid:{}",
+                        NVME_NQN_PREFIX, uuid
                     ));
                 }
             }

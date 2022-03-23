@@ -26,6 +26,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
+    constants::NVME_CONTROLLER_MODEL_ID,
     core::{Cores, Mthread, Reactor, Reactors},
     ffihelper::{AsStr, FfiResult},
     subsys::{
@@ -282,7 +283,7 @@ impl Target {
             ))
         };
 
-        let mn = CString::new("Mayastor NVMe controller").unwrap();
+        let mn = CString::new(NVME_CONTROLLER_MODEL_ID).unwrap();
         unsafe {
             spdk_nvmf_subsystem_set_mn(discovery.0.as_ptr(), mn.as_ptr())
         }
