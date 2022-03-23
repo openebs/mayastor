@@ -18,7 +18,7 @@ Feature: Mayastor pool management
   Scenario: creating a pool with a name that already exists
     Given a pool "p0"
     When the user creates a pool with the name of an existing pool
-    Then the pool create command should fail
+    Then the pool create command should succeed
 
   Scenario: listing pools
     Given a pool "p0"

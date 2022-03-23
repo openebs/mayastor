@@ -385,8 +385,26 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 }
 
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool = Lvs::create_or_import(PoolArgs::try_from(args)?)
-                        .await?;
+                    let pool =
+                        match Lvs::create_or_import(PoolArgs::try_from(args)?)
+                            .await
+                        {
+                            Ok(p) => p,
+                            // this check is added specifically so that the
+                            // create_pool is idempotent
+                            Err(LvsError::PoolCreate {
+                                source,
+                                name,
+                            }) if source == Errno::EEXIST => {
+                                info!(
+                                    "returning already created pool {}",
+                                    name,
+                                );
+                                Lvs::lookup(name.as_str())
+                                    .expect("Already exists")
+                            }
+                            Err(e) => return Err(e),
+                        };
                     // Capture current pool config and export to file.
                     PoolConfig::capture().export().await;
                     Ok(Pool::from(pool))
