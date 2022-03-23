@@ -664,6 +664,12 @@ impl<'n> Nexus<'n> {
             }
         }
 
+        info!(
+            "{}: updated specs: start_blk={}, end_blk={}, \
+                block_len={}, required_alignment={}",
+            name, start_blk, end_blk, blk_size, new_alignment
+        );
+
         Ok(())
     }
 
