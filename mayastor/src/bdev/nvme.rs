@@ -17,7 +17,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    bdev::{CreateDestroy, GetName},
+    bdev::{util::uri, CreateDestroy, GetName},
     core::UntypedBdev,
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult, IntoCString},
     nexus_uri::{self, NexusBdevError},
@@ -36,6 +36,13 @@ impl TryFrom<&Url> for NVMe {
     type Error = NexusBdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
+        if uri::segments(url).is_empty() {
+            return Err(NexusBdevError::UriInvalid {
+                uri: url.to_string(),
+                message: String::from("no path segments"),
+            });
+        }
+
         Ok(Self {
             name: url.path()[1 ..].into(),
             url: url.clone(),
