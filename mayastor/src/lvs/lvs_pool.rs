@@ -279,10 +279,11 @@ impl Lvs {
 
         if name != lvs.name() {
             warn!("no pool with name {} found on this device -- unloading the pool", name);
+            let pool_name = lvs.name().to_string();
             lvs.export().await.unwrap();
             Err(Error::Import {
                 source: Errno::EINVAL,
-                name: name.into(),
+                name: pool_name,
             })
         } else {
             lvs.share_all().await;
