@@ -1,6 +1,7 @@
 use std::{
     env,
     ffi::CString,
+    net::Ipv4Addr,
     os::raw::{c_char, c_void},
     pin::Pin,
     sync::{
@@ -40,6 +41,7 @@ use version_info::{package_description, version_info_str};
 use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     core::{
+        nic,
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
         MayastorFeatures,
@@ -133,6 +135,9 @@ pub struct MayastorCliArgs {
     #[structopt(long = "nvme-ctl-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for NVMe controller I/O contexts
     pub nvme_ctl_io_ctx_pool_size: u64,
+    #[structopt(short = "T", long = "tgt-iface", env = "NVMF_TGT_IFACE")]
+    /// NVMF target interface (ip, mac, name or subnet).
+    pub nvmf_tgt_interface: Option<String>,
 }
 
 /// Mayastor features.
@@ -173,6 +178,7 @@ impl Default for MayastorCliArgs {
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             registration_endpoint: None,
+            nvmf_tgt_interface: None,
         }
     }
 }
@@ -255,6 +261,7 @@ pub struct MayastorEnvironment {
     core_list: Option<String>,
     bdev_io_ctx_pool_size: u64,
     nvme_ctl_io_ctx_pool_size: u64,
+    nvmf_tgt_interface: Option<String>,
 }
 
 impl Default for MayastorEnvironment {
@@ -293,6 +300,7 @@ impl Default for MayastorEnvironment {
             core_list: None,
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
+            nvmf_tgt_interface: None,
         }
     }
 }
@@ -368,6 +376,7 @@ struct SubsystemCtx {
 static MAYASTOR_FEATURES: OnceCell<MayastorFeatures> = OnceCell::new();
 
 static MAYASTOR_DEFAULT_ENV: OnceCell<MayastorEnvironment> = OnceCell::new();
+
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
@@ -389,6 +398,7 @@ impl MayastorEnvironment {
             core_list: args.core_list,
             bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
             nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
+            nvmf_tgt_interface: args.nvmf_tgt_interface,
             ..Default::default()
         }
         .setup_static()
@@ -577,7 +587,114 @@ impl MayastorEnvironment {
         Ok(())
     }
 
-    /// start the JSON rpc server which listens only to a local path
+    /// Returns NVMF target's IP address.
+    pub(crate) fn get_nvmf_tgt_ip() -> Result<String, String> {
+        static TGT_IP: OnceCell<String> = OnceCell::new();
+        TGT_IP
+            .get_or_try_init(|| {
+                match Self::global_or_default().nvmf_tgt_interface {
+                    Some(ref iface) => Self::detect_nvmf_tgt_iface_ip(iface),
+                    None => Self::detect_pod_ip(),
+                }
+            })
+            .map(|s| s.clone())
+    }
+
+    /// Detects IP address for NVMF target by the interface specified in CLI
+    /// arguments.
+    fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<String, String> {
+        info!(
+            "Detecting IP address for NVMF target network interface \
+                specified as '{}' ...",
+            iface
+        );
+
+        let (cls, name) = match iface.split_once(':') {
+            Some(p) => p,
+            None => ("name", iface),
+        };
+
+        let pred: Box<dyn Fn(&nic::Interface) -> bool> = match cls {
+            "name" => Box::new(|n| n.name == name),
+            "mac" => {
+                let mac = Some(name.parse::<nic::MacAddr>()?);
+                Box::new(move |n| n.mac == mac)
+            }
+            "ip" => {
+                let addr = Some(nic::parse_ipv4(name)?);
+                Box::new(move |n| n.inet.addr == addr)
+            }
+            "subnet" => {
+                let (subnet, mask) = nic::parse_ipv4_subnet(name)?;
+                Box::new(move |n| n.ipv4_subnet_eq(subnet, mask))
+            }
+            _ => {
+                return Err(format!(
+                    "Invalid NVMF target interface: '{}'",
+                    iface
+                ))
+            }
+        };
+
+        let mut nics: Vec<_> =
+            nic::find_all_nics().into_iter().filter(pred).collect();
+
+        if nics.is_empty() {
+            return Err(format!(
+                "Network interface matching '{}' not found",
+                iface
+            ));
+        }
+
+        if nics.len() > 1 {
+            return Err(format!(
+                "Multiple network interfaces that \
+                match '{}' are found",
+                iface
+            ));
+        }
+
+        let res = nics.pop().unwrap();
+
+        info!(
+            "NVMF target network interface '{}' matches to {}",
+            iface, res
+        );
+
+        if res.inet.addr.is_none() {
+            return Err(format!(
+                "Network interface '{}' has no IPv4 address configured",
+                res.name
+            ));
+        }
+
+        Ok(res.inet.addr.unwrap().to_string())
+    }
+
+    /// Detects pod IP address.
+    fn detect_pod_ip() -> Result<String, String> {
+        match env::var("MY_POD_IP") {
+            Ok(val) => {
+                info!(
+                    "Using 'MY_POD_IP' environment variable for IP address \
+                        for NVMF target network interface"
+                );
+
+                if val.parse::<Ipv4Addr>().is_ok() {
+                    Ok(val)
+                } else {
+                    Err(format!(
+                        "MY_POD_IP environment variable is set to an \
+                            invalid IPv4 address: '{}'",
+                        val
+                    ))
+                }
+            }
+            Err(_) => Ok("127.0.0.1".to_owned()),
+        }
+    }
+
+    /// Starts the JSON rpc server which listens only to a local path.
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
         let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
 

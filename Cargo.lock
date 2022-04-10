@@ -1119,6 +1119,7 @@ dependencies = [
  "prost-derive",
  "prost-types",
  "rand",
+ "regex",
  "rpc",
  "run_script",
  "serde",

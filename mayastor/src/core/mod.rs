@@ -62,6 +62,7 @@ mod handle;
 mod io_device;
 pub mod io_driver;
 pub mod mempool;
+mod nic;
 pub mod partition;
 pub mod poller;
 mod reactor;

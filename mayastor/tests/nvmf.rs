@@ -11,6 +11,10 @@ use mayastor::{
 };
 
 pub mod common;
+use common::compose::Builder;
+use composer::{Binary, ComposeTest};
+use regex::Regex;
+use rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply};
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -80,4 +84,103 @@ fn nvmf_target() {
         .unwrap();
 
     common::delete_file(&[DISKNAME1.into()]);
+}
+
+#[tokio::test]
+async fn nvmf_set_target_interface() {
+    async fn start_ms(network: &str, args: Vec<&str>) -> ComposeTest {
+        let test = Builder::new()
+            .name("cargo-test")
+            .network(network)
+            .add_container_bin(
+                "ms1",
+                Binary::from_dbg("mayastor").with_args(args),
+            )
+            .with_clean(true)
+            .build()
+            .await
+            .unwrap();
+
+        test
+    }
+
+    async fn test_ok(network: &str, args: Vec<&str>, tgt_ip: Option<&str>) {
+        let test = start_ms(network, args).await;
+        let hdl = &mut test.grpc_handle("ms1").await.unwrap();
+
+        let tgt_ip = match tgt_ip {
+            Some(s) => s.to_string(),
+            None => {
+                let cnt = test
+                    .list_cluster_containers()
+                    .await
+                    .unwrap()
+                    .pop()
+                    .unwrap();
+                let networks = cnt.network_settings.unwrap().networks.unwrap();
+                let ip_addr = networks
+                    .get("cargo-test")
+                    .unwrap()
+                    .ip_address
+                    .clone()
+                    .unwrap();
+                ip_addr
+            }
+        };
+
+        hdl.bdev
+            .create(BdevUri {
+                uri: "malloc:///disk0?size_mb=64".into(),
+            })
+            .await
+            .unwrap();
+
+        let bdev_uri = hdl
+            .bdev
+            .share(BdevShareRequest {
+                name: "disk0".into(),
+                proto: "nvmf".into(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .uri;
+
+        let re = Regex::new(r"^nvmf://([0-9.]+):[0-9]+/.*$").unwrap();
+        let cap = re.captures(&bdev_uri).unwrap();
+        let shared_ip = cap.get(1).unwrap().as_str();
+
+        hdl.bdev
+            .unshare(CreateReply {
+                name: "disk0".into(),
+            })
+            .await
+            .unwrap();
+
+        hdl.bdev
+            .destroy(BdevUri {
+                uri: "bdev:///disk0".into(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(tgt_ip, shared_ip);
+    }
+
+    // async fn test_fail(network: &str, args: Vec<&str>) {
+    //     let test = start_ms(network, args).await;
+    //     assert!(test.grpc_handle("ms1").await.is_err());
+    // }
+
+    test_ok("10.15.0.0/16", vec!["-T", "name:lo"], Some("127.0.0.1")).await;
+    test_ok("10.15.0.0/16", vec!["-T", "subnet:10.15.0.0/16"], None).await;
+    test_ok(
+        "192.168.133.0/24",
+        vec!["-T", "subnet:192.168.133.0/24"],
+        None,
+    )
+    .await;
+    // test_fail("10.15.0.0/16", vec!["-T", "abc"]).await;
+    // test_fail("10.15.0.0/16", vec!["-T", "mac:123"]).await;
+    // test_fail("10.15.0.0/16", vec!["-T", "ip:hello"]).await;
 }
