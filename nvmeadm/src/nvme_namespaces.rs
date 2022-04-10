@@ -6,7 +6,7 @@ use std::{os::unix::fs::FileTypeExt, path::Path};
 /// NvmeDevices are devices that are already connected to the kernel
 /// they have not interaction with the fabric itself. Notice that a
 /// nvme device, for the post part is a subsystem + nsid.
-
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct NvmeDevice {
     /// device path of the device

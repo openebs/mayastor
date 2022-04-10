@@ -44,6 +44,7 @@ const IO_SIZE: u64 = 512;
 
 /// a Job refers to a set of work typically defined by either time or size
 /// that drives IO to a bdev using its own channel.
+#[allow(dead_code)]
 #[derive(Debug)]
 struct Job {
     bdev: Bdev,

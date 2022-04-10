@@ -46,6 +46,7 @@ impl Debug for NexusChannelInner {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 /// reconfigure context holding among others
 /// the completion channel.

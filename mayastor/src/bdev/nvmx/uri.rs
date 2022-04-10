@@ -88,6 +88,7 @@ extern "C" fn connect_attach_cb(
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct NvmfDeviceTemplate {
     /// name of the nvme controller and base name of the bdev

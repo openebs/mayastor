@@ -256,7 +256,8 @@ impl CsiServer {
             info!("CSI plugin bound to {}", csi_socket);
 
             async_stream::stream! {
-                while let item = uds.accept().map_ok(|(st, _)| UnixStream(st)).await {
+                loop {
+                    let item = uds.accept().map_ok(|(st, _)| UnixStream(st)).await;
                     yield item;
                 }
             }

@@ -30,6 +30,7 @@ impl Default for IoType {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct Io {
     /// buffer we read/write from/to
@@ -138,6 +139,7 @@ impl Io {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Job {
     /// that drives IO to a bdev using its own channel.

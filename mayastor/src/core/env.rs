@@ -218,6 +218,7 @@ pub enum EnvError {
 type Result<T, E = EnvError> = std::result::Result<T, E>;
 
 /// Mayastor argument
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
     pub node_name: String,

@@ -67,6 +67,7 @@ impl GrpcClientContext {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct MayastorSvc {
     name: String,

@@ -129,6 +129,7 @@ impl From<i32> for GenericStatusCode {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct NvmeStatus {
     /// NVMe completion queue entry

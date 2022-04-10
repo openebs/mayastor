@@ -1255,6 +1255,7 @@ pub(crate) mod transport {
         }
     }
 
+    #[allow(dead_code)]
     #[derive(Default, Debug)]
     pub struct Builder {
         trid: TransportId,
