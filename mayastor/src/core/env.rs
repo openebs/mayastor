@@ -38,6 +38,7 @@ use tokio::runtime::Builder;
 use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     core::{
+        nic,
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
         MayastorFeatures,
@@ -132,6 +133,9 @@ pub struct MayastorCliArgs {
     #[structopt(long = "nvme-ctl-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for NVMe controller I/O contexts
     pub nvme_ctl_io_ctx_pool_size: u64,
+    #[structopt(short = "T", long = "tgt-iface", env = "NVMF_TGT_IFACE")]
+    /// NVMF target interface (MAC, name or subnet mask).
+    pub nvmf_tgt_interface: Option<String>,
 }
 
 /// Mayastor features.
@@ -172,6 +176,7 @@ impl Default for MayastorCliArgs {
             core_list: None,
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
+            nvmf_tgt_interface: None,
         }
     }
 }
@@ -254,6 +259,7 @@ pub struct MayastorEnvironment {
     core_list: Option<String>,
     bdev_io_ctx_pool_size: u64,
     nvme_ctl_io_ctx_pool_size: u64,
+    nvmf_tgt_interface: Option<String>,
 }
 
 impl Default for MayastorEnvironment {
@@ -292,6 +298,7 @@ impl Default for MayastorEnvironment {
             core_list: None,
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
+            nvmf_tgt_interface: None,
         }
     }
 }
@@ -368,6 +375,7 @@ struct SubsystemCtx {
 static MAYASTOR_FEATURES: OnceCell<MayastorFeatures> = OnceCell::new();
 
 static MAYASTOR_DEFAULT_ENV: OnceCell<MayastorEnvironment> = OnceCell::new();
+
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
@@ -387,6 +395,7 @@ impl MayastorEnvironment {
             core_list: args.core_list,
             bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
             nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
+            nvmf_tgt_interface: args.nvmf_tgt_interface,
             ..Default::default()
         }
         .setup_static()
@@ -578,9 +587,9 @@ impl MayastorEnvironment {
     /// We implement our own default target init code here. Note that if there
     /// is an existing target we will fail the init process.
     extern "C" fn target_init() -> bool {
-        let address = MayastorEnvironment::get_pod_ip()
+        let address = MayastorEnvironment::get_nvmf_tgt_ip()
             .map_err(|e| {
-                error!("Invalid IP address: MY_POD_IP={}", e);
+                error!("{}", e);
                 mayastor_env_stop(-1);
             })
             .unwrap();
@@ -597,20 +606,96 @@ impl MayastorEnvironment {
         true
     }
 
-    pub(crate) fn get_pod_ip() -> Result<String, String> {
+    /// Returns NVMF target's IP address.
+    pub(crate) fn get_nvmf_tgt_ip() -> Result<String, String> {
+        static TGT_IP: OnceCell<String> = OnceCell::new();
+        TGT_IP
+            .get_or_try_init(|| {
+                match Self::global_or_default().nvmf_tgt_interface {
+                    Some(ref iface) => Self::detect_nvmf_tgt_iface_ip(iface),
+                    None => Self::detect_pod_ip(),
+                }
+            })
+            .map(|s| s.clone())
+    }
+
+    /// Detects IP address for NVMF target by the interface specified in CLI
+    /// arguments.
+    fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<String, String> {
+        info!(
+            "Detecting IP address for NVMF target network interface \
+                specified as '{}'",
+            iface
+        );
+
+        let (cls, name) = match iface.split_once(':') {
+            Some(p) => p,
+            None => ("name", iface),
+        };
+
+        let pred: Box<dyn Fn(&nic::Interface) -> bool> = match cls {
+            "mac" => {
+                let mac = Some(name.parse::<nic::MacAddr>()?);
+                Box::new(move |n| n.mac == mac)
+            }
+            "netmask" => {
+                let msk =
+                    name.parse::<Ipv4Addr>().map_err(|e| e.to_string())?;
+                let msk = Some(nix::sys::socket::Ipv4Addr::from_std(&msk));
+                Box::new(move |n| n.inet.netmask == msk)
+            }
+            "name" => Box::new(|n| n.name == name),
+            _ => {
+                return Err(format!("Invalid NVMF target interface: {}", iface))
+            }
+        };
+
+        let nic = nic::find_all_nics().into_iter().find(pred);
+
+        return match nic {
+            Some(nic) => {
+                info!(
+                    "NVMF target network interface '{}' matches to {}",
+                    name, nic
+                );
+
+                if nic.inet.addr.is_none() {
+                    return Err(format!(
+                        "Network interface '{}' has no IPv4 address configured",
+                        nic.name
+                    ));
+                }
+
+                Ok(nic.inet.addr.unwrap().to_string())
+            }
+            None => Err(format!("Network interface '{}' not found", name)),
+        };
+    }
+
+    /// Detects pod IP address.
+    fn detect_pod_ip() -> Result<String, String> {
         match env::var("MY_POD_IP") {
             Ok(val) => {
+                info!(
+                    "Using 'MY_POD_IP' environment variable for IP address \
+                        for NVMF target network interface"
+                );
+
                 if val.parse::<Ipv4Addr>().is_ok() {
                     Ok(val)
                 } else {
-                    Err(val)
+                    Err(format!(
+                        "MY_POD_IP environment variable is set to an \
+                            invalid IPv4 address: '{}'",
+                        val
+                    ))
                 }
             }
             Err(_) => Ok("127.0.0.1".to_owned()),
         }
     }
 
-    /// start the JSON rpc server which listens only to a local path
+    /// Starts the JSON rpc server which listens only to a local path.
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
         let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
 

@@ -1,8 +1,6 @@
 use std::{
-    env,
     ffi::CString,
     fmt::{Debug, Display, Formatter},
-    net::Ipv4Addr,
     ops::{Deref, DerefMut},
     ptr::copy_nonoverlapping,
 };
@@ -21,6 +19,7 @@ use spdk_sys::{
 };
 
 use crate::{
+    core::MayastorEnvironment,
     ffihelper::{
         cb_arg,
         done_errno_cb,
@@ -145,19 +144,12 @@ impl Debug for TransportId {
             .finish()
     }
 }
-pub(crate) fn get_ipv4_address() -> Result<String, Error> {
-    let address = match env::var("MY_POD_IP") {
-        Ok(val) => {
-            if val.parse::<Ipv4Addr>().is_ok() {
-                Ok(val)
-            } else {
-                Err(Error::CreateTarget {
-                    msg: "Invalid IPv4 address".into(),
-                })
-            }
-        }
-        Err(_) => Ok("127.0.0.1".to_owned()),
-    }?;
 
-    Ok(address)
+pub(crate) fn get_ipv4_address() -> Result<String, Error> {
+    match MayastorEnvironment::get_nvmf_tgt_ip() {
+        Ok(val) => Ok(val),
+        Err(msg) => Err(Error::CreateTarget {
+            msg,
+        }),
+    }
 }
