@@ -46,7 +46,7 @@ At a high-level, Mayastor consists of two major components.
 
 ### **Control plane:**
 
- * A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.  This is extended by a dedicated operator responsible 
+ * A microservices patterned control plane, centered around a core agent which publicly exposes a RESTful API.  This is extended by a dedicated operator responsible
  for managing the life cycle of "Mayastor Pools" (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant external provisioner (controller).
  Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
 
@@ -82,8 +82,8 @@ You can also directly use the nexus from within your application code. For examp
 </p>
 
 ```rust
-use mayastor::descriptor::{Descriptor, DmaBuf};
-use mayastor::bdev::nexus::nexus_bdev::nexus_create;
+use io_engine::descriptor::{Descriptor, DmaBuf};
+use io_engine::bdev::nexus::nexus_bdev::nexus_create;
 
 let children = vec![
       "aio:////disk1.img?blk_size=512".to_string(),
@@ -180,21 +180,21 @@ $ dd if=/dev/zero of=/tmp/disk bs=1024 count=102400
 102400+0 records out
 104857600 bytes (105 MB, 100 MiB) copied, 0.235195 s, 446 MB/s
 $ sudo losetup /dev/loop8 /tmp/disk
-$ mayastor-client pool create tpool /dev/loop8
-$ mayastor-client pool list
+$ io-engine-client pool create tpool /dev/loop8
+$ io-engine-client pool list
 NAME                 STATE        CAPACITY         USED   DISKS
 tpool                0            96.0 MiB          0 B   tpool
-$ mayastor-client replica create tpool replica1 --size=10
-$ mayastor-client replica create tpool replica2 --size=1000 --thin
-$ mayastor-client replica list
+$ io-engine-client replica create tpool replica1 --size=10
+$ io-engine-client replica create tpool replica2 --size=1000 --thin
+$ io-engine-client replica list
 POOL                 NAME                 THIN           SIZE
 tpool                replica1             false       10.0 MiB
 tpool                replica2             true         1.0 GiB
-$ mayastor-client replica destroy tpool replica1
-$ mayastor-client replica destroy tpool replica2
-$ mayastor-client replica list
+$ io-engine-client replica destroy tpool replica1
+$ io-engine-client replica destroy tpool replica2
+$ io-engine-client replica list
 No replicas have been created
-$ mayastor-client pool destroy tpool
+$ io-engine-client pool destroy tpool
 ```
 
 ## Links

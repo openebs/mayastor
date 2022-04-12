@@ -415,7 +415,7 @@ impl Builder {
     pub fn add_container(mut self, name: &str) -> Builder {
         self.containers.push(ContainerSpec::from_binary(
             name,
-            Binary::from_dbg("mayastor"),
+            Binary::from_dbg("io-engine"),
         ));
         self
     }
@@ -1306,14 +1306,14 @@ mod tests {
         let test = Builder::new()
             .name("composer")
             .network("10.1.0.0/16")
-            .add_container("mayastor")
-            .add_container_bin("mayastor2", Binary::from_dbg("mayastor"))
+            .add_container("io-engine")
+            .add_container_bin("mayastor2", Binary::from_dbg("io-engine"))
             .with_clean(true)
             .build()
             .await
             .unwrap();
 
-        let mut hdl = test.grpc_handle("mayastor").await.unwrap();
+        let mut hdl = test.grpc_handle("io-engine").await.unwrap();
         hdl.mayastor.list_nexus(Null {}).await.expect("list nexus");
 
         // run with --nocapture to get the logs

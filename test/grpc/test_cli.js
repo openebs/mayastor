@@ -1,6 +1,6 @@
 'use strict';
 
-// Unit tests for mayastor CLI (mayastor-client).
+// Unit tests for mayastor CLI (io-engine-client).
 //
 // The tests don't depend on running mayastor server, so that CLI can
 // be tested independetly on other components. The price we pay for
@@ -25,7 +25,7 @@ const CLIENT_CMD = path.join(
   '..',
   'target',
   'debug',
-  'mayastor-client'
+  'io-engine-client'
 );
 const EGRESS_CMD = CLIENT_CMD + ' --bind 127.0.0.1:' + EGRESS_PORT;
 
@@ -54,7 +54,7 @@ function runMockServer (rules) {
   mayastorMockServer.listen('127.0.0.1:' + EGRESS_PORT);
 }
 
-describe('mayastor-client', function () {
+describe('io-engine-client', function () {
   describe('success', function () {
     before(() => {
       process.env.RUST_BACKTRACE = '1';

@@ -5,10 +5,10 @@ panic = "abort"
 members = [
 	"jsonrpc",
 	"libnvme-rs",
-	"mayastor",
+	"io-engine",
 	"rpc",
 	"sysfs",
 	"composer",
 	"spdk-rs",
-	"utils/mayastor-dependencies/version-info",
+	"utils/io-engine-dependencies/version-info",
 ]

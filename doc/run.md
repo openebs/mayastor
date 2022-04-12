@@ -140,7 +140,7 @@ evaluate the output, instead of the derivation.
 
 ```bash
 nix shell -f . mayastor
-mayastor-client --version
+io-engine-client --version
 mayastor --version
 ```
 
@@ -171,10 +171,10 @@ done
 **Notice the generated tags.** The [build guide][doc-build-building-docker-images] shows how to
 retag these to `latest` if required. If you forget, check `docker images`.
 
-**`mayastor-client`** and **`mayastor-csi`**:
+**`io-engine-client`** and **`mayastor-csi`**:
 
 ```bash
-docker run --interactive --rm mayadata/mayastor-client:${TAG}
+docker run --interactive --rm mayadata/io-engine-client:${TAG}
 docker run --interactive --rm mayadata/mayastor-csi:${TAG}
 ```
 

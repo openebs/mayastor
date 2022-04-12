@@ -158,7 +158,7 @@ nix shell -f . mayastor
 In order to make an artifact which can be distributed, we use [`nix bundle`][nix-bundle].
 
 > **TODO:** We currently don't generate bundles some executables, such as
-> `mayastor-client`. This is coming.
+> `io-engine-client`. This is coming.
 
 ```bash
 for BUNDLE in mayastor; do
@@ -182,7 +182,7 @@ Build the Docker images with [`nix build`][nix-build]:
 
 ```bash
 for IMAGE in \
-  mayastor-client mayastor mayastor-csi mayastor-client kiiss-service \
+  io-engine-client mayastor mayastor-csi io-engine-client kiiss-service \
   node-service volume-service pool-service rest-service node-operator; \
 do
   echo "Building ${IMAGE} to artifacts/docker/${IMAGE}.tar"; \
