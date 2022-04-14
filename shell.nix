@@ -45,6 +45,7 @@ mkShell {
     pytest_inputs
     python3
     utillinux
+    gnuplot
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
 
   LIBCLANG_PATH = io-engine.LIBCLANG_PATH;

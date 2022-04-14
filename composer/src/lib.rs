@@ -119,6 +119,13 @@ impl Binary {
 
         Self::new(&format!("{}/target/debug/{}", srcdir, name), vec![])
     }
+    /// Setup local binary from target
+    pub fn from_target(build: &str, name: &str) -> Self {
+        let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
+        let srcdir = path.parent().unwrap().to_string_lossy();
+
+        Self::new(&format!("{}/target/{}/{}", srcdir, build, name), vec![])
+    }
     /// Setup nix shell binary from path and arguments
     pub fn from_nix(name: &str) -> Self {
         Self::new(name, vec![])

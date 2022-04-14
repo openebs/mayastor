@@ -6,6 +6,7 @@ members = [
 	"jsonrpc",
 	"libnvme-rs",
 	"io-engine",
+    "io-engine-bench",
 	"rpc",
 	"sysfs",
 	"composer",
