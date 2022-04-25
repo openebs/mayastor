@@ -243,6 +243,8 @@ pub struct NvmeBdevOpts {
     pub delay_cmd_submit: bool,
     /// attempts per I/O in bdev layer before I/O fails
     pub bdev_retry_count: i32,
+    /// enable creation of submission and completion queues asynchronously.
+    pub async_mode: bool,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -284,6 +286,7 @@ impl Default for NvmeBdevOpts {
             io_queue_requests: 0,
             delay_cmd_submit: true,
             bdev_retry_count: try_from_env("NVME_BDEV_RETRY_COUNT", 0),
+            async_mode: try_from_env("NVME_QPAIR_CONNECT_ASYNC", false),
         }
     }
 }
@@ -305,6 +308,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             io_queue_requests: o.io_queue_requests,
             delay_cmd_submit: o.delay_cmd_submit,
             bdev_retry_count: o.bdev_retry_count,
+            async_mode: NvmeBdevOpts::default().async_mode,
         }
     }
 }

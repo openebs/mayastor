@@ -132,6 +132,7 @@ impl IoQpair {
         opts.io_queue_requests =
             max(opts.io_queue_requests, default_opts.io_queue_requests);
         opts.create_only = true;
+        opts.async_mode = default_opts.async_mode;
 
         opts
     }

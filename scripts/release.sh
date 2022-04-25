@@ -170,6 +170,7 @@ if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
   fi
   if [ -n "$alias_tag" ]; then
     for img in $UPLOAD; do
+      echo "Uploading $img:$alias_tag to registry ..."
       $DOCKER tag $img:$TAG $img:$alias_tag
       $DOCKER push $img:$alias_tag
     done
