@@ -8,12 +8,11 @@ addAssignees: false
 reviewers:
   - blaisedias
   - chriswldenyer
-  - cjones1024
-  - gila
   - jonathan-teh
   - paulyoong
   - tiagolobocastro
   - mtzaurus
+  - dsavitskiy
 
 # A list of keywords to be skipped the process that add reviewers if pull requests include it
 skipKeywords:

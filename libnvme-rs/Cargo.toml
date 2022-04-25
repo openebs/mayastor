@@ -1,0 +1,30 @@
+[package]
+name = "libnvme-rs"
+description = "Rust bindings for libnvme"
+version = "0.1.0"
+edition = "2018"
+build = "build.rs"
+license = "Apache-2.0"
+authors = [
+  "Jonathan Teh <jonathan.teh@mayadata.io>",
+  "Jeffry Molanus <jeffry.molanus@gmail.com>",
+]
+
+[build-dependencies]
+bindgen = "0.59.1"
+cc = "1.0.69"
+
+[dependencies]
+glob = "0.3.0"
+libc = "0.2"
+snafu = "0.6.10"
+url = "2.2.2"
+
+[dependencies.mio08]
+package = "mio"
+features = ["os-ext"]
+version = "0.8"
+
+[dependencies.udev]
+features = ["hwdb", "mio"]
+version = "^0.6.3"

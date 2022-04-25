@@ -80,14 +80,6 @@ function cleanBlockMount (blockfile, done) {
   });
 }
 
-function cleanupiSCSISession (tp, iqn, done) {
-  common.execAsRoot('iscsiadm', ['--mode', 'node', '--targetname', iqn, '--portal', tp, '--logout'], () => {
-    common.execAsRoot('iscsiadm', ['-m', 'node', '-o', 'delete', '-T', iqn], () => {
-      done();
-    });
-  });
-}
-
 function cleanupNvmfSession (nqn, done) {
   common.execAsRoot('nvme', ['disconnect', nqn], () => {
     done();
@@ -95,11 +87,7 @@ function cleanupNvmfSession (nqn, done) {
 }
 
 function cleanupNexusSession (url, done) {
-  if (url.protocol === 'iscsi:') {
-    const tp = url.host;
-    const iqn = url.pathname.split('/')[1];
-    cleanupiSCSISession(tp, iqn, done);
-  } else if (url.protocol === 'nvmf:') {
+  if (url.protocol === 'nvmf:') {
     const nqn = url.pathname.split('/')[1];
     cleanupNvmfSession(nqn, done);
   } else {
@@ -175,11 +163,11 @@ describe('csi', function () {
           }, next);
         },
         (next) => {
-            var bdevs = [];
-            for (let n =0 ; n < 5; n++) {
-                bdevs.push('malloc:///malloc' + n + '?size_mb=64&uuid=' + BASE_UUID + n + '&blk_size=4096');
-            }
-            common.createBdevs(bdevs, 'nvmf', undefined, next);
+          const bdevs = [];
+          for (let n = 0; n < 5; n++) {
+            bdevs.push('malloc:///malloc' + n + '?size_mb=64&uuid=' + BASE_UUID + n + '&blk_size=4096');
+          }
+          common.createBdevs(bdevs, 'nvmf', undefined, next);
         },
         (next) => {
           async.times(
@@ -335,7 +323,6 @@ describe('csi', function () {
     });
   });
 
-  csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000);
   csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });
 

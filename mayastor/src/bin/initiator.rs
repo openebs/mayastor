@@ -17,12 +17,11 @@ use mayastor::{
     bdev::{device_create, device_open},
     core::{
         mayastor_env_stop,
-        Bdev,
         CoreError,
-        DmaError,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
+        UntypedBdev,
     },
     jsonrpc::print_error_chain,
     logger,
@@ -30,9 +29,11 @@ use mayastor::{
     subsys,
     subsys::Config,
 };
+use spdk_rs::DmaError;
+use version_info::version_info_str;
 
 unsafe extern "C" fn run_static_initializers() {
-    spdk_sys::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)
+    spdk_rs::libspdk::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)
 }
 
 #[used]
@@ -81,9 +82,9 @@ impl From<io::Error> for Error {
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Create initiator bdev.
-async fn create_bdev(uri: &str) -> Result<Bdev> {
+async fn create_bdev(uri: &str) -> Result<UntypedBdev> {
     let bdev_name = bdev_create(uri).await?;
-    let bdev = Bdev::lookup_by_name(&bdev_name)
+    let bdev = UntypedBdev::lookup_by_name(&bdev_name)
         .expect("Failed to lookup the created bdev");
     Ok(bdev)
 }
@@ -149,6 +150,7 @@ async fn connect(uri: &str) -> Result<()> {
 
 fn main() {
     let matches = App::new("Test initiator for nexus replica")
+        .version(version_info_str!())
         .about("Connect, read or write a block to a nexus replica using its URI")
         .arg(Arg::with_name("URI")
             .help("URI of the replica to connect to")
@@ -198,10 +200,9 @@ fn main() {
         None => 0,
     };
 
-    // This tool is just a client, so don't start iSCSI or NVMEoF services.
+    // This tool is just a client, so don't start NVMe-oF services.
     Config::get_or_init(|| {
         let mut cfg = Config::default();
-        cfg.nexus_opts.iscsi_enable = false;
         cfg.nexus_opts.nvmf_enable = false;
         cfg
     });

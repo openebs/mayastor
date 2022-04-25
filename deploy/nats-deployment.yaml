@@ -10,18 +10,6 @@ data:
     pid_file: "/var/run/nats/nats.pid"
 
     http: 8222
-    cluster {
-      port: 6222
-
-      routes [
-        nats://nats-0.nats.mayastor.svc:6222
-        nats://nats-1.nats.mayastor.svc:6222
-        nats://nats-2.nats.mayastor.svc:6222
-      ]
-
-      cluster_advertise: $CLUSTER_ADVERTISE
-      connect_retries: 30
-    }
 ---
 # Source: mayastor/templates/nats-deployment.yaml
 apiVersion: v1
@@ -57,7 +45,7 @@ spec:
   selector:
     matchLabels:
       app: nats
-  replicas: 3
+  replicas: 1
   serviceName: "nats"
   template:
     metadata:

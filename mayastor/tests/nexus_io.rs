@@ -1,9 +1,16 @@
 //! Nexus IO tests for multipath NVMf, reservation, and write-zeroes
 use common::bdev_io;
 use mayastor::{
-    bdev::{nexus_create, nexus_create_v2, nexus_lookup, NexusNvmeParams},
-    core::MayastorCliArgs,
+    bdev::nexus::{
+        nexus_create,
+        nexus_create_v2,
+        nexus_lookup_mut,
+        NexusNvmeParams,
+        NvmeAnaState,
+    },
+    core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
+    pool::PoolArgs,
 };
 use once_cell::sync::OnceCell;
 use rpc::mayastor::{
@@ -13,14 +20,14 @@ use rpc::mayastor::{
     CreateReplicaRequest,
     DestroyNexusRequest,
     Null,
-    NvmeAnaState,
     PublishNexusRequest,
-    ShareProtocolNexus,
 };
 use std::process::{Command, ExitStatus};
 
 pub mod common;
 use common::{compose::Builder, MayastorTest};
+
+extern crate libnvme_rs;
 
 static POOL_NAME: &str = "tpool";
 static NXNAME: &str = "nexus0";
@@ -72,20 +79,14 @@ fn nvme_connect(
 }
 
 fn get_mayastor_nvme_device() -> String {
-    let output_list = Command::new("nvme").args(&["list"]).output().unwrap();
-    assert!(
-        output_list.status.success(),
-        "failed to list nvme devices, {}",
-        output_list.status
-    );
-    let sl = String::from_utf8(output_list.stdout).unwrap();
-    let nvmems: Vec<&str> = sl
-        .lines()
-        .filter(|line| line.contains("Mayastor NVMe controller"))
+    let nvme_devices = libnvme_rs::NvmeTarget::list();
+    let nvme_ms: Vec<&String> = nvme_devices
+        .iter()
+        .filter(|dev| dev.model.contains("Mayastor NVMe controller"))
+        .map(|dev| &dev.device)
         .collect();
-    assert_eq!(nvmems.len(), 1);
-    let ns = nvmems[0].split(' ').collect::<Vec<_>>()[0];
-    ns.to_string()
+    assert_eq!(nvme_ms.len(), 1);
+    format!("/dev/{}", nvme_ms[0])
 }
 
 fn get_nvme_resv_report(nvme_dev: &str) -> serde_json::Value {
@@ -190,9 +191,9 @@ async fn nexus_io_multipath() {
             .await
             .unwrap();
             // publish nexus on local node over nvmf
-            nexus_lookup(&name)
+            nexus_lookup_mut(&name)
                 .unwrap()
-                .share(ShareProtocolNexus::NexusNvmf, None)
+                .share(Protocol::Nvmf, None)
                 .await
                 .unwrap();
         })
@@ -204,7 +205,7 @@ async fn nexus_io_multipath() {
         .publish_nexus(PublishNexusRequest {
             uuid: UUID.to_string(),
             key: "".to_string(),
-            share: ShareProtocolNexus::NexusNvmf as i32,
+            share: Protocol::Nvmf as i32,
         })
         .await
         .unwrap();
@@ -231,9 +232,9 @@ async fn nexus_io_multipath() {
     mayastor
         .spawn(async move {
             // set nexus on local node ANA state to non-optimized
-            nexus_lookup(&nexus_name)
+            nexus_lookup_mut(&nexus_name)
                 .unwrap()
-                .set_ana_state(NvmeAnaState::NvmeAnaNonOptimizedState)
+                .set_ana_state(NvmeAnaState::NonOptimizedState)
                 .await
                 .unwrap();
         })
@@ -396,6 +397,7 @@ async fn nexus_io_resv_acquire() {
                 UUID,
                 nvme_params,
                 &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
+                None,
             )
             .await
             .unwrap();
@@ -456,6 +458,7 @@ async fn nexus_io_resv_acquire() {
             preempt_key: 0,
             children: [format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)]
                 .to_vec(),
+            nexus_info_key: "".to_string(),
         })
         .await
         .unwrap();
@@ -499,7 +502,7 @@ async fn nexus_io_resv_acquire() {
                 .await
                 .expect("reads should succeed");
 
-            nexus_lookup(&NXNAME.to_string())
+            nexus_lookup_mut(&NXNAME.to_string())
                 .unwrap()
                 .destroy()
                 .await
@@ -563,9 +566,10 @@ async fn nexus_io_write_zeroes() {
     mayastor
         .spawn(async move {
             // Create local pool and replica
-            Lvs::create_or_import(CreatePoolRequest {
+            Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEVNAME1.to_string()],
+                uuid: None,
             })
             .await
             .unwrap();

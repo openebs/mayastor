@@ -1,17 +1,15 @@
 use once_cell::sync::OnceCell;
 use std::convert::TryFrom;
 
-extern crate nvmeadm;
+extern crate libnvme_rs;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
-    core::MayastorCliArgs,
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
+    core::{MayastorCliArgs, Protocol},
 };
 
 pub mod common;
 use common::compose::MayastorTest;
-
-use rpc::mayastor::ShareProtocolNexus;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -35,24 +33,22 @@ fn get_ms() -> &'static MayastorTest<'static> {
 
 async fn create_connected_nvmf_nexus(
     ms: &'static MayastorTest<'static>,
-) -> (nvmeadm::NvmeTarget, String) {
+) -> (libnvme_rs::NvmeTarget, String) {
     let uri = ms
         .spawn(async {
             create_nexus().await;
-            let nexus = nexus_lookup("nexus").unwrap();
-            nexus
-                .share(ShareProtocolNexus::NexusNvmf, None)
-                .await
-                .unwrap()
+            let nexus = nexus_lookup_mut("nexus").unwrap();
+            nexus.share(Protocol::Nvmf, None).await.unwrap()
         })
         .await;
 
     // Create and connect NVMF target.
-    let target = nvmeadm::NvmeTarget::try_from(uri).unwrap();
-    let devices = target.connect().unwrap();
+    let target = libnvme_rs::NvmeTarget::try_from(uri).unwrap();
+    target.connect().unwrap();
+    let devices = target.block_devices(2).unwrap();
 
     assert_eq!(devices.len(), 1);
-    (target, devices[0].path.to_string())
+    (target, devices[0].to_string())
 }
 
 async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
@@ -69,8 +65,8 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
     target.disconnect().unwrap();
 
     ms.spawn(async {
-        let nexus = nexus_lookup("nexus").unwrap();
-        nexus.unshare_nexus().await.unwrap();
+        let mut nexus = nexus_lookup_mut("nexus").unwrap();
+        nexus.as_mut().unshare_nexus().await.unwrap();
         nexus.destroy().await.unwrap();
     })
     .await;
@@ -87,20 +83,18 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
     for n in ["left", "right"].iter() {
         let uri = ms
             .spawn(async move {
-                let nexus = nexus_lookup(n).unwrap();
-                nexus
-                    .share(ShareProtocolNexus::NexusNvmf, None)
-                    .await
-                    .unwrap()
+                let nexus = nexus_lookup_mut(n).unwrap();
+                nexus.share(Protocol::Nvmf, None).await.unwrap()
             })
             .await;
 
         // Create and connect NVMF target.
-        let target = nvmeadm::NvmeTarget::try_from(uri).unwrap();
-        let devices = target.connect().unwrap();
+        let target = libnvme_rs::NvmeTarget::try_from(uri).unwrap();
+        target.connect().unwrap();
+        let devices = target.block_devices(2).unwrap();
 
         assert_eq!(devices.len(), 1);
-        let nvmf_dev = &devices[0].path;
+        let nvmf_dev = &devices[0];
         let md5 = common::mount_and_get_md5(nvmf_dev).unwrap();
 
         assert_eq!(md5, md5sum);
@@ -108,8 +102,8 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
         // Cleanup target.
         target.disconnect().unwrap();
         ms.spawn(async move {
-            let nexus = nexus_lookup(n).unwrap();
-            nexus.unshare_nexus().await.unwrap();
+            let mut nexus = nexus_lookup_mut(n).unwrap();
+            nexus.as_mut().unshare_nexus().await.unwrap();
             nexus.destroy().await.unwrap();
         })
         .await;
@@ -139,8 +133,8 @@ async fn mount_fs_multiple() {
 
     target.disconnect().unwrap();
     ms.spawn(async move {
-        let nexus = nexus_lookup("nexus").unwrap();
-        nexus.unshare_nexus().await.unwrap();
+        let mut nexus = nexus_lookup_mut("nexus").unwrap();
+        nexus.as_mut().unshare_nexus().await.unwrap();
         nexus.destroy().await.unwrap();
     })
     .await;
@@ -157,8 +151,8 @@ async fn mount_fn_fio() {
 
     target.disconnect().unwrap();
     ms.spawn(async move {
-        let nexus = nexus_lookup("nexus").unwrap();
-        nexus.unshare_nexus().await.unwrap();
+        let mut nexus = nexus_lookup_mut("nexus").unwrap();
+        nexus.as_mut().unshare_nexus().await.unwrap();
         nexus.destroy().await.unwrap();
     })
     .await;

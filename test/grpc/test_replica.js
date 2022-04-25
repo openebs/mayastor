@@ -20,7 +20,7 @@ const DISK_FILE = '/tmp/mayastor_test_disk';
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 // uuid without the last digit for generating a set of uuids
 const BASE_UUID = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba7';
-// regexps for testing nvmf and iscsi URIs
+// regexps for testing nvmf URIs
 const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
 
 // tunables of the test suite
@@ -193,10 +193,6 @@ describe('replica', function () {
         done();
       }
     );
-  });
-
-  it('should succeed if creating a pool that already exists', (done) => {
-    client.createPool({ name: POOL, disks: disks }, done);
   });
 
   it('should list the pool', (done) => {

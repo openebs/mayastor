@@ -6,20 +6,26 @@ use std::{
 
 use futures::channel::oneshot;
 
-use spdk_sys::{
-    bdev_lock_lba_range,
-    bdev_unlock_lba_range,
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
-    spdk_bdev_get_io_channel,
-    spdk_bdev_module_claim_bdev,
-    spdk_bdev_module_release_bdev,
+use spdk_rs::{
+    libspdk::{
+        bdev_lock_lba_range,
+        bdev_unlock_lba_range,
+        spdk_bdev_desc,
+        spdk_bdev_get_io_channel,
+    },
+    BdevModule,
 };
 
 use crate::{
-    bdev::nexus::nexus_module::NEXUS_MODULE,
-    core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
+    bdev::nexus::NEXUS_MODULE_NAME,
+    core::{
+        channel::IoChannel,
+        Bdev,
+        BdevHandle,
+        CoreError,
+        Mthread,
+        UntypedBdev,
+    },
 };
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
@@ -28,17 +34,22 @@ use crate::{
 /// is. Typically, the target, exporting the bdev will claim the device. In the
 /// case of the nexus, we do not claim the children for exclusive access to
 /// allow for the rebuild to happen across multiple cores.
-pub struct Descriptor(*mut spdk_bdev_desc);
+pub struct Descriptor(spdk_rs::BdevDesc<()>);
 
 impl Descriptor {
+    /// TODO
+    pub(crate) fn new(d: spdk_rs::BdevDesc<()>) -> Self {
+        Self(d)
+    }
+
     /// returns the underling ptr
     pub fn as_ptr(&self) -> *mut spdk_bdev_desc {
-        self.0
+        self.0.legacy_as_ptr()
     }
 
     /// Get a channel to the underlying bdev
     pub fn get_channel(&self) -> Option<IoChannel> {
-        let ch = unsafe { spdk_bdev_get_io_channel(self.0) };
+        let ch = unsafe { spdk_bdev_get_io_channel(self.0.legacy_as_ptr()) };
         if ch.is_null() {
             error!(
                 "failed to get IO channel for {} probably low on memory!",
@@ -55,54 +66,38 @@ impl Descriptor {
     ///
     /// Conversely, Preexisting writers will not be downgraded.
     pub fn claim(&self) -> bool {
-        let err = unsafe {
-            spdk_bdev_module_claim_bdev(
-                self.get_bdev().as_ptr(),
-                self.0,
-                NEXUS_MODULE.as_ptr(),
-            )
-        };
-
-        let name = self.get_bdev().name();
-        debug!("claimed bdev {}", name);
-        err == 0
+        match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
+            Ok(m) => m.claim_bdev(&self.0.bdev(), &self.0).is_ok(),
+            Err(err) => {
+                error!("{}", err);
+                false
+            }
+        }
     }
 
     /// unclaim a bdev previously claimed by NEXUS_MODULE
     pub(crate) fn unclaim(&self) {
-        unsafe {
-            if (*self.get_bdev().as_ptr()).internal.claim_module
-                == NEXUS_MODULE.as_ptr()
-            {
-                spdk_bdev_module_release_bdev(self.get_bdev().as_ptr());
+        match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
+            Ok(m) => {
+                if let Err(err) = m.release_bdev(&self.0.bdev()) {
+                    error!("{}", err)
+                }
+            }
+            Err(err) => {
+                error!("{}", err);
             }
         }
     }
 
     /// release a previously claimed bdev
     pub fn release(&self) {
-        unsafe {
-            if self.get_bdev().is_claimed() {
-                spdk_bdev_module_release_bdev(self.get_bdev().as_ptr())
-            }
-        }
+        self.0.bdev().release_claim();
     }
 
     /// Return the bdev associated with this descriptor, a descriptor cannot
     /// exist without a bdev
-    pub fn get_bdev(&self) -> Bdev {
-        let bdev = unsafe { spdk_bdev_desc_get_bdev(self.0) };
-        Bdev::from(bdev)
-    }
-
-    /// create a Descriptor from a raw spdk_bdev_desc pointer this is the only
-    /// way to create a new descriptor
-    pub fn from_null_checked(desc: *mut spdk_bdev_desc) -> Option<Descriptor> {
-        if desc.is_null() {
-            None
-        } else {
-            Some(Descriptor(desc))
-        }
+    pub fn get_bdev(&self) -> UntypedBdev {
+        Bdev::new(self.0.bdev())
     }
 
     /// consumes the descriptor and returns a handle
@@ -177,12 +172,6 @@ impl Descriptor {
     }
 }
 
-extern "C" fn _bdev_close(arg: *mut c_void) {
-    unsafe {
-        spdk_bdev_close(arg as *mut spdk_bdev_desc);
-    }
-}
-
 /// when we get removed we might be asked to close ourselves
 /// however, this request might come from a different thread as
 /// targets (for example) are running on their own thread.
@@ -190,27 +179,21 @@ impl Drop for Descriptor {
     fn drop(&mut self) {
         trace!("[D] {:?}", self);
         if Mthread::current().unwrap() == Mthread::get_init() {
-            unsafe {
-                spdk_bdev_close(self.0);
-            }
+            self.0.close()
         } else {
-            Mthread::get_init().send_msg(_bdev_close, self.0 as *mut _);
+            Mthread::get_init().msg(self.0.clone(), |mut d| d.close());
         }
     }
 }
 
 impl Debug for Descriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        if !self.0.is_null() {
-            write!(
-                f,
-                "Descriptor {:p} for bdev: {}",
-                self.as_ptr(),
-                self.get_bdev().name()
-            )
-        } else {
-            Ok(())
-        }
+        write!(
+            f,
+            "Descriptor {:p} for bdev: {}",
+            self.as_ptr(),
+            self.0.bdev().name()
+        )
     }
 }
 

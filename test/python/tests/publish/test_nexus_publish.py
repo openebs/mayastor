@@ -163,7 +163,7 @@ def destroy_nexus(mayastor_mod, nexus_instance, created_nexuses):
     yield destroy
 
 
-@pytest.fixture(params=["iscsi", "nvmf"])
+@pytest.fixture(params=["nvmf"])
 def share_protocol(request):
     yield request.param
 

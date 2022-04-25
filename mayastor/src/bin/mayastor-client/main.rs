@@ -9,6 +9,7 @@ use ::rpc::mayastor::{
     json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,
 };
+use version_info::version_info_str;
 
 mod bdev_cli;
 mod context;
@@ -54,7 +55,7 @@ async fn main() -> crate::Result<()> {
     env_logger::init();
 
     let matches = App::new("Mayastor CLI")
-        .version("0.1")
+        .version(version_info_str!())
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
             AppSettings::ColoredHelp,

@@ -11,10 +11,13 @@ members = [
 	"csi",
 	"devinfo",
 	"jsonrpc",
+	"libnvme-rs",
 	"mayastor",
 	"mbus-api",
 	"nvmeadm",
 	"rpc",
 	"sysfs",
 	"composer",
+	"spdk-rs",
+	"utils/mayastor-dependencies/version-info",
 ]

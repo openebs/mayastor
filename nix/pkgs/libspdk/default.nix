@@ -6,12 +6,12 @@
 , lib
 , libaio
 , libbpf
+, libbsd
 , libelf
+, libexecinfo
+, libpcap
 , liburing
 , libuuid
-, libpcap
-, libbsd
-, libexecinfo
 , nasm
 , cmake
 , fio
@@ -36,13 +36,13 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.07-8489d57e8";
+    version = "22.01-13f9d281c";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "8489d57e82e95c05c794f56a47f62bfd6c459b7b";
-      sha256 = "LWYEBJ8JukR24ugWQ7qmM5O6LNZad38HWfcJROlUodU=";
+      rev = "13f9d281c93af370069fe17328f5971e95c19a2d";
+      sha256 = "0avw6qsfqnsdzkk8ldbdvrfq0rrvi5wmjxa5p2cdq62mwdch3zz0";
       fetchSubmodules = true;
     };
 
@@ -102,65 +102,58 @@ let
     '';
     enableParallelBuilding = true;
 
-
     hardeningDisable = [ "all" ];
 
     buildPhase = ''
       make -j`nproc`
-      find . -type f -name 'libspdk_event_nvmf.a' -delete
-      find . -type f -name 'libspdk_sock_uring.a' -delete
-      find . -type f -name 'libspdk_ut_mock.a' -delete
-      find . -type f -name 'libspdk_bdev_blobfs.a' -delete
-      find . -type f -name 'libspdk_bdev_ftl.a' -delete
-      find . -type f -name 'libspdk_bdev_gpt.a' -delete
-      find . -type f -name 'libspdk_bdev_passthru.a' -delete
-      find . -type f -name 'libspdk_bdev_raid.a' -delete
-      find . -type f -name 'libspdk_bdev_split.a' -delete
-      find . -type f -name 'libspdk_bdev_zone_block.a' -delete
-
-      $CC -shared -o libspdk.so \
-        -lc -laio -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
-        -Wl,--whole-archive \
-        $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
-        $(find dpdk/build/lib -type f -name 'librte_*.a*') \
-        $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
-        -Wl,--no-whole-archive
     '';
 
     installPhase = ''
-      mkdir -p $out/lib
+      echo "installing SPDK to $out"
+      mkdir -p $out/lib/pkgconfig
       mkdir $out/bin
 
       pushd include
-      find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
+      find . -type f -name "*.h" -exec install -vD "{}" $out/include/{} \;
       popd
 
       pushd lib
-      find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/lib/{} \;
+      find . -type f -name "*.h" -exec install -vD "{}" $out/include/spdk/lib/{} \;
       popd
 
       # copy private headers from bdev modules needed for creating of bdevs
       pushd module
-      find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/module/{} \;
+      find . -type f -name "*.h" -exec install -vD "{}" $out/include/spdk/module/{} \;
       popd
 
-      # copy over the library
-      cp libspdk.so $out/lib
+      find . -executable -type f -name 'bdevperf' -exec install -vD "{}" $out/bin \;
 
-      echo $(find $out -type f -name '*.a*' -delete)
-      find . -executable -type f -name 'bdevperf' -exec install -D "{}" $out/bin \;
+      # copy libraries
+      install -v build/lib/*.a                   $out/lib/
+      install -v build/lib/pkgconfig/*.pc        $out/lib/pkgconfig/
+      install -v dpdk/build/lib/*.a              $out/lib/
+      install -v dpdk/build/lib/pkgconfig/*.pc   $out/lib/pkgconfig/
+      install -v intel-ipsec-mb/lib/*.a          $out/lib/
+
+      # fix paths in pkg config files
+      build_dir=`pwd`
+      for i in `ls $out/lib/pkgconfig/*.pc`;
+      do
+        echo "fixing pkg config paths in '$i' ..."
+        sed -i "s,$build_dir/build/lib,$out/lib,g" $i
+        sed -i "s,$build_dir/dpdk/build,$out,g" $i
+        sed -i "s,$build_dir/intel-ipsec-mb/lib,$out/lib,g" $i
+      done
     '';
   };
 in
 {
   release = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk";
-    separateDebugInfo = true;
     dontStrip = false;
   });
   debug = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk-dev";
-    separateDebugInfo = false;
     dontStrip = true;
     nativeBuildInputs = drvAttrs.nativeBuildInputs ++ [ cunit lcov ];
     buildInputs = drvAttrs.buildInputs ++ [ cunit lcov fio ];
