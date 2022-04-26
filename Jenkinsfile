@@ -120,6 +120,10 @@ def notifySlackUponE2EFailure(build) {
   }
 }
 
+def mainBranches() {
+    return BRANCH_NAME == "develop" || BRANCH_NAME.startsWith("release-");
+}
+
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 // Run only on one Mayastor pipeline
 String job_base_name = getJobBaseName()
@@ -152,7 +156,7 @@ if (params.e2e_continuous == true) {
 }
 e2e_alias_tag = getAliasTag()
 
-if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause')) {
+if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') && mainBranches()) {
   print "INFO: Branch Indexing, skip tests and push the new images."
   run_linter = false
   rust_test = false
