@@ -152,8 +152,7 @@ if (params.e2e_continuous == true) {
 }
 e2e_alias_tag = getAliasTag()
 
-if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
-    BRANCH_NAME == "develop") {
+if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause')) {
   print "INFO: Branch Indexing, skip tests and push the new images."
   run_linter = false
   rust_test = false
@@ -218,7 +217,7 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
+            branch 'release-*'
             expression { run_linter == false }
           }
         }
@@ -237,7 +236,6 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
           }
         }
       }
@@ -579,7 +577,7 @@ pipeline {
           expression { do_not_push_images == false }
           anyOf {
             branch 'master'
-            branch 'release/*'
+            branch 'release-*'
             branch 'develop'
           }
         }
