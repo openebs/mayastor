@@ -133,6 +133,7 @@ let
       install -v build/lib/pkgconfig/*.pc        $out/lib/pkgconfig/
       install -v dpdk/build/lib/*.a              $out/lib/
       install -v dpdk/build/lib/pkgconfig/*.pc   $out/lib/pkgconfig/
+    '' + lib.optionalString targetPlatform.isx86_64 ''
       install -v intel-ipsec-mb/lib/*.a          $out/lib/
 
       # fix paths in pkg config files
