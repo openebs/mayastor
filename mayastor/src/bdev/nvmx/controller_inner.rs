@@ -8,7 +8,7 @@ use std::{
 
 use crossbeam::atomic::AtomicCell;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_cmd_cb,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
@@ -257,7 +257,7 @@ impl TimeoutConfig {
 pub struct SpdkNvmeController(NonNull<spdk_nvme_ctrlr>);
 
 impl Deref for SpdkNvmeController {
-    type Target = spdk_sys::spdk_nvme_ctrlr;
+    type Target = spdk_rs::libspdk::spdk_nvme_ctrlr;
 
     fn deref(&self) -> &Self::Target {
         unsafe { self.0.as_ref() }

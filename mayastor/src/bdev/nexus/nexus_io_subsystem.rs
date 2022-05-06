@@ -7,13 +7,14 @@ use crossbeam::atomic::AtomicCell;
 use futures::channel::oneshot;
 
 use crate::{
-    bdev::nexus::nexus_bdev::Error as NexusError,
+    bdev::{nexus::nexus_bdev::Error as NexusError, Nexus},
     core::{Bdev, Cores, Protocol, Share},
     subsys::NvmfSubsystem,
 };
 
+/// TODO
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum NexusPauseState {
+pub(super) enum NexusPauseState {
     Unpaused,
     Pausing,
     Paused,
@@ -23,18 +24,23 @@ pub enum NexusPauseState {
 /// Abstraction for managing pausing/unpausing I/O on NVMe subsystem, allowing
 /// concurrent pause/resume calls by serializing low-level SPDK calls.
 #[derive(Debug)]
-pub struct NexusIoSubsystem {
+pub(super) struct NexusIoSubsystem<'n> {
+    /// TODO
     name: String,
-    bdev: Bdev,
+    /// TODO
+    bdev: &'n mut Bdev<Nexus<'n>>,
+    /// TODO
     pause_state: AtomicCell<NexusPauseState>,
+    /// TODO
     pause_waiters: VecDeque<oneshot::Sender<i32>>,
+    /// TODO
     pause_cnt: AtomicU32,
 }
 
-impl NexusIoSubsystem {
+impl<'n> NexusIoSubsystem<'n> {
     /// Create a new instance of Nexus I/O subsystem for a given nexus name and
     /// block device.
-    pub fn new(name: String, bdev: Bdev) -> Self {
+    pub(super) fn new(name: String, bdev: &'n mut Bdev<Nexus<'n>>) -> Self {
         Self {
             pause_state: AtomicCell::new(NexusPauseState::Unpaused),
             pause_waiters: VecDeque::with_capacity(8), /* Default number of
@@ -52,7 +58,7 @@ impl NexusIoSubsystem {
     /// with the nexus paused once they are awakened via resume().
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
-    pub async fn suspend(&mut self) -> Result<(), NexusError> {
+    pub(super) async fn suspend(&mut self) -> Result<(), NexusError> {
         assert_eq!(Cores::current(), Cores::first());
 
         trace!(?self.name, "pausing nexus I/O");
@@ -115,8 +121,7 @@ impl NexusIoSubsystem {
         }
 
         // Resume one waiter in case there are any.
-        if !self.pause_waiters.is_empty() {
-            let w = self.pause_waiters.pop_front().unwrap();
+        if let Some(w) = self.pause_waiters.pop_front() {
             trace!(nexus=%self.name, "resuming the first Pause waiter");
             w.send(0).expect("I/O subsystem pause waiter disappeared");
         }
@@ -128,7 +133,7 @@ impl NexusIoSubsystem {
     /// Resume IO to the bdev.
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
-    pub async fn resume(&mut self) -> Result<(), NexusError> {
+    pub(super) async fn resume(&mut self) -> Result<(), NexusError> {
         assert_eq!(Cores::current(), Cores::first());
 
         trace!(?self.name, "resuming nexus I/O");

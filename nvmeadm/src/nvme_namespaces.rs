@@ -8,6 +8,7 @@ use std::{os::unix::fs::FileTypeExt, path::Path};
 /// nvme device, for the post part is a subsystem + nsid.
 
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct NvmeDevice {
     /// device path of the device
     pub path: String,

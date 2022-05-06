@@ -534,6 +534,7 @@ impl node_server::Node for Node {
         request: Request<NodeUnstageVolumeRequest>,
     ) -> Result<Response<NodeUnstageVolumeResponse>, Status> {
         let msg = request.into_inner();
+        trace!("node_unstage_volume {:?}", msg);
 
         if msg.volume_id.is_empty() {
             return Err(failure!(

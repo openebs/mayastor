@@ -1,6 +1,9 @@
 use mayastor::{
-    bdev::{device_lookup, nexus_create, nexus_lookup},
-    core::{Bdev, MayastorCliArgs},
+    bdev::{
+        device_lookup,
+        nexus::{nexus_create, nexus_lookup_mut},
+    },
+    core::{MayastorCliArgs, UntypedBdev},
     nexus_uri::bdev_create,
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
@@ -66,13 +69,14 @@ async fn compose_up_down() {
                 .await
                 .unwrap();
 
-            let nexus = nexus_lookup("foo").unwrap();
+            let mut nexus = nexus_lookup_mut("foo").unwrap();
 
             // Get NVMf device names for all nexus children for further lookup.
             children
                 .iter()
                 .map(|n| {
                     nexus
+                        .as_mut()
                         .get_child_by_name(n)
                         .unwrap()
                         .get_device()
@@ -92,10 +96,10 @@ async fn compose_up_down() {
 
     let bdevs = mayastor
         .spawn(async {
-            Bdev::bdev_first()
+            UntypedBdev::bdev_first()
                 .unwrap()
                 .into_iter()
-                .map(|b| b.name())
+                .map(|b| b.name().to_string())
                 .collect::<Vec<String>>()
         })
         .await;

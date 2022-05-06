@@ -8,12 +8,13 @@ extern crate serde;
 extern crate function_name;
 extern crate serde_json;
 extern crate snafu;
-extern crate spdk_sys;
+extern crate spdk_rs;
 
-pub mod bdev;
+#[macro_use]
 pub mod core;
+pub mod bdev;
 pub mod delay;
-pub mod ffihelper;
+pub use spdk_rs::ffihelper;
 pub mod grpc;
 pub mod host;
 pub mod jsonrpc;
@@ -28,6 +29,8 @@ mod sleep;
 pub mod store;
 pub mod subsys;
 pub mod target;
+
+/// TODO
 #[macro_export]
 macro_rules! CPS_INIT {
     () => {
@@ -40,4 +43,5 @@ macro_rules! CPS_INIT {
 pub extern "C" fn cps_init() {
     subsys::register_subsystem();
     bdev::nexus::register_module();
+    bdev::null_ng::register();
 }

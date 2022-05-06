@@ -5,11 +5,11 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_sys::{create_uring_bdev, delete_uring_bdev};
+use spdk_rs::libspdk::{create_uring_bdev, delete_uring_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
 };
@@ -79,7 +79,7 @@ impl CreateDestroy for Uring {
 
     /// Create a uring bdev
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.get_name(),
             });
@@ -87,11 +87,15 @@ impl CreateDestroy for Uring {
 
         let cname = CString::new(self.get_name()).unwrap();
 
-        if let Some(mut bdev) = Bdev::from_ptr(unsafe {
-            create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
-        }) {
+        if let Some(mut bdev) = unsafe {
+            UntypedBdev::checked_from_ptr(create_uring_bdev(
+                cname.as_ptr(),
+                cname.as_ptr(),
+                self.blk_size,
+            ))
+        } {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.set_raw_uuid(uuid.into()) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -102,7 +106,7 @@ impl CreateDestroy for Uring {
                 );
             }
 
-            return Ok(bdev.name());
+            return Ok(bdev.name().to_string());
         }
 
         Err(NexusBdevError::BdevNotFound {
@@ -112,13 +116,13 @@ impl CreateDestroy for Uring {
 
     /// Destroy the given uring bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        match Bdev::lookup_by_name(&self.name) {
-            Some(bdev) => {
+        match UntypedBdev::lookup_by_name(&self.name) {
+            Some(mut bdev) => {
                 bdev.remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     delete_uring_bdev(
-                        bdev.as_ptr(),
+                        bdev.unsafe_inner_mut_ptr(),
                         Some(done_errno_cb),
                         cb_arg(sender),
                     );

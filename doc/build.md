@@ -228,28 +228,8 @@ done
 
 > This isn't really the 'hard way', you'll still use `cargo`.
 
-When you really want to build everything manually, the biggest hurdle to overcome is to install the SPDK/DPDK. As these
-are not packaged (or not recent) by most distro's its a manual step. We have provided scripts to make this as easy as
-possible but they only work for Ubuntu and Fedora.
-
-The basic steps are:
-
-```
-git submodule update --init --recursive
-sudo ./spdk-sys/spdk/scripts/pkgdep
-./spdk-sys/build.sh --enable-debug --without-isal --with-rdma \
-            --with-internal-vhost-lib --disable-tests \
-            --with-crypto
-```
-At this point you will have a .so file in `spdk-sys/build` you can leave it there and set the run path flag for rustc to find it:
-
-```
-export RUSTFLAGS="-C link-args=-Wl,-rpath=$(pwd)/spdk-sys/build"
-```
-
-Or, you can copy over the .so to `/usr/local/lib` or something similar.
-
-One this is done, you should be able to run `cargo build --all`
+> **TODO:** We're still writing this! Sorry! For now, please refer to
+> `spdk-rs` README on this matter.
 
 [doc-run]: ./run.md
 [doc-test]: ./test.md

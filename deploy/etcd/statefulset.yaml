@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/instance: mayastor
     app.kubernetes.io/managed-by: Helm
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: etcd
@@ -68,11 +68,6 @@ spec:
         - name: etcd
           image: docker.io/bitnami/etcd:3.4.15-debian-10-r43
           imagePullPolicy: "IfNotPresent"
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /opt/bitnami/scripts/etcd/prestop.sh
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
@@ -111,14 +106,6 @@ spec:
               value: "http://$(MY_POD_NAME).mayastor-etcd-headless.mayastor.svc.cluster.local:2380"
             - name: ETCD_LISTEN_PEER_URLS
               value: "http://0.0.0.0:2380"
-            - name: ETCD_INITIAL_CLUSTER_TOKEN
-              value: "etcd-cluster-k8s"
-            - name: ETCD_INITIAL_CLUSTER_STATE
-              value: "new"
-            - name: ETCD_INITIAL_CLUSTER
-              value: "mayastor-etcd-0=http://mayastor-etcd-0.mayastor-etcd-headless.mayastor.svc.cluster.local:2380,mayastor-etcd-1=http://mayastor-etcd-1.mayastor-etcd-headless.mayastor.svc.cluster.local:2380,mayastor-etcd-2=http://mayastor-etcd-2.mayastor-etcd-headless.mayastor.svc.cluster.local:2380"
-            - name: ETCD_CLUSTER_DOMAIN
-              value: "mayastor-etcd-headless.mayastor.svc.cluster.local"
           envFrom:
           ports:
             - name: client

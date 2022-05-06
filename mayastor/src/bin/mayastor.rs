@@ -1,12 +1,11 @@
 #[macro_use]
 extern crate tracing;
 
-use std::path::Path;
+use std::{env, path::Path};
 
 use futures::future::FutureExt;
 use structopt::StructOpt;
 
-use git_version::git_version;
 use mayastor::{
     bdev::util::uring,
     core::{
@@ -23,19 +22,22 @@ use mayastor::{
     subsys,
     subsys::Registration,
 };
+use version_info::fmt_package_info;
 
-const GIT_VERSION: &str =
-    git_version!(args = ["--tags", "--abbrev=12"], fallback = "unknown");
 const PAGES_NEEDED: u32 = 1024;
 
 mayastor::CPS_INIT!();
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();
-    let node_name = args
-        .node_name
-        .clone()
-        .unwrap_or_else(|| "mayastor-node".into());
+    // In case we do not have the node-name provided we would set the node name
+    // as the hostname(env always present), because the csi-controller adds
+    // the hostname in allowed nodes in the topology and in case there is
+    // mismatch, for ex, in case of EKS clusters where hostname and
+    // node name differ volume wont be created, so we set it to hostname.
+    let node_name = args.node_name.clone().unwrap_or_else(|| {
+        env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
+    });
 
     let endpoint = args.mbus_endpoint.clone();
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
@@ -105,6 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         logger::init("INFO");
     }
 
+    info!("{}", fmt_package_info!());
+
     hugepage_check();
 
     let nvme_core_path = Path::new("/sys/module/nvme_core/parameters");
@@ -128,7 +132,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-    info!("Starting Mayastor version: {}", GIT_VERSION);
     info!(
         "kernel io_uring support: {}",
         if uring::kernel_support() { "yes" } else { "no" }

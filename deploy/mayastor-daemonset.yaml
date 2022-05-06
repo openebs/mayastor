@@ -22,7 +22,7 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services from mayastor's namespace
+      # To resolve services in the namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
@@ -33,11 +33,11 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:v1.0.1
-        imagePullPolicy: IfNotPresent
+        image: mayadata/mayastor:develop
+        imagePullPolicy: Always
         env:
         - name: RUST_LOG
-          value: info,mayastor=info
+          value: info,mayastor=debug
         - name: NVMF_TCP_MAX_QUEUE_DEPTH
           value: "32"
         - name: MY_NODE_NAME

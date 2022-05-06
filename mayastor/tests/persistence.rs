@@ -20,7 +20,7 @@ use rpc::mayastor::{
     ShareProtocolNexus,
 };
 
-use mayastor::bdev::{ChildInfo, NexusInfo};
+use mayastor::bdev::nexus::{ChildInfo, NexusInfo};
 
 use std::{convert::TryFrom, thread::sleep, time::Duration};
 use url::Url;
@@ -171,10 +171,11 @@ async fn persist_io_failure() {
         .expect("Failed to unshare");
 
     // Create and connect NVMF target.
-    let target = nvmeadm::NvmeTarget::try_from(nexus_uri.clone()).unwrap();
-    let devices = target.connect().unwrap();
+    let target = libnvme_rs::NvmeTarget::try_from(nexus_uri.clone()).unwrap();
+    target.connect().unwrap();
+    let devices = target.block_devices(2).unwrap();
     let fio_hdl = tokio::spawn(async move {
-        fio_run_verify(&devices[0].path.to_string()).unwrap()
+        fio_run_verify(&devices[0].to_string()).unwrap()
     });
 
     fio_hdl.await.unwrap();

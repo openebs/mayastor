@@ -1,4 +1,5 @@
 status = [ "continuous-integration/jenkins/branch" ]
+pr_status = [ "commitlint" ]
 timeout_sec = 10000
 required_approvals = 2
 delete_merged_branches = true

@@ -1,14 +1,14 @@
 {
-    "libiscsi": {
-        "branch": "1.19.0",
-        "description": "iscsi client library and utilities",
-        "homepage": "",
-        "owner": "sahlberg",
-        "repo": "libiscsi",
-        "rev": "eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba",
-        "sha256": "0ajrkkg5awmi8m4b3mha7h07ylg18k252qprvk1sgq0qbyd66zy7",
+    "libnvme": {
+        "branch": "master",
+        "description": "nvme client library",
+        "homepage": "https://github.com/linux-nvme/libnvme",
+        "owner": "linux-nvme",
+        "repo": "libnvme",
+        "rev": "c434d43faee6e6e93ac5ad603ef94a77299fa178",
+        "sha256": "0wkr0axmm4wqjncb6x7fjyg0wxjdi9f2qd3df6ph671qh5ralrjy",
         "type": "tarball",
-        "url": "https://github.com/sahlberg/libiscsi/archive/eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba.tar.gz",
+        "url": "https://github.com/linux-nvme/libnvme/archive/c434d43faee6e6e93ac5ad603ef94a77299fa178.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -41,10 +41,10 @@
         "homepage": "",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "aa5f9c64c8865966b36726787721d6dc9f4948b5",
-        "sha256": "0pzaiqx4k43i3vfc74d25ins4k5zvwadqmijakkfpl4l5qr30sc6",
+        "rev": "c43ac5a913306abe22c9d1ed8453c7819864f31b",
+        "sha256": "0z0j0iyd2zdc1cqppbnlwgklgbhfks907dhh367w0cdn5kvr93m4",
         "type": "tarball",
-        "url": "https://github.com/oxalica/rust-overlay/archive/aa5f9c64c8865966b36726787721d6dc9f4948b5.tar.gz",
+        "url": "https://github.com/oxalica/rust-overlay/archive/c43ac5a913306abe22c9d1ed8453c7819864f31b.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }

@@ -74,6 +74,11 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("NVMe preempt key for children, 0 for no preemption"),
         )
         .arg(
+            Arg::with_name("nexus-info-key")
+                .required(true)
+                .help("Key used to persist the NexusInfo structure to the persistent store"),
+        )
+        .arg(
             Arg::with_name("children")
                 .required(true)
                 .multiple(true)
@@ -92,7 +97,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let publish = SubCommand::with_name("publish")
         .about("publish the nexus")
         .arg(Arg::with_name("protocol").short("p").long("protocol").value_name("PROTOCOL")
-            .help("Name of a protocol (nvmf, iscsi) used for publishing the nexus remotely"))
+            .help("Name of a protocol (nvmf) used for publishing the nexus remotely"))
         .arg(Arg::with_name("uuid").required(true).index(1)
             .help("uuid for the nexus"))
         .arg(Arg::with_name("key").required(false).index(2)
@@ -309,6 +314,10 @@ async fn nexus_create_v2(
         .unwrap_or_else(|e| e.exit());
     let preempt_key = value_t!(matches.value_of("preempt-key"), u64)
         .unwrap_or_else(|e| e.exit());
+    let nexus_info_key = matches
+        .value_of("nexus-info-key")
+        .unwrap_or_default()
+        .to_string();
 
     let response = ctx
         .client
@@ -321,6 +330,7 @@ async fn nexus_create_v2(
             resv_key,
             preempt_key,
             children,
+            nexus_info_key,
         })
         .await
         .context(GrpcStatus)?;
@@ -577,7 +587,6 @@ async fn nexus_publish(
     let protocol = match matches.value_of("protocol") {
         None => rpc::ShareProtocolNexus::NexusNbd,
         Some("nvmf") => rpc::ShareProtocolNexus::NexusNvmf,
-        Some("iscsi") => rpc::ShareProtocolNexus::NexusIscsi,
         Some(_) => {
             return Err(Status::new(
                 Code::Internal,

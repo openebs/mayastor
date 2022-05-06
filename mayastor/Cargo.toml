@@ -2,8 +2,10 @@
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 name = "mayastor"
+description = "Mayastor"
 version = "1.0.0"
 default-run = "mayastor-client"
+build = "build.rs"
 
 [[bin]]
 name = "mayastor"
@@ -50,7 +52,6 @@ crossbeam-sync = "0.0.0"
 env_logger = "0.9.0"
 function_name = "0.2.0"
 futures = "0.3.16"
-git-version = "0.3.5"
 http = "0.2.4"
 io-uring = "0.5.1"
 ioctl-gen = "0.1.1"
@@ -87,6 +88,7 @@ dns-lookup = "1.0.8"
 mbus_api = { path = "../mbus-api" }
 etcd-client = "0.7.1"
 parking_lot = "0.11.1"
+version-info = { path = "../utils/mayastor-dependencies/version-info" }
 
 
 [dependencies.rpc]
@@ -96,8 +98,8 @@ path = "../rpc"
 features = ["derive"]
 version = "1.0.127"
 
-[dependencies.spdk-sys]
-path = "../spdk-sys"
+[dependencies.spdk-rs]
+path = "../spdk-rs"
 
 [dependencies.sysfs]
 path = "../sysfs"
@@ -113,5 +115,5 @@ version = "0.8.2"
 [dev-dependencies]
 assert_matches = "1.5.0"
 composer = { path = "../composer" }
-nvmeadm = { path = "../nvmeadm" }
+libnvme-rs = {path = "../libnvme-rs", version = "0.1.0"}
 run_script = "0.8.0"

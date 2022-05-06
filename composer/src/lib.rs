@@ -83,18 +83,15 @@ impl RpcHandle {
             }
         }
 
-        let mayastor =
-            MayastorClient::connect(format!("http://{}", endpoint.to_string()))
-                .await
-                .unwrap();
-        let bdev =
-            BdevRpcClient::connect(format!("http://{}", endpoint.to_string()))
-                .await
-                .unwrap();
-        let jsonrpc =
-            JsonRpcClient::connect(format!("http://{}", endpoint.to_string()))
-                .await
-                .unwrap();
+        let mayastor = MayastorClient::connect(format!("http://{}", endpoint))
+            .await
+            .unwrap();
+        let bdev = BdevRpcClient::connect(format!("http://{}", endpoint))
+            .await
+            .unwrap();
+        let jsonrpc = JsonRpcClient::connect(format!("http://{}", endpoint))
+            .await
+            .unwrap();
 
         Ok(Self {
             name,
@@ -584,7 +581,7 @@ impl Builder {
         let mut cfg = HashMap::new();
         cfg.insert(
             "Subnet".to_string(),
-            format!("{}/{}", net.network().to_string(), net.prefix()),
+            format!("{}/{}", net.network(), net.prefix()),
         );
         cfg.insert("Gateway".into(), net.nth(1).unwrap().to_string());
 

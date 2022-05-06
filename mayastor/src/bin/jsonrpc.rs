@@ -10,10 +10,13 @@ extern crate serde_json;
 
 use jsonrpc::call;
 use structopt::StructOpt;
+use version_info::{package_description, version_info_str};
 
+/// TODO
 #[derive(Debug, StructOpt)]
 #[structopt(
-    name = "jsonrpc",
+    name = package_description!(),
+    version = version_info_str!(),
     about = "Mayastor json-rpc client",
     setting = structopt::clap::AppSettings::ColoredHelp
 )]
@@ -23,6 +26,8 @@ struct Opt {
     #[structopt(subcommand)]
     cmd: Sub,
 }
+
+/// TODO
 #[derive(StructOpt, Debug)]
 enum Sub {
     #[structopt(name = "raw")]

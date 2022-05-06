@@ -13,13 +13,8 @@ use std::{
 static CONFIG_TEXT: &str = "nexus_opts:
   nvmf_nexus_port: 4422
   nvmf_replica_port: NVMF_PORT
-  iscsi_enable: false
 nvmf_tcp_tgt_conf:
   max_namespaces: 2
-# although not used we still have to reduce mem requirements for iSCSI
-iscsi_tgt_conf:
-  max_sessions: 1
-  max_connections_per_session: 1
 ";
 
 const CONFIG_FILE: &str = "/tmp/nvmeadm_nvmf_target.yaml";
@@ -32,22 +27,18 @@ const TARGET_PORT: u32 = 9523;
 fn create_config_file(config_file: &str, nvmf_port: &str) {
     let path = Path::new(config_file);
     let mut config = match File::create(&path) {
-        Err(reason) => panic!(
-            "Unable to create {}: {}",
-            path.display(),
-            reason.to_string()
-        ),
+        Err(reason) => {
+            panic!("Unable to create {}: {}", path.display(), reason)
+        }
         Ok(config) => config,
     };
 
     let after = CONFIG_TEXT.replace("NVMF_PORT", nvmf_port);
 
     match config.write_all(after.as_bytes()) {
-        Err(reason) => panic!(
-            "Unable to write to {}: {}",
-            path.display(),
-            reason.to_string()
-        ),
+        Err(reason) => {
+            panic!("Unable to write to {}: {}", path.display(), reason)
+        }
         Ok(_) => println!("Wrote to file"),
     }
 }

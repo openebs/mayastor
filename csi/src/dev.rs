@@ -88,7 +88,7 @@ impl Device {
     pub async fn lookup(
         uuid: &Uuid,
     ) -> Result<Option<Box<dyn Detach>>, DeviceError> {
-        let nvmf_key: String = format!("uuid.{}", uuid.to_string());
+        let nvmf_key: String = format!("uuid.{}", uuid);
 
         let mut enumerator = Enumerator::new()?;
 
@@ -113,9 +113,9 @@ impl Device {
                 match_dev::match_nvmf_device(&device, &nvmf_key)
             {
                 let nqn = if std::env::var("MOAC").is_ok() {
-                    format!("{}:nexus-{}", NVME_NQN_PREFIX, uuid.to_string())
+                    format!("{}:nexus-{}", NVME_NQN_PREFIX, uuid)
                 } else {
-                    format!("{}:{}", NVME_NQN_PREFIX, uuid.to_string())
+                    format!("{}:{}", NVME_NQN_PREFIX, uuid)
                 };
                 return Ok(Some(Box::new(nvmf::NvmfDetach::new(
                     devname.to_string(),

@@ -4,8 +4,8 @@ use once_cell::sync::OnceCell;
 
 use common::MayastorTest;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
-    core::{Bdev, MayastorCliArgs},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
+    core::{MayastorCliArgs, UntypedBdev},
 };
 
 pub mod common;
@@ -35,32 +35,33 @@ fn mayastor() -> &'static MayastorTest<'static> {
 async fn child_size_ok() {
     mayastor()
         .spawn(async {
-            assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+            assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
             assert!(create_nexus(16, vec![32, 24, 16]).await);
 
-            let bdev = Bdev::lookup_by_name("core_nexus").unwrap();
+            let bdev = UntypedBdev::lookup_by_name("core_nexus").unwrap();
             assert_eq!(bdev.name(), "core_nexus");
 
-            let bdev =
-                Bdev::lookup_by_name("m0").expect("child bdev m0 not found");
+            let bdev = UntypedBdev::lookup_by_name("m0")
+                .expect("child bdev m0 not found");
             assert_eq!(bdev.name(), "m0");
 
-            let bdev =
-                Bdev::lookup_by_name("m1").expect("child bdev m1 not found");
+            let bdev = UntypedBdev::lookup_by_name("m1")
+                .expect("child bdev m1 not found");
             assert_eq!(bdev.name(), "m1");
 
-            let bdev =
-                Bdev::lookup_by_name("m2").expect("child bdev m2 not found");
+            let bdev = UntypedBdev::lookup_by_name("m2")
+                .expect("child bdev m2 not found");
             assert_eq!(bdev.name(), "m2");
 
-            let nexus = nexus_lookup("core_nexus").expect("nexus not found");
+            let nexus =
+                nexus_lookup_mut("core_nexus").expect("nexus not found");
             nexus.destroy().await.unwrap();
 
-            assert!(nexus_lookup("core_nexus").is_none());
-            assert!(Bdev::lookup_by_name("core_nexus").is_none());
-            assert!(Bdev::lookup_by_name("m0").is_none());
-            assert!(Bdev::lookup_by_name("m1").is_none());
-            assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+            assert!(nexus_lookup_mut("core_nexus").is_none());
+            assert!(UntypedBdev::lookup_by_name("core_nexus").is_none());
+            assert!(UntypedBdev::lookup_by_name("m0").is_none());
+            assert!(UntypedBdev::lookup_by_name("m1").is_none());
+            assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
         })
         .await;
 }
@@ -69,15 +70,15 @@ async fn child_size_ok() {
 async fn child_too_small() {
     mayastor()
         .spawn(async {
-            assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+            assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
             assert!(!create_nexus(16, vec![16, 16, 8]).await);
 
-            assert!(nexus_lookup("core_nexus").is_none());
-            assert!(Bdev::lookup_by_name("core_nexus").is_none());
-            assert!(Bdev::lookup_by_name("m0").is_none());
-            assert!(Bdev::lookup_by_name("m1").is_none());
-            assert!(Bdev::lookup_by_name("m2").is_none());
-            assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+            assert!(nexus_lookup_mut("core_nexus").is_none());
+            assert!(UntypedBdev::lookup_by_name("core_nexus").is_none());
+            assert!(UntypedBdev::lookup_by_name("m0").is_none());
+            assert!(UntypedBdev::lookup_by_name("m1").is_none());
+            assert!(UntypedBdev::lookup_by_name("m2").is_none());
+            assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
         })
         .await;
 }
@@ -86,15 +87,15 @@ async fn child_too_small() {
 async fn too_small_for_metadata() {
     mayastor()
         .spawn(async {
-            assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+            assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
             assert!(!create_nexus(4, vec![16, 8, 4]).await);
 
-            assert!(nexus_lookup("core_nexus").is_none());
-            assert!(Bdev::lookup_by_name("core_nexus").is_none());
-            assert!(Bdev::lookup_by_name("m0").is_none());
-            assert!(Bdev::lookup_by_name("m1").is_none());
-            assert!(Bdev::lookup_by_name("m2").is_none());
-            assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+            assert!(nexus_lookup_mut("core_nexus").is_none());
+            assert!(UntypedBdev::lookup_by_name("core_nexus").is_none());
+            assert!(UntypedBdev::lookup_by_name("m0").is_none());
+            assert!(UntypedBdev::lookup_by_name("m1").is_none());
+            assert!(UntypedBdev::lookup_by_name("m2").is_none());
+            assert_eq!(UntypedBdev::bdev_first().into_iter().count(), 0);
         })
         .await;
 }

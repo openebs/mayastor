@@ -5,21 +5,28 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 
-use spdk_sys::{
-    self,
-    iovec,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_nvme_cpl,
-    spdk_nvme_ctrlr_cmd_admin_raw,
-    spdk_nvme_ctrlr_cmd_io_raw,
-    spdk_nvme_dsm_range,
-    spdk_nvme_ns_cmd_dataset_management,
-    spdk_nvme_ns_cmd_read,
-    spdk_nvme_ns_cmd_readv,
-    spdk_nvme_ns_cmd_write,
-    spdk_nvme_ns_cmd_write_zeroes,
-    spdk_nvme_ns_cmd_writev,
+use spdk_rs::{
+    libspdk::{
+        iovec,
+        nvme_cmd_cdw10_get,
+        spdk_get_io_channel,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+        spdk_nvme_cpl,
+        spdk_nvme_ctrlr_cmd_admin_raw,
+        spdk_nvme_ctrlr_cmd_io_raw,
+        spdk_nvme_dsm_range,
+        spdk_nvme_ns_cmd_dataset_management,
+        spdk_nvme_ns_cmd_read,
+        spdk_nvme_ns_cmd_readv,
+        spdk_nvme_ns_cmd_write,
+        spdk_nvme_ns_cmd_write_zeroes,
+        spdk_nvme_ns_cmd_writev,
+    },
+    nvme_admin_opc,
+    nvme_nvm_opcode,
+    DmaBuf,
+    DmaError,
 };
 
 use crate::{
@@ -39,13 +46,9 @@ use crate::{
     },
     core::{
         mempool::MemoryPool,
-        nvme_admin_opc,
-        nvme_nvm_opcode,
         BlockDevice,
         BlockDeviceHandle,
         CoreError,
-        DmaBuf,
-        DmaError,
         GenericStatusCode,
         IoCompletionCallback,
         IoCompletionCallbackArg,
@@ -941,7 +944,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     }
 
     async fn create_snapshot(&self) -> Result<u64, CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
         let now = subsys::set_snapshot_time(&mut cmd);
         debug!("Creating snapshot at {}", now);
@@ -950,14 +953,14 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     }
 
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(opcode.into());
         self.nvme_admin(&cmd, None).await
     }
 
     async fn nvme_admin(
         &self,
-        cmd: &spdk_sys::spdk_nvme_cmd,
+        cmd: &spdk_nvme_cmd,
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         let mut pcmd = *cmd; // Make a private mutable copy of the command.
@@ -1014,11 +1017,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             }
         })?;
 
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::IDENTIFY.into());
         cmd.nsid = 0xffffffff;
         // Controller Identifier
-        unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
+        unsafe { *nvme_cmd_cdw10_get(&mut cmd) = 1 };
         self.nvme_admin(&cmd, Some(&mut buf)).await?;
         Ok(buf)
     }
@@ -1032,7 +1035,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         register_action: u8,
         cptpl: u8,
     ) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_nvm_opcode::RESERVATION_REGISTER.into());
         cmd.nsid = 0x1;
         unsafe {
@@ -1060,7 +1063,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         acquire_action: u8,
         resv_type: u8,
     ) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_nvm_opcode::RESERVATION_ACQUIRE.into());
         cmd.nsid = 0x1;
         unsafe {
@@ -1087,7 +1090,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cdw11: u32,
         buffer: &mut DmaBuf,
     ) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_nvm_opcode::RESERVATION_REPORT.into());
         cmd.nsid = 0x1;
         // Number of dwords to transfer
@@ -1099,7 +1102,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     /// sends the specified NVMe IO Passthru command
     async fn io_passthru(
         &self,
-        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        nvme_cmd: &spdk_nvme_cmd,
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         extern "C" fn nvme_io_passthru_done(
