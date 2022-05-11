@@ -11,7 +11,7 @@ This section shows a couple of examples of what you already can do with Mayastor
 ## io-engine-client
 
 `io-engine-client` is a small tool to interact with Mayastor and its Nexuses, pools and replicas. It currently does not
-interact with the local provisioner but you *can* use local storage with it already. As of this writing we have
+interact with the local provisioner but you _can_ use local storage with it already. As of this writing we have
 added support for sharing the Nexus over NBD and NVMf.
 
 ```bash
@@ -77,7 +77,8 @@ it is configured on. This makes certain things more simple, but at the same time
 of freedom as well. With Mayastor, we attempt to solve this transparently and determine based on declarative
 intent what is best to do. Let us start with an example.
 
-Let's assume we have a local disk `/dev/sdb` and we want to make use of it. By making use of the `io-engine-client` we can specify
+Let's assume we have a local disk `/dev/sdb` and we want to make use of it. 
+By making use of the `io-engine-client` we can specify
 a URI to the resource and we can start using it.
 
 ```bash
