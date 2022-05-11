@@ -5,14 +5,16 @@
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 
-Table of contents:
-==================
+## Table of contents
+
+---
+
 - [Quickly deploy it on K8s and get started](https://mayastor.gitbook.io)
-    - [Deploying on microk8s](/doc/microk8s.md)
+  - [Deploying on microk8s](/doc/microk8s.md)
 - [High-level overview](#overview)
-    - [The Nexus CAS module](#Nexus)
-    - [Local storage](#local-storage)
-    - [Exporting a Nexus](#exporting-the-nexus)
+  - [The Nexus CAS module](#Nexus)
+  - [Local storage](#local-storage)
+  - [Exporting a Nexus](#exporting-the-nexus)
 - [Building from source](/doc/build.md)
 - [Examples of the Nexus module](/doc/mcli.md)
 - [Frequently asked questions](/doc/FAQ.md)
@@ -20,23 +22,29 @@ Table of contents:
 <p align="justify">
 <strong>Mayastor</strong> is a cloud-native declarative data plane written in <strong>Rust.</strong>
 Our goal is to abstract storage resources and their differences through the data plane such that users only need to
-supply the <strong>what</strong> and do not have to worry about the <strong>how</strong> so that individual teams stay in control.
+supply the <strong>what</strong> and do not have to worry about the <strong>how</strong>
+so that individual teams stay in control.
 
 We also try to be as unopinionated as possible. What this means is that we try to work with the existing storage systems
- you might already have and unify them as abstract resources instead of swapping them out whenever the resources are local
- or remote.
+you might already have and unify them as abstract resources instead of swapping them out whenever the resources are local
+or remote.
 <br>
 <br>
+
 </p>
 
 Some targeted use cases are:
 
- - Low latency workloads for converged and segregated storage by leveraging NVMe/NVMe over Fabrics (NVMe-oF)
- - Micro-VM based containers like [Firecracker microVMs](https://github.com/firecracker-microvm/firecracker) and [Kata Containers](https://github.com/kata-containers/kata-containers) by providing storage over vhost-user
- - Programmatic based storage access, i.e write to block devices from within your application instead of making system calls
- - Storage unification to lift barriers so that you can start deploying cloud native apps on your existing storage without painful data gravity barriers that prevent progress and innovation
+- Low latency workloads for converged and segregated storage by leveraging NVMe/NVMe over Fabrics (NVMe-oF)
+- Micro-VM based containers like [Firecracker microVMs](https://github.com/firecracker-microvm/firecracker) and
+  [Kata Containers](https://github.com/kata-containers/kata-containers) by providing storage over vhost-user
+- Programmatic based storage access, i.e write to block devices from within your application instead of making system calls
+- Storage unification to lift barriers so that you can start deploying cloud native apps on your existing storage
+  without painful data gravity barriers that prevent progress and innovation
 
-# User Documentation
+## User Documentation
+
+---
 
 The official user documentation for the Mayastor Project is published here in GitBook format: [mayastor.gitbook.io](https://mayastor.gitbook.io/)
 
@@ -46,15 +54,18 @@ At a high-level, Mayastor consists of two major components.
 
 ### **Control plane:**
 
- * A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.  This is extended by a dedicated operator responsible 
- for managing the life cycle of "Mayastor Pools" (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant external provisioner (controller).
- Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
+- A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.
+  This is extended by a dedicated operator responsible for managing the life cycle of "Mayastor Pools"
+  (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant
+  external provisioner (controller).
+  Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
 
- * A _per_ node instance *mayastor-csi* plugin which implements the identity and node grpc services from CSI protocol.
+- A _per_ node instance _mayastor-csi_ plugin which implements the identity and node grpc services from CSI protocol.
 
 ### **Data plane:**
 
-* Each node you wish to use for storage or storage services will have to run a Mayastor daemon set. Mayastor itself has three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
+- Each node you wish to use for storage or storage services will have to run a Mayastor daemon set. Mayastor itself has
+  three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
 
 ## Nexus
 
@@ -65,10 +76,10 @@ selected to run your k8s workload. We call these from the Nexus' point of view i
 The goal we envision the Nexus to provide here, as it sits between the storage systems and PVCs, is loose coupling.
 
 A practical example: Once you are up and running with persistent workloads in a container, you need to move your data because
-the storage system that stores your PVC goes EOL.  You now can control how this impacts your team without getting into storage
-migration projects, which are always painful and complicated.  In reality, the individual storage volumes per team/app are
-relatively small, but today it is not possible for individual teams to handle their own storage needs. The Nexus provides the
-abstraction over the resources such that the developer teams stay in control.
+the storage system that stores your PVC goes EOL. You now can control how this impacts your team without getting into storage
+migration projects, which are always painful and complicated. In reality, the individual storage volumes per team/app are
+relatively small, but today it is not possible for individual teams to handle their own storage needs.
+The Nexus provides the abstraction over the resources such that the developer teams stay in control.
 
 The reason we think this can work is because applications have changed, and the way they are built allows us to rethink
 they way we do things. Moreover, due to hardware [changes](https://searchstorage.techtarget.com/tip/NVMe-performance-challenges-expose-the-CPU-chokepoint)
@@ -79,6 +90,7 @@ a single device to a protocol standard protocol. These storage URIs are generate
 track of what resources belong to what Nexus instance and subsequently to what PVC.
 
 You can also directly use the nexus from within your application code. For example:
+
 </p>
 
 ```rust
@@ -125,7 +137,8 @@ buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
 We think this can help a lot of database projects as well, where they typically have all the smarts in their database engine
 and they want the most simple (but fast) storage device. For a more elaborate example see some of the tests in mayastor/tests.
 
-To communicate with the children, the Nexus uses industry standard protocols. The Nexus supports direct access to local storage and remote storage using NVMe-oF TCP. Another advantage of the implementation is that if you were to remove
+To communicate with the children, the Nexus uses industry standard protocols. The Nexus supports direct access to local
+storage and remote storage using NVMe-oF TCP. Another advantage of the implementation is that if you were to remove
 the Nexus from the data path, you would still be able to access your data as if Mayastor was not there.
 
 The Nexus itself does not store any data and in its most simplistic form the Nexus is a proxy towards real storage
@@ -151,6 +164,7 @@ except for the fact that it is not local anymore.
 Similarly, if you do not want to use anything other than local storage, you can still use Mayastor to provide you with
 additional functionality that otherwise would require you setup kernel specific features like LVM for example.
 <br>
+
 </p>
 
 ## Exporting the Nexus
@@ -174,7 +188,7 @@ option if you are not sure how to use it. CSI services are not covered by the cl
 In following example of a client session is assumed that mayastor has been
 started and is running:
 
-```
+```bash
 $ dd if=/dev/zero of=/tmp/disk bs=1024 count=102400
 102400+0 records in
 102400+0 records out
@@ -207,7 +221,7 @@ $ mayastor-client pool destroy tpool
 Mayastor is developed under Apache 2.0 license at the project level. Some components of the project are derived from
 other open source projects and are distributed under their respective licenses.
 
-```http://www.apache.org/licenses/LICENSE-2.0```
+`http://www.apache.org/licenses/LICENSE-2.0`
 
 ### Contributions
 
