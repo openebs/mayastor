@@ -1,14 +1,49 @@
-mayastorImagesTag: latest
-mayastorImagePullPolicy: Always
-mayastorCpuCount: "1"
-mayastorHugePagesGiB: "1"
-mayastorImagesRegistry: ""
-#mayastorPools:
-#  - node: "NODE_NAME"
-#    device: "DEVICE"
+fullnameOverride: ""
+image:
+  repository: mayadata/mayastor
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+registrationProbe:
+  repository: "busybox"
+  pullPolicy: Always
+  tag: latest
+
+imagePullSecrets: []
+# - name: "image-pull-secret"
+
+mayastorPools:
+  # - node: "NODE_NAME"
+  #   device: "DEVICE"
 # This option is intended for development yamls and motivated by the problem of
 # moac that does not update status of msp resource in some cases. Feel free to
 # remove when no longer needed.
+
+podAnnotations: {}
+
+podSecurityContext:
+  {}
+  # fsGroup: 2000
+
+securityContext:
+  privileged: true
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+nodeSelector:
+  openebs.io/engine: mayastor
+tolerations: []
+affinity: {}
+
+mayastorCpuCount: "1"
+mayastorHugePagesGiB: "1"
+
 moacDebug: false
 moac: false
 
@@ -18,7 +53,20 @@ csi:
     io_timeout: "30"
     io_timeout_enabled: true
 
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
 etcd:
+  # Use if you want to have a install an etcd for openebs
+  enabled: false
+  # If bringing your own etcd cluster, provide it's url
+  externalEtcdURL: ""
   ## Number of replicas
   ##
   replicaCount: 1
