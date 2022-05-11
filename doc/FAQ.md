@@ -1,3 +1,5 @@
+# FQA
+
 ## Why user space?
 
 As we target cloud native workloads, depending on kernel features is not possible. For example, the Ubuntu image
@@ -14,7 +16,7 @@ NVMe is a protocol that specifies how data is moved between the CPU and a PCIe d
 because CPUs in terms of speed is relatively stable, but the number of cores keeps increasing.
 Also with SSD devices, the CPUs are starting to become the bottleneck.
 
-In short, it meant that  a whole new design was needed (which is not completely new as it borrows a lot
+In short, it meant that a whole new design was needed (which is not completely new as it borrows a lot
 from InfiniBand).
 
 ## Can NVMe only be used with NVMe devices?
@@ -53,4 +55,3 @@ GRUB_CMDLINE_LINUX_DEFAULT=isolcpu="1,3"
 The same set of CPU's should be passed on to Mayastor and during startup the it will pin itself to the cores given. Initially
 this might look cumbersome, but in turns out in practice, due to many core systems these days, it actually provides a very
 predictable and scaling model.
-

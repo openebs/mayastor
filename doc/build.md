@@ -12,9 +12,9 @@ you won't need to worry about cross compiler toolchains, and all builds are repr
 
 ## Table of Contents
 
-* [Prerequisites](#Prerequisites)
-* [Iterative Builds](#Iterative-Builds)
-* [Artifacts](#Artifacts)
+- [Prerequisites](#Prerequisites)
+- [Iterative Builds](#Iterative-Builds)
+- [Artifacts](#Artifacts)
 
 ## Prerequisites
 
@@ -23,14 +23,14 @@ Windows, FreeBSD, OpenWRT, or other server platforms.
 
 If you do not have Linux system:
 
-* **Windows:** We recommend using [WSL2][windows-wsl2] if you only need to
+- **Windows:** We recommend using [WSL2][windows-wsl2] if you only need to
   build Mayastor. You'll need a [Hyper-V VM][windows-hyperv] if you want to use it.
-* **Mac:** We recommend you use [Docker for Mac][docker-install]
+- **Mac:** We recommend you use [Docker for Mac][docker-install]
   and follow the Docker process described. Please let us know if you find a way to
   run it!
-* **FreeBSD:** We *think* this might actually work, SPDK is compatible! But, we haven't
+- **FreeBSD:** We _think_ this might actually work, SPDK is compatible! But, we haven't
   tried it yet.
-* **Others:** This is kind of a "Do-it-yourself" situation. Sorry, we can't be more help!
+- **Others:** This is kind of a "Do-it-yourself" situation. Sorry, we can't be more help!
 
 The only thing your system needs to build Mayastor is [**Nix**][nix-install].
 
@@ -45,6 +45,7 @@ curl -L https://nixos.org/nix/install | sh
 > That's totally fine. You can use [`docker`][docker-install] just fine for one-off or occasional PRs!
 >
 > This flow will get you a pre-fetched `nix` store:
+>
 > ```bash
 > docker run --name mayastor-nix-prefetch -it -v $(pwd):/scratch:rw --privileged --workdir /scratch nixos/nix nix-shell --run "exit 0"
 > docker commit mayastor-nix-prefetch mayastor/dev-env:latest
@@ -54,9 +55,8 @@ curl -L https://nixos.org/nix/install | sh
 >
 > To re-enter, just run the last command again.
 
-
-* Some of our team uses [NixOS][nixos] which has `nix` baked in, but you don't need to.
-* Some of our team uses [`direnv][direnv], but you don't need to.
+- Some of our team uses [NixOS][nixos] which has `nix` baked in, but you don't need to.
+- Some of our team uses [`direnv][direnv], but you don't need to.
 
 For some tasks, we use features from `nixUnstable`. You can use `nixos-unstable`
 **(or `nixpkgs-unstable` for `nix` users)** by [changing your channel][nix-channel].
@@ -83,7 +83,7 @@ $ sudo nixos-rebuild switch --update
 ```
 
 > If you don't want, you can drop into a
-`nixUnstable` supporting shell with:
+> `nixUnstable` supporting shell with:
 >
 > ```bash
 > nix-shell -I nixpkgs=channel:nixpkgs-unstable -p nixUnstable --command "nix --experimental-features 'nix-command flakes' develop -f . mayastor"
@@ -91,12 +91,13 @@ $ sudo nixos-rebuild switch --update
 >
 > Don't want to use `nixUnstable`? **That's ok!** Use `nix-shell` and `nix-build` as you normally would.
 
-**Want to run or hack on Mayastor?** *You need more configuration!* See
+**Want to run or hack on Mayastor?** _You need more configuration!_ See
 [running][doc-run], then [testing][doc-test].
 
-
 You can use a tool like [`direnv`][direnv] to automate `nix shell` entry.
-If you are unable to use the Nix provided Rust for some reason, there are `norust` and `nospdk` arguments to Nix shell. `nix-shell --arg norust true`
+If you are unable to use the Nix provided Rust for some reason, there are `norust` and
+`nospdk` arguments to Nix shell. `nix-shell --arg norust true`
+
 ## Iterative Builds
 
 Contributors often build Mayastor repeatedly during the development process.
@@ -117,7 +118,7 @@ cargo build
 cargo build --release
 ```
 
-**Want to run or hack on Mayastor?** *You need more configuration!* See
+**Want to run or hack on Mayastor?** _You need more configuration!_ See
 [running][doc-running], then [testing][doc-testing].
 
 To ensure you are aware of this, we greet you with a nice cow.
@@ -125,14 +126,16 @@ To ensure you are aware of this, we greet you with a nice cow.
 ## Artifacts
 
 There are a few ways to build Mayastor! If you're hacking on Mayastor, it's best to use
-[`nix develop`][nix-develop] (above) then turn to traditional Rust tools. If you're looking for releases, use [`nix build`][nix-build] or [`nix bundle`][nix-bundle] depending on your needs.
+[`nix develop`][nix-develop] (above) then turn to traditional Rust tools. If you're looking for releases,
+use [`nix build`][nix-build] or [`nix bundle`][nix-bundle] depending on your needs.
 
 > **Why is the build process this way?**
 >
-> Mayastor creates [*reproducable builds*][reproducable-builds], it won't use any of your
+> Mayastor creates [_reproducable builds_][reproducable-builds], it won't use any of your
 > local system dependencies (other than `nix`). This is a component of the best practices of the
 > [Core Infrastructure Initiative][cii-best-practices]. More on how Nix works can be found in the
 > [Nix paper][nix-paper].
+
 ### Building non-portable Nix derivations
 
 You can build release binaries of Mayastor with [`nix build`][nix-build]:

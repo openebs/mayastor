@@ -1,16 +1,18 @@
 # Testing Mayastor
 
-In order to test Mayastor, you'll need to be able to [**run Mayastor**][doc-run], follow that guide for persistent hugepages & kernel module setup. 
+In order to test Mayastor, you'll need to be able to [**run Mayastor**][doc-run],
+follow that guide for persistent hugepages & kernel module setup.
 
 Or, for ad-hoc:
 
-* Ensure at least 512 2MB hugepages.
-  
+- Ensure at least 512 2MB hugepages.
+
   ```bash
   echo 512 | sudo tee  /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
   ```
-* Ensure several kernel modules are installed:
-  
+
+- Ensure several kernel modules are installed:
+
   ```bash
   modprobe nbd xfs nvmet nvme_fabrics nvmet_rdma nvme_tcp nvme_rdma nvme_loop
   ```
@@ -20,8 +22,9 @@ Or, for ad-hoc:
 Mayastor's unit tests, integration tests, and documentation tests via the conventional `cargo test`.
 
 > **An important note**: Mayastor tests need to run on the host with [`SYS_ADMIN` capabilities][sys-admin-capabilities].
-> 
-> You can see in `mayastor/.cargo/config` we override the test runner to execute as root, take this capability, then drop privileges.
+>
+> You can see in `mayastor/.cargo/config` we override the test runner to execute as root, take this capability,
+> then drop privileges.
 
 Mayastor uses [spdk][spdk] which is quite senistive to threading. This means tests need to run one at a time:
 
@@ -29,13 +32,11 @@ Mayastor uses [spdk][spdk] which is quite senistive to threading. This means tes
 cargo test -- --test-threads 1
 ```
 
-
 ## Running the end-to-end test suite
 
 Mayastor does more complete, end-to-end testing testing with [`mocha`][mocha]. It requires some extra setup.
 
 > **TODO:** We're still writing this! Sorry! Let us know if you want us to prioritize this!
-
 
 ## Running the gRPC test suite
 

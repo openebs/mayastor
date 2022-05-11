@@ -2,7 +2,7 @@
 
 We're excited to have you interested in contributing to MayaStor!
 
-> *Disclaimer:* MayaStor is a **beta** project, and contributors at this stage of the project
+> _Disclaimer:_ MayaStor is a **beta** project, and contributors at this stage of the project
 > lifecycle may experience minor hurdles to contribution.
 >
 > **We want to overcome these. Please report them.**
@@ -29,7 +29,7 @@ need from you.
 
 ### Requesting new features
 
-You are invited to open *complete, well described* issues proposing new features. While MayaStor
+You are invited to open _complete, well described_ issues proposing new features. While MayaStor
 has no formal RFC process at this time, the [Rust RFC template][rust-rfc-template] is an
 excellent place to derive your issue description from.
 
@@ -39,7 +39,7 @@ excellent place to derive your issue description from.
 
 Start work off the `develop` branch. **Not `master`.**
 
-[bors][bors] will merge your commits. We do not do [*squash merges*][squash-merges].
+[bors][bors] will merge your commits. We do not do [_squash merges_][squash-merges].
 
 Each commit message must adhere to [Conventional Commits][conventional-commits]. You can use
 [`convco`][tools-convco] if you would prefer a tool to help.
@@ -63,38 +63,38 @@ Once review is given, Maintainers and SIG members may indicate merge readiness w
 
 Our maintainers are:
 
-* [@gila][members-gila] - [@mayadata-io][maya-data]
-* [@jkryl][members-jkryl] - [@mayadata-io][maya-data]
-* [@GlennBullingham][members-GlennBullingham] - [@mayadata-io][maya-data]
+- [@gila][members-gila] - [@mayadata-io][maya-data]
+- [@jkryl][members-jkryl] - [@mayadata-io][maya-data]
+- [@GlennBullingham][members-glennbullingham] - [@mayadata-io][maya-data]
 
 Our Special Interest Groups (SIGs) are:
 
-* Dataplane
-  + [@hoverbear][members-hoverbear] - [@mayadata-io][maya-data] &
+- Dataplane
+  - [@hoverbear][members-hoverbear] - [@mayadata-io][maya-data] &
     [@Hoverbear-Consulting](https://github.com/Hoverbear-Consulting)
-  + [@mtzaurus][members-mtzaurus] - [@mayadata-io][maya-data]
-  + [@jonathan-teh][members-jonathan-teh] - [@mayadata-io][maya-data]
-* e2e-testing
-  + [@chriswldenyer][members-chriswldenyer] - [@mayadata-io][maya-data]
-  + [@blaisedias][members-blaisedias] - [@mayadata-io][maya-data]
-* Control Plane
-  + [@tiagolobocastro][members-tiagolobocastro] - [@mayadata-io][maya-data]
-  + [@paulyoong][members-paulyoong] - [@mayadata-io][maya-data]
+  - [@mtzaurus][members-mtzaurus] - [@mayadata-io][maya-data]
+  - [@jonathan-teh][members-jonathan-teh] - [@mayadata-io][maya-data]
+- e2e-testing
+  - [@chriswldenyer][members-chriswldenyer] - [@mayadata-io][maya-data]
+  - [@blaisedias][members-blaisedias] - [@mayadata-io][maya-data]
+- Control Plane
+  - [@tiagolobocastro][members-tiagolobocastro] - [@mayadata-io][maya-data]
+  - [@paulyoong][members-paulyoong] - [@mayadata-io][maya-data]
 
 Former SIGs (and their members) are:
 
-* None, yet!
+- None, yet!
 
 ### Organization FAQs
 
-* **What is a *Maintainer*?**
+- **What is a _Maintainer_?**
 
   Maintainers are the project architects. They have the final say on what features get accepted,
   what code gets merged, when releases are cut, and how the project evolves.
 
   Maintainers **must** make decisions unanimously, no majorities, no votes.
 
-* **What is a *Special Interest Group (SIG)*?**
+- **What is a _Special Interest Group (SIG)_?**
 
   SIGs are small ephemeral teams (max 7) working on a general topic.
 
@@ -102,13 +102,13 @@ Former SIGs (and their members) are:
 
   SIGs may be created, empowered, and destroyed by the maintainers at any time.
 
-* **Are there other levels/roles/organization structure?**
+- **Are there other levels/roles/organization structure?**
 
   No. We want to focus on building MayaStor.
 
   It's preferable that we flow like water as opposed to become a rue goldberg machine of rules.
 
-* **May I join a SIG? Become a maintainer?**
+- **May I join a SIG? Become a maintainer?**
 
   Of course, we'd love that!
 
@@ -124,7 +124,7 @@ Former SIGs (and their members) are:
 [mayastor-slack-inviter]: https://slack.k8s.io/
 [members-gila]: https://github.com/gila
 [members-jkryl]: https://github.com/jkryl
-[members-GlennBullingham]: https://github.com/GlennBullingham
+[members-glennbullingham]: https://github.com/GlennBullingham
 [members-hoverbear]: https://github.com/hoverbear
 [members-tiagolobocastro]: https://github.com/tiagolobocastro
 [members-mtzaurus]: https://github.com/mtzaurus
