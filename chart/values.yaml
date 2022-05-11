@@ -5,6 +5,9 @@ image:
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
 
+# Runtime class to use. Defaults to cluster standard
+runtimeClassName: ""
+
 registrationProbe:
   repository: "busybox"
   pullPolicy: Always
