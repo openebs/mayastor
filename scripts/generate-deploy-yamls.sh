@@ -152,13 +152,13 @@ tmpd=$(mktemp -d /tmp/generate-deploy-yamls.sh.XXXXXXXX)
 trap "rm -fr '$tmpd'" HUP QUIT EXIT TERM INT
 
 # A rule of thumb: # of cpu cores equals to Gigs of hugepage memory
-template_params="mayastorImagesTag=$tag"
-template_params="$template_params,mayastorImagePullPolicy=$pull_policy"
+template_params="image.tag=$tag"
+template_params="$template_params,image.pullPolicy=$pull_policy"
 template_params="$template_params,mayastorCpuCount=$cores"
 template_params="$template_params,mayastorHugePagesGiB=$cores"
 template_params="$template_params,moacDebug=$moac_debug"
 if [ -n "$registry" ]; then
-  template_params="$template_params,mayastorImagesRegistry=$registry"
+  template_params="$template_params,image.registry=$registry"
 fi
 if [ -n "$pools" ]; then
   i=0
