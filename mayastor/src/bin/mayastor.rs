@@ -67,23 +67,39 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     });
 }
 
-fn hugepage_check() {
-    let hugepage_path = Path::new("/sys/kernel/mm/hugepages/hugepages-2048kB");
+fn hugepage_get_nr(hugepage_path: &Path) -> (u32, u32) {
     let nr_pages: u32 = sysfs::parse_value(hugepage_path, "nr_hugepages")
         .expect("failed to read the number of pages");
     let free_pages: u32 = sysfs::parse_value(hugepage_path, "free_hugepages")
         .expect("failed to read the number of free pages");
-    if nr_pages < PAGES_NEEDED {
-        error!(?PAGES_NEEDED, ?nr_pages, "insufficient pages available");
+
+    (nr_pages, free_pages)
+}
+
+fn hugepage_check() {
+    let (nr_pages, free_pages) =
+        hugepage_get_nr(Path::new("/sys/kernel/mm/hugepages/hugepages-2048kB"));
+    let (nr_1g_pages, free_1g_pages) = hugepage_get_nr(Path::new(
+        "/sys/kernel/mm/hugepages/hugepages-1048576kB",
+    ));
+
+    if nr_pages + nr_1g_pages * 512 < PAGES_NEEDED {
+        error!(
+            ?PAGES_NEEDED,
+            ?nr_pages,
+            ?nr_1g_pages,
+            "insufficient pages available"
+        );
         if !cfg!(debug_assertions) {
             std::process::exit(1)
         }
     }
 
-    if free_pages < PAGES_NEEDED {
+    if free_pages + free_1g_pages * 512 < PAGES_NEEDED {
         error!(
             ?PAGES_NEEDED,
-            ?nr_pages,
+            ?free_pages,
+            ?free_1g_pages,
             "insufficient free pages available"
         );
         if !cfg!(debug_assertions) {
@@ -91,7 +107,11 @@ fn hugepage_check() {
         }
     }
 
-    info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
+    info!("free_pages 2MB: {} nr_pages 2MB: {}", free_pages, nr_pages);
+    info!(
+        "free_pages 1GB: {} nr_pages 1GB: {}",
+        free_1g_pages, nr_1g_pages
+    );
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
