@@ -2,11 +2,10 @@
 
 This section shows a couple of examples of what you already can do with Mayastor today:
 
- - [io-engine-client](#io-engine-client)
-
- - [Local storage](#local)
-
- - [Use case: Mirroring over NVMF](#NVMF)
+- [Overview](#overview)
+  - [io-engine-client](#io-engine-client)
+  - [Local Storage](#local-storage)
+  - [Use Case: Mirroring over NVMF](#use-case-mirroring-over-nvmf)
 
 ## io-engine-client
 
