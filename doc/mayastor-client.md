@@ -4,24 +4,8 @@ This section shows a couple of examples of what you already can do with Mayastor
 
 - [Overview](#overview)
   - [mayastor-client](#mayastor-client)
-  - [local](#local)
-  - [NVMF](#nvmf)
-
-  - [mayastor-client](#mayastor-client)
-  - [local](#local)
-  - [NVMF](#nvmf)
-
-  - [mayastor-client](#mayastor-client)
-  - [local](#local)
-  - [NVMF](#nvmf)
-
-  - [mayastor-client](#mayastor-client)
-  - [local](#local)
-  - [NVMF](#nvmf)
-
-- [Local storage](#local)
-
-- [Use case: Mirroring over NVMF](#NVMF)
+  - [Local Storage](#local-storage)
+  - [Use Case: Mirroring over NVMF](#use-case-mirroring-over-nvmf)
 
 ## mayastor-client
 
@@ -85,7 +69,7 @@ SUBCOMMANDS:
     unpublish    unpublish the nexus
 ```
 
-## local
+## Local Storage
 
 There are a lot of cases where you might have a workload configured to make use of the storage of the node
 it is configured on. This makes certain things more simple, but at the same time eliminates certain degrees
@@ -178,7 +162,7 @@ After some time, the rebuild should complete and you should see something simila
 [2020-07-20T15:30:06.856265613Z INFO nexus_bdev_rebuild.rs:235] Child aio:///data/file.img?blk_size=512 has been rebuilt successfully
 ```
 
-## NVMF
+## Use Case: Mirroring over NVMF
 
 Within this example we will show you how, currently the Nexus works by using the CLI tool `mayastor-client`.
 

@@ -1,4 +1,4 @@
-# FQA
+# FAQ
 
 ## Why user space?
 
