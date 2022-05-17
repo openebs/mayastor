@@ -2,16 +2,15 @@
 
 This section shows a couple of examples of what you already can do with Mayastor today:
 
- - [mayastor-client](#mayastor-client)
-
- - [Local storage](#local)
-
- - [Use case: Mirroring over NVMF](#NVMF)
+- [Overview](#overview)
+  - [mayastor-client](#mayastor-client)
+  - [Local Storage](#local-storage)
+  - [Use Case: Mirroring over NVMF](#use-case-mirroring-over-nvmf)
 
 ## mayastor-client
 
 `mayastor-client` is a small tool to interact with Mayastor and its Nexuses, pools and replicas. It currently does not
-interact with the local provisioner but you *can* use local storage with it already. As of this writing we have
+interact with the local provisioner but you _can_ use local storage with it already. As of this writing we have
 added support for sharing the Nexus over NBD and NVMf.
 
 ```bash
@@ -45,6 +44,7 @@ SUBCOMMANDS:
 
 To get more information specific to a subcommand, just execute the subcomand without any additional parameters,
 or by using the `-h` flag, for example:
+
 ```bash
 > mayastor-client nexus -h
 mayastor-client-nexus
@@ -69,20 +69,22 @@ SUBCOMMANDS:
     unpublish    unpublish the nexus
 ```
 
-## local
+## Local Storage
 
 There are a lot of cases where you might have a workload configured to make use of the storage of the node
 it is configured on. This makes certain things more simple, but at the same time eliminates certain degrees
 of freedom as well. With Mayastor, we attempt to solve this transparently and determine based on declarative
 intent what is best to do. Let us start with an example.
 
-Let's assume we have a local disk `/dev/sdb` and we want to make use of it. By making use of the `mayastor-client` we can specify
+Let's assume we have a local disk `/dev/sdb` and we want to make use of it.
+By making use of the `mayastor-client` we can specify
 a URI to the resource and we can start using it.
 
 ```bash
 > mayastor-client nexus create `uuidgen -r` 1GiB aio:///dev/sdb
 4db90841-5ee8-4b7d-a4e9-13be1043bcb3
 ```
+
 Tip: To find out what the arguments are, simply append the `-h` flag to any command.
 
 Now that was easy! Let us inspect the nexus:
@@ -94,7 +96,7 @@ NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
 ```
 
 Now this is not all that exciting, but as we you can see in [pool.rs](../mayastor/src/pool.rs) we can
-actually thin provision volumes out of the disks.  You can also have a look into our test case that demonstrates
+actually thin provision volumes out of the disks. You can also have a look into our test case that demonstrates
 that [here](../test/grpc/test_cli.js). We can also add files to the mix and the Nexus would be
 fine writing to it as it were a local disk.
 
@@ -112,7 +114,7 @@ NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
 d0c47a07-d104-48e6-8f36-bfdb47e8e766      15728640 online        0 aio:///data/file.img?blk_size=512,aio:///dev/sdb
 ```
 
-As a foundation for rebuilding, we needed to add support for adding and removing devices.  You can try this out
+As a foundation for rebuilding, we needed to add support for adding and removing devices. You can try this out
 yourself by running fio on top of the NBD device.
 
 ```bash
@@ -152,6 +154,7 @@ d0c47a07-d104-48e6-8f36-bfdb47e8e766      1073741824 degraded        1 aio:///de
 ```
 
 After some time, the rebuild should complete and you should see something similar to this in the logs:
+
 ```bash
 [2020-07-20T15:30:06.855088153Z INFO rebuild_impl.rs:381] Rebuild job aio:///data/file.img?blk_size=512: changing state from Running to Completed
 [2020-07-20T15:30:06.855117683Z INFO rebuild_impl.rs:480] State: completed, Src: aio:///dev/sdb, Dst: aio:///data/file.img?blk_size=512, range: 10240..204767, next: 204767, block_size: 512, segment_sz: 20, recovered_blks: 194527, progress: 100%
@@ -159,7 +162,7 @@ After some time, the rebuild should complete and you should see something simila
 [2020-07-20T15:30:06.856265613Z INFO nexus_bdev_rebuild.rs:235] Child aio:///data/file.img?blk_size=512 has been rebuilt successfully
 ```
 
-## NVMF
+## Use Case: Mirroring over NVMF
 
 Within this example we will show you how, currently the Nexus works by using the CLI tool `mayastor-client`.
 
@@ -195,11 +198,13 @@ sectype: none
 ```
 
 Now that we can see the block devices, we will connect to them and perform some IO to one of the devices.
+
 ```bash
 sudo nvme connect-all -t tcp -a 192.168.1.2 -s 4420
 ```
 
 We can verify the connection has been made by looking at dmesg for some output:
+
 ```bash
 [17251.205183] nvme nvme1: new ctrl: NQN "nqn.2014-08.org.nvmexpress.discovery", addr 192.168.1.2:4420
 [17251.206576] nvme nvme1: Removing ctrl: NQN "nqn.2014-08.org.nvmexpress.discovery"
@@ -273,7 +278,7 @@ job2: (groupid=0, jobs=4): err= 0: pid=92279: Mon Aug 26 15:15:10 2019
 Run status group 0 (all jobs):
    READ: bw=43.2MiB/s (45.3MB/s), 43.2MiB/s-43.2MiB/s (45.3MB/s-45.3MB/s), io=1296MiB (1359MB), run=30002-30002msec
   WRITE: bw=43.2MiB/s (45.3MB/s), 43.2MiB/s-43.2MiB/s (45.3MB/s-45.3MB/s), io=1296MiB (1359MB), run=30002-30002msec
-````
+```
 
 We are maxing out at roughly 90MB, as this a 1 GbE network that is to be expected.
 
@@ -296,7 +301,6 @@ We can share the Nexus to this local machine rather simply and we will use the N
 This is something you typically would not do but it we in the near future, can exchange NBD for virtio,
 and NVMF
 
-
 ```bash
 > mayastor-client nexus publish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
 file:///dev/nbd0
@@ -304,7 +308,7 @@ file:///dev/nbd0
 
 And the results:
 
-```
+```bash
 job2: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=32
 ...
 fio-3.12
@@ -385,7 +389,7 @@ Nexus 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd unpublished
 ```
 
 We will attach the devices directly to the host without the Nexus in between. We expect to see that both block devices
-will have the same  data on its filesystem, and have the same content including a matching md5.
+will have the same data on its filesystem, and have the same content including a matching md5.
 
 ```bash
 sudo nvme connect-all -t tcp -a 192.168.1.2 -s 4420
@@ -406,6 +410,7 @@ hello nexus
 md5sum nexus
 37e970093ada39803b8e7b3b08f2371c  nexus
 ```
+
 What this demonstrates is that indeed -- we write the data twice. If you where to add a third child, we would write to
 that device all the same. What this also shows, is how we are transparent to the actual block devices. When we are removed
 from the data path, the data is still accessible without any special purpose tools or software.

@@ -24,7 +24,7 @@ Snafu is one of many libraries in rust for representing failures. We picked
 snafu because:
 
 1. It seems relatively popular in rust
-2. It provides an elegant way of chaining errors and the definition of errors and error
+1. It provides an elegant way of chaining errors and the definition of errors and error
    messages makes use of a preprocessor and is easy.
 
 An example of an error definition follows. We introduce a new enum type with three
@@ -61,20 +61,20 @@ results from async callbacks to avoid code duplication.
    potential mayastor errors we want them to be defined where they are used.
    The error definition can be per file or per group of closely related files.
 
-2. Error names should be short, clear and consistent across the whole
+1. Error names should be short, clear and consistent across the whole
    code base. If the error is a high level error specifying context of the
    error, its name should be `Operation` + `Object` (i.e. `CreateReplica`). If
    the error describes the root cause of a problem, then the name should be
    `Object` + `Problem` (i.e. `PoolNotFound`).
 
-3. Take care to assign the right context data to the right layer or errors.
+1. Take care to assign the right context data to the right layer or errors.
    For example if we have a high level `CreateReplica` error, that's where
    `uuid` of the replica should be mentioned. There may be 10 different reasons why
    the create operation failed, and those reasons (errors) may contain more
    detailed information. However, all those 10 errors don't need to contain uuid, because
    that information is already added by the `CreateReplica` context.
 
-4. Errors returned by RPC methods must implement `RpcErrorCode` trait. This
+1. Errors returned by RPC methods must implement `RpcErrorCode` trait. This
    is a specific requirement to mayastor because the RPC handler must know
    which RPC error code to associate with the error. Low level errors which
    aren't directly passed to RPC handlers don't need to implement the trait.
@@ -110,6 +110,7 @@ pub enum Error {
     // ...
 }
 ```
+
 ```rust
 create_target(addr).context(CreateTarget { nqn })?;
 ```
@@ -244,10 +245,11 @@ We have seen how the tree of errors from the least specific context errors to
 most specific root cause errors implemented. Now let's see it in action.
 What is behind the following log file:
 
-```
+```bash
 jsonrpc.rs: 218:: *ERROR*: Failed to create replica dbe4d7eb-118a-4d15-b789-a18d9af6ff21: Replica already exists
 ```
 
 A stack of composable errors:
+
 1. `Failed to create replica dbe4d7eb-118a-4d15-b789-a18d9af6ff21`
-2. `Replica already exists`
+1. `Replica already exists`

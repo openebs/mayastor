@@ -4,8 +4,8 @@
 
 Mayastor supports the following [Instruction Set Architectures (ISA)][isa]:
 
-  + x86_64 (Nehalem or later)
-  + aarch64
+- x86_64 (Nehalem or later)
+- aarch64
 
 Your system will need several [control groups][control-groups] configured.
 
@@ -67,15 +67,16 @@ users = {
 
 In order to use the full feature set of Mayastor, some or all of the following can be met:
 
-* A Linux Kernel 5.1+ (with [`io-uring`][io_uring-intro] support)
-* The following kernel modules loaded:
-  + `nbd`: Network Block Device support
-  + `nvmet`: NVMe Target support
-  + `nvmet_rdma`: NVMe Target (rDMA) support
-  + `nvme_fabrics`: NVMe over Fabric support
-  + `nvme_tcp`: NVMe over TCP support
-  + `nvme_rdma`: NVMe (rDMA) support
-  + `nvme_loop`: NVMe Loop Device support
+- A Linux Kernel 5.1+ (with [`io-uring`][io_uring-intro] support)
+- The following kernel modules loaded:
+
+  - `nbd`: Network Block Device support
+  - `nvmet`: NVMe Target support
+  - `nvmet_rdma`: NVMe Target (rDMA) support
+  - `nvme_fabrics`: NVMe over Fabric support
+  - `nvme_tcp`: NVMe over TCP support
+  - `nvme_rdma`: NVMe (rDMA) support
+  - `nvme_loop`: NVMe Loop Device support
 
   To load these on NixOS:
 
@@ -91,10 +92,13 @@ In order to use the full feature set of Mayastor, some or all of the following c
   ```bash
   modprobe nbd nvmet nvmet_rdma nvme_fabrics nvme_tcp nvme_rdma nvme_loop
   ```
-* For Asymmetric Namespace Access (ANA) support (early preview), the following kernel build configuration enabled:
-  + `CONFIG_NVME_MULTIPATH`: enables support for multipath access to NVMe subsystems
 
-  This is usually already enabled in distributions kernels, at least for RHEL/CentOS 8.2, Ubuntu 20.04 LTS, and SUSE Linux Enterprise 15.2.
+- For Asymmetric Namespace Access (ANA) support (early preview), the following kernel build configuration enabled:
+
+  - `CONFIG_NVME_MULTIPATH`: enables support for multipath access to NVMe subsystems
+
+  This is usually already enabled in distributions kernels, at least for RHEL/CentOS 8.2, Ubuntu 20.04 LTS, and SUSE
+  Linux Enterprise 15.2.
 
   On some distributions such as RHEL 8, the feature must be enabled manually:
 
@@ -124,12 +128,13 @@ In order to use the full feature set of Mayastor, some or all of the following c
   ```sh
   sudo nixos-rebuild boot
   ```
-* An NVMe device. (Typically via PCI-E through a standard slot or [M.2][m-dot-2] port)
-* A version of [`nix`][nix-install] configured as in the [build guide.][doc-build]
+
+- An NVMe device. (Typically via PCI-E through a standard slot or [M.2][m-dot-2] port)
+- A version of [`nix`][nix-install] configured as in the [build guide.][doc-build]
 
 ## Running binaries directly
 
-Like in [the build guide's *Iterative Build*][doc-build-iterative-builds] section invoke
+Like in [the build guide's _Iterative Build_][doc-build-iterative-builds] section invoke
 [`nix shell`][nix-shell]. This time, don't pass `--derivation`, this will cause `nix` to
 evaluate the output, instead of the derivation.
 
@@ -188,9 +193,11 @@ docker run \
 ```
 
 Why these parameters?
+
 - `--privileged` to allow controlling memory policies.
 
   > **TODO:** We can use [control groups][control-groups] for this!
+
 - `-v /dev:/dev:rw` is needed to get access to any raw device you might want to consume as local
   storage and huge pages
 - `-v /dev/shm:/dev/shm:rw` is needed as for a circular buffer that can trace any IO operations
@@ -275,8 +282,7 @@ Mayastor development.
 
 Here are the ones known to not work:
 
-* [`kind`][kind]
-
+- [`kind`][kind]
 
 ## Running on a real Kubernetes cluster
 
