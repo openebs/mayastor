@@ -11,7 +11,7 @@ services:
         - MY_POD_IP=10.0.0.2
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1 -r /tmp/ms0.sock
+    command: ${SRCDIR}/target/debug/io-engine -g 0.0.0.0 -l 1 -r /tmp/ms0.sock
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.2
@@ -37,7 +37,7 @@ services:
         - MY_POD_IP=10.0.0.3
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 2 -r /tmp/ms1.sock
+    command: ${SRCDIR}/target/debug/io-engine -g 0.0.0.0 -l 2 -r /tmp/ms1.sock
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.3
@@ -63,7 +63,7 @@ services:
         - MY_POD_IP=10.0.0.4
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 3 -r /tmp/ms2.sock
+    command: ${SRCDIR}/target/debug/io-engine -g 0.0.0.0 -l 3 -r /tmp/ms2.sock
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.4
@@ -92,7 +92,7 @@ services:
         - NEXUS_NVMF_RESV_ENABLE=1
         # required when using "null" devices (which can be written to but cannot be read from)
         - NEXUS_DONT_READ_LABELS=true
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 4 -r /tmp/ms3.sock
+    command: ${SRCDIR}/target/debug/io-engine -g 0.0.0.0 -l 4 -r /tmp/ms3.sock
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.5

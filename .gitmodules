@@ -4,3 +4,6 @@
 [submodule "spdk-rs"]
 	path = spdk-rs
 	url = https://github.com/mayadata-io/spdk-rs
+[submodule "utils/io-engine-dependencies"]
+	path = utils/io-engine-dependencies
+	url = https://github.com/openebs/mayastor-dependencies.git

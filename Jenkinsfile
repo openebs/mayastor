@@ -120,12 +120,8 @@ def notifySlackUponE2EFailure(build) {
   }
 }
 
-// Will ABORT current job for cases when we don't want to build
-if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
-    BRANCH_NAME == "develop") {
-    print "INFO: Branch Indexing, aborting job."
-    currentBuild.result = 'ABORTED'
-    return
+def mainBranches() {
+    return BRANCH_NAME == "develop" || BRANCH_NAME.startsWith("release-");
 }
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
@@ -159,6 +155,14 @@ if (params.e2e_continuous == true) {
   do_not_push_images = false
 }
 e2e_alias_tag = getAliasTag()
+
+if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') && mainBranches()) {
+  print "INFO: Branch Indexing, skip tests and push the new images."
+  run_linter = false
+  rust_test = false
+  grpc_test = false
+  pytest_test = false
+}
 
 pipeline {
   agent none
@@ -217,7 +221,7 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
+            branch 'release-*'
             expression { run_linter == false }
           }
         }
@@ -236,7 +240,6 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
           }
         }
       }
@@ -578,7 +581,7 @@ pipeline {
           expression { do_not_push_images == false }
           anyOf {
             branch 'master'
-            branch 'release/*'
+            branch 'release-*'
             branch 'develop'
           }
         }

@@ -66,7 +66,7 @@ class MayastorClient:
 def get_msclient(cfg=None):
     """Instantiate mayastor CLI object based on user config."""
     # Check that CLI binary exists.
-    p = "%s/mayastor-client" % mayastor_target_dir()
+    p = "%s/io-engine-client" % mayastor_target_dir()
     if not os.path.isfile(p):
         raise FileNotFoundError("No Mayastor CLI command available")
 

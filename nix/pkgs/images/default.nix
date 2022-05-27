@@ -11,8 +11,8 @@
 , e2fsprogs
 , git
 , lib
-, mayastor
-, mayastor-dev
+, io-engine
+, io-engine-dev
 , stdenv
 , utillinux
 , writeScriptBin
@@ -23,8 +23,8 @@ let
   version = builtins.readFile "${versionDrv}";
   path = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
 
-  # common props for all mayastor images
-  mayastorImageProps = {
+  # common props for all io-engine images
+  ioEngineImageProps = {
     tag = version;
     created = "now";
     config = {
@@ -33,7 +33,7 @@ let
         "RUST_BACKTRACE=1"
       ];
       ExposedPorts = { "10124/tcp" = { }; };
-      Entrypoint = [ "/bin/mayastor" ];
+      Entrypoint = [ "/bin/io-engine" ];
     };
     extraCommands = ''
       mkdir tmp
@@ -53,23 +53,23 @@ let
   };
 
   mctl = writeScriptBin "mctl" ''
-    /bin/mayastor-client "$@"
+    /bin/io-engine-client "$@"
   '';
 in
 {
-  mayastor = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor";
-    contents = [ busybox mayastor mctl ];
+  mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
+    name = "mayadata/mayastor-io-engine";
+    contents = [ busybox io-engine mctl ];
   });
 
-  mayastor-dev = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor-dev";
-    contents = [ busybox mayastor-dev ];
+  mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
+    name = "mayadata/mayastor-io-engine-dev";
+    contents = [ busybox io-engine-dev ];
   });
 
-  mayastor-client = dockerTools.buildImage (clientImageProps // {
-    name = "mayadata/mayastor-client";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/mayastor-client" ]; };
+  mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
+    name = "mayadata/mayastor-io-engine-client";
+    contents = [ busybox io-engine ];
+    config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
 }

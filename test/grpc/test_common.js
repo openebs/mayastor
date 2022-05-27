@@ -177,7 +177,7 @@ function startMayastor (config, args, env, suffix) {
   }
 
   startProcess(
-    'mayastor',
+    'io-engine',
     args,
     _.assign(
       {
@@ -189,9 +189,9 @@ function startMayastor (config, args, env, suffix) {
     () => {
       try {
         fs.unlinkSync(configPath);
-      } catch (err) {}
+      } catch (err) { }
     },
-    'mayastor',
+    'io-engine',
     suffix
   );
 }
@@ -249,16 +249,16 @@ function stopAll (done) {
 // TODO: We don't restart the mayastor with the same parameters as we
 // don't remember params which were used for starting it.
 function restartMayastor (ping, done) {
-  const proc = procs.mayastor;
+  const proc = procs.io_engine;
   assert(proc);
 
   async.series(
     [
       (next) => {
-        killSudoedProcess('mayastor', proc.pid, (err) => {
+        killSudoedProcess('io-engine', proc.pid, (err) => {
           if (err) return next(err);
-          if (procs.mayastor) {
-            procs.mayastor.once('close', next);
+          if (procs.io_engine) {
+            procs.io_engine.once('close', next);
           } else {
             next();
           }

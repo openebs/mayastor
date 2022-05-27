@@ -3,7 +3,7 @@ let
   sources = import ./nix/sources.nix;
   pkgs = import sources.nixpkgs {
     overlays =
-      [ (_: _: { inherit sources; }) (import ./nix/mayastor-overlay.nix) ];
+      [ (_: _: { inherit sources; }) (import ./nix/io-engine-overlay.nix) ];
   };
 in
 with pkgs;
@@ -18,7 +18,7 @@ let
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
 in
 mkShell {
-  name = "mayastor-dev-shell";
+  name = "io-engine-dev-shell";
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
@@ -45,11 +45,12 @@ mkShell {
     pytest_inputs
     python3
     utillinux
+    gnuplot
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
 
-  LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
-  PROTOC = mayastor.PROTOC;
-  PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
+  LIBCLANG_PATH = io-engine.LIBCLANG_PATH;
+  PROTOC = io-engine.PROTOC;
+  PROTOC_INCLUDE = io-engine.PROTOC_INCLUDE;
   SPDK_PATH = if nospdk then null else "${libspdk-dev}";
 
   shellHook = ''

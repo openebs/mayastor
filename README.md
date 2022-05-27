@@ -5,6 +5,22 @@
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 
+## :warning: Breaking Changes
+
+On develop, there are breaking changes to the etcd key space which is used by the control-plane components and the
+io-engine to retain information about replicas which contain the correct volume data.
+An upgrade strategy is yet to be devised, but you may try these steps at your own risk:
+1. Stop the [mayastor-control-plane](https://github.com/openebs/mayastor-control-plane) components
+1. When the pool operator is no longer running, remove the finalizers and delete all `MayastorPool` CR's
+1. Enable compatibility mode with the mayastor data replica information
+   ```bash
+   $> ETCDCTL_API=3 etcdctl put "/openebs.io/mayastor/apis/v0/clusters/$KUBE_SYSTEM_UID/namespaces/$NAMESPACE/CoreRegistryConfig/db98f8bb-4afc-45d0-85b9-24c99cc443f2"
+   '{"id":"db98f8bb-4afc-45d0-85b9-24c99cc443f2","registration":"Automatic", "mayastor_compat_v1": true}'
+   ```
+1. Move etcd data from `/namespace/$NAMESPACE/control-plane/` to `/openebs.io/mayastor/apis/v0/clusters/$KUBE_SYSTEM_UID/namespaces/$NAMESPACE/`
+1. Install the new version of mayastor-io-engine and [mayastor-control-plane](https://github.com/openebs/mayastor-control-plane) from [mayastor-extensions](https://github.com/openebs/mayastor-extensions)
+1. Recreate the `MayastorPools` with the new CRD type `DiskPool`
+
 Table of contents:
 ==================
 - [Quickly deploy it on K8s and get started](https://mayastor.gitbook.io)
@@ -46,7 +62,7 @@ At a high-level, Mayastor consists of two major components.
 
 ### **Control plane:**
 
- * A microservices patterned control plane, centered around a core agent which publically exposes a RESTful API.  This is extended by a dedicated operator responsible 
+ * A microservices patterned control plane, centered around a core agent which publicly exposes a RESTful API.  This is extended by a dedicated operator responsible
  for managing the life cycle of "Mayastor Pools" (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant external provisioner (controller).
  Source code for the control plane components is located in its [own repository](https://github.com/openebs/mayastor-control-plane)
 
@@ -82,8 +98,8 @@ You can also directly use the nexus from within your application code. For examp
 </p>
 
 ```rust
-use mayastor::descriptor::{Descriptor, DmaBuf};
-use mayastor::bdev::nexus::nexus_bdev::nexus_create;
+use io_engine::descriptor::{Descriptor, DmaBuf};
+use io_engine::bdev::nexus::nexus_bdev::nexus_create;
 
 let children = vec![
       "aio:////disk1.img?blk_size=512".to_string(),
@@ -180,21 +196,21 @@ $ dd if=/dev/zero of=/tmp/disk bs=1024 count=102400
 102400+0 records out
 104857600 bytes (105 MB, 100 MiB) copied, 0.235195 s, 446 MB/s
 $ sudo losetup /dev/loop8 /tmp/disk
-$ mayastor-client pool create tpool /dev/loop8
-$ mayastor-client pool list
+$ io-engine-client pool create tpool /dev/loop8
+$ io-engine-client pool list
 NAME                 STATE        CAPACITY         USED   DISKS
 tpool                0            96.0 MiB          0 B   tpool
-$ mayastor-client replica create tpool replica1 --size=10
-$ mayastor-client replica create tpool replica2 --size=1000 --thin
-$ mayastor-client replica list
+$ io-engine-client replica create tpool replica1 --size=10
+$ io-engine-client replica create tpool replica2 --size=1000 --thin
+$ io-engine-client replica list
 POOL                 NAME                 THIN           SIZE
 tpool                replica1             false       10.0 MiB
 tpool                replica2             true         1.0 GiB
-$ mayastor-client replica destroy tpool replica1
-$ mayastor-client replica destroy tpool replica2
-$ mayastor-client replica list
+$ io-engine-client replica destroy tpool replica1
+$ io-engine-client replica destroy tpool replica2
+$ io-engine-client replica list
 No replicas have been created
-$ mayastor-client pool destroy tpool
+$ io-engine-client pool destroy tpool
 ```
 
 ## Links

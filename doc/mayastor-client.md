@@ -3,23 +3,23 @@
 This section shows a couple of examples of what you already can do with Mayastor today:
 
 - [Overview](#overview)
-  - [mayastor-client](#mayastor-client)
+  - [io-engine-client](#io-engine-client)
   - [Local Storage](#local-storage)
   - [Use Case: Mirroring over NVMF](#use-case-mirroring-over-nvmf)
 
-## mayastor-client
+## io-engine-client
 
-`mayastor-client` is a small tool to interact with Mayastor and its Nexuses, pools and replicas. It currently does not
+`io-engine-client` is a small tool to interact with Mayastor and its Nexuses, pools and replicas. It currently does not
 interact with the local provisioner but you _can_ use local storage with it already. As of this writing we have
 added support for sharing the Nexus over NBD and NVMf.
 
 ```bash
-> mayastor-client --help
+> io-engine-client --help
 Mayastor CLI 0.1
 CLI utility for Mayastor
 
 USAGE:
-    mayastor-client [FLAGS] [OPTIONS] <SUBCOMMAND>
+    io-engine-client [FLAGS] [OPTIONS] <SUBCOMMAND>
 
 FLAGS:
     -h, --help       Prints help information
@@ -46,12 +46,12 @@ To get more information specific to a subcommand, just execute the subcomand wit
 or by using the `-h` flag, for example:
 
 ```bash
-> mayastor-client nexus -h
-mayastor-client-nexus
+> io-engine-client nexus -h
+io-engine-client-nexus
 Nexus device management
 
 USAGE:
-    mayastor-client nexus <SUBCOMMAND>
+    io-engine-client nexus <SUBCOMMAND>
 
 FLAGS:
     -h, --help       Prints help information
@@ -76,12 +76,12 @@ it is configured on. This makes certain things more simple, but at the same time
 of freedom as well. With Mayastor, we attempt to solve this transparently and determine based on declarative
 intent what is best to do. Let us start with an example.
 
-Let's assume we have a local disk `/dev/sdb` and we want to make use of it.
-By making use of the `mayastor-client` we can specify
+Let's assume we have a local disk `/dev/sdb` and we want to make use of it. 
+By making use of the `io-engine-client` we can specify
 a URI to the resource and we can start using it.
 
 ```bash
-> mayastor-client nexus create `uuidgen -r` 1GiB aio:///dev/sdb
+> io-engine-client nexus create `uuidgen -r` 1GiB aio:///dev/sdb
 4db90841-5ee8-4b7d-a4e9-13be1043bcb3
 ```
 
@@ -90,7 +90,7 @@ Tip: To find out what the arguments are, simply append the `-h` flag to any comm
 Now that was easy! Let us inspect the nexus:
 
 ```bash
-> mayastor-client nexus list -c
+> io-engine-client nexus list -c
 NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
 4db90841-5ee8-4b7d-a4e9-13be1043bcb3      15728640 online        0 aio:///dev/sdb
 ```
@@ -102,14 +102,14 @@ fine writing to it as it were a local disk.
 
 ```bash
 > fallocate -l 2GiB /data/file.img
-> mayastor-client nexus create `uuidgen -r` 1GiB 'aio:///data/file.img?blk_size=512 aio:///dev/sdb'
+> io-engine-client nexus create `uuidgen -r` 1GiB 'aio:///data/file.img?blk_size=512 aio:///dev/sdb'
 d0c47a07-d104-48e6-8f36-bfdb47e8e766
 ```
 
 Notice the added query parameter `blk_size`, required as files do not have block sizes.
 
 ```bash
-> mayastor-client nexus list -c
+> io-engine-client nexus list -c
 NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
 d0c47a07-d104-48e6-8f36-bfdb47e8e766      15728640 online        0 aio:///data/file.img?blk_size=512,aio:///dev/sdb
 ```
@@ -118,7 +118,7 @@ As a foundation for rebuilding, we needed to add support for adding and removing
 yourself by running fio on top of the NBD device.
 
 ```bash
-> mayastor-client nexus remove d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
+> io-engine-client nexus remove d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
 aio:///data/file.img?blk_size=512
 ```
 
@@ -135,7 +135,7 @@ In the logs of mayastor you will see something like:
 Now we can add the device again:
 
 ```bash
-> mayastor-client nexus add d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
+> io-engine-client nexus add d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
 aio:///data/file.img?blk_size=512
 ```
 
@@ -143,12 +143,12 @@ Both the nexus and the newly added children are now degraded. The child is degra
 and the nexus is degraded because at least one of its children is degraded: (todo: add rebuild documentation)
 
 ```bash
-> mayastor-client nexus children d0c47a07-d104-48e6-8f36-bfdb47e8e766
+> io-engine-client nexus children d0c47a07-d104-48e6-8f36-bfdb47e8e766
 NAME                               STATE
 aio:///dev/sdb                     online
 aio:///data/file.img?blk_size=512  degraded
 
-> mayastor-client nexus list -c
+> io-engine-client nexus list -c
 NAME                                 PATH       SIZE STATE    REBUILDS CHILDREN
 d0c47a07-d104-48e6-8f36-bfdb47e8e766      1073741824 degraded        1 aio:///dev/sdb,aio:///data/file.img?blk_size=512
 ```
@@ -164,7 +164,7 @@ After some time, the rebuild should complete and you should see something simila
 
 ## Use Case: Mirroring over NVMF
 
-Within this example we will show you how, currently the Nexus works by using the CLI tool `mayastor-client`.
+Within this example we will show you how, currently the Nexus works by using the CLI tool `io-engine-client`.
 
 We have setup an NVMF target over TCP on a local 1 GbE network, nothing to fancy as the purpose is to illustrate
 the working of the Nexus.
@@ -286,13 +286,13 @@ Now, let's disconnect it and create a Nexus that that consumes one of the NVMe t
 
 ```bash
 nvme disconnect -d {/dev/nvme1,/dev/nvme2}
-mayastor-client nexus create `uuidgen -r` 64MiB 'nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2 nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1'
+io-engine-client nexus create `uuidgen -r` 64MiB 'nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2 nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1'
 ```
 
 Ok we now have created a nexus that consists out of 2 replica's:
 
 ```bash
-> mayastor-client nexus list -c
+> io-engine-client nexus list -c
 NAME                                 PATH       SIZE STATE  REBUILDS CHILDREN
 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd        67108864 online        0 nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2n2,nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1n1
 ```
@@ -302,7 +302,7 @@ This is something you typically would not do but it we in the near future, can e
 and NVMF
 
 ```bash
-> mayastor-client nexus publish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
+> io-engine-client nexus publish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
 file:///dev/nbd0
 ```
 
@@ -384,7 +384,7 @@ hello nexus
 md5sum /mnt/nexus
 37e970093ada39803b8e7b3b08f2371c  /mnt/nexus
 umount /mnt/nexus
-mayastor-client nexus unpublish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
+io-engine-client nexus unpublish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
 Nexus 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd unpublished
 ```
 

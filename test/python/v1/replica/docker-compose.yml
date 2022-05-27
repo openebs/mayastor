@@ -11,7 +11,7 @@ services:
         - MY_POD_IP=10.0.0.2
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1 -r /tmp/ms0.sock
+    command: ${SRCDIR}/target/debug/io-engine -g 0.0.0.0 -l 1 -r /tmp/ms0.sock
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.2

@@ -24,4 +24,4 @@ export PATH=$PATH:${HOME}/.cargo/bin
 ( cd jsonrpc && cargo test )
 # test dependencies
 cargo build --bins
-( cd mayastor && cargo test -- --test-threads=1 )
+( cd io-engine && cargo test -- --test-threads=1 )

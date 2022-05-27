@@ -1,5 +1,4 @@
-{
-    crossSystem ? null
+{ crossSystem ? null
 }:
 
 let
@@ -7,7 +6,7 @@ let
   pkgs = import sources.nixpkgs {
     overlays = [
       (_: _: { inherit sources; })
-      (import ./nix/mayastor-overlay.nix)
+      (import ./nix/io-engine-overlay.nix)
     ];
     inherit crossSystem;
   };

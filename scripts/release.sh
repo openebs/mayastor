@@ -119,9 +119,9 @@ cd $SCRIPTDIR/..
 
 if [ -z "$IMAGES" ]; then
   if [ -z "$DEBUG" ]; then
-    IMAGES="mayastor mayastor-client"
+    IMAGES="mayastor-io-engine mayastor-io-engine-client"
   else
-    IMAGES="mayastor-dev mayastor-client"
+    IMAGES="mayastor-io-engine-dev mayastor-io-engine-client"
   fi
 fi
 
@@ -165,11 +165,12 @@ if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
     alias_tag=$ALIAS
   elif [ "$BRANCH" == "develop" ]; then
     alias_tag=develop
-  elif [ "$BRANCH" == "master" ]; then
-    alias_tag=latest
+  elif [ "${BRANCH#release-}" != "${BRANCH}" ]; then
+    alias_tag="${BRANCH}"
   fi
   if [ -n "$alias_tag" ]; then
     for img in $UPLOAD; do
+      echo "Uploading $img:$alias_tag to registry ..."
       $DOCKER tag $img:$TAG $img:$alias_tag
       $DOCKER push $img:$alias_tag
     done
