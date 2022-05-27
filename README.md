@@ -11,7 +11,7 @@ On develop, there are breaking changes to the etcd key space which is used by th
 io-engine to retain information about replicas which contain the correct volume data.
 An upgrade strategy is yet to be devised, but you may try these steps at your own risk:
 1. Stop the [mayastor-control-plane](https://github.com/openebs/mayastor-control-plane) components
-1. When the pool operator is no longer running, remove the finalyzers and delete all `MayastorPool` CR's
+1. When the pool operator is no longer running, remove the finalizers and delete all `MayastorPool` CR's
 1. Enable compatibility mode with the mayastor data replica information
    ```bash
    $> ETCDCTL_API=3 etcdctl put "/openebs.io/mayastor/apis/v0/clusters/$KUBE_SYSTEM_UID/namespaces/$NAMESPACE/CoreRegistryConfig/db98f8bb-4afc-45d0-85b9-24c99cc443f2"

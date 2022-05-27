@@ -1,9 +1,0 @@
-etcd:
-  auth:
-    rbac:
-      enabled: false
-  replicaCount: 3
-  persistence:
-    enabled: false
-
-mayastorLogLevel: debug
