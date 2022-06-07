@@ -33,11 +33,11 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:develop
-        imagePullPolicy: Always
+        image: mayadata/mayastor:release-1.0.2
+        imagePullPolicy: IfNotPresent
         env:
         - name: RUST_LOG
-          value: info,mayastor=debug
+          value: info,mayastor=info
         - name: NVME_QPAIR_CONNECT_ASYNC
           value: "true"
         - name: NVMF_TCP_MAX_QUEUE_DEPTH
@@ -58,7 +58,7 @@ spec:
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
-        - "-l1"
+        - "-l1,2"
         - "-pmayastor-etcd"
         command:
         - mayastor
@@ -78,11 +78,11 @@ spec:
           # belong to Guaranteed QoS class, hence can never get evicted in case of
           # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
-            cpu: "1"
+            cpu: "2"
             memory: "1Gi"
             hugepages-2Mi: "2Gi"
           requests:
-            cpu: "1"
+            cpu: "2"
             memory: "1Gi"
             hugepages-2Mi: "2Gi"
         ports:

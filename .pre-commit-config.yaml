@@ -45,3 +45,9 @@ repos:
         pass_filenames: true
         types: [file, python]
         language: system
+    -   id: helm-deploy
+        name: Helm Generator
+        description: Ensures the deploy is updated with the helm chart
+        entry: ./scripts/check-deploy-yamls.sh
+        pass_filenames: false
+        language: system

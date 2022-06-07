@@ -217,7 +217,6 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
             expression { run_linter == false }
           }
         }
@@ -228,6 +227,7 @@ pipeline {
         sh 'nix-shell --run "./scripts/rust-style.sh" ci.nix'
         sh 'nix-shell --run "./scripts/rust-linter.sh" ci.nix'
         sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
+        sh 'nix-shell --run "./scripts/check-deploy-yamls.sh" ci.nix'
       }
     }
     stage('test') {
@@ -236,7 +236,6 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
           }
         }
       }
@@ -579,6 +578,7 @@ pipeline {
           anyOf {
             branch 'master'
             branch 'release/*'
+            branch 'release-*'
             branch 'develop'
           }
         }

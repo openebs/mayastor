@@ -30,8 +30,8 @@ spec:
       # the same.
       containers:
       - name: mayastor-csi
-        image: mayadata/mayastor:develop
-        imagePullPolicy: Always
+        image: mayadata/mayastor:release-1.0.2
+        imagePullPolicy: IfNotPresent
         # we need privileged because we mount filesystems and use mknod
         securityContext:
           privileged: true
@@ -51,7 +51,7 @@ spec:
         - "--node-name=$(MY_NODE_NAME)"
         - "--grpc-endpoint=$(MY_POD_IP):10199"
         - "--nvme-core-io-timeout=30"
-        - "--nvme-nr-io-queues=1"
+        - "--nvme-nr-io-queues=2"
         - "-v"
         command:
         - mayastor-csi

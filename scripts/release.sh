@@ -47,6 +47,7 @@ RM="rm"
 SCRIPTDIR=$(dirname "$0")
 TAG=`get_tag`
 BRANCH=`git rev-parse --abbrev-ref HEAD`
+BRANCH=${BRANCH////-}
 IMAGES=
 UPLOAD=
 SKIP_PUBLISH=
@@ -165,8 +166,8 @@ if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
     alias_tag=$ALIAS
   elif [ "$BRANCH" == "develop" ]; then
     alias_tag=develop
-  elif [ "$BRANCH" == "master" ]; then
-    alias_tag=latest
+  elif [ "${BRANCH#release-}" != "${BRANCH}" ]; then
+    alias_tag="${BRANCH}"
   fi
   if [ -n "$alias_tag" ]; then
     for img in $UPLOAD; do
