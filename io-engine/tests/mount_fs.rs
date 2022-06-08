@@ -43,7 +43,9 @@ async fn create_connected_nvmf_nexus(
         .await;
 
     // Create and connect NVMF target.
-    let target = libnvme_rs::NvmeTarget::try_from(uri).unwrap();
+    let target = libnvme_rs::NvmeTarget::try_from(uri)
+        .unwrap()
+        .with_rand_hostnqn(true);
     target.connect().unwrap();
     let devices = target.block_devices(2).unwrap();
 
@@ -89,7 +91,9 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
             .await;
 
         // Create and connect NVMF target.
-        let target = libnvme_rs::NvmeTarget::try_from(uri).unwrap();
+        let target = libnvme_rs::NvmeTarget::try_from(uri)
+            .unwrap()
+            .with_rand_hostnqn(true);
         target.connect().unwrap();
         let devices = target.block_devices(2).unwrap();
 
