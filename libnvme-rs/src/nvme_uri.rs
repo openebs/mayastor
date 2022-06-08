@@ -123,10 +123,16 @@ impl NvmeTarget {
     /// Returns Ok on successful connect
     pub fn connect(&self) -> Result<(), NvmeError> {
         let r = NvmeRoot::new(unsafe { crate::nvme_scan(std::ptr::null()) });
-        let hostnqn =
+        let mut hostnqn =
             NvmeStringWrapper::new(unsafe { crate::nvmf_hostnqn_from_file() });
         let hostid =
             NvmeStringWrapper::new(unsafe { crate::nvmf_hostid_from_file() });
+
+        if hostnqn.s.is_null() {
+            hostnqn = NvmeStringWrapper::new(unsafe {
+                crate::nvmf_hostnqn_generate()
+            });
+        }
 
         let h = unsafe {
             crate::nvme_lookup_host(
