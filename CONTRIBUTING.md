@@ -21,7 +21,7 @@ to MayaStor.
 
 ### Reporting Bugs
 
-You would be **the best** if you reported complete, well described, reproducable bugs to us. If
+You would be **the best** if you reported complete, well described, reproducible bugs to us. If
 you can't, that's ok. Do your best.
 
 Our [Bug Report][issue-bug-report] template includes instructions to get the the information we
