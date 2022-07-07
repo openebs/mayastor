@@ -171,7 +171,9 @@ async fn persist_io_failure() {
         .expect("Failed to unshare");
 
     // Create and connect NVMF target.
-    let target = libnvme_rs::NvmeTarget::try_from(nexus_uri.clone()).unwrap();
+    let target = libnvme_rs::NvmeTarget::try_from(nexus_uri.clone())
+        .unwrap()
+        .with_rand_hostnqn(true);
     target.connect().unwrap();
     let devices = target.block_devices(2).unwrap();
     let fio_hdl = tokio::spawn(async move {

@@ -62,6 +62,8 @@ pub struct NvmeTarget {
     subsysnqn: String,
     /// Transport type
     trtype: NvmeTransportType,
+    /// Auto-Generate random HostNqn.
+    hostnqn_autogen: bool,
 }
 
 impl TryFrom<String> for NvmeTarget {
@@ -114,19 +116,33 @@ impl TryFrom<&str> for NvmeTarget {
             traddr,
             trsvcid: url.port().unwrap_or(4420),
             subsysnqn: subnqn,
+            hostnqn_autogen: false,
         })
     }
 }
 
 impl NvmeTarget {
+    /// Use a random hostnqn when connecting.
+    /// Useful when the system does not have a SYSCONFDIR hostnqn file.
+    pub fn with_rand_hostnqn(mut self, random: bool) -> Self {
+        self.hostnqn_autogen = random;
+        self
+    }
     /// Connect to NVMe target
     /// Returns Ok on successful connect
     pub fn connect(&self) -> Result<(), NvmeError> {
         let r = NvmeRoot::new(unsafe { crate::nvme_scan(std::ptr::null()) });
-        let hostnqn =
-            NvmeStringWrapper::new(unsafe { crate::nvmf_hostnqn_from_file() });
         let hostid =
             NvmeStringWrapper::new(unsafe { crate::nvmf_hostid_from_file() });
+
+        let hostnqn = match self.hostnqn_autogen {
+            true => NvmeStringWrapper::new(unsafe {
+                crate::nvmf_hostnqn_generate()
+            }),
+            false => NvmeStringWrapper::new(unsafe {
+                crate::nvmf_hostnqn_from_file()
+            }),
+        };
 
         let h = unsafe {
             crate::nvme_lookup_host(
