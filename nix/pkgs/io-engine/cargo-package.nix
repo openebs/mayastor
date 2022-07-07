@@ -101,6 +101,7 @@ in
     SPDK_PATH = "${libspdk}";
   });
   debug = rustPlatform.buildRustPackage (buildProps // {
+    cargoBuildFlags = "--workspace --bins --exclude io-engine-bench";
     buildType = "debug";
     buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
     SPDK_PATH = "${libspdk-dev}";
