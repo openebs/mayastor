@@ -22,12 +22,13 @@ use spdk_rs::{
         spdk_nvme_cmd,
     },
     nvme_admin_opc,
+    BdevOps,
     DmaBuf,
     DmaError,
 };
 
 use crate::{
-    core::{Bdev, CoreError, Descriptor, IoChannel, UntypedBdev},
+    core::{Bdev, CoreError, Descriptor, IoChannel},
     ffihelper::cb_arg,
     subsys,
 };
@@ -35,22 +36,25 @@ use crate::{
 /// A handle to a bdev, is an interface to submit IO. The ['Descriptor'] may be
 /// shared between cores freely. The ['IoChannel'] however, must be allocated on
 /// the core where the IO is submitted from.
-pub struct BdevHandle {
+pub struct BdevHandle<T: BdevOps> {
     /// Rust guarantees proper ordering of dropping. The channel MUST be
     /// dropped before we close the descriptor
     channel: IoChannel,
-    desc: Arc<Descriptor>,
+    /// TODO
+    desc: Arc<Descriptor<T>>,
 }
 
-impl BdevHandle {
+pub type UntypedBdevHandle = BdevHandle<()>;
+
+impl<T: BdevOps> BdevHandle<T> {
     /// open a new bdev handle allocating a new ['Descriptor'] as well as a new
     /// ['IoChannel']
     pub fn open(
         name: &str,
         read_write: bool,
         claim: bool,
-    ) -> Result<BdevHandle, CoreError> {
-        if let Ok(desc) = UntypedBdev::open_by_name(name, read_write) {
+    ) -> Result<BdevHandle<T>, CoreError> {
+        if let Ok(desc) = Bdev::<T>::open_by_name(name, read_write) {
             if claim && !desc.claim() {
                 return Err(CoreError::BdevNotFound {
                     name: name.into(),
@@ -65,10 +69,10 @@ impl BdevHandle {
     }
 
     /// open a new bdev handle given a bdev
-    pub fn open_with_bdev<T: spdk_rs::BdevOps>(
+    pub fn open_with_bdev(
         bdev: &Bdev<T>,
         read_write: bool,
-    ) -> Result<BdevHandle, CoreError> {
+    ) -> Result<BdevHandle<T>, CoreError> {
         let desc = bdev.open(read_write)?;
         BdevHandle::try_from(Arc::new(desc))
     }
@@ -79,7 +83,7 @@ impl BdevHandle {
     }
 
     /// get the bdev associated with this handle
-    pub fn get_bdev(&self) -> UntypedBdev {
+    pub fn get_bdev(&self) -> Bdev<T> {
         self.desc.get_bdev()
     }
 
@@ -324,17 +328,17 @@ impl BdevHandle {
     }
 }
 
-impl Debug for BdevHandle {
+impl<T: BdevOps> Debug for BdevHandle<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(f, "{:?}", self.desc)?;
         write!(f, "{:?}", self.channel)
     }
 }
 
-impl TryFrom<Descriptor> for BdevHandle {
+impl<T: BdevOps> TryFrom<Descriptor<T>> for BdevHandle<T> {
     type Error = CoreError;
 
-    fn try_from(desc: Descriptor) -> Result<Self, Self::Error> {
+    fn try_from(desc: Descriptor<T>) -> Result<Self, Self::Error> {
         if let Some(channel) = desc.get_channel() {
             return Ok(Self {
                 desc: Arc::new(desc),
@@ -348,10 +352,10 @@ impl TryFrom<Descriptor> for BdevHandle {
     }
 }
 
-impl TryFrom<Arc<Descriptor>> for BdevHandle {
+impl<T: BdevOps> TryFrom<Arc<Descriptor<T>>> for BdevHandle<T> {
     type Error = CoreError;
 
-    fn try_from(desc: Arc<Descriptor>) -> Result<Self, Self::Error> {
+    fn try_from(desc: Arc<Descriptor<T>>) -> Result<Self, Self::Error> {
         if let Some(channel) = desc.get_channel() {
             return Ok(Self {
                 channel,

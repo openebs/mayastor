@@ -21,7 +21,7 @@ pub use block_device::{
 };
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
-pub use descriptor::{Descriptor, RangeContext};
+pub use descriptor::{Descriptor, RangeContext, UntypedDescriptor};
 pub use device_events::{
     DeviceEventDispatcher,
     DeviceEventListener,
@@ -35,7 +35,7 @@ pub use env::{
     GLOBAL_RC,
     SIG_RECEIVED,
 };
-pub use handle::BdevHandle;
+pub use handle::{BdevHandle, UntypedBdevHandle};
 pub use io_device::IoDevice;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;

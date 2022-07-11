@@ -14,18 +14,12 @@ use spdk_rs::{
         spdk_bdev_get_io_channel,
     },
     BdevModule,
+    BdevOps,
 };
 
 use crate::{
     bdev::nexus::NEXUS_MODULE_NAME,
-    core::{
-        channel::IoChannel,
-        Bdev,
-        BdevHandle,
-        CoreError,
-        Mthread,
-        UntypedBdev,
-    },
+    core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
 };
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
@@ -34,11 +28,13 @@ use crate::{
 /// is. Typically, the target, exporting the bdev will claim the device. In the
 /// case of the nexus, we do not claim the children for exclusive access to
 /// allow for the rebuild to happen across multiple cores.
-pub struct Descriptor(spdk_rs::BdevDesc<()>);
+pub struct Descriptor<T: BdevOps>(spdk_rs::BdevDesc<T>);
 
-impl Descriptor {
+pub type UntypedDescriptor = Descriptor<()>;
+
+impl<T: BdevOps> Descriptor<T> {
     /// TODO
-    pub(crate) fn new(d: spdk_rs::BdevDesc<()>) -> Self {
+    pub(crate) fn new(d: spdk_rs::BdevDesc<T>) -> Self {
         Self(d)
     }
 
@@ -96,12 +92,12 @@ impl Descriptor {
 
     /// Return the bdev associated with this descriptor, a descriptor cannot
     /// exist without a bdev
-    pub fn get_bdev(&self) -> UntypedBdev {
-        Bdev::new(self.0.bdev())
+    pub fn get_bdev(&self) -> Bdev<T> {
+        Bdev::<T>::new(self.0.bdev())
     }
 
     /// consumes the descriptor and returns a handle
-    pub fn into_handle(self) -> Result<BdevHandle, CoreError> {
+    pub fn into_handle(self) -> Result<BdevHandle<T>, CoreError> {
         BdevHandle::try_from(self)
     }
 
@@ -175,9 +171,8 @@ impl Descriptor {
 /// when we get removed we might be asked to close ourselves
 /// however, this request might come from a different thread as
 /// targets (for example) are running on their own thread.
-impl Drop for Descriptor {
+impl<T: BdevOps> Drop for Descriptor<T> {
     fn drop(&mut self) {
-        trace!("[D] {:?}", self);
         if Mthread::current().unwrap() == Mthread::primary() {
             self.0.close()
         } else {
@@ -186,7 +181,7 @@ impl Drop for Descriptor {
     }
 }
 
-impl Debug for Descriptor {
+impl<T: BdevOps> Debug for Descriptor<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,

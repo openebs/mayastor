@@ -9,7 +9,7 @@ use io_engine::{
         nexus::{nexus_create, nexus_lookup_mut},
         util::uring,
     },
-    core::{BdevHandle, MayastorCliArgs, Protocol, UntypedBdev},
+    core::{MayastorCliArgs, Protocol, UntypedBdev, UntypedBdevHandle},
     nexus_uri::{bdev_create, bdev_destroy},
 };
 
@@ -116,9 +116,9 @@ async fn core_3() {
     mayastor()
         .spawn(async {
             bdev_create(BDEVNAME1).await.expect("failed to create bdev");
-            let hdl2 = BdevHandle::open(BDEVNAME1, true, true)
+            let hdl2 = UntypedBdevHandle::open(BDEVNAME1, true, true)
                 .expect("failed to create the handle!");
-            let hdl3 = BdevHandle::open(BDEVNAME1, true, true);
+            let hdl3 = UntypedBdevHandle::open(BDEVNAME1, true, true);
             assert!(hdl3.is_err());
 
             // we must drop the descriptors before we destroy the nexus

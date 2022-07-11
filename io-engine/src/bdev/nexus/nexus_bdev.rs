@@ -1102,7 +1102,7 @@ impl<'n> Nexus<'n> {
     pub(crate) unsafe fn open_bdev_handle(
         &self,
         read_write: bool,
-    ) -> Result<BdevHandle, CoreError> {
+    ) -> Result<BdevHandle<Self>, CoreError> {
         BdevHandle::open_with_bdev(self.bdev(), read_write)
     }
 }

@@ -7,7 +7,7 @@ use futures::channel::oneshot;
 use snafu::Snafu;
 
 use crate::{
-    bdev::nexus::VerboseError,
+    bdev::{nexus::VerboseError, Nexus},
     core::{BlockDeviceDescriptor, CoreError, Descriptor},
     nexus_uri::NexusBdevError,
 };
@@ -109,11 +109,11 @@ impl fmt::Display for RebuildState {
 
 /// A rebuild job is responsible for managing a rebuild (copy) which reads
 /// from source_hdl and writes into destination_hdl from specified start to end
-pub struct RebuildJob {
+pub struct RebuildJob<'n> {
     /// name of the nexus associated with the rebuild job
     pub nexus: String,
     /// descriptor for the nexus
-    pub(super) nexus_descriptor: Descriptor,
+    pub(super) nexus_descriptor: Descriptor<Nexus<'n>>,
     /// source URI of the healthy child to rebuild from
     pub source: String,
     /// target URI of the out of sync child in need of a rebuild
@@ -139,9 +139,9 @@ pub struct RebuildJob {
 }
 
 // TODO: is `RebuildJob` really a Send type?
-unsafe impl Send for RebuildJob {}
+unsafe impl Send for RebuildJob<'_> {}
 
-impl fmt::Debug for RebuildJob {
+impl<'n> fmt::Debug for RebuildJob<'n> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RebuildJob")
             .field("nexus", &self.nexus)
@@ -170,7 +170,7 @@ pub struct RebuildStats {
 }
 
 /// Public facing operations on a Rebuild Job
-pub trait ClientOperations {
+pub trait ClientOperations<'a> {
     /// Collects statistics from the job
     fn stats(&self) -> RebuildStats;
     /// Schedules the job to start in a future and returns a complete channel
@@ -192,7 +192,7 @@ pub trait ClientOperations {
     fn terminate(&mut self) -> oneshot::Receiver<RebuildState>;
 }
 
-impl RebuildJob {
+impl<'n> RebuildJob<'n> {
     /// Creates a new RebuildJob which rebuilds from source URI to target URI
     /// from start to end (of the data partition); notify_fn callback is called
     /// when the rebuild state is updated - with the nexus and destination
@@ -210,9 +210,11 @@ impl RebuildJob {
     }
 
     /// Lookup a rebuild job by its destination uri and return it
-    pub fn lookup(name: &str) -> Result<&mut Self, RebuildError> {
+    pub fn lookup<'a>(
+        name: &str,
+    ) -> Result<&'a mut RebuildJob<'a>, RebuildError> {
         if let Some(job) = Self::get_instances().get_mut(name) {
-            Ok(job)
+            Ok(Self::from_static(job))
         } else {
             Err(RebuildError::JobNotFound {
                 job: name.to_owned(),
@@ -221,18 +223,23 @@ impl RebuildJob {
     }
 
     /// Lookup all rebuilds jobs with name as its source
-    pub fn lookup_src(name: &str) -> Vec<&mut Self> {
+    pub fn lookup_src<'a>(name: &str) -> Vec<&'a mut RebuildJob<'a>> {
         Self::get_instances()
             .iter_mut()
-            .filter(|j| j.1.source == name)
-            .map(|j| j.1.as_mut())
-            .collect::<Vec<_>>()
+            .filter_map(|j| {
+                if j.1.source == name {
+                    Some(Self::from_static(j.1.as_mut()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
-    /// Lookup a rebuild job by its destination uri then remove and return it
-    pub fn remove(name: &str) -> Result<Self, RebuildError> {
+    /// Lookup a rebuild job by its destination uri then remove and drop it.
+    pub fn remove(name: &str) -> Result<(), RebuildError> {
         match Self::get_instances().remove(name) {
-            Some(job) => Ok(*job),
+            Some(_) => Ok(()),
             None => Err(RebuildError::JobNotFound {
                 job: name.to_owned(),
             }),
@@ -259,7 +266,7 @@ impl RebuildJob {
 
     /// ClientOperations trait
     /// todo: nexus should use this for all interaction with the job
-    pub fn as_client(&mut self) -> &mut impl ClientOperations {
+    pub fn as_client(&mut self) -> &mut impl ClientOperations<'n> {
         self
     }
 }

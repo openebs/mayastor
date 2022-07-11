@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 pub use dev::{device_create, device_destroy, device_lookup, device_open};
-pub use device::{bdev_io_ctx_pool_init, SpdkBlockDevice};
+pub use device::{bdev_event_callback, bdev_io_ctx_pool_init, SpdkBlockDevice};
 pub use nexus::{Nexus, NexusInfo, NexusState};
 pub use nvmx::{
     nvme_io_ctx_pool_init,

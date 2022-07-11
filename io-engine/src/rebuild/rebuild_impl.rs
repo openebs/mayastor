@@ -16,14 +16,14 @@ use spdk_rs::{
 };
 
 use crate::{
-    bdev::{device_open, nexus::VerboseError},
+    bdev::{device_open, nexus::VerboseError, Nexus},
     core::{
+        Bdev,
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
         RangeContext,
         Reactors,
-        UntypedBdev,
     },
     nexus_uri::bdev_get_name,
 };
@@ -32,7 +32,7 @@ use super::rebuild_api::*;
 
 /// Global list of rebuild jobs using a static OnceCell
 pub(super) struct RebuildInstances {
-    inner: UnsafeCell<HashMap<String, Box<RebuildJob>>>,
+    inner: UnsafeCell<HashMap<String, Box<RebuildJob<'static>>>>,
 }
 
 unsafe impl Sync for RebuildInstances {}
@@ -95,7 +95,7 @@ impl Within<u64> for std::ops::Range<u64> {
     }
 }
 
-impl RebuildJob {
+impl<'n> RebuildJob<'n> {
     /// Stores a rebuild job in the rebuild job list
     pub(super) fn store(self) -> Result<(), RebuildError> {
         let rebuild_list = Self::get_instances();
@@ -105,10 +105,22 @@ impl RebuildJob {
                 job: self.destination,
             })
         } else {
-            let _ =
-                rebuild_list.insert(self.destination.clone(), Box::new(self));
+            let _ = rebuild_list
+                .insert(self.destination.clone(), Box::new(self.into_static()));
             Ok(())
         }
+    }
+
+    /// TODO
+    fn into_static(self) -> RebuildJob<'static> {
+        unsafe { std::mem::transmute::<_, RebuildJob<'static>>(self) }
+    }
+
+    /// TODO
+    pub(super) fn from_static<'a>(
+        job: &mut RebuildJob<'static>,
+    ) -> &'a mut RebuildJob<'a> {
+        unsafe { std::mem::transmute::<_, &'a mut RebuildJob<'a>>(job) }
     }
 
     /// Returns a new rebuild job based on the parameters
@@ -184,7 +196,7 @@ impl RebuildJob {
             nexus.to_string(),
         );
 
-        let nexus_descriptor = UntypedBdev::open_by_name(&nexus, false)
+        let nexus_descriptor = Bdev::<Nexus>::open_by_name(&nexus, false)
             .context(BdevNotFound {
                 bdev: nexus.to_string(),
             })?;
@@ -448,7 +460,8 @@ impl RebuildJob {
 
     /// Get the rebuild job instances container, we ensure that this can only
     /// ever be called on a properly allocated thread
-    pub(super) fn get_instances() -> &'static mut HashMap<String, Box<Self>> {
+    pub(super) fn get_instances(
+    ) -> &'static mut HashMap<String, Box<RebuildJob<'static>>> {
         let thread = unsafe { spdk_get_thread() };
         if thread.is_null() {
             panic!("not called from SPDK thread")
@@ -492,7 +505,7 @@ impl std::fmt::Display for RebuildOperation {
     }
 }
 
-impl ClientOperations for RebuildJob {
+impl<'n> ClientOperations<'n> for RebuildJob<'n> {
     fn stats(&self) -> RebuildStats {
         let blocks_total = self.range.end - self.range.start;
 
@@ -566,7 +579,7 @@ trait InternalOperations {
     fn complete(&mut self);
 }
 
-impl InternalOperations for RebuildJob {
+impl<'n> InternalOperations for RebuildJob<'n> {
     fn fail(&mut self) {
         self.exec_internal_op(RebuildOperation::Fail).ok();
     }
@@ -576,7 +589,7 @@ impl InternalOperations for RebuildJob {
     }
 }
 
-impl RebuildJob {
+impl<'n> RebuildJob<'n> {
     fn start_all_tasks(&mut self) {
         assert_eq!(
             self.task_pool.active, 0,
@@ -735,14 +748,16 @@ impl RebuildStates {
     }
 }
 
-impl RebuildJob {
-    /// Client operations are now allowed to skip over previous operations
+impl<'n> RebuildJob<'n> {
+    /// Client operations are now allowed to skip over previous operations.
     fn exec_client_op(
         &mut self,
         op: RebuildOperation,
     ) -> Result<(), RebuildError> {
         self.exec_op(op, false)
     }
+
+    /// TODO.
     fn exec_internal_op(
         &mut self,
         op: RebuildOperation,
@@ -750,7 +765,7 @@ impl RebuildJob {
         self.exec_op(op, true)
     }
 
-    /// Single state machine where all operations are handled
+    /// Single state machine where all operations are handled.
     fn exec_op(
         &mut self,
         op: RebuildOperation,

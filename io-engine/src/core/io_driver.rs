@@ -12,7 +12,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Cores, Descriptor, IoChannel, Mthread, UntypedBdev},
+    core::{Cores, IoChannel, Mthread, UntypedBdev, UntypedDescriptor},
     ffihelper::pair,
     nexus_uri::bdev_create,
 };
@@ -148,7 +148,7 @@ pub struct Job {
     /// that drives IO to a bdev using its own channel.
     bdev: UntypedBdev,
     /// descriptor to the bdev
-    desc: Descriptor,
+    desc: UntypedDescriptor,
     /// io channel used to submit IO
     ch: Option<IoChannel>,
     /// queue depth configured for this job

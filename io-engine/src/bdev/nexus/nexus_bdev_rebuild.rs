@@ -250,7 +250,7 @@ impl<'n> Nexus<'n> {
     /// based on the rebuild job's final state
     async fn on_rebuild_complete_job(
         mut self: Pin<&mut Self>,
-        job: &RebuildJob,
+        job: &RebuildJob<'n>,
     ) -> Result<(), Error> {
         let recovering_child =
             self.as_mut().get_child_by_name(&job.destination)?;

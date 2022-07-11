@@ -7,13 +7,13 @@ use io_engine::{
     core::{
         mayastor_env_stop,
         Cores,
-        Descriptor,
         IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
         Mthread,
         Reactors,
         UntypedBdev,
+        UntypedDescriptor,
     },
     logger,
     nexus_uri::bdev_create,
@@ -54,7 +54,7 @@ const IO_SIZE: u64 = 512;
 struct Job {
     bdev: UntypedBdev,
     /// descriptor to the bdev
-    desc: Descriptor,
+    desc: UntypedDescriptor,
     /// io channel being used to submit IO
     ch: Option<IoChannel>,
     /// queue depth configured for this job

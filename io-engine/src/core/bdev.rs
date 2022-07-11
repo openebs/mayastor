@@ -11,7 +11,7 @@ use snafu::ResultExt;
 use spdk_rs::libspdk::spdk_bdev;
 
 use crate::{
-    bdev::SpdkBlockDevice,
+    bdev::bdev_event_callback,
     core::{
         share::{Protocol, Share},
         BlockDeviceIoStats,
@@ -98,7 +98,7 @@ where
     pub fn open_by_name(
         name: &str,
         read_write: bool,
-    ) -> Result<Descriptor, CoreError> {
+    ) -> Result<Descriptor<T>, CoreError> {
         if let Some(bdev) = Self::lookup_by_name(name) {
             bdev.open(read_write)
         } else {
@@ -111,11 +111,11 @@ where
     /// Opens the current Bdev.
     /// A Bdev can be opened multiple times resulting in a new descriptor for
     /// each call.
-    pub fn open(&self, read_write: bool) -> Result<Descriptor, CoreError> {
-        match spdk_rs::BdevDesc::<()>::open(
+    pub fn open(&self, read_write: bool) -> Result<Descriptor<T>, CoreError> {
+        match spdk_rs::BdevDesc::<T>::open(
             self.name(),
             read_write,
-            SpdkBlockDevice::bdev_event_callback,
+            bdev_event_callback,
         ) {
             Ok(d) => Ok(Descriptor::new(d)),
             Err(err) => Err(CoreError::OpenBdev {

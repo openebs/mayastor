@@ -1,11 +1,11 @@
-use io_engine::core::{BdevHandle, CoreError};
+use io_engine::core::{CoreError, UntypedBdevHandle};
 
 pub async fn write_some(
     nexus_name: &str,
     offset: u64,
     fill: u8,
 ) -> Result<(), CoreError> {
-    let h = BdevHandle::open(nexus_name, true, false)?;
+    let h = UntypedBdevHandle::open(nexus_name, true, false)?;
     let buflen = u64::from(h.get_bdev().block_len() * 2);
     let mut buf = h.dma_malloc(buflen).expect("failed to allocate buffer");
     buf.fill(fill);
@@ -22,7 +22,7 @@ pub async fn read_some(
     offset: u64,
     fill: u8,
 ) -> Result<(), CoreError> {
-    let h = BdevHandle::open(nexus_name, true, false)?;
+    let h = UntypedBdevHandle::open(nexus_name, true, false)?;
 
     let buflen = u64::from(h.get_bdev().block_len() * 2);
     let mut buf = h.dma_malloc(buflen).expect("failed to allocate buffer");
@@ -48,7 +48,7 @@ pub async fn write_zeroes_some(
     offset: u64,
     len: u64,
 ) -> Result<(), CoreError> {
-    let h = BdevHandle::open(nexus_name, true, false)?;
+    let h = UntypedBdevHandle::open(nexus_name, true, false)?;
 
     h.write_zeroes_at(offset, len).await?;
     Ok(())

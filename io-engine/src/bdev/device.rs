@@ -24,6 +24,7 @@ use spdk_rs::{
         spdk_bdev_writev_blocks,
     },
     nvme_admin_opc,
+    BdevOps,
     DmaBuf,
     DmaError,
     IoType,
@@ -38,7 +39,6 @@ use crate::core::{
     BlockDeviceHandle,
     BlockDeviceIoStats,
     CoreError,
-    Descriptor,
     DeviceEventDispatcher,
     DeviceEventSink,
     DeviceEventType,
@@ -49,6 +49,8 @@ use crate::core::{
     NvmeCommandStatus,
     NvmeStatus,
     UntypedBdev,
+    UntypedBdevHandle,
+    UntypedDescriptor,
 };
 
 /// TODO
@@ -66,14 +68,16 @@ static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
 pub struct SpdkBlockDevice {
     bdev: UntypedBdev,
 }
+
 /// Wrapper around native SPDK block device descriptor, which mimics target SPDK
 /// descriptor as an abstract BlockDeviceDescriptor instance.
-struct SpdkBlockDeviceDescriptor(Arc<Descriptor>);
+struct SpdkBlockDeviceDescriptor(Arc<UntypedDescriptor>);
+
 /// Wrapper around native SPDK block device I/O, which mimics target SPDK I/O
 /// handle as an abstract BlockDeviceDescriptor instance.
 struct SpdkBlockDeviceHandle {
     device: Box<dyn BlockDevice>,
-    handle: BdevHandle,
+    handle: UntypedBdevHandle,
 }
 
 struct IoCtx<'a> {
@@ -82,8 +86,8 @@ struct IoCtx<'a> {
     cb_arg: IoCompletionCallbackArg,
 }
 
-impl From<Descriptor> for SpdkBlockDeviceDescriptor {
-    fn from(descr: Descriptor) -> Self {
+impl From<UntypedDescriptor> for SpdkBlockDeviceDescriptor {
+    fn from(descr: UntypedDescriptor) -> Self {
         Self(Arc::new(descr))
     }
 }
@@ -138,45 +142,6 @@ impl SpdkBlockDevice {
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
         let descr = UntypedBdev::open_by_name(name, read_write)?;
         Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
-    }
-
-    /// Called by spdk when there is an asynchronous bdev event i.e. removal.
-    pub(crate) fn bdev_event_callback(
-        event: spdk_rs::BdevEvent,
-        bdev: spdk_rs::UntypedBdev,
-    ) {
-        let dev = SpdkBlockDevice::new(Bdev::new(bdev));
-
-        // Translate SPDK events into common device events.
-        let event = match event {
-            spdk_rs::BdevEvent::Remove => {
-                info!("Received remove event for Bdev '{}'", dev.device_name());
-                DeviceEventType::DeviceRemoved
-            }
-            spdk_rs::BdevEvent::Resize => {
-                warn!("Received resize event for Bdev '{}'", dev.device_name());
-                DeviceEventType::DeviceResized
-            }
-            spdk_rs::BdevEvent::MediaManagement => {
-                warn!(
-                    "Received media management event for Bdev '{}'",
-                    dev.device_name()
-                );
-                DeviceEventType::MediaManagement
-            }
-        };
-
-        // Forward event to the high-level handler.
-        dev.notify_listeners(event);
-    }
-
-    /// Notifies all listeners of this SPDK Bdev.
-    fn notify_listeners(self, event: DeviceEventType) {
-        let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
-        let name = self.device_name();
-        if let Some(disp) = map.get_mut(&name) {
-            disp.dispatch_event(event, &name);
-        }
     }
 }
 
@@ -251,17 +216,17 @@ impl BlockDevice for SpdkBlockDevice {
     }
 }
 
-impl TryFrom<Arc<Descriptor>> for SpdkBlockDeviceHandle {
+impl TryFrom<Arc<UntypedDescriptor>> for SpdkBlockDeviceHandle {
     type Error = CoreError;
 
-    fn try_from(desc: Arc<Descriptor>) -> Result<Self, Self::Error> {
+    fn try_from(desc: Arc<UntypedDescriptor>) -> Result<Self, Self::Error> {
         let handle = BdevHandle::try_from(desc)?;
         Ok(SpdkBlockDeviceHandle::from(handle))
     }
 }
 
-impl From<BdevHandle> for SpdkBlockDeviceHandle {
-    fn from(handle: BdevHandle) -> Self {
+impl From<UntypedBdevHandle> for SpdkBlockDeviceHandle {
+    fn from(handle: UntypedBdevHandle) -> Self {
         Self {
             device: Box::new(SpdkBlockDevice::from(handle.get_bdev())),
             handle,
@@ -360,6 +325,37 @@ extern "C" fn bdev_io_completion(
     // Free replica's bio.
     unsafe {
         spdk_bdev_free_io(child_bio);
+    }
+}
+
+/// Called by spdk when there is an asynchronous bdev event i.e. removal.
+pub fn bdev_event_callback<T: BdevOps>(
+    event: spdk_rs::BdevEvent,
+    bdev: spdk_rs::Bdev<T>,
+) {
+    let dev = Bdev::<T>::new(bdev);
+
+    // Translate SPDK events into common device events.
+    let event = match event {
+        spdk_rs::BdevEvent::Remove => {
+            info!("Received remove event for Bdev '{}'", dev.name());
+            DeviceEventType::DeviceRemoved
+        }
+        spdk_rs::BdevEvent::Resize => {
+            warn!("Received resize event for Bdev '{}'", dev.name());
+            DeviceEventType::DeviceResized
+        }
+        spdk_rs::BdevEvent::MediaManagement => {
+            warn!("Received media management event for Bdev '{}'", dev.name());
+            DeviceEventType::MediaManagement
+        }
+    };
+
+    // Forward event to the high-level handler.
+    let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
+    let name = dev.name();
+    if let Some(disp) = map.get_mut(name) {
+        disp.dispatch_event(event, name);
     }
 }
 
