@@ -178,10 +178,10 @@ impl Descriptor {
 impl Drop for Descriptor {
     fn drop(&mut self) {
         trace!("[D] {:?}", self);
-        if Mthread::current().unwrap() == Mthread::get_init() {
+        if Mthread::current().unwrap() == Mthread::primary() {
             self.0.close()
         } else {
-            Mthread::get_init().msg(self.0.clone(), |mut d| d.close());
+            Mthread::primary().send_msg(self.0.clone(), |mut d| d.close());
         }
     }
 }

@@ -81,6 +81,10 @@ struct Job {
     /// number of seconds we are running
     period: u64,
 }
+
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for Job {}
+
 thread_local! {
     #[allow(clippy::vec_box)]
     static JOBLIST: RefCell<Vec<Box<Job>>> = RefCell::new(Vec::new());
@@ -203,6 +207,8 @@ struct Io {
     job: NonNull<Job>,
 }
 
+unsafe impl Send for Io {}
+
 impl Io {
     /// start submitting
     fn run(&mut self, job: *mut Job) {
@@ -272,7 +278,7 @@ impl Io {
 /// before we can shut down
 fn sig_override() {
     let handler = || {
-        Mthread::get_init().msg((), |_| {
+        Mthread::primary().send_msg((), |_| {
             PERF_TICK.with(|t| {
                 let ticker = t.borrow_mut().take().unwrap();
                 unsafe { spdk_poller_unregister(&mut ticker.as_ptr()) }
@@ -385,7 +391,7 @@ fn main() {
             let thread =
                 Mthread::new(job.bdev.name().to_string(), Cores::current())
                     .unwrap();
-            thread.msg(job, |job| {
+            thread.send_msg(job, |job| {
                 job.run();
             });
         }

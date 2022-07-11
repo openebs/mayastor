@@ -6,6 +6,7 @@
 //! runtime.
 use crate::{
     core,
+    core::Reactor,
     store::{
         etcd::Etcd,
         store_defs::{
@@ -194,16 +195,14 @@ impl PersistentStore {
             };
 
             // Execute the sending of the result on a "Mayastor thread".
-            let thread = core::Mthread::get_init();
-            let rx = thread
-                .spawn_local(async move {
-                    if tx.send(result).is_err() {
-                        tracing::error!(
-                            "Failed to send completion for 'put' request."
-                        );
-                    }
-                })
-                .expect("Failed to send future to Mayastor thread");
+            let rx = Reactor::spawn_at_primary(async move {
+                if tx.send(result).is_err() {
+                    tracing::error!(
+                        "Failed to send completion for 'put' request."
+                    );
+                }
+            })
+            .expect("Failed to send future to Mayastor thread");
             let _ = rx.await;
         });
         rx

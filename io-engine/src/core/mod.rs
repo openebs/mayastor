@@ -225,7 +225,6 @@ pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
 
 /// TODO
 pub async fn device_monitor() {
-    let handle = Mthread::get_init();
     let mut interval = tokio::time::interval(Duration::from_millis(10));
     loop {
         interval.tick().await;
@@ -233,7 +232,7 @@ pub async fn device_monitor() {
             info!(?w, "executing command");
             match w {
                 Command::RemoveDevice(nexus, child) => {
-                    let rx = handle.spawn_local(async move {
+                    let rx = Reactor::spawn_at_primary(async move {
                         if let Some(n) =
                             crate::bdev::nexus::nexus_lookup_mut(&nexus)
                         {

@@ -13,6 +13,8 @@ use spdk_rs::libspdk::{
 /// TODO
 pub struct IoChannel(NonNull<spdk_io_channel>);
 
+unsafe impl Send for IoChannel {}
+
 impl From<*mut spdk_io_channel> for IoChannel {
     fn from(channel: *mut spdk_io_channel) -> Self {
         IoChannel(NonNull::new(channel).expect("channel ptr is null"))

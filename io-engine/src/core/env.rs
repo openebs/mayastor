@@ -365,7 +365,7 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
     SIG_RECEIVED.store(true, SeqCst);
     unsafe {
         spdk_thread_send_critical_msg(
-            Mthread::get_init().into_raw(),
+            Mthread::primary().as_ptr(),
             Some(signal_trampoline),
         );
     };
@@ -801,7 +801,7 @@ impl MayastorEnvironment {
         info!("All cores locked and loaded!");
 
         // ensure we are within the context of a spdk thread from here
-        Mthread::get_init().enter();
+        Mthread::primary().enter();
 
         Reactor::block_on(async {
             let (sender, receiver) = oneshot::channel::<bool>();

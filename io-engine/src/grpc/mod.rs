@@ -1,14 +1,15 @@
 use std::{
     error::Error,
     fmt::{Debug, Display},
+    future::Future,
 };
 
-use futures::{channel::oneshot::Receiver, Future};
+use futures::channel::oneshot::Receiver;
 pub use server::MayastorGrpcServer;
 use tonic::{Response, Status};
 
 use crate::{
-    core::{CoreError, Mthread, Reactor},
+    core::{CoreError, Reactor},
     nexus_uri::NexusBdevError,
 };
 
@@ -34,6 +35,7 @@ impl From<CoreError> for tonic::Status {
         Status::internal(e.to_string())
     }
 }
+
 mod bdev_grpc;
 mod controller_grpc;
 mod json_grpc;
@@ -55,8 +57,8 @@ pub(crate) struct GrpcClientContext {
     pub id: String,
 }
 
-#[async_trait::async_trait]
 /// trait to lock serialize gRPC request outstanding
+#[async_trait::async_trait]
 pub(crate) trait Serializer<F, T> {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
 }
@@ -87,8 +89,7 @@ where
     F: Future<Output = Result<R, E>> + 'static,
     R: Send + Debug + 'static,
 {
-    Mthread::get_init()
-        .spawn_local(future)
+    Reactor::spawn_at_primary(future)
         .map_err(|_| Status::resource_exhausted("ENOMEM"))
 }
 

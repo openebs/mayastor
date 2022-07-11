@@ -101,7 +101,7 @@ macro_rules! test_init {
             })
             .init()
         });
-        io_engine::core::Mthread::get_init().enter();
+        io_engine::core::Mthread::primary().enter();
     };
     ($yaml_config:expr) => {
         common::MSTEST.get_or_init(|| {
@@ -319,7 +319,7 @@ pub fn clean_up_temp() {
 }
 
 pub fn thread() -> Mthread {
-    Mthread::get_init()
+    Mthread::primary()
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> i32 {
