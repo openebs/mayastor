@@ -12,7 +12,7 @@ use io_engine::{
         Mthread,
         Reactors,
         UntypedBdev,
-        UntypedDescriptor,
+        UntypedDescriptorGuard,
     },
     logger,
     nexus_uri::bdev_create,
@@ -54,7 +54,7 @@ const IO_SIZE: u64 = 512;
 struct Job {
     bdev: UntypedBdev,
     /// descriptor to the bdev
-    desc: UntypedDescriptor,
+    desc: UntypedDescriptorGuard,
     /// io channel being used to submit IO
     ch: Option<IoChannelGuard<()>>,
     /// queue depth configured for this job
@@ -188,7 +188,7 @@ impl Job {
 
     /// start the job that will dispatch an IO up to the provided queue depth
     fn run(mut self: Box<Self>) {
-        self.ch = self.desc.get_channel();
+        self.ch = self.desc.io_channel();
         let ptr = self.as_ptr();
         self.queue.iter_mut().for_each(|q| q.run(ptr));
         JOBLIST.with(|l| l.borrow_mut().push(self));
@@ -231,7 +231,7 @@ impl Io {
     fn read(&mut self, offset: u64) {
         unsafe {
             if spdk_bdev_read(
-                self.job.as_ref().desc.as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
@@ -254,7 +254,7 @@ impl Io {
     fn write(&mut self, offset: u64) {
         unsafe {
             if spdk_bdev_write(
-                self.job.as_ref().desc.as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,

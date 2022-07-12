@@ -8,7 +8,7 @@ use snafu::Snafu;
 
 use crate::{
     bdev::{nexus::VerboseError, Nexus},
-    core::{BlockDeviceDescriptor, CoreError, Descriptor},
+    core::{BlockDeviceDescriptor, CoreError, DescriptorGuard},
     nexus_uri::NexusBdevError,
 };
 use spdk_rs::DmaError;
@@ -113,7 +113,7 @@ pub struct RebuildJob<'n> {
     /// name of the nexus associated with the rebuild job
     pub nexus: String,
     /// descriptor for the nexus
-    pub(super) nexus_descriptor: Descriptor<Nexus<'n>>,
+    pub(super) nexus_descriptor: DescriptorGuard<Nexus<'n>>,
     /// source URI of the healthy child to rebuild from
     pub source: String,
     /// target URI of the out of sync child in need of a rebuild

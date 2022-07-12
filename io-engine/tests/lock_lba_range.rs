@@ -1,65 +1,25 @@
 #![allow(clippy::await_holding_refcell_ref)]
 #[macro_use]
 extern crate tracing;
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
 
-use crossbeam::channel::unbounded;
+use crossbeam::channel::{unbounded, Receiver};
 
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
         MayastorCliArgs,
         MayastorEnvironment,
-        RangeContext,
         Reactor,
         Reactors,
         UntypedBdev,
     },
 };
-use spdk_rs::{DmaBuf, IoChannelGuard};
+use spdk_rs::{DmaBuf, LbaRange, LbaRangeLock};
 pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";
 const NEXUS_SIZE: u64 = 10 * 1024 * 1024;
 const NUM_NEXUS_CHILDREN: u64 = 2;
-
-/// Data structure that can be shared between futures.
-///
-/// The individual fields are wrapped in a Rc and RefCell such that they can be
-/// shared between futures.
-///
-/// (Note: Wrapping the entire structure in a Rc and RefCell does not allow the
-/// individual fields to be shared).
-#[derive(Clone)]
-struct ShareableContext {
-    ctx: Rc<RefCell<RangeContext>>,
-    ch: Rc<RefCell<IoChannelGuard<()>>>,
-}
-
-impl ShareableContext {
-    /// Create a new Shareable Context
-    pub fn new(offset: u64, len: u64) -> ShareableContext {
-        let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
-        Self {
-            ctx: Rc::new(RefCell::new(RangeContext::new(offset, len))),
-            ch: Rc::new(RefCell::new(nexus.get_channel().unwrap())),
-        }
-    }
-
-    /// Mutably borrow the RangeContext
-    pub fn borrow_mut_ctx(&self) -> RefMut<RangeContext> {
-        self.ctx.borrow_mut()
-    }
-
-    /// Immutably borrow the IoChannel
-    pub fn borrow_ch(&self) -> Ref<IoChannelGuard<()>> {
-        self.ch.borrow()
-    }
-}
 
 fn test_ini() {
     test_init!();
@@ -104,19 +64,24 @@ async fn create_nexus() {
 }
 
 async fn lock_range(
-    ctx: &mut RangeContext,
-    ch: &IoChannelGuard<()>,
-) -> Result<(), nix::errno::Errno> {
+    ctx: LbaRange,
+) -> Result<LbaRangeLock<()>, nix::errno::Errno> {
     let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
-    nexus.lock_lba_range(ctx, ch).await
+    nexus.lock_lba_range(ctx).await
 }
 
-async fn unlock_range(
-    ctx: &mut RangeContext,
-    ch: &IoChannelGuard<()>,
-) -> Result<(), nix::errno::Errno> {
+async fn unlock_range(lock: LbaRangeLock<()>) -> Result<(), nix::errno::Errno> {
     let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
-    nexus.unlock_lba_range(ctx, ch).await
+    nexus.unlock_lba_range(lock).await
+}
+
+fn recv_from<T>(r: Receiver<T>) -> T {
+    loop {
+        io_engine::core::Reactors::current().poll_once();
+        if let Ok(res) = r.try_recv() {
+            return res;
+        }
+    }
 }
 
 #[test]
@@ -125,40 +90,15 @@ fn lock_unlock() {
     test_ini();
     Reactor::block_on(async {
         let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
-        let mut ctx = RangeContext::new(1, 5);
-        let ch = nexus.get_channel().unwrap();
-        nexus
-            .lock_lba_range(&mut ctx, &ch)
+        let range = LbaRange::new(1, 5);
+        let lock = nexus
+            .lock_lba_range(range)
             .await
             .expect("Failed to acquire lock");
         nexus
-            .unlock_lba_range(&mut ctx, &ch)
+            .unlock_lba_range(lock)
             .await
             .expect("Failed to release lock");
-    });
-    test_fini();
-}
-
-#[test]
-// Test that an error is received when the lock/unlock contexts don't match
-fn lock_unlock_different_context() {
-    test_ini();
-    Reactor::block_on(async {
-        let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
-
-        let mut ctx = RangeContext::new(1, 5);
-        let ch = nexus.get_channel().unwrap();
-        nexus
-            .lock_lba_range(&mut ctx, &ch)
-            .await
-            .expect("Failed to acquire lock");
-
-        let mut ctx1 = RangeContext::new(1, 5);
-        let ch1 = nexus.get_channel().unwrap();
-        nexus
-            .unlock_lba_range(&mut ctx1, &ch1)
-            .await
-            .expect_err("Shouldn't be able to unlock with a different context");
     });
     test_fini();
 }
@@ -172,32 +112,18 @@ fn multiple_locks() {
     let reactor = Reactors::current();
 
     // First Lock
-    let (s, r) = unbounded::<()>();
-    let ctx1 = ShareableContext::new(1, 10);
-    let ctx_clone1 = ctx1.clone();
+    let (s, r) = unbounded();
     reactor.send_future(async move {
-        lock_range(
-            ctx_clone1.borrow_mut_ctx().deref_mut(),
-            ctx_clone1.borrow_ch().deref(),
-        )
-        .await
-        .unwrap();
-        s.send(()).unwrap();
+        let lock1 = lock_range(LbaRange::new(1, 10)).await.unwrap();
+        s.send(lock1).unwrap();
     });
-    reactor_poll!(r);
+    let lock1 = recv_from(r);
 
     // Second Lock
-    let (lock_sender, lock_receiver) = unbounded::<()>();
-    let ctx2 = ShareableContext::new(1, 5);
-    let ctx_clone2 = ctx2.clone();
+    let (lock_sender, lock_receiver) = unbounded();
     reactor.send_future(async move {
-        lock_range(
-            ctx_clone2.borrow_mut_ctx().deref_mut(),
-            ctx_clone2.borrow_ch().deref(),
-        )
-        .await
-        .unwrap();
-        lock_sender.send(()).unwrap();
+        let lock2 = lock_range(LbaRange::new(1, 5)).await.unwrap();
+        lock_sender.send(lock2).unwrap();
     });
     reactor_poll!(100);
 
@@ -205,33 +131,23 @@ fn multiple_locks() {
     assert!(lock_receiver.try_recv().is_err());
 
     // First unlock
-    let (s, r) = unbounded::<()>();
+    let (s, r) = unbounded();
     reactor.send_future(async move {
-        unlock_range(
-            ctx1.borrow_mut_ctx().deref_mut(),
-            ctx1.borrow_ch().deref(),
-        )
-        .await
-        .unwrap();
+        unlock_range(lock1).await.unwrap();
         s.send(()).unwrap();
     });
     reactor_poll!(r);
 
     // Poll reactor to allow the second lock to be obtained
-    reactor_poll!(100);
+    let lock2 = recv_from(lock_receiver);
 
-    // First lock released, second lock should succeed.
-    assert!(lock_receiver.try_recv().is_ok());
+    // // First lock released, second lock should succeed.
+    // assert!(lock_receiver.try_recv().is_ok());
 
     // Second unlock
     let (s, r) = unbounded::<()>();
     reactor.send_future(async move {
-        unlock_range(
-            ctx2.borrow_mut_ctx().deref_mut(),
-            ctx2.borrow_ch().deref(),
-        )
-        .await
-        .unwrap();
+        unlock_range(lock2).await.unwrap();
         s.send(()).unwrap();
     });
     reactor_poll!(r);
@@ -249,19 +165,12 @@ fn lock_then_fe_io() {
     let reactor = Reactors::current();
 
     // Lock range
-    let (s, r) = unbounded::<()>();
-    let ctx = ShareableContext::new(1, 10);
-    let ctx_clone = ctx.clone();
+    let (s, r) = unbounded();
     reactor.send_future(async move {
-        lock_range(
-            ctx_clone.borrow_mut_ctx().deref_mut(),
-            ctx_clone.borrow_ch().deref(),
-        )
-        .await
-        .unwrap();
-        s.send(()).unwrap();
+        let lock = lock_range(LbaRange::new(1, 10)).await.unwrap();
+        s.send(lock).unwrap();
     });
-    reactor_poll!(r);
+    let lock = recv_from(r);
 
     // Issue front-end I/O
     let (io_sender, io_receiver) = unbounded::<()>();
@@ -286,11 +195,9 @@ fn lock_then_fe_io() {
     assert!(io_receiver.try_recv().is_err());
 
     // Unlock
-    let (s, r) = unbounded::<()>();
+    let (s, r) = unbounded();
     reactor.send_future(async move {
-        unlock_range(ctx.borrow_mut_ctx().deref_mut(), ctx.borrow_ch().deref())
-            .await
-            .unwrap();
+        unlock_range(lock).await.unwrap();
         s.send(()).unwrap();
     });
     reactor_poll!(r);

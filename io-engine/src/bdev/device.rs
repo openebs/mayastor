@@ -50,7 +50,7 @@ use crate::core::{
     NvmeStatus,
     UntypedBdev,
     UntypedBdevHandle,
-    UntypedDescriptor,
+    UntypedDescriptorGuard,
 };
 
 /// TODO
@@ -65,36 +65,113 @@ static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
 
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
-pub struct SpdkBlockDevice {
-    bdev: UntypedBdev,
+pub struct SpdkBlockDevice(UntypedBdev);
+
+impl SpdkBlockDevice {
+    fn new(bdev: UntypedBdev) -> Box<Self> {
+        Box::new(Self(bdev))
+    }
+
+    /// Lookup existing SPDK bdev by its name.
+    pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
+        let bdev = UntypedBdev::lookup_by_name(name)?;
+        Some(SpdkBlockDevice::new(bdev))
+    }
+
+    /// Open SPDK bdev by its name and get a block device descriptor.
+    pub fn open_by_name(
+        name: &str,
+        read_write: bool,
+    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
+        let descr = UntypedBdev::open_by_name(name, read_write)?;
+        Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
+    }
+}
+
+#[async_trait(?Send)]
+impl BlockDevice for SpdkBlockDevice {
+    /// return the size in bytes
+    fn size_in_bytes(&self) -> u64 {
+        self.0.size_in_bytes()
+    }
+    /// returns the length of the block size in bytes
+    fn block_len(&self) -> u64 {
+        self.0.block_len() as u64
+    }
+    /// number of blocks the device has
+    fn num_blocks(&self) -> u64 {
+        self.0.num_blocks()
+    }
+    /// the UUID of the device
+    fn uuid(&self) -> uuid::Uuid {
+        self.0.uuid()
+    }
+    //// returns the product name
+    fn product_name(&self) -> String {
+        self.0.product_name().to_string()
+    }
+    //// returns the driver name of the block device
+    fn driver_name(&self) -> String {
+        self.0.driver().to_string()
+    }
+    /// returns the name of the device
+    fn device_name(&self) -> String {
+        self.0.name().to_string()
+    }
+    //// returns the alignment of the device
+    fn alignment(&self) -> u64 {
+        self.0.alignment()
+    }
+    /// returns true if the IO type is supported
+    fn io_type_supported(&self, io_type: IoType) -> bool {
+        self.0.io_type_supported(io_type)
+    }
+    /// returns the IO statistics
+    async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
+        self.0.stats_async().await
+    }
+    /// returns which module has returned driver
+    fn claimed_by(&self) -> Option<String> {
+        self.0.claimed_by()
+    }
+    /// open the device returning descriptor to the device
+    fn open(
+        &self,
+        read_write: bool,
+    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
+        let descr = self.0.open(read_write)?;
+        Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
+    }
+
+    /// returns the IO controller
+    fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>> {
+        None
+    }
+    /// add a callback to be called when a particular event is received
+    fn add_event_listener(
+        &self,
+        listener: DeviceEventSink,
+    ) -> Result<(), CoreError> {
+        let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
+        let disp = map.entry(self.device_name()).or_default();
+        disp.add_listener(listener);
+        Ok(())
+    }
 }
 
 /// Wrapper around native SPDK block device descriptor, which mimics target SPDK
 /// descriptor as an abstract BlockDeviceDescriptor instance.
-struct SpdkBlockDeviceDescriptor(Arc<UntypedDescriptor>);
+struct SpdkBlockDeviceDescriptor(Arc<UntypedDescriptorGuard>);
 
-/// Wrapper around native SPDK block device I/O, which mimics target SPDK I/O
-/// handle as an abstract BlockDeviceDescriptor instance.
-struct SpdkBlockDeviceHandle {
-    device: Box<dyn BlockDevice>,
-    handle: UntypedBdevHandle,
-}
-
-struct IoCtx<'a> {
-    handle: &'a SpdkBlockDeviceHandle,
-    cb: IoCompletionCallback,
-    cb_arg: IoCompletionCallbackArg,
-}
-
-impl From<UntypedDescriptor> for SpdkBlockDeviceDescriptor {
-    fn from(descr: UntypedDescriptor) -> Self {
+impl From<UntypedDescriptorGuard> for SpdkBlockDeviceDescriptor {
+    fn from(descr: UntypedDescriptorGuard) -> Self {
         Self(Arc::new(descr))
     }
 }
 
 impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice> {
-        Box::new(SpdkBlockDevice::from(self.0.get_bdev()))
+        SpdkBlockDevice::new(self.0.bdev())
     }
 
     fn into_handle(
@@ -114,112 +191,19 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     }
 }
 
-impl From<UntypedBdev> for SpdkBlockDevice {
-    fn from(bdev: UntypedBdev) -> Self {
-        Self {
-            bdev,
-        }
-    }
+/// Wrapper around native SPDK block device I/O, which mimics target SPDK I/O
+/// handle as an abstract BlockDeviceDescriptor instance.
+struct SpdkBlockDeviceHandle {
+    device: Box<dyn BlockDevice>,
+    handle: UntypedBdevHandle,
 }
 
-impl SpdkBlockDevice {
-    fn new(bdev: UntypedBdev) -> Self {
-        Self {
-            bdev,
-        }
-    }
-
-    /// Lookup existing SPDK bdev by its name.
-    pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
-        let bdev = UntypedBdev::lookup_by_name(name)?;
-        Some(Box::new(SpdkBlockDevice::new(bdev)))
-    }
-
-    /// Open SPDK bdev by its name and get a block device descriptor.
-    pub fn open_by_name(
-        name: &str,
-        read_write: bool,
-    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
-        let descr = UntypedBdev::open_by_name(name, read_write)?;
-        Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
-    }
-}
-
-#[async_trait(?Send)]
-impl BlockDevice for SpdkBlockDevice {
-    /// return the size in bytes
-    fn size_in_bytes(&self) -> u64 {
-        self.bdev.size_in_bytes()
-    }
-    /// returns the length of the block size in bytes
-    fn block_len(&self) -> u64 {
-        self.bdev.block_len() as u64
-    }
-    /// number of blocks the device has
-    fn num_blocks(&self) -> u64 {
-        self.bdev.num_blocks()
-    }
-    /// the UUID of the device
-    fn uuid(&self) -> uuid::Uuid {
-        self.bdev.uuid()
-    }
-    //// returns the product name
-    fn product_name(&self) -> String {
-        self.bdev.product_name().to_string()
-    }
-    //// returns the driver name of the block device
-    fn driver_name(&self) -> String {
-        self.bdev.driver().to_string()
-    }
-    /// returns the name of the device
-    fn device_name(&self) -> String {
-        self.bdev.name().to_string()
-    }
-    //// returns the alignment of the device
-    fn alignment(&self) -> u64 {
-        self.bdev.alignment()
-    }
-    /// returns true if the IO type is supported
-    fn io_type_supported(&self, io_type: IoType) -> bool {
-        self.bdev.io_type_supported(io_type)
-    }
-    /// returns the IO statistics
-    async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
-        self.bdev.stats_async().await
-    }
-    /// returns which module has returned driver
-    fn claimed_by(&self) -> Option<String> {
-        self.bdev.claimed_by()
-    }
-    /// open the device returning descriptor to the device
-    fn open(
-        &self,
-        read_write: bool,
-    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
-        let descr = self.bdev.open(read_write)?;
-        Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
-    }
-
-    /// returns the IO controller
-    fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>> {
-        None
-    }
-    /// add a callback to be called when a particular event is received
-    fn add_event_listener(
-        &self,
-        listener: DeviceEventSink,
-    ) -> Result<(), CoreError> {
-        let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
-        let disp = map.entry(self.bdev.name().to_string()).or_default();
-        disp.add_listener(listener);
-        Ok(())
-    }
-}
-
-impl TryFrom<Arc<UntypedDescriptor>> for SpdkBlockDeviceHandle {
+impl TryFrom<Arc<UntypedDescriptorGuard>> for SpdkBlockDeviceHandle {
     type Error = CoreError;
 
-    fn try_from(desc: Arc<UntypedDescriptor>) -> Result<Self, Self::Error> {
+    fn try_from(
+        desc: Arc<UntypedDescriptorGuard>,
+    ) -> Result<Self, Self::Error> {
         let handle = BdevHandle::try_from(desc)?;
         Ok(SpdkBlockDeviceHandle::from(handle))
     }
@@ -228,134 +212,9 @@ impl TryFrom<Arc<UntypedDescriptor>> for SpdkBlockDeviceHandle {
 impl From<UntypedBdevHandle> for SpdkBlockDeviceHandle {
     fn from(handle: UntypedBdevHandle) -> Self {
         Self {
-            device: Box::new(SpdkBlockDevice::from(handle.get_bdev())),
+            device: SpdkBlockDevice::new(handle.get_bdev()),
             handle,
         }
-    }
-}
-
-#[inline]
-fn io_type_to_err(
-    op: IoType,
-    source: Errno,
-    offset: u64,
-    len: u64,
-) -> CoreError {
-    match op {
-        IoType::Read => CoreError::ReadDispatch {
-            source,
-            offset,
-            len,
-        },
-        IoType::Write => CoreError::WriteDispatch {
-            source,
-            offset,
-            len,
-        },
-        IoType::Unmap | IoType::WriteZeros => CoreError::UnmapDispatch {
-            source,
-            offset,
-            len,
-        },
-        IoType::Reset => CoreError::ResetDispatch {
-            source,
-        },
-        _ => {
-            warn!("Unsupported I/O operation: {:?}", op);
-            CoreError::NotSupported {
-                source,
-            }
-        }
-    }
-}
-
-/// Initialize memory pool for allocating bdev I/O contexts.
-/// This must be called before the first I/O operations take place.
-pub fn bdev_io_ctx_pool_init(size: u64) {
-    BDEV_IOCTX_POOL.get_or_init(|| {
-        MemoryPool::<IoCtx>::create("bdev_io_ctx", size).expect(
-            "Failed to create memory pool [bdev_io_ctx] for bdev I/O contexts",
-        )
-    });
-}
-
-/// Allocate a bdev I/O context from the pool.
-fn alloc_bdev_io_ctx(
-    op: IoType,
-    ctx: IoCtx,
-    offset_blocks: u64,
-    num_blocks: u64,
-) -> Result<*mut IoCtx, CoreError> {
-    let pool = BDEV_IOCTX_POOL.get().unwrap();
-    pool.get(ctx).ok_or_else(|| {
-        io_type_to_err(op, Errno::ENOMEM, offset_blocks, num_blocks)
-    })
-}
-
-/// Release the memory used by the bdev I/O context back to the pool.
-fn free_bdev_io_ctx(ctx: *mut IoCtx) {
-    let pool = BDEV_IOCTX_POOL.get().unwrap();
-    pool.put(ctx);
-}
-
-extern "C" fn bdev_io_completion(
-    child_bio: *mut spdk_bdev_io,
-    success: bool,
-    ctx: *mut c_void,
-) {
-    let bio = unsafe { &mut *(ctx as *mut IoCtx) };
-
-    // Get extended NVMe error status from original bio in case of error.
-    let status = if success {
-        IoCompletionStatus::Success
-    } else {
-        let nvme_status = NvmeStatus::from(child_bio);
-        let nvme_cmd_status = NvmeCommandStatus::from_command_status(
-            nvme_status.status_type(),
-            nvme_status.status_code(),
-        );
-        IoCompletionStatus::NvmeError(nvme_cmd_status)
-    };
-
-    (bio.cb)(&*bio.handle.device, status, bio.cb_arg);
-
-    // Free ctx.
-    free_bdev_io_ctx(&mut *bio);
-
-    // Free replica's bio.
-    unsafe {
-        spdk_bdev_free_io(child_bio);
-    }
-}
-
-/// Called by spdk when there is an asynchronous bdev event i.e. removal.
-pub fn bdev_event_callback<T: BdevOps>(
-    event: spdk_rs::BdevEvent,
-    bdev: spdk_rs::Bdev<T>,
-) {
-    let dev = Bdev::<T>::new(bdev);
-
-    // Translate SPDK events into common device events.
-    let event = match event {
-        spdk_rs::BdevEvent::Remove => {
-            info!("Received remove event for Bdev '{}'", dev.name());
-            DeviceEventType::DeviceRemoved
-        }
-        spdk_rs::BdevEvent::Resize => {
-            warn!("Received resize event for Bdev '{}'", dev.name());
-            DeviceEventType::DeviceResized
-        }
-        spdk_rs::BdevEvent::MediaManagement => {
-            warn!("Received media management event for Bdev '{}'", dev.name());
-            DeviceEventType::MediaManagement
-        }
-    };
-
-    // Forward event to the high-level handler.
-    let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
-    let name = dev.name();
-    if let Some(disp) = map.get_mut(name) {
-        disp.dispatch_event(event, name);
     }
 }
 
@@ -625,5 +484,138 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         Err(CoreError::NotSupported {
             source: Errno::ENXIO,
         })
+    }
+}
+
+/// TODO
+struct IoCtx<'a> {
+    handle: &'a SpdkBlockDeviceHandle,
+    cb: IoCompletionCallback,
+    cb_arg: IoCompletionCallbackArg,
+}
+
+/// TODO
+#[inline]
+fn io_type_to_err(
+    op: IoType,
+    source: Errno,
+    offset: u64,
+    len: u64,
+) -> CoreError {
+    match op {
+        IoType::Read => CoreError::ReadDispatch {
+            source,
+            offset,
+            len,
+        },
+        IoType::Write => CoreError::WriteDispatch {
+            source,
+            offset,
+            len,
+        },
+        IoType::Unmap | IoType::WriteZeros => CoreError::UnmapDispatch {
+            source,
+            offset,
+            len,
+        },
+        IoType::Reset => CoreError::ResetDispatch {
+            source,
+        },
+        _ => {
+            warn!("Unsupported I/O operation: {:?}", op);
+            CoreError::NotSupported {
+                source,
+            }
+        }
+    }
+}
+
+/// Initialize memory pool for allocating bdev I/O contexts.
+/// This must be called before the first I/O operations take place.
+pub fn bdev_io_ctx_pool_init(size: u64) {
+    BDEV_IOCTX_POOL.get_or_init(|| {
+        MemoryPool::<IoCtx>::create("bdev_io_ctx", size).expect(
+            "Failed to create memory pool [bdev_io_ctx] for bdev I/O contexts",
+        )
+    });
+}
+
+/// Allocate a bdev I/O context from the pool.
+fn alloc_bdev_io_ctx(
+    op: IoType,
+    ctx: IoCtx,
+    offset_blocks: u64,
+    num_blocks: u64,
+) -> Result<*mut IoCtx, CoreError> {
+    let pool = BDEV_IOCTX_POOL.get().unwrap();
+    pool.get(ctx).ok_or_else(|| {
+        io_type_to_err(op, Errno::ENOMEM, offset_blocks, num_blocks)
+    })
+}
+
+/// Release the memory used by the bdev I/O context back to the pool.
+fn free_bdev_io_ctx(ctx: *mut IoCtx) {
+    let pool = BDEV_IOCTX_POOL.get().unwrap();
+    pool.put(ctx);
+}
+
+extern "C" fn bdev_io_completion(
+    child_bio: *mut spdk_bdev_io,
+    success: bool,
+    ctx: *mut c_void,
+) {
+    let bio = unsafe { &mut *(ctx as *mut IoCtx) };
+
+    // Get extended NVMe error status from original bio in case of error.
+    let status = if success {
+        IoCompletionStatus::Success
+    } else {
+        let nvme_status = NvmeStatus::from(child_bio);
+        let nvme_cmd_status = NvmeCommandStatus::from_command_status(
+            nvme_status.status_type(),
+            nvme_status.status_code(),
+        );
+        IoCompletionStatus::NvmeError(nvme_cmd_status)
+    };
+
+    (bio.cb)(&*bio.handle.device, status, bio.cb_arg);
+
+    // Free ctx.
+    free_bdev_io_ctx(&mut *bio);
+
+    // Free replica's bio.
+    unsafe {
+        spdk_bdev_free_io(child_bio);
+    }
+}
+
+/// Called by spdk when there is an asynchronous bdev event i.e. removal.
+pub fn bdev_event_callback<T: BdevOps>(
+    event: spdk_rs::BdevEvent,
+    bdev: spdk_rs::Bdev<T>,
+) {
+    let dev = Bdev::<T>::new(bdev);
+
+    // Translate SPDK events into common device events.
+    let event = match event {
+        spdk_rs::BdevEvent::Remove => {
+            info!("Received remove event for Bdev '{}'", dev.name());
+            DeviceEventType::DeviceRemoved
+        }
+        spdk_rs::BdevEvent::Resize => {
+            warn!("Received resize event for Bdev '{}'", dev.name());
+            DeviceEventType::DeviceResized
+        }
+        spdk_rs::BdevEvent::MediaManagement => {
+            warn!("Received media management event for Bdev '{}'", dev.name());
+            DeviceEventType::MediaManagement
+        }
+    };
+
+    // Forward event to the high-level handler.
+    let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
+    let name = dev.name();
+    if let Some(disp) = map.get_mut(name) {
+        disp.dispatch_event(event, name);
     }
 }

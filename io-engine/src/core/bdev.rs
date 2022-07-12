@@ -16,7 +16,7 @@ use crate::{
         share::{Protocol, Share},
         BlockDeviceIoStats,
         CoreError,
-        Descriptor,
+        DescriptorGuard,
         ShareNvmf,
         UnshareNvmf,
     },
@@ -98,7 +98,7 @@ where
     pub fn open_by_name(
         name: &str,
         read_write: bool,
-    ) -> Result<Descriptor<T>, CoreError> {
+    ) -> Result<DescriptorGuard<T>, CoreError> {
         if let Some(bdev) = Self::lookup_by_name(name) {
             bdev.open(read_write)
         } else {
@@ -111,13 +111,16 @@ where
     /// Opens the current Bdev.
     /// A Bdev can be opened multiple times resulting in a new descriptor for
     /// each call.
-    pub fn open(&self, read_write: bool) -> Result<Descriptor<T>, CoreError> {
+    pub fn open(
+        &self,
+        read_write: bool,
+    ) -> Result<DescriptorGuard<T>, CoreError> {
         match spdk_rs::BdevDesc::<T>::open(
             self.name(),
             read_write,
             bdev_event_callback,
         ) {
-            Ok(d) => Ok(Descriptor::new(d)),
+            Ok(d) => Ok(DescriptorGuard::new(d)),
             Err(err) => Err(CoreError::OpenBdev {
                 source: err,
             }),

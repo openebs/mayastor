@@ -12,7 +12,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Cores, UntypedBdev, UntypedDescriptor},
+    core::{Cores, UntypedBdev, UntypedDescriptorGuard},
     ffihelper::pair,
     nexus_uri::bdev_create,
 };
@@ -79,7 +79,7 @@ impl Io {
     fn read(&mut self, offset: u64) {
         unsafe {
             if spdk_bdev_read(
-                self.job.as_ref().desc.as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
@@ -102,7 +102,7 @@ impl Io {
     fn write(&mut self, offset: u64) {
         unsafe {
             if spdk_bdev_write(
-                self.job.as_ref().desc.as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
@@ -125,7 +125,7 @@ impl Io {
     pub fn reset(&mut self) {
         unsafe {
             if spdk_bdev_reset(
-                self.job.as_ref().desc.as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 Some(Job::io_completion),
                 self as *const _ as *mut _,
@@ -148,7 +148,7 @@ pub struct Job {
     /// that drives IO to a bdev using its own channel.
     bdev: UntypedBdev,
     /// descriptor to the bdev
-    desc: UntypedDescriptor,
+    desc: UntypedDescriptorGuard,
     /// io channel used to submit IO
     ch: Option<IoChannelGuard<()>>,
     /// queue depth configured for this job
@@ -241,7 +241,7 @@ impl Job {
             Thread::new(format!("job_{}", self.bdev.name()), self.core)
                 .unwrap();
         thread.with(|| {
-            self.ch = self.desc.get_channel();
+            self.ch = self.desc.io_channel();
             let mut boxed = Box::new(self);
             let ptr = boxed.as_ptr();
             boxed.queue.iter_mut().for_each(|q| q.run(ptr));

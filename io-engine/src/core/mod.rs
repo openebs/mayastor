@@ -20,7 +20,7 @@ pub use block_device::{
     OpCompletionCallbackArg,
 };
 pub use cpu_cores::{Core, Cores};
-pub use descriptor::{Descriptor, RangeContext, UntypedDescriptor};
+pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};
 pub use device_events::{
     DeviceEventDispatcher,
     DeviceEventListener,

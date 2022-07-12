@@ -11,8 +11,10 @@ use once_cell::sync::OnceCell;
 use snafu::ResultExt;
 
 use spdk_rs::{
-    libspdk::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE},
+    libspdk::SPDK_BDEV_LARGE_BUF_MAX_SIZE,
     DmaBuf,
+    LbaRange,
+    Thread,
 };
 
 use crate::{
@@ -22,7 +24,6 @@ use crate::{
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
-        RangeContext,
         Reactors,
     },
     nexus_uri::bdev_get_name,
@@ -293,35 +294,29 @@ impl<'n> RebuildJob<'n> {
         // nexus has a data partition only. Because we are locking the range on
         // the nexus, we need to calculate the offset from the start of the data
         // partition.
-        let mut ctx = RangeContext::new(blk - self.range.start, len);
-        let ch = self
-            .nexus_descriptor
-            .get_channel()
-            .expect("Failed to get nexus channel");
+        let r = LbaRange::new(blk - self.range.start, len);
 
         // Wait for LBA range to be locked.
         // This prevents other I/Os being issued to this LBA range whilst it is
         // being rebuilt.
-        self.nexus_descriptor
-            .lock_lba_range(&mut ctx, &ch)
-            .await
-            .context(RangeLockError {
+        let lock = self.nexus_descriptor.lock_lba_range(r).await.context(
+            RangeLockError {
                 blk,
                 len,
-            })?;
+            },
+        )?;
 
         // Perform the copy
         let result = self.copy_one(id, blk).await;
 
         // Wait for the LBA range to be unlocked.
         // This allows others I/Os to be issued to this LBA range once again.
-        self.nexus_descriptor
-            .unlock_lba_range(&mut ctx, &ch)
-            .await
-            .context(RangeUnLockError {
+        self.nexus_descriptor.unlock_lba_range(lock).await.context(
+            RangeUnLockError {
                 blk,
                 len,
-            })?;
+            },
+        )?;
 
         result
     }
@@ -462,8 +457,7 @@ impl<'n> RebuildJob<'n> {
     /// ever be called on a properly allocated thread
     pub(super) fn get_instances(
     ) -> &'static mut HashMap<String, Box<RebuildJob<'static>>> {
-        let thread = unsafe { spdk_get_thread() };
-        if thread.is_null() {
+        if !Thread::is_spdk_thread() {
             panic!("not called from SPDK thread")
         }
 

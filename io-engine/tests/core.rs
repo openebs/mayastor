@@ -77,7 +77,7 @@ async fn works() {
     assert_eq!(b.name(), "core_nexus");
 
     let desc = UntypedBdev::open_by_name("core_nexus", false).unwrap();
-    let channel = desc.get_channel().expect("failed to get IO channel");
+    let channel = desc.io_channel().expect("failed to get IO channel");
     drop(channel);
     drop(desc);
     let n = nexus_lookup_mut("core_nexus").expect("nexus not found");
@@ -98,8 +98,8 @@ async fn core_2() {
             let d2 = UntypedBdev::open_by_name("core_nexus", true)
                 .expect("failed to open second desc to nexus");
 
-            let ch1 = d1.get_channel().expect("failed to get channel!");
-            let ch2 = d2.get_channel().expect("failed to get channel!");
+            let ch1 = d1.io_channel().expect("failed to get channel!");
+            let ch2 = d2.io_channel().expect("failed to get channel!");
             drop(ch1);
             drop(ch2);
 
