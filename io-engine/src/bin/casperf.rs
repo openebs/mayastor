@@ -7,7 +7,6 @@ use io_engine::{
     core::{
         mayastor_env_stop,
         Cores,
-        IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
         Mthread,
@@ -30,6 +29,7 @@ use spdk_rs::{
         spdk_poller_unregister,
     },
     DmaBuf,
+    IoChannelGuard,
 };
 use version_info::version_info_str;
 
@@ -56,7 +56,7 @@ struct Job {
     /// descriptor to the bdev
     desc: UntypedDescriptor,
     /// io channel being used to submit IO
-    ch: Option<IoChannel>,
+    ch: Option<IoChannelGuard<()>>,
     /// queue depth configured for this job
     qd: u64,
     /// io_size the io_size is the number of blocks submit per IO
@@ -232,7 +232,7 @@ impl Io {
         unsafe {
             if spdk_bdev_read(
                 self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
                 self.buf.len(),
@@ -255,7 +255,7 @@ impl Io {
         unsafe {
             if spdk_bdev_write(
                 self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
                 self.buf.len(),

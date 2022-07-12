@@ -12,7 +12,6 @@ use crossbeam::channel::unbounded;
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
-        IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
         RangeContext,
@@ -21,7 +20,7 @@ use io_engine::{
         UntypedBdev,
     },
 };
-use spdk_rs::DmaBuf;
+use spdk_rs::{DmaBuf, IoChannelGuard};
 pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";
@@ -38,7 +37,7 @@ const NUM_NEXUS_CHILDREN: u64 = 2;
 #[derive(Clone)]
 struct ShareableContext {
     ctx: Rc<RefCell<RangeContext>>,
-    ch: Rc<RefCell<IoChannel>>,
+    ch: Rc<RefCell<IoChannelGuard<()>>>,
 }
 
 impl ShareableContext {
@@ -57,7 +56,7 @@ impl ShareableContext {
     }
 
     /// Immutably borrow the IoChannel
-    pub fn borrow_ch(&self) -> Ref<IoChannel> {
+    pub fn borrow_ch(&self) -> Ref<IoChannelGuard<()>> {
         self.ch.borrow()
     }
 }
@@ -106,7 +105,7 @@ async fn create_nexus() {
 
 async fn lock_range(
     ctx: &mut RangeContext,
-    ch: &IoChannel,
+    ch: &IoChannelGuard<()>,
 ) -> Result<(), nix::errno::Errno> {
     let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.lock_lba_range(ctx, ch).await
@@ -114,7 +113,7 @@ async fn lock_range(
 
 async fn unlock_range(
     ctx: &mut RangeContext,
-    ch: &IoChannel,
+    ch: &IoChannelGuard<()>,
 ) -> Result<(), nix::errno::Errno> {
     let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.unlock_lba_range(ctx, ch).await

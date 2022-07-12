@@ -12,12 +12,12 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
-    core::{Cores, IoChannel, Mthread, UntypedBdev, UntypedDescriptor},
+    core::{Cores, UntypedBdev, UntypedDescriptor},
     ffihelper::pair,
     nexus_uri::bdev_create,
 };
 
-use spdk_rs::DmaBuf;
+use spdk_rs::{DmaBuf, IoChannelGuard, Thread};
 
 #[derive(Debug, Copy, Clone)]
 pub enum IoType {
@@ -80,7 +80,7 @@ impl Io {
         unsafe {
             if spdk_bdev_read(
                 self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
                 self.buf.len(),
@@ -103,7 +103,7 @@ impl Io {
         unsafe {
             if spdk_bdev_write(
                 self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
                 self.buf.len(),
@@ -126,7 +126,7 @@ impl Io {
         unsafe {
             if spdk_bdev_reset(
                 self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 Some(Job::io_completion),
                 self as *const _ as *mut _,
             ) == 0
@@ -150,7 +150,7 @@ pub struct Job {
     /// descriptor to the bdev
     desc: UntypedDescriptor,
     /// io channel used to submit IO
-    ch: Option<IoChannel>,
+    ch: Option<IoChannelGuard<()>>,
     /// queue depth configured for this job
     qd: u64,
     /// io_size the io_size is the number of blocks submit per IO
@@ -180,7 +180,7 @@ pub struct Job {
     /// core to run this job on
     core: u32,
     /// thread this job is run on
-    thread: Option<Mthread>,
+    thread: Option<Thread>,
 }
 
 impl Job {
@@ -196,7 +196,7 @@ impl Job {
             // trace!(
             //     "core: {} mthread: {:?}{}: {:#?}",
             //     Cores::current(),
-            //     Mthread::current().unwrap(),
+            //     Thread::current().unwrap(),
             //     job.thread.as_ref().unwrap().name(),
             //     bdev_io
             // );
@@ -238,14 +238,14 @@ impl Job {
     /// start the job that will dispatch an IO up to the provided queue depth
     fn start(mut self) -> Box<Job> {
         let thread =
-            Mthread::new(format!("job_{}", self.bdev.name()), self.core)
+            Thread::new(format!("job_{}", self.bdev.name()), self.core)
                 .unwrap();
         thread.with(|| {
             self.ch = self.desc.get_channel();
             let mut boxed = Box::new(self);
             let ptr = boxed.as_ptr();
             boxed.queue.iter_mut().for_each(|q| q.run(ptr));
-            boxed.thread = Mthread::current();
+            boxed.thread = Thread::current();
             boxed
         })
     }

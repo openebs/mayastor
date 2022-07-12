@@ -19,7 +19,6 @@ pub use block_device::{
     OpCompletionCallback,
     OpCompletionCallbackArg,
 };
-pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext, UntypedDescriptor};
 pub use device_events::{
@@ -54,7 +53,6 @@ use crate::subsys::NvmfError;
 
 mod bdev;
 mod block_device;
-mod channel;
 mod descriptor;
 mod device_events;
 mod env;

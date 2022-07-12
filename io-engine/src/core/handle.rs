@@ -25,10 +25,11 @@ use spdk_rs::{
     BdevOps,
     DmaBuf,
     DmaError,
+    IoChannelGuard,
 };
 
 use crate::{
-    core::{Bdev, CoreError, Descriptor, IoChannel},
+    core::{Bdev, CoreError, Descriptor},
     ffihelper::cb_arg,
     subsys,
 };
@@ -39,7 +40,8 @@ use crate::{
 pub struct BdevHandle<T: BdevOps> {
     /// Rust guarantees proper ordering of dropping. The channel MUST be
     /// dropped before we close the descriptor
-    channel: IoChannel,
+    channel: IoChannelGuard<T::ChannelData>,
+
     /// TODO
     desc: Arc<Descriptor<T>>,
 }
@@ -47,7 +49,7 @@ pub struct BdevHandle<T: BdevOps> {
 pub type UntypedBdevHandle = BdevHandle<()>;
 
 impl<T: BdevOps> BdevHandle<T> {
-    /// open a new bdev handle allocating a new ['Descriptor'] as well as a new
+    /// Opens a new bdev handle allocating a new ['Descriptor'] as well as a new
     /// ['IoChannel']
     pub fn open(
         name: &str,
@@ -89,7 +91,7 @@ impl<T: BdevOps> BdevHandle<T> {
 
     /// return a tuple to be used directly for read/write operations
     pub fn io_tuple(&self) -> (*mut spdk_bdev_desc, *mut spdk_io_channel) {
-        (self.desc.as_ptr(), self.channel.as_ptr())
+        (self.desc.as_ptr(), self.channel.legacy_as_ptr())
     }
 
     /// Allocate memory from the memory pool (the mem is zeroed out)
@@ -128,7 +130,7 @@ impl<T: BdevOps> BdevHandle<T> {
         let errno = unsafe {
             spdk_bdev_write(
                 self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.channel.legacy_as_ptr(),
                 **buffer,
                 offset,
                 buffer.len() as u64,
@@ -165,7 +167,7 @@ impl<T: BdevOps> BdevHandle<T> {
         let errno = unsafe {
             spdk_bdev_read(
                 self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.channel.legacy_as_ptr(),
                 **buffer,
                 offset,
                 buffer.len() as u64,
@@ -197,7 +199,7 @@ impl<T: BdevOps> BdevHandle<T> {
         let errno = unsafe {
             spdk_bdev_reset(
                 self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.channel.legacy_as_ptr(),
                 Some(Self::io_completion_cb),
                 cb_arg(s),
             )
@@ -225,7 +227,7 @@ impl<T: BdevOps> BdevHandle<T> {
         let errno = unsafe {
             spdk_bdev_write_zeroes(
                 self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.channel.legacy_as_ptr(),
                 offset,
                 len,
                 Some(Self::io_completion_cb),
@@ -296,7 +298,7 @@ impl<T: BdevOps> BdevHandle<T> {
         let errno = unsafe {
             spdk_bdev_nvme_admin_passthru_ro(
                 self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.channel.legacy_as_ptr(),
                 &*nvme_cmd,
                 match buffer {
                     Some(ref b) => ***b,

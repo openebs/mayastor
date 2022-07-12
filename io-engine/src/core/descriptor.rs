@@ -7,19 +7,15 @@ use std::{
 use futures::channel::oneshot;
 
 use spdk_rs::{
-    libspdk::{
-        bdev_lock_lba_range,
-        bdev_unlock_lba_range,
-        spdk_bdev_desc,
-        spdk_bdev_get_io_channel,
-    },
+    libspdk::{bdev_lock_lba_range, bdev_unlock_lba_range, spdk_bdev_desc},
     BdevModule,
     BdevOps,
+    IoChannelGuard,
 };
 
 use crate::{
     bdev::nexus::NEXUS_MODULE_NAME,
-    core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
+    core::{Bdev, BdevHandle, CoreError, Mthread},
 };
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
@@ -43,18 +39,9 @@ impl<T: BdevOps> Descriptor<T> {
         self.0.legacy_as_ptr()
     }
 
-    /// Get a channel to the underlying bdev
-    pub fn get_channel(&self) -> Option<IoChannel> {
-        let ch = unsafe { spdk_bdev_get_io_channel(self.0.legacy_as_ptr()) };
-        if ch.is_null() {
-            error!(
-                "failed to get IO channel for {} probably low on memory!",
-                self.get_bdev().name(),
-            );
-            None
-        } else {
-            Some(IoChannel::from(ch))
-        }
+    /// Gets a channel to the underlying bdev
+    pub fn get_channel(&self) -> Option<IoChannelGuard<T::ChannelData>> {
+        self.0.get_io_channel()
     }
 
     /// claim the bdev for exclusive access, when the descriptor is in read-only
@@ -106,7 +93,7 @@ impl<T: BdevOps> Descriptor<T> {
     pub async fn lock_lba_range(
         &self,
         ctx: &mut RangeContext,
-        ch: &IoChannel,
+        ch: &IoChannelGuard<T::ChannelData>,
     ) -> Result<(), nix::errno::Errno> {
         let (s, r) = oneshot::channel::<i32>();
         ctx.sender = Box::into_raw(Box::new(s));
@@ -114,7 +101,7 @@ impl<T: BdevOps> Descriptor<T> {
         unsafe {
             let rc = bdev_lock_lba_range(
                 self.as_ptr(),
-                ch.as_ptr(),
+                ch.legacy_as_ptr(),
                 ctx.offset,
                 ctx.len,
                 Some(spdk_range_cb),
@@ -139,7 +126,7 @@ impl<T: BdevOps> Descriptor<T> {
     pub async fn unlock_lba_range(
         &self,
         ctx: &mut RangeContext,
-        ch: &IoChannel,
+        ch: &IoChannelGuard<T::ChannelData>,
     ) -> Result<(), nix::errno::Errno> {
         let (s, r) = oneshot::channel::<i32>();
         ctx.sender = Box::into_raw(Box::new(s));
@@ -147,7 +134,7 @@ impl<T: BdevOps> Descriptor<T> {
         unsafe {
             let rc = bdev_unlock_lba_range(
                 self.as_ptr(),
-                ch.as_ptr(),
+                ch.legacy_as_ptr(),
                 ctx.offset,
                 ctx.len,
                 Some(spdk_range_cb),
