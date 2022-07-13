@@ -61,11 +61,6 @@ impl<'n> Nexus<'n> {
     pub fn register_children(mut self: Pin<&mut Self>, dev_name: &[String]) {
         assert_eq!(*self.state.lock(), NexusState::Init);
 
-        unsafe {
-            self.as_mut().get_unchecked_mut().child_count =
-                dev_name.len() as u32;
-        }
-
         let nexus_name = self.name.clone();
         dev_name
             .iter()
@@ -104,7 +99,6 @@ impl<'n> Nexus<'n> {
                     nexus_name,
                     device_lookup(&name),
                 ));
-            self.as_mut().get_unchecked_mut().child_count += 1;
         }
 
         Ok(())
@@ -235,7 +229,6 @@ impl<'n> Nexus<'n> {
 
                 unsafe {
                     self.as_mut().get_unchecked_mut().children.push(child);
-                    self.as_mut().get_unchecked_mut().child_count += 1;
                 }
 
                 self.persist(PersistOp::AddChild((cn, child_state))).await;
@@ -263,7 +256,7 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         uri: &str,
     ) -> Result<(), Error> {
-        if self.child_count == 1 {
+        if self.children.len() == 1 {
             return Err(Error::DestroyLastChild {
                 name: self.name.clone(),
                 child: uri.to_owned(),
@@ -315,7 +308,6 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             self.as_mut().get_unchecked_mut().children.remove(idx);
-            self.as_mut().get_unchecked_mut().child_count -= 1;
         }
 
         self.persist(PersistOp::Update((uri.to_string(), child_state)))
@@ -368,7 +360,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         trace!("{}: fault child request for {}", self.name, name);
 
-        if self.child_count < 2 {
+        if self.children.len() < 2 {
             return Err(Error::RemoveLastChild {
                 name: self.name.clone(),
                 child: name.to_owned(),

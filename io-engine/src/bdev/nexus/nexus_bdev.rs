@@ -445,8 +445,6 @@ pub struct Nexus<'n> {
     /// be larger. The actual Nexus size will be calculated based on the
     /// capabilities of the underlying child devices.
     pub(crate) req_size: u64,
-    /// number of children part of this nexus
-    pub(crate) child_count: u32,
     /// vector of children
     pub children: Vec<NexusChild<'n>>,
     /// NVMe parameters
@@ -563,7 +561,6 @@ impl<'n> Nexus<'n> {
     ) -> spdk_rs::Bdev<Nexus<'n>> {
         let n = Nexus {
             name: name.to_string(),
-            child_count: 0,
             children: Vec::new(),
             state: parking_lot::Mutex::new(NexusState::Init),
             bdev: None,
@@ -1188,7 +1185,6 @@ impl<'n> BdevOps for Nexus<'n> {
             }
 
             self_ref.children.clear();
-            self_ref.child_count = 0;
         });
 
         self.as_mut().unregister_io_device();
