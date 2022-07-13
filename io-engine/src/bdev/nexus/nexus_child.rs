@@ -25,7 +25,7 @@ use crate::{
     },
     nexus_uri::NexusBdevError,
     persistent_store::PersistentStore,
-    rebuild::{ClientOperations, RebuildJob},
+    rebuild::RebuildJob,
 };
 
 use spdk_rs::{
@@ -171,8 +171,11 @@ pub struct NexusChild<'c> {
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
     /// Name of the child is the URI used to create it.
-    /// Note that block device name can differ from it!
-    pub name: String,
+    /// Name of the underlying block device can differ from it.
+    ///
+    /// TODO: we don't rename this field due to possible issues with
+    /// TODO: child serialized state.
+    name: String,
     /// Underlying block device.
     #[serde(skip_serializing)]
     device: Option<Box<dyn BlockDevice>>,
@@ -510,13 +513,13 @@ impl<'c> NexusChild<'c> {
         }
     }
 
-    /// Get full name of this Nexus child.
-    pub(crate) fn get_name(&self) -> &str {
+    /// Get URI of this Nexus child.
+    pub(crate) fn uri(&self) -> &str {
         &self.name
     }
 
     /// Get name of the nexus this child belongs to.
-    pub fn get_nexus_name(&self) -> &str {
+    pub fn nexus_name(&self) -> &str {
         &self.parent
     }
 
@@ -735,7 +738,7 @@ impl<'c> NexusChild<'c> {
     /// Return the rebuild job which is rebuilding this child, if rebuilding.
     fn get_rebuild_job(&self) -> Option<&mut RebuildJob> {
         let job = RebuildJob::lookup(&self.name).ok()?;
-        assert_eq!(job.nexus, self.parent);
+        assert_eq!(job.nexus_name, self.parent);
         Some(job)
     }
 
@@ -773,9 +776,14 @@ impl<'c> NexusChild<'c> {
     }
 
     /// TODO
+    pub fn get_device_name(&self) -> Option<String> {
+        self.device.as_ref().map(|d| d.device_name())
+    }
+
+    /// TODO
     pub fn match_device_name(&self, bdev_name: &str) -> bool {
-        match &self.device {
-            Some(d) => d.device_name() == bdev_name,
+        match self.get_device_name() {
+            Some(n) => n == bdev_name,
             None => false,
         }
     }
@@ -793,15 +801,11 @@ impl<'c> NexusChild<'c> {
                     ?err,
                     "{}: failed to register event listener for child {}",
                     name,
-                    self.get_name(),
+                    self.uri(),
                 )
             }
             _ => {
-                info!(
-                    "{}: listening to child events: {}",
-                    name,
-                    self.get_name()
-                );
+                info!("{}: listening to child events: {}", name, self.uri());
             }
         }
     }

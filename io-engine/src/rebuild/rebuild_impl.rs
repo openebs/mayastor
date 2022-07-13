@@ -101,13 +101,13 @@ impl<'n> RebuildJob<'n> {
     pub(super) fn store(self) -> Result<(), RebuildError> {
         let rebuild_list = Self::get_instances();
 
-        if rebuild_list.contains_key(&self.destination) {
+        if rebuild_list.contains_key(&self.dst_uri) {
             Err(RebuildError::JobAlreadyExists {
-                job: self.destination,
+                job: self.dst_uri,
             })
         } else {
             let _ = rebuild_list
-                .insert(self.destination.clone(), Box::new(self.into_static()));
+                .insert(self.dst_uri.clone(), Box::new(self.into_static()));
             Ok(())
         }
     }
@@ -127,32 +127,32 @@ impl<'n> RebuildJob<'n> {
     /// Returns a new rebuild job based on the parameters
     #[allow(clippy::same_item_push)]
     pub(super) fn new(
-        nexus: &str,
-        source: &str,
-        destination: &str,
+        nexus_name: &str,
+        src_uri: &str,
+        dst_uri: &str,
         range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         let src_descriptor = device_open(
-            &bdev_get_name(source).context(BdevInvalidUri {
-                uri: source.to_string(),
+            &bdev_get_name(src_uri).context(BdevInvalidUri {
+                uri: src_uri.to_string(),
             })?,
             false,
         )
         .map_err(|e| RebuildError::BdevNotFound {
             source: e,
-            bdev: source.to_string(),
+            bdev: src_uri.to_string(),
         })?;
 
         let dst_descriptor = device_open(
-            &bdev_get_name(destination).context(BdevInvalidUri {
-                uri: destination.to_string(),
+            &bdev_get_name(dst_uri).context(BdevInvalidUri {
+                uri: dst_uri.to_string(),
             })?,
             true,
         )
         .map_err(|e| RebuildError::BdevNotFound {
             source: e,
-            bdev: destination.to_string(),
+            bdev: dst_uri.to_string(),
         })?;
 
         let source_hdl = Self::get_io_handle(&*src_descriptor)?;
@@ -191,22 +191,16 @@ impl<'n> RebuildJob<'n> {
             });
         }
 
-        let (source, destination, nexus) = (
-            source.to_string(),
-            destination.to_string(),
-            nexus.to_string(),
-        );
-
-        let nexus_descriptor = Bdev::<Nexus>::open_by_name(&nexus, false)
+        let nexus_descriptor = Bdev::<Nexus>::open_by_name(nexus_name, false)
             .context(BdevNotFound {
-                bdev: nexus.to_string(),
-            })?;
+            bdev: nexus_name.to_string(),
+        })?;
 
         Ok(Self {
-            nexus,
+            nexus_name: nexus_name.to_string(),
             nexus_descriptor,
-            source,
-            destination,
+            src_uri: src_uri.to_string(),
+            dst_uri: dst_uri.to_string(),
             next: range.start,
             range,
             block_size,
@@ -354,14 +348,14 @@ impl<'n> RebuildJob<'n> {
             .read_at(blk * self.block_size, copy_buffer)
             .await
             .context(ReadIoError {
-                bdev: &self.source,
+                bdev: &self.src_uri,
             })?;
 
         destination_hdl
             .write_at(blk * self.block_size, copy_buffer)
             .await
             .context(WriteIoError {
-                bdev: &self.destination,
+                bdev: &self.dst_uri,
             })?;
 
         Ok(())
@@ -386,9 +380,9 @@ impl<'n> RebuildJob<'n> {
     /// Calls the job's registered notify fn callback and notify sender channel
     fn send_notify(&mut self) {
         // should this return a status before we notify the sender channel?
-        (self.notify_fn)(self.nexus.clone(), self.destination.clone());
+        (self.notify_fn)(self.nexus_name.clone(), self.dst_uri.clone());
         if let Err(e) = self.notify_chan.0.send(self.state()) {
-            error!("Rebuild Job {} of nexus {} failed to send complete via the unbound channel with err {}", self.destination, self.nexus, e);
+            error!("Rebuild Job {} of nexus {} failed to send complete via the unbound channel with err {}", self.dst_uri, self.nexus_name, e);
         }
     }
 
@@ -414,7 +408,7 @@ impl<'n> RebuildJob<'n> {
         if old != new {
             info!(
                 "Rebuild job {}: changing state from {:?} to {:?}",
-                self.destination, old, new
+                self.dst_uri, old, new
             );
             self.notify();
         }
@@ -432,7 +426,7 @@ impl<'n> RebuildJob<'n> {
     fn schedule(&self) {
         match self.state() {
             RebuildState::Paused | RebuildState::Init => {
-                let destination = self.destination.clone();
+                let destination = self.dst_uri.clone();
                 Reactors::master().send_future(async move {
                     let job = match RebuildJob::lookup(&destination) {
                         Ok(job) => job,
@@ -499,8 +493,10 @@ impl std::fmt::Display for RebuildOperation {
     }
 }
 
-impl<'n> ClientOperations<'n> for RebuildJob<'n> {
-    fn stats(&self) -> RebuildStats {
+// impl<'n> ClientOperations<'n> for RebuildJob<'n> {
+impl<'n> RebuildJob<'n> {
+    /// Collects statistics from the job
+    pub fn stats(&self) -> RebuildStats {
         let blocks_total = self.range.end - self.range.start;
 
         // segment size may not be aligned to the total size
@@ -515,8 +511,8 @@ impl<'n> ClientOperations<'n> for RebuildJob<'n> {
             "State: {}, Src: {}, Dst: {}, range: {:?}, next: {}, \
              block_size: {}, segment_sz: {}, recovered_blks: {}, progress: {}%",
             self.state(),
-            self.source,
-            self.destination,
+            self.src_uri,
+            self.dst_uri,
             self.range,
             self.next,
             self.block_size,
@@ -536,7 +532,9 @@ impl<'n> ClientOperations<'n> for RebuildJob<'n> {
         }
     }
 
-    fn start(
+    /// Schedules the job to start in a future and returns a complete channel
+    /// which can be waited on.
+    pub fn start(
         &mut self,
     ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
         self.exec_client_op(RebuildOperation::Start)?;
@@ -545,19 +543,26 @@ impl<'n> ClientOperations<'n> for RebuildJob<'n> {
         Ok(end_channel.1)
     }
 
-    fn stop(&mut self) -> Result<(), RebuildError> {
+    /// Stops the job which then triggers the completion hooks.
+    pub fn stop(&mut self) -> Result<(), RebuildError> {
         self.exec_client_op(RebuildOperation::Stop)
     }
 
-    fn pause(&mut self) -> Result<(), RebuildError> {
+    /// Pauses the job which can then be later resumed.
+    pub fn pause(&mut self) -> Result<(), RebuildError> {
         self.exec_client_op(RebuildOperation::Pause)
     }
 
-    fn resume(&mut self) -> Result<(), RebuildError> {
+    /// Resumes a previously paused job
+    /// this could be used to mitigate excess load on the source bdev, eg
+    /// too much contention with frontend IO.
+    pub fn resume(&mut self) -> Result<(), RebuildError> {
         self.exec_client_op(RebuildOperation::Resume)
     }
 
-    fn terminate(&mut self) -> oneshot::Receiver<RebuildState> {
+    /// Forcefully terminates the job, overriding any pending client operation
+    /// returns an async channel which can be used to await for termination/
+    pub fn terminate(&mut self) -> oneshot::Receiver<RebuildState> {
         self.exec_internal_op(RebuildOperation::Stop).ok();
         let end_channel = oneshot::channel();
         self.complete_chan.push(end_channel.0);
@@ -565,25 +570,18 @@ impl<'n> ClientOperations<'n> for RebuildJob<'n> {
     }
 }
 
-/// Internal facing operations on a Rebuild Job
-trait InternalOperations {
+impl<'n> RebuildJob<'n> {
     /// Fails the job, overriding any pending client operation
-    fn fail(&mut self);
-    /// Completes the job, overriding any pending operation
-    fn complete(&mut self);
-}
-
-impl<'n> InternalOperations for RebuildJob<'n> {
     fn fail(&mut self) {
         self.exec_internal_op(RebuildOperation::Fail).ok();
     }
 
+    /// Completes the job, overriding any pending operation
     fn complete(&mut self) {
         self.exec_internal_op(RebuildOperation::Complete).ok();
     }
-}
 
-impl<'n> RebuildJob<'n> {
+    /// TODO
     fn start_all_tasks(&mut self) {
         assert_eq!(
             self.task_pool.active, 0,
@@ -603,6 +601,7 @@ impl<'n> RebuildJob<'n> {
         }
     }
 
+    /// TODO
     fn start_task_by_id(&mut self, id: usize) {
         match self.send_segment_task(id) {
             Some(next) => {
@@ -617,6 +616,7 @@ impl<'n> RebuildJob<'n> {
         };
     }
 
+    /// TODO
     async fn await_one_task(&mut self) -> Option<TaskResult> {
         self.task_pool.channel.1.next().await.map(|f| {
             self.task_pool.active -= 1;
@@ -629,10 +629,11 @@ impl<'n> RebuildJob<'n> {
         })
     }
 
+    /// TODO
     async fn await_all_tasks(&mut self) {
         debug!(
             "Awaiting all active tasks({}) for rebuild {}",
-            self.task_pool.active, self.destination
+            self.task_pool.active, self.dst_uri
         );
         while self.task_pool.active > 0 {
             if self.await_one_task().await.is_none() {
@@ -641,10 +642,7 @@ impl<'n> RebuildJob<'n> {
                 return;
             }
         }
-        debug!(
-            "Finished awaiting all tasks for rebuild {}",
-            self.destination
-        );
+        debug!("Finished awaiting all tasks for rebuild {}", self.dst_uri);
     }
 
     /// Sends one segment worth of data in a reactor future and notifies the
@@ -658,7 +656,7 @@ impl<'n> RebuildJob<'n> {
                 self.next + self.segment_size_blks,
                 self.range.end,
             );
-            let name = self.destination.clone();
+            let name = self.dst_uri.clone();
 
             Reactors::current().send_future(async move {
                 let job = Self::lookup(&name).unwrap();

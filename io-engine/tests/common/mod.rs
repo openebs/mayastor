@@ -16,7 +16,7 @@ use tracing::{error, info, trace};
 use io_engine::{
     core::{MayastorEnvironment, Mthread},
     logger,
-    rebuild::{ClientOperations, RebuildJob, RebuildState},
+    rebuild::{RebuildJob, RebuildState},
 };
 
 pub mod bdev_io;
@@ -423,7 +423,7 @@ pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
         Ok(job) => job,
         Err(_) => return,
     };
-    job.as_client().stats();
+    job.stats();
 
     let mut curr_state = job.state();
     let ch = job.notify_chan.1.clone();
@@ -453,7 +453,7 @@ pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
     });
     reactor_poll!(r);
     if let Ok(job) = RebuildJob::lookup(&name) {
-        job.as_client().stats();
+        job.stats();
     }
     t.join().unwrap().unwrap();
 }

@@ -763,7 +763,7 @@ impl<'n> Nexus<'n> {
                             error!(
                                 "{}: child {} failed to close with error {}",
                                 bdev.data_mut().name,
-                                child.get_name(),
+                                child.uri(),
                                 e.verbose()
                             );
                         }
@@ -786,17 +786,17 @@ impl<'n> Nexus<'n> {
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
         for child in self.children.iter() {
-            self.cancel_child_rebuild_jobs(child.get_name()).await;
+            self.cancel_child_rebuild_jobs(child.uri()).await;
         }
 
         unsafe {
             for child in self.as_mut().get_unchecked_mut().children.iter_mut() {
-                info!("Destroying child bdev {}", child.get_name());
+                info!("Destroying child bdev {}", child.uri());
                 if let Err(e) = child.close().await {
                     // TODO: should an error be returned here?
                     error!(
                         "Failed to close child {} with error {}",
-                        child.get_name(),
+                        child.uri(),
                         e.verbose()
                     );
                 }
@@ -907,7 +907,7 @@ impl<'n> Nexus<'n> {
         self.as_mut().pause().await?;
         debug!(?self, "UNPAUSE");
         if let Some(child) = self.lookup_child(&name) {
-            let uri = child.name.clone();
+            let uri = child.uri();
             // schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
             // complete anyway.
@@ -918,7 +918,7 @@ impl<'n> Nexus<'n> {
             // using this device as the replica with the most recent
             // user data.
             self.persist(PersistOp::UpdateCond(
-                (uri.clone(), child.state(), &|nexus_info| {
+                (uri.to_owned(), child.state(), &|nexus_info| {
                     // Determine the amount of healthy replicas in the persistent state and
                     // check against the last healthy replica remaining.
                     let num_healthy = nexus_info.children.iter().fold(0, |n, c| {
@@ -934,14 +934,14 @@ impl<'n> Nexus<'n> {
                             warn!(
                                 "nexus {}: no healthy replicas persent in persistent store when retiring replica {}:
                                 not persisting the replica state",
-                                &name, &uri,
+                                &name, uri,
                             );
                             false
                         }
                         1 => {
                             warn!(
                                 "nexus {}: retiring the last healthy replica {}, not persisting the replica state",
-                                &name, &uri,
+                                &name, uri,
                             );
                             false
                         },
@@ -1177,7 +1177,7 @@ impl<'n> BdevOps for Nexus<'n> {
                         error!(
                             "{}: child {} failed to close with error {}",
                             self_ref.name,
-                            child.get_name(),
+                            child.uri(),
                             e.verbose()
                         );
                     }
@@ -1424,7 +1424,7 @@ async fn nexus_create_internal(
             for child in ni.children.iter() {
                 // TODO: children may already be destroyed
                 // TODO: mutability violation
-                let _ = device_destroy(&child.name).await;
+                let _ = device_destroy(child.uri()).await;
             }
             Err(Error::NexusCreate {
                 name: String::from(name),

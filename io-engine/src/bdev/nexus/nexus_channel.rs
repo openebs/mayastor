@@ -189,7 +189,7 @@ impl NexusChannelInner {
                     }
                     _ => {
                         c.set_state(ChildState::Faulted(Reason::CantOpen));
-                        error!("failed to get I/O handle for {}", c.get_name());
+                        error!("failed to get I/O handle for {}", c.uri());
                     }
                 });
         }
@@ -207,10 +207,7 @@ impl NexusChannelInner {
                             writers.push(hdl);
                         } else {
                             c.set_state(ChildState::Faulted(Reason::CantOpen));
-                            error!(
-                                "failed to get I/O handle for {}",
-                                c.get_name()
-                            );
+                            error!("failed to get I/O handle for {}", c.uri());
                         }
                     });
             }
@@ -252,7 +249,7 @@ impl NexusChannel {
                     }
                     _ => {
                         c.set_state(ChildState::Faulted(Reason::CantOpen));
-                        error!("Failed to get I/O handle for {}, skipping block device", c.get_name())
+                        error!("Failed to get I/O handle for {}, skipping block device", c.uri())
                     }
                 });
         }

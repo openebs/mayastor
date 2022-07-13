@@ -174,6 +174,10 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
         SpdkBlockDevice::new(self.0.bdev())
     }
 
+    fn device_name(&self) -> String {
+        self.0.bdev().name().to_string()
+    }
+
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {

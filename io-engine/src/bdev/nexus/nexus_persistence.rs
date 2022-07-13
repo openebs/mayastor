@@ -86,7 +86,7 @@ impl<'n> Nexus<'n> {
                 assert!(!nexus_info.clean_shutdown);
                 self.children.iter().for_each(|c| {
                     let child_info = ChildInfo {
-                        uuid: NexusChild::uuid(&c.name)
+                        uuid: NexusChild::uuid(c.uri())
                             .expect("Failed to get child UUID."),
                         healthy: Self::child_healthy(&c.state()),
                     };

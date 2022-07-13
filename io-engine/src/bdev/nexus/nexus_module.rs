@@ -63,7 +63,7 @@ impl WithModuleConfigJson for NexusModule {
             let uris = nexus
                 .children
                 .iter()
-                .map(|c| c.get_name().to_string())
+                .map(|c| c.uri().to_string())
                 .collect::<Vec<String>>();
 
             let json = json!({

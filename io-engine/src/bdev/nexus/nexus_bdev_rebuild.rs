@@ -19,13 +19,7 @@ use super::{
 use crate::{
     bdev::nexus::nexus_persistence::PersistOp,
     core::Reactors,
-    rebuild::{
-        ClientOperations,
-        RebuildError,
-        RebuildJob,
-        RebuildState,
-        RebuildStats,
-    },
+    rebuild::{RebuildError, RebuildJob, RebuildState, RebuildStats},
 };
 
 impl<'n> Nexus<'n> {
@@ -33,43 +27,43 @@ impl<'n> Nexus<'n> {
     /// which can be used to await the rebuild completion
     pub async fn start_rebuild(
         self: Pin<&mut Self>,
-        name: &str,
+        child_uri: &str,
     ) -> Result<Receiver<RebuildState>, Error> {
-        trace!("{}: start rebuild request for {}", self.name, name);
+        trace!("{}: start rebuild request for {}", self.name, child_uri);
 
-        let src_child_name = match self
+        let src_child_uri = match self
             .children
             .iter()
-            .find(|c| c.state() == ChildState::Open && c.get_name() != name)
+            .find(|c| c.state() == ChildState::Open && c.uri() != child_uri)
         {
-            Some(child) => Ok(child.name.clone()),
+            Some(child) => Ok(child.uri().to_owned()),
             None => Err(Error::NoRebuildSource {
                 name: self.name.clone(),
             }),
         }?;
 
-        let dst_child_name =
-            match self.children.iter().find(|c| c.get_name() == name) {
+        let dst_child_uri =
+            match self.children.iter().find(|c| c.uri() == child_uri) {
                 Some(c)
                     if c.state() == ChildState::Faulted(Reason::OutOfSync) =>
                 {
-                    Ok(c.name.clone())
+                    Ok(c.uri().to_owned())
                 }
                 Some(c) => Err(Error::ChildNotDegraded {
-                    child: name.to_owned(),
+                    child: child_uri.to_owned(),
                     name: self.name.clone(),
                     state: c.state().to_string(),
                 }),
                 None => Err(Error::ChildNotFound {
-                    child: name.to_owned(),
+                    child: child_uri.to_owned(),
                     name: self.name.clone(),
                 }),
             }?;
 
         let job = RebuildJob::create(
             &self.name,
-            &src_child_name,
-            &dst_child_name,
+            &src_child_uri,
+            &dst_child_uri,
             std::ops::Range::<u64> {
                 start: self.data_ent_offset,
                 end: self.num_blocks() + self.data_ent_offset,
@@ -81,7 +75,7 @@ impl<'n> Nexus<'n> {
             },
         )
         .context(CreateRebuild {
-            child: name.to_owned(),
+            child: child_uri.to_owned(),
             name: self.name.clone(),
         })?;
 
@@ -95,8 +89,8 @@ impl<'n> Nexus<'n> {
         // rebuilt ranges in sync with the other children.
         self.reconfigure(DrEvent::ChildRebuild).await;
 
-        job.as_client().start().context(RebuildOperation {
-            job: name.to_owned(),
+        job.start().context(RebuildOperation {
+            job: child_uri.to_owned(),
             name: self.name.clone(),
         })
     }
@@ -109,7 +103,7 @@ impl<'n> Nexus<'n> {
         // If a rebuild job is not found that's ok
         // as we were just going to remove it anyway.
         if let Ok(rj) = self.get_rebuild_job(name) {
-            let ch = rj.as_client().terminate();
+            let ch = rj.terminate();
             if let Err(e) = ch.await {
                 error!(
                     "Failed to wait on rebuild job for child {} to terminate with error {}", name,
@@ -122,7 +116,7 @@ impl<'n> Nexus<'n> {
     /// Stop a rebuild job in the background
     pub async fn stop_rebuild(&self, name: &str) -> Result<(), Error> {
         match self.get_rebuild_job(name) {
-            Ok(rj) => rj.as_client().stop().context(RebuildOperation {
+            Ok(rj) => rj.stop().context(RebuildOperation {
                 job: name.to_owned(),
                 name: self.name.clone(),
             }),
@@ -137,7 +131,7 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         name: &str,
     ) -> Result<(), Error> {
-        let rj = self.get_rebuild_job(name)?.as_client();
+        let rj = self.get_rebuild_job(name)?;
         rj.pause().context(RebuildOperation {
             job: name.to_owned(),
             name: self.name.clone(),
@@ -149,49 +143,51 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         name: &str,
     ) -> Result<(), Error> {
-        let rj = self.get_rebuild_job(name)?.as_client();
+        let rj = self.get_rebuild_job(name)?;
         rj.resume().context(RebuildOperation {
             job: name.to_owned(),
             name: self.name.clone(),
         })
     }
 
-    /// Return the state of a rebuild job
+    /// Return the state of a rebuild job for the given destination.
     pub async fn get_rebuild_state(
         self: Pin<&mut Self>,
-        name: &str,
+        dst_uri: &str,
     ) -> Result<RebuildState, Error> {
-        let rj = self.get_rebuild_job(name)?;
+        let rj = self.get_rebuild_job(dst_uri)?;
         Ok(rj.state())
     }
 
-    /// Return the stats of a rebuild job
+    /// Return the stats of a rebuild job for the given destination.
     pub async fn get_rebuild_stats(
         self: Pin<&mut Self>,
-        name: &str,
+        dst_uri: &str,
     ) -> Result<RebuildStats, Error> {
-        let rj = self.get_rebuild_job(name)?;
+        let rj = self.get_rebuild_job(dst_uri)?;
         Ok(rj.stats())
     }
 
-    /// Returns the rebuild progress of child target `name`
-    pub fn get_rebuild_progress(&self, name: &str) -> Result<u32, Error> {
-        let rj = self.get_rebuild_job(name)?;
-
-        Ok(rj.as_client().stats().progress as u32)
+    /// Returns the rebuild progress of a rebuild job for the given destination.
+    pub fn get_rebuild_progress(&self, dst_uri: &str) -> Result<u32, Error> {
+        let rj = self.get_rebuild_job(dst_uri)?;
+        Ok(rj.stats().progress as u32)
     }
 
     /// Cancels all rebuilds jobs associated with the child.
     /// Returns a list of rebuilding children whose rebuild job was cancelled.
-    pub async fn cancel_child_rebuild_jobs(&self, name: &str) -> Vec<String> {
-        let mut src_jobs = self.get_rebuild_job_src(name);
+    pub async fn cancel_child_rebuild_jobs(
+        &self,
+        src_uri: &str,
+    ) -> Vec<String> {
+        let mut src_jobs = self.get_rebuild_job_src(src_uri);
         let mut terminated_jobs = Vec::new();
         let mut rebuilding_children = Vec::new();
 
         // terminate all jobs with the child as a source
         src_jobs.iter_mut().for_each(|j| {
-            terminated_jobs.push(j.as_client().terminate());
-            rebuilding_children.push(j.destination.clone());
+            terminated_jobs.push(j.terminate());
+            rebuilding_children.push(j.dst_uri.clone());
         });
 
         // wait for the jobs to complete terminating
@@ -202,7 +198,7 @@ impl<'n> Nexus<'n> {
         }
 
         // terminate the only possible job with the child as a destination
-        self.terminate_rebuild(name).await;
+        self.terminate_rebuild(src_uri).await;
         rebuilding_children
     }
 
@@ -210,24 +206,24 @@ impl<'n> Nexus<'n> {
     /// todo: how to proceed if no healthy child is found?
     pub async fn start_rebuild_jobs(
         mut self: Pin<&mut Self>,
-        child_names: Vec<String>,
+        child_uris: Vec<String>,
     ) {
-        for name in child_names {
-            if let Err(e) = self.as_mut().start_rebuild(&name).await {
+        for uri in child_uris {
+            if let Err(e) = self.as_mut().start_rebuild(&uri).await {
                 error!("Failed to start rebuild: {}", e.verbose());
             }
         }
     }
 
-    /// Return rebuild job associated with the src child name.
-    /// Return error if no rebuild job associated with it.
+    /// Return rebuild jobs associated with the src child name.
     fn get_rebuild_job_src<'a>(
         &self,
-        name: &'a str,
+        src_child_uri: &'a str,
     ) -> Vec<&'a mut RebuildJob> {
-        let jobs = RebuildJob::lookup_src(name);
+        let jobs = RebuildJob::lookup_src(src_child_uri);
 
-        jobs.iter().for_each(|job| assert_eq!(job.nexus, self.name));
+        jobs.iter()
+            .for_each(|job| assert_eq!(job.nexus_name, self.name));
         jobs
     }
 
@@ -235,14 +231,15 @@ impl<'n> Nexus<'n> {
     /// Return error if no rebuild job associated with it.
     fn get_rebuild_job<'a>(
         &self,
-        name: &'a str,
+        dst_child_uri: &'a str,
     ) -> Result<&'a mut RebuildJob, Error> {
-        let job = RebuildJob::lookup(name).context(RebuildJobNotFound {
-            child: name.to_owned(),
-            name: self.name.clone(),
-        })?;
+        let job =
+            RebuildJob::lookup(dst_child_uri).context(RebuildJobNotFound {
+                child: dst_child_uri.to_owned(),
+                name: self.name.clone(),
+            })?;
 
-        assert_eq!(job.nexus, self.name);
+        assert_eq!(job.nexus_name, self.name);
         Ok(job)
     }
 
@@ -252,17 +249,16 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         job: &RebuildJob<'n>,
     ) -> Result<(), Error> {
-        let recovering_child =
-            self.as_mut().get_child_by_name(&job.destination)?;
+        let recovering_child = self.as_mut().get_child_by_name(&job.dst_uri)?;
 
         match job.state() {
             RebuildState::Completed => {
                 recovering_child.set_state(ChildState::Open);
                 info!(
                     "Child {} has been rebuilt successfully",
-                    recovering_child.get_name()
+                    recovering_child.uri()
                 );
-                let child_name = recovering_child.get_name().to_string();
+                let child_name = recovering_child.uri().to_string();
                 let child_state = recovering_child.state();
                 self.persist(PersistOp::Update((child_name, child_state)))
                     .await;
@@ -270,7 +266,7 @@ impl<'n> Nexus<'n> {
             RebuildState::Stopped => {
                 info!(
                     "Rebuild job for child {} of nexus {} stopped",
-                    &job.destination, &self.name,
+                    &job.dst_uri, &self.name,
                 );
             }
             RebuildState::Failed => {
@@ -285,7 +281,7 @@ impl<'n> Nexus<'n> {
                 recovering_child.fault(Reason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed, error: {}",
-                    &job.destination,
+                    &job.dst_uri,
                     &self.name,
                     job.error_desc(),
                 );
@@ -294,7 +290,7 @@ impl<'n> Nexus<'n> {
                 recovering_child.fault(Reason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed with state {:?}",
-                    &job.destination,
+                    &job.dst_uri,
                     &self.name,
                     job.state(),
                 );

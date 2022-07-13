@@ -236,14 +236,14 @@ async fn rebuild_replica() {
         }
         let src = RebuildJob::lookup(&get_dev(NUM_CHILDREN))
             .expect("now the job should exist")
-            .source
+            .src_uri
             .clone();
 
         for child in 0 .. NUM_CHILDREN {
             if get_dev(child) != src {
                 RebuildJob::lookup_src(&get_dev(child))
                     .iter()
-                    .filter(|s| s.destination != get_dev(child))
+                    .filter(|s| s.dst_uri != get_dev(child))
                     .inspect(|&job| {
                         error!(
                             "Job {:?} should be associated with src child {}",
@@ -258,7 +258,7 @@ async fn rebuild_replica() {
             RebuildJob::lookup_src(&src)
                 .iter()
                 .inspect(|&job| {
-                    assert_eq!(job.destination, get_dev(NUM_CHILDREN));
+                    assert_eq!(job.dst_uri, get_dev(NUM_CHILDREN));
                 })
                 .count(),
             1

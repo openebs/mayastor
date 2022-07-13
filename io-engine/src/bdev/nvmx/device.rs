@@ -72,6 +72,10 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
         Box::new(NvmeBlockDevice::from_ns(&self.name, self.ns.clone()))
     }
 
+    fn device_name(&self) -> String {
+        self.name.clone()
+    }
+
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {

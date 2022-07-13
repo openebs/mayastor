@@ -114,7 +114,7 @@ impl From<nexus::ChildState> for ChildState {
 impl<'c> From<&NexusChild<'c>> for Child {
     fn from(ch: &NexusChild) -> Self {
         Child {
-            uri: ch.get_name().to_string(),
+            uri: ch.uri().to_string(),
             state: ChildState::from(ch.state()) as i32,
             rebuild_progress: ch.get_rebuild_progress(),
         }
