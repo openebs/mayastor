@@ -1,21 +1,12 @@
-#![warn(missing_docs)]
+use std::{cell::UnsafeCell, collections::HashMap, fmt};
 
-use std::{cell::UnsafeCell, collections::HashMap};
+use crossbeam::channel::{unbounded, Receiver, Sender};
 
-use crossbeam::channel::unbounded;
-use futures::{
-    channel::{mpsc, oneshot},
-    StreamExt,
-};
+use futures::channel::{mpsc, oneshot};
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
 
-use spdk_rs::{
-    libspdk::SPDK_BDEV_LARGE_BUF_MAX_SIZE,
-    DmaBuf,
-    LbaRange,
-    Thread,
-};
+use spdk_rs::{DmaBuf, LbaRange, Thread};
 
 use crate::{
     bdev::{device_open, nexus::VerboseError, Nexus},
@@ -24,12 +15,52 @@ use crate::{
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
+        DescriptorGuard,
         Reactors,
     },
     nexus_uri::bdev_get_name,
 };
 
-use super::rebuild_api::*;
+use super::{
+    rebuild_error::*,
+    RebuildError,
+    RebuildState,
+    RebuildStates,
+    RebuildStats,
+    RebuildTask,
+    RebuildTasks,
+    TaskResult,
+    Within,
+    SEGMENT_SIZE,
+    SEGMENT_TASKS,
+};
+
+#[derive(Debug)]
+/// Operations used to control the state of the job
+enum RebuildOperation {
+    /// Client Operations
+    ///
+    /// Starts the job for the first time
+    Start,
+    /// Stops the job (eg, child being removed)
+    Stop,
+    /// Pauses the job
+    Pause,
+    /// Resumes the previously paused job
+    Resume,
+    /// Internal Operations
+    ///
+    /// an IO error has occurred
+    Fail,
+    /// rebuild completed successfully
+    Complete,
+}
+
+impl std::fmt::Display for RebuildOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 /// Global list of rebuild jobs using a static OnceCell
 pub(super) struct RebuildInstances {
@@ -39,66 +70,77 @@ pub(super) struct RebuildInstances {
 unsafe impl Sync for RebuildInstances {}
 unsafe impl Send for RebuildInstances {}
 
-/// Result returned by each segment task worker
-/// used to communicate with the management task indicating that the
-/// segment task worker is ready to copy another segment
-#[derive(Debug, Clone)]
-struct TaskResult {
-    /// block that was being rebuilt
-    blk: u64,
-    /// id of the task
-    id: usize,
-    /// encountered error, if any
-    error: Option<RebuildError>,
+/// A rebuild job is responsible for managing a rebuild (copy) which reads
+/// from source_hdl and writes into destination_hdl from specified start to end
+pub struct RebuildJob<'n> {
+    /// name of the nexus associated with the rebuild job
+    pub nexus_name: String,
+    /// descriptor for the nexus
+    pub(super) nexus_descriptor: DescriptorGuard<Nexus<'n>>,
+    /// source URI of the healthy child to rebuild from
+    pub src_uri: String,
+    /// target URI of the out of sync child in need of a rebuild
+    pub dst_uri: String,
+    /// TODO
+    pub(super) block_size: u64,
+    /// TODO
+    pub(super) range: std::ops::Range<u64>,
+    /// TODO
+    pub(super) next: u64,
+    /// TODO
+    pub(super) segment_size_blks: u64,
+    /// TODO
+    pub(super) task_pool: RebuildTasks,
+    /// TODO
+    pub(super) notify_fn: fn(String, String) -> (),
+    /// channel used to signal rebuild update
+    pub notify_chan: (Sender<RebuildState>, Receiver<RebuildState>),
+    /// current state of the rebuild job
+    pub(super) states: RebuildStates,
+    /// channel list which allows the await of the rebuild
+    pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
+    /// rebuild copy error, if any
+    pub error: Option<RebuildError>,
+
+    // Pre-opened descriptors for source/destination block device.
+    pub(super) src_descriptor: Box<dyn BlockDeviceDescriptor>,
+    pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
 }
 
-/// Number of concurrent copy tasks per rebuild job
-const SEGMENT_TASKS: usize = 16;
-/// Size of each segment used by the copy task
-pub const SEGMENT_SIZE: u64 = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
+// TODO: is `RebuildJob` really a Send type?
+unsafe impl Send for RebuildJob<'_> {}
 
-/// Each rebuild task needs a unique buffer to read/write from source to target
-/// A mpsc channel is used to communicate with the management task
-#[derive(Debug)]
-struct RebuildTask {
-    buffer: DmaBuf,
-    sender: mpsc::Sender<TaskResult>,
-    error: Option<TaskResult>,
-}
-
-/// Pool of rebuild tasks and progress tracking
-/// Each task uses a clone of the sender allowing the management task to poll a
-/// single receiver
-#[derive(Debug)]
-pub(super) struct RebuildTasks {
-    tasks: Vec<RebuildTask>,
-
-    channel: (mpsc::Sender<TaskResult>, mpsc::Receiver<TaskResult>),
-    active: usize,
-    total: usize,
-
-    segments_done: u64,
-}
-
-/// Checks whether a range is contained within another range
-pub trait Within<T> {
-    /// True if `self` is contained within `right`, otherwise false
-    fn within(&self, right: std::ops::Range<T>) -> bool;
-}
-
-impl Within<u64> for std::ops::Range<u64> {
-    fn within(&self, right: std::ops::Range<u64>) -> bool {
-        // also make sure ranges don't overflow
-        self.start < self.end
-            && right.start < right.end
-            && self.start >= right.start
-            && self.end <= right.end
+impl<'n> fmt::Debug for RebuildJob<'n> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RebuildJob")
+            .field("nexus", &self.nexus_name)
+            .field("source", &self.src_uri)
+            .field("destination", &self.dst_uri)
+            .finish()
     }
 }
 
 impl<'n> RebuildJob<'n> {
+    /// Get the rebuild job instances container, we ensure that this can only
+    /// ever be called on a properly allocated thread
+    fn get_instances() -> &'static mut HashMap<String, Box<RebuildJob<'static>>>
+    {
+        if !Thread::is_spdk_thread() {
+            panic!("not called from SPDK thread")
+        }
+
+        static REBUILD_INSTANCES: OnceCell<RebuildInstances> = OnceCell::new();
+
+        let global_instances =
+            REBUILD_INSTANCES.get_or_init(|| RebuildInstances {
+                inner: UnsafeCell::new(HashMap::new()),
+            });
+
+        unsafe { &mut *global_instances.inner.get() }
+    }
+
     /// Stores a rebuild job in the rebuild job list
-    pub(super) fn store(self) -> Result<(), RebuildError> {
+    fn store(self) -> Result<(), RebuildError> {
         let rebuild_list = Self::get_instances();
 
         if rebuild_list.contains_key(&self.dst_uri) {
@@ -118,15 +160,31 @@ impl<'n> RebuildJob<'n> {
     }
 
     /// TODO
-    pub(super) fn from_static<'a>(
+    fn from_static<'a>(
         job: &mut RebuildJob<'static>,
     ) -> &'a mut RebuildJob<'a> {
         unsafe { std::mem::transmute::<_, &'a mut RebuildJob<'a>>(job) }
     }
 
+    /// Creates a new RebuildJob which rebuilds from source URI to target URI
+    /// from start to end (of the data partition); notify_fn callback is called
+    /// when the rebuild state is updated - with the nexus and destination
+    /// URI as arguments
+    pub fn create<'a>(
+        nexus_name: &str,
+        src_uri: &str,
+        dst_uri: &'a str,
+        range: std::ops::Range<u64>,
+        notify_fn: fn(String, String) -> (),
+    ) -> Result<&'a mut Self, RebuildError> {
+        Self::new(nexus_name, src_uri, dst_uri, range, notify_fn)?.store()?;
+
+        Self::lookup(dst_uri)
+    }
+
     /// Returns a new rebuild job based on the parameters
     #[allow(clippy::same_item_push)]
-    pub(super) fn new(
+    fn new(
         nexus_name: &str,
         src_uri: &str,
         dst_uri: &str,
@@ -214,6 +272,61 @@ impl<'n> RebuildJob<'n> {
             src_descriptor,
             dst_descriptor,
         })
+    }
+
+    /// Lookup a rebuild job by its destination uri and return it
+    pub fn lookup<'a>(
+        dst_uri: &str,
+    ) -> Result<&'a mut RebuildJob<'a>, RebuildError> {
+        if let Some(job) = Self::get_instances().get_mut(dst_uri) {
+            Ok(Self::from_static(job))
+        } else {
+            Err(RebuildError::JobNotFound {
+                job: dst_uri.to_owned(),
+            })
+        }
+    }
+
+    /// Lookup all rebuilds jobs with name as its source.
+    pub fn lookup_src<'a>(src_uri: &str) -> Vec<&'a mut RebuildJob<'a>> {
+        Self::get_instances()
+            .iter_mut()
+            .filter_map(|j| {
+                if j.1.src_uri == src_uri {
+                    Some(Self::from_static(j.1.as_mut()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Lookup a rebuild job by its destination uri then remove and drop it.
+    pub fn remove(name: &str) -> Result<(), RebuildError> {
+        match Self::get_instances().remove(name) {
+            Some(_) => Ok(()),
+            None => Err(RebuildError::JobNotFound {
+                job: name.to_owned(),
+            }),
+        }
+    }
+
+    /// Number of rebuild job instances
+    pub fn count() -> usize {
+        Self::get_instances().len()
+    }
+
+    /// State of the rebuild job
+    pub fn state(&self) -> RebuildState {
+        self.states.current
+    }
+
+    /// Error description
+    pub fn error_desc(&self) -> String {
+        match self.error.as_ref() {
+            Some(e) => e.verbose(),
+            _ => "".to_string(),
+        }
     }
 
     // Runs the management async task that kicks off N rebuild copy tasks and
@@ -361,6 +474,7 @@ impl<'n> RebuildJob<'n> {
         Ok(())
     }
 
+    /// TODO
     fn get_io_handle(
         descriptor: &dyn BlockDeviceDescriptor,
     ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
@@ -372,6 +486,7 @@ impl<'n> RebuildJob<'n> {
             })
     }
 
+    /// TODO
     fn notify(&mut self) {
         self.stats();
         self.send_notify();
@@ -400,7 +515,7 @@ impl<'n> RebuildJob<'n> {
             && source.block_len() == destination.block_len()
     }
 
-    /// reconcile the pending state to the current and clear the pending
+    /// Reconciles the pending state to the current and clear the pending.
     fn reconcile(&mut self) {
         let old = self.state();
         let new = self.states.reconcile();
@@ -414,7 +529,7 @@ impl<'n> RebuildJob<'n> {
         }
     }
 
-    /// reconciles to state if it's the same as the pending value
+    /// Reconciles to state if it's the same as the pending value.
     fn reconcile_to_state(&mut self, state: RebuildState) -> bool {
         if self.states.pending_equals(state) {
             self.reconcile();
@@ -423,17 +538,19 @@ impl<'n> RebuildJob<'n> {
             false
         }
     }
+
+    /// TODO
     fn schedule(&self) {
         match self.state() {
             RebuildState::Paused | RebuildState::Init => {
-                let destination = self.dst_uri.clone();
+                let dst_uri = self.dst_uri.clone();
                 Reactors::master().send_future(async move {
-                    let job = match RebuildJob::lookup(&destination) {
+                    let job = match RebuildJob::lookup(&dst_uri) {
                         Ok(job) => job,
                         Err(_) => {
                             return error!(
                                 "Failed to find and start the rebuild job {}",
-                                destination
+                                dst_uri
                             );
                         }
                     };
@@ -447,54 +564,6 @@ impl<'n> RebuildJob<'n> {
         }
     }
 
-    /// Get the rebuild job instances container, we ensure that this can only
-    /// ever be called on a properly allocated thread
-    pub(super) fn get_instances(
-    ) -> &'static mut HashMap<String, Box<RebuildJob<'static>>> {
-        if !Thread::is_spdk_thread() {
-            panic!("not called from SPDK thread")
-        }
-
-        static REBUILD_INSTANCES: OnceCell<RebuildInstances> = OnceCell::new();
-
-        let global_instances =
-            REBUILD_INSTANCES.get_or_init(|| RebuildInstances {
-                inner: UnsafeCell::new(HashMap::new()),
-            });
-
-        unsafe { &mut *global_instances.inner.get() }
-    }
-}
-
-#[derive(Debug)]
-/// Operations used to control the state of the job
-enum RebuildOperation {
-    /// Client Operations
-    ///
-    /// Starts the job for the first time
-    Start,
-    /// Stops the job (eg, child being removed)
-    Stop,
-    /// Pauses the job
-    Pause,
-    /// Resumes the previously paused job
-    Resume,
-    /// Internal Operations
-    ///
-    /// an IO error has occurred
-    Fail,
-    /// rebuild completed successfully
-    Complete,
-}
-
-impl std::fmt::Display for RebuildOperation {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-// impl<'n> ClientOperations<'n> for RebuildJob<'n> {
-impl<'n> RebuildJob<'n> {
     /// Collects statistics from the job
     pub fn stats(&self) -> RebuildStats {
         let blocks_total = self.range.end - self.range.start;
@@ -568,9 +637,7 @@ impl<'n> RebuildJob<'n> {
         self.complete_chan.push(end_channel.0);
         end_channel.1
     }
-}
 
-impl<'n> RebuildJob<'n> {
     /// Fails the job, overriding any pending client operation
     fn fail(&mut self) {
         self.exec_internal_op(RebuildOperation::Fail).ok();
@@ -618,15 +685,7 @@ impl<'n> RebuildJob<'n> {
 
     /// TODO
     async fn await_one_task(&mut self) -> Option<TaskResult> {
-        self.task_pool.channel.1.next().await.map(|f| {
-            self.task_pool.active -= 1;
-            if f.error.is_none() {
-                self.task_pool.segments_done += 1;
-            } else {
-                self.task_pool.tasks[f.id].error = Some(f.clone());
-            }
-            f
-        })
+        self.task_pool.await_one_task().await
     }
 
     /// TODO
@@ -635,6 +694,7 @@ impl<'n> RebuildJob<'n> {
             "Awaiting all active tasks({}) for rebuild {}",
             self.task_pool.active, self.dst_uri
         );
+
         while self.task_pool.active > 0 {
             if self.await_one_task().await.is_none() {
                 error!("Failed to wait for {} rebuild tasks due mpsc channel failure.", self.task_pool.active);
@@ -646,7 +706,7 @@ impl<'n> RebuildJob<'n> {
     }
 
     /// Sends one segment worth of data in a reactor future and notifies the
-    /// management channel. Returns the next segment offset to rebuild, if any
+    /// management channel. Returns the next segment offset to rebuild, if any.
     fn send_segment_task(&self, id: usize) -> Option<u64> {
         if self.next >= self.range.end {
             None
@@ -675,68 +735,6 @@ impl<'n> RebuildJob<'n> {
 
             Some(next)
         }
-    }
-}
-
-#[derive(Debug, Default)]
-pub(super) struct RebuildStates {
-    /// Current state of the rebuild job
-    pub current: RebuildState,
-
-    /// Pending state for the rebuild job
-    pending: Option<RebuildState>,
-}
-
-impl std::fmt::Display for RebuildStates {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl Default for RebuildState {
-    fn default() -> Self {
-        RebuildState::Init
-    }
-}
-
-impl RebuildStates {
-    /// Set's the next pending state
-    /// if one is already set then override only if flag is set
-    pub(self) fn set_pending(
-        &mut self,
-        state: RebuildState,
-        override_pending: bool,
-    ) -> Result<(), RebuildError> {
-        match self.pending {
-            Some(pending) if !override_pending && (pending != state) => {
-                Err(RebuildError::StatePending {
-                    state: pending.to_string(),
-                })
-            }
-            _ => {
-                if self.current != state {
-                    self.pending = Some(state);
-                } else {
-                    self.pending = None;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    /// a change to `state` is pending
-    fn pending_equals(&self, state: RebuildState) -> bool {
-        self.pending == Some(state)
-    }
-
-    /// reconcile the pending state into the current state
-    fn reconcile(&mut self) -> RebuildState {
-        if let Some(pending) = self.pending {
-            self.current = pending;
-            self.pending = None;
-        }
-
-        self.current
     }
 }
 
