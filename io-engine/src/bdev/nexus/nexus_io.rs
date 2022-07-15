@@ -1,7 +1,6 @@
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
-    pin::Pin,
 };
 
 use libc::c_void;
@@ -133,7 +132,7 @@ impl<'n> NexusBio<'n> {
 
     /// assess the IO if we need to mark it failed or ok.
     /// obtain the Nexus struct embedded within the bdev
-    pub(crate) fn nexus_as_ref(&self) -> Pin<&Nexus<'n>> {
+    pub(crate) fn nexus_as_ref(&self) -> &Nexus<'n> {
         self.bdev_checked(NEXUS_PRODUCT_ID).data()
     }
 
