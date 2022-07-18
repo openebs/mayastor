@@ -24,8 +24,6 @@ pub enum RebuildError {
     WriteIoError { source: CoreError, bdev: String },
     #[snafu(display("Failed to find rebuild job {}", job))]
     JobNotFound { job: String },
-    #[snafu(display("Job {} already exists", job))]
-    JobAlreadyExists { job: String },
     #[snafu(display("Missing rebuild destination {}", job))]
     MissingDestination { job: String },
     #[snafu(display(

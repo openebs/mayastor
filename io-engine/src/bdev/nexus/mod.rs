@@ -33,9 +33,7 @@ pub(crate) use nexus_bdev::{
     CreateChild,
     CreateRebuild,
     OpenChild,
-    RebuildJobNotFound,
     RebuildOperation,
-    RemoveRebuildJob,
     ShareNbdNexus,
     ShareNvmfNexus,
     UnshareNexus,
@@ -147,7 +145,7 @@ pub fn register_module() {
 pub async fn nexus_children_to_destroying_state() {
     info!("setting all nexus children to destroying state...");
     for nexus in nexus_iter() {
-        for child in nexus.children.iter() {
+        for child in nexus.children_iter() {
             child.set_state(nexus_child::ChildState::Destroying);
         }
     }

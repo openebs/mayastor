@@ -50,8 +50,7 @@ pub enum DrEvent {
 /// Mark nexus child as faulted based on its device name
 pub(crate) fn fault_nexus_child(nexus: Pin<&mut Nexus>, name: &str) -> bool {
     nexus
-        .children
-        .iter()
+        .children_iter()
         .filter(|c| c.state() == ChildState::Open)
         .filter(|c| {
             // If there were previous retires, we do not have a reference
@@ -134,7 +133,7 @@ impl NexusChannelInner {
             Mthread::current().unwrap().name(),
             self.writers.len(),
             self.readers.len(),
-            self.get_nexus().children.len()
+            self.get_nexus().child_count()
         );
         self.fault_child(name)
     }
@@ -178,9 +177,7 @@ impl NexusChannelInner {
         // iterate over all our children which are in the open state
         unsafe {
             self.get_nexus_mut()
-                .get_unchecked_mut()
-                .children
-                .iter_mut()
+                .children_iter_mut()
                 .filter(|c| c.state() == ChildState::Open)
                 .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                     (Ok(w), Ok(r)) => {
@@ -198,9 +195,7 @@ impl NexusChannelInner {
         if !self.readers.is_empty() {
             unsafe {
                 self.get_nexus_mut()
-                    .get_unchecked_mut()
-                    .children
-                    .iter_mut()
+                    .children_iter_mut()
                     .filter(|c| c.rebuilding())
                     .for_each(|c| {
                         if let Ok(hdl) = c.get_io_handle() {
@@ -224,7 +219,7 @@ impl NexusChannelInner {
             self.get_nexus().name,
             self.writers.len(),
             self.readers.len(),
-            self.get_nexus().children.len()
+            self.get_nexus().child_count()
         );
 
         //trace!("{:?}", nexus.children);
@@ -238,9 +233,7 @@ impl NexusChannel {
         let mut readers = Vec::new();
 
         unsafe {
-            nexus.as_mut().get_unchecked_mut()
-                .children
-                .iter_mut()
+            nexus.as_mut().children_iter_mut()
                 .filter(|c| c.state() == ChildState::Open)
                 .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                     (Ok(w), Ok(r)) => {

@@ -183,6 +183,10 @@ pub struct NexusChild<'c> {
     #[serde(skip_serializing)]
     device_descriptor: Option<Box<dyn BlockDeviceDescriptor>>,
     /// TODO
+    #[serde(skip_serializing)]
+    rebuild_job: Option<RebuildJob<'c>>,
+    /// TODO
+    #[serde(skip_serializing)]
     _c: PhantomData<&'c ()>,
 }
 
@@ -575,10 +579,8 @@ impl<'c> NexusChild<'c> {
     }
 
     pub(crate) fn rebuilding(&self) -> bool {
-        match RebuildJob::lookup(&self.name) {
-            Ok(_) => self.state() == ChildState::Faulted(Reason::OutOfSync),
-            Err(_) => false,
-        }
+        self.rebuild_job.is_some()
+            && self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
 
     /// Close the nexus child.
@@ -708,6 +710,7 @@ impl<'c> NexusChild<'c> {
             state: AtomicCell::new(ChildState::Init),
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
+            rebuild_job: None,
             _c: Default::default(),
         }
     }
@@ -735,16 +738,31 @@ impl<'c> NexusChild<'c> {
         }
     }
 
+    /// TODO
+    pub(super) fn set_rebuild_job(&mut self, job: RebuildJob<'c>) {
+        assert!(self.rebuild_job.is_none());
+        self.rebuild_job = Some(job);
+    }
+
+    /// TODO
+    pub(super) fn remove_rebuild_job(&mut self) -> Option<RebuildJob<'c>> {
+        self.rebuild_job.take()
+    }
+
     /// Return the rebuild job which is rebuilding this child, if rebuilding.
-    fn get_rebuild_job(&self) -> Option<&mut RebuildJob> {
-        let job = RebuildJob::lookup(&self.name).ok()?;
-        assert_eq!(job.nexus_name, self.parent);
-        Some(job)
+    pub fn rebuild_job(&self) -> Option<&RebuildJob<'c>> {
+        self.rebuild_job.as_ref()
+    }
+
+    /// Return the rebuild job which is rebuilding this child, if rebuilding.
+    pub fn rebuild_job_mut(&mut self) -> Option<&mut RebuildJob<'c>> {
+        self.rebuild_job.as_mut()
     }
 
     /// Return the rebuild progress on this child, if rebuilding.
     pub fn get_rebuild_progress(&self) -> i32 {
-        self.get_rebuild_job()
+        self.rebuild_job
+            .as_ref()
             .map(|j| j.stats().progress as i32)
             .unwrap_or_else(|| -1)
     }
@@ -814,7 +832,7 @@ impl<'c> NexusChild<'c> {
 /// Looks up a child based on the underlying block device name.
 pub fn lookup_nexus_child(bdev_name: &str) -> Option<&mut NexusChild> {
     for nexus in nexus_iter_mut() {
-        if let Some(c) = nexus.lookup_child_mut(bdev_name) {
+        if let Some(c) = nexus.lookup_child_device_mut(bdev_name) {
             return Some(c);
         }
     }

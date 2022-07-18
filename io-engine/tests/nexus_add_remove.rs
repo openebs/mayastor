@@ -100,7 +100,7 @@ async fn nexus_create_2_way_add_one() {
         .spawn(async move {
             let mut n = nexus_lookup_mut("nexus0").unwrap();
 
-            assert_eq!(n.children.len(), 2);
+            assert_eq!(n.child_count(), 2);
             n.as_mut()
                 .add_child(
                     &format!(
@@ -111,7 +111,7 @@ async fn nexus_create_2_way_add_one() {
                 )
                 .await
                 .unwrap();
-            assert_eq!(n.children.len(), 3);
+            assert_eq!(n.child_count(), 3);
         })
         .await;
 
@@ -157,7 +157,7 @@ async fn nexus_2_way_destroy_destroy_child() {
         .spawn(async move {
             let mut n = nexus_lookup_mut("nexus0").unwrap();
 
-            assert_eq!(n.children.len(), 2);
+            assert_eq!(n.child_count(), 2);
             n.as_mut()
                 .add_child(
                     &format!(
@@ -168,7 +168,7 @@ async fn nexus_2_way_destroy_destroy_child() {
                 )
                 .await
                 .unwrap();
-            assert_eq!(n.children.len(), 3);
+            assert_eq!(n.child_count(), 3);
         })
         .await;
 

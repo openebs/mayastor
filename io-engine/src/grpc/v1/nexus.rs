@@ -182,12 +182,11 @@ impl<'n> nexus::Nexus<'n> {
         Nexus {
             name: self.name.clone(),
             uuid: self.uuid().to_string(),
-            size: self.req_size,
+            size: self.req_size(),
             state: NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
             children: self
-                .children
-                .iter()
+                .children_iter()
                 .map(|ch| ch.into())
                 .collect::<Vec<_>>(),
             rebuilds: RebuildJob::count() as u32,
@@ -709,7 +708,7 @@ impl NexusRpc for NexusService {
                 info!("{:?}", args);
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.nexus_uuid)?
-                        .get_rebuild_state(&args.uri)
+                        .rebuild_state(&args.uri)
                         .await
                         .map(RebuildStateResponse::from)
                 })?;
@@ -735,7 +734,7 @@ impl NexusRpc for NexusService {
                 info!("{:?}", args);
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.nexus_uuid)?
-                        .get_rebuild_stats(&args.uri)
+                        .rebuild_stats(&args.uri)
                         .await
                         .map(RebuildStatsResponse::from)
                 })?;

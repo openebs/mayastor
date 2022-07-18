@@ -1260,7 +1260,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     trace!("{:?}", args);
                     nexus_lookup(&args.uuid)?
-                        .get_rebuild_state(&args.uri)
+                        .rebuild_state(&args.uri)
                         .await
                         .map(RebuildStateReply::from)
                 })?;
@@ -1286,7 +1286,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 trace!("{:?}", args);
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     nexus_lookup(&args.uuid)?
-                        .get_rebuild_stats(&args.uri)
+                        .rebuild_stats(&args.uri)
                         .await
                         .map(RebuildStatsReply::from)
                 })?;
@@ -1310,11 +1310,11 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let args = request.into_inner();
                 trace!("{:?}", args);
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?
-                        .get_rebuild_progress(&args.uri)
-                        .map(|p| RebuildProgressReply {
+                    nexus_lookup(&args.uuid)?.rebuild_progress(&args.uri).map(
+                        |p| RebuildProgressReply {
                             progress: p,
-                        })
+                        },
+                    )
                 })?;
 
                 rx.await

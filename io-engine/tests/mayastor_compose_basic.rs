@@ -77,7 +77,7 @@ async fn compose_up_down() {
                 .map(|n| {
                     nexus
                         .as_mut()
-                        .get_child_by_name(n)
+                        .child_mut(n)
                         .unwrap()
                         .get_device()
                         .unwrap()

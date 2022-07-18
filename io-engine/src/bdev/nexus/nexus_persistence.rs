@@ -84,7 +84,7 @@ impl<'n> Nexus<'n> {
                 // expect the NexusInfo structure to contain default values.
                 assert!(nexus_info.children.is_empty());
                 assert!(!nexus_info.clean_shutdown);
-                self.children.iter().for_each(|c| {
+                self.children_iter().for_each(|c| {
                     let child_info = ChildInfo {
                         uuid: NexusChild::uuid(c.uri())
                             .expect("Failed to get child UUID."),

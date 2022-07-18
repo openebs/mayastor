@@ -117,7 +117,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let complete = ms
             .spawn(async move {
                 let nexus = nexus_lookup_mut(nexus_name()).unwrap();
-                let state = nexus.get_rebuild_state(&replica_name).await;
+                let state = nexus.rebuild_state(&replica_name).await;
 
                 match state {
                     Err(_e) => true, /* Rebuild task completed and was

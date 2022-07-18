@@ -242,21 +242,13 @@ pub enum Error {
         child,
         name,
     ))]
-    RebuildJobNotFound {
-        source: RebuildError,
-        child: String,
-        name: String,
-    },
+    RebuildJobNotFound { child: String, name: String },
     #[snafu(display(
-        "Failed to remove rebuild job {} of nexus {}",
+        "Rebuild job already exists for child {} of nexus {}",
         child,
         name,
     ))]
-    RemoveRebuildJob {
-        source: RebuildError,
-        child: String,
-        name: String,
-    },
+    RebuildJobAlreadyExists { child: String, name: String },
     #[snafu(display(
         "Failed to execute rebuild operation on job {} of nexus {}",
         job,
@@ -444,9 +436,9 @@ pub struct Nexus<'n> {
     /// The requested size of the Nexus in bytes. Children are allowed to
     /// be larger. The actual Nexus size will be calculated based on the
     /// capabilities of the underlying child devices.
-    pub(crate) req_size: u64,
-    /// vector of children
-    pub children: Vec<NexusChild<'n>>,
+    req_size: u64,
+    /// Vector of nexus children.
+    children: Vec<NexusChild<'n>>,
     /// NVMe parameters
     pub(crate) nvme_params: NexusNvmeParams,
     /// uuid of the nexus (might not be the same as the nexus bdev!)
@@ -454,18 +446,18 @@ pub struct Nexus<'n> {
     /// Bdev wrapper instance.
     bdev: Option<Bdev<Nexus<'n>>>,
     /// represents the current state of the Nexus
-    pub state: parking_lot::Mutex<NexusState>,
+    pub(crate) state: parking_lot::Mutex<NexusState>,
     /// The offset in blocks where the data partition starts.
     pub(crate) data_ent_offset: u64,
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
     /// enum containing the protocol-specific target used to publish the nexus
-    pub nexus_target: Option<NexusTarget>,
+    pub(super) nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
     has_io_device: bool,
     /// Information associated with the persisted NexusInfo structure.
-    pub nexus_info: futures::lock::Mutex<PersistentNexusInfo>,
+    pub(super) nexus_info: futures::lock::Mutex<PersistentNexusInfo>,
     /// Nexus I/O subsystem.
     io_subsystem: Option<NexusIoSubsystem<'n>>,
     /// TODO
@@ -668,6 +660,11 @@ impl<'n> Nexus<'n> {
         unsafe { self.bdev().name().to_string() }
     }
 
+    /// TODO
+    pub fn req_size(&self) -> u64 {
+        self.req_size
+    }
+
     /// Returns the actual size of the Nexus instance, in bytes.
     pub fn size_in_bytes(&self) -> u64 {
         unsafe { self.bdev().size_in_bytes() }
@@ -691,6 +688,60 @@ impl<'n> Nexus<'n> {
     /// Returns the required alignment of the Nexus.
     pub fn required_alignment(&self) -> u8 {
         unsafe { self.bdev().required_alignment() }
+    }
+
+    /// TODO
+    pub fn children(&self) -> &Vec<NexusChild<'n>> {
+        &self.children
+    }
+
+    /// TODO
+    pub(super) unsafe fn child_add_unsafe(
+        self: Pin<&mut Self>,
+        child: NexusChild<'n>,
+    ) {
+        self.as_mut_unsafe().children.push(child)
+    }
+
+    /// TODO
+    pub(super) unsafe fn child_remove_at_unsafe(
+        self: Pin<&mut Self>,
+        idx: usize,
+    ) {
+        self.as_mut_unsafe().children.remove(idx);
+    }
+
+    /// TODO
+    pub fn child_at(&self, idx: usize) -> &NexusChild<'n> {
+        self.children.get(idx).expect("Bad child index")
+    }
+
+    /// TODO
+    pub(super) unsafe fn child_at_mut(
+        self: Pin<&mut Self>,
+        idx: usize,
+    ) -> &mut NexusChild<'n> {
+        self.as_mut_unsafe()
+            .children
+            .get_mut(idx)
+            .expect("Bad child index")
+    }
+
+    /// TODO
+    pub fn children_iter(&self) -> std::slice::Iter<NexusChild<'n>> {
+        self.children.iter()
+    }
+
+    /// TODO
+    pub(super) unsafe fn children_iter_mut(
+        self: Pin<&mut Self>,
+    ) -> std::slice::IterMut<NexusChild<'n>> {
+        self.as_mut_unsafe().children.iter_mut()
+    }
+
+    /// TODO
+    pub fn child_count(&self) -> usize {
+        self.children.len()
     }
 
     /// Reconfigures the child event handler.
@@ -785,8 +836,9 @@ impl<'n> Nexus<'n> {
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
-        for child in self.children.iter() {
-            self.cancel_child_rebuild_jobs(child.uri()).await;
+        let child_uris = self.children_uris();
+        for child in child_uris {
+            self.as_mut().cancel_rebuild_jobs_with_src(&child).await;
         }
 
         unsafe {
@@ -906,7 +958,7 @@ impl<'n> Nexus<'n> {
         debug!(?self, "PAUSE");
         self.as_mut().pause().await?;
         debug!(?self, "UNPAUSE");
-        if let Some(child) = self.lookup_child(&name) {
+        if let Some(child) = self.lookup_child_device(&name) {
             let uri = child.uri();
             // schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
@@ -1052,6 +1104,11 @@ impl<'n> Nexus<'n> {
 
 // Unsafe part of Nexus.
 impl<'n> Nexus<'n> {
+    /// Returns mutable reference to Nexus.
+    unsafe fn as_mut_unsafe(self: Pin<&mut Self>) -> &mut Nexus<'n> {
+        Pin::get_unchecked_mut(self)
+    }
+
     /// Returns a reference to Nexus's Bdev.
     pub(super) unsafe fn bdev(&self) -> &Bdev<Nexus<'n>> {
         self.bdev
