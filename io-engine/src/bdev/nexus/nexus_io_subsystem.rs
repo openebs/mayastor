@@ -6,15 +6,16 @@ use std::{
 use crossbeam::atomic::AtomicCell;
 use futures::channel::oneshot;
 
+use super::{Error, Nexus};
+
 use crate::{
-    bdev::{nexus::nexus_bdev::Error as NexusError, Nexus},
     core::{Bdev, Cores, Protocol, Share},
     subsys::NvmfSubsystem,
 };
 
-/// TODO
+/// Nexus pause states.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum NexusPauseState {
+pub enum NexusPauseState {
     Unpaused,
     Pausing,
     Paused,
@@ -25,15 +26,15 @@ pub(super) enum NexusPauseState {
 /// concurrent pause/resume calls by serializing low-level SPDK calls.
 #[derive(Debug)]
 pub(super) struct NexusIoSubsystem<'n> {
-    /// TODO
+    /// Subsystem name.
     name: String,
-    /// TODO
+    /// Nexus Bdev associated with the subsystem.
     bdev: &'n mut Bdev<Nexus<'n>>,
-    /// TODO
+    /// Subsystem pause state.
     pause_state: AtomicCell<NexusPauseState>,
-    /// TODO
+    /// Pause waiters.
     pause_waiters: VecDeque<oneshot::Sender<i32>>,
-    /// TODO
+    /// Pause counter.
     pause_cnt: AtomicU32,
 }
 
@@ -58,7 +59,7 @@ impl<'n> NexusIoSubsystem<'n> {
     /// with the nexus paused once they are awakened via resume().
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
-    pub(super) async fn suspend(&mut self) -> Result<(), NexusError> {
+    pub(super) async fn suspend(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
         trace!(?self.name, "pausing nexus I/O");
@@ -133,7 +134,7 @@ impl<'n> NexusIoSubsystem<'n> {
     /// Resume IO to the bdev.
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
-    pub(super) async fn resume(&mut self) -> Result<(), NexusError> {
+    pub(super) async fn resume(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
         trace!(?self.name, "resuming nexus I/O");

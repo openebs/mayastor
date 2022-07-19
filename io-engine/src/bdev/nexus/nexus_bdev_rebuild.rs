@@ -3,15 +3,14 @@ use snafu::ResultExt;
 use std::pin::Pin;
 
 use super::{
+    nexus_err,
     nexus_lookup_mut,
     nexus_persistence::PersistOp,
     ChildState,
-    CreateRebuild,
     DrEvent,
     Error,
     Nexus,
     Reason,
-    RebuildOperation,
     VerboseError,
 };
 
@@ -76,7 +75,7 @@ impl<'n> Nexus<'n> {
         self.reconfigure(DrEvent::ChildRebuild).await;
 
         self.rebuild_job_mut(&dst_child_uri)?.start().context(
-            RebuildOperation {
+            nexus_err::RebuildOperation {
                 job: child_uri.to_owned(),
                 name: name.clone(),
             },
@@ -103,7 +102,7 @@ impl<'n> Nexus<'n> {
                 });
             },
         )
-        .context(CreateRebuild {
+        .context(nexus_err::CreateRebuild {
             child: dst_child_uri.to_owned(),
             name: self.name.clone(),
         })?;
@@ -138,7 +137,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         let name = self.name.clone();
         match self.rebuild_job_mut(dst_uri) {
-            Ok(rj) => rj.stop().context(RebuildOperation {
+            Ok(rj) => rj.stop().context(nexus_err::RebuildOperation {
                 job: dst_uri.to_owned(),
                 name,
             }),
@@ -155,7 +154,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         let name = self.name.clone();
         let rj = self.rebuild_job_mut(dst_uri)?;
-        rj.pause().context(RebuildOperation {
+        rj.pause().context(nexus_err::RebuildOperation {
             job: dst_uri.to_owned(),
             name,
         })
@@ -168,7 +167,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         let name = self.name.clone();
         let rj = self.rebuild_job_mut(dst_uri)?;
-        rj.resume().context(RebuildOperation {
+        rj.resume().context(nexus_err::RebuildOperation {
             job: dst_uri.to_owned(),
             name,
         })

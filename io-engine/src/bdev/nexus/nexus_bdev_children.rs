@@ -30,16 +30,15 @@ use snafu::ResultExt;
 
 use super::{
     fault_nexus_child,
+    nexus_err,
     nexus_iter_mut,
     ChildState,
-    CreateChild,
     DrEvent,
     Error,
     Nexus,
     NexusChild,
     NexusState,
     NexusStatus,
-    OpenChild,
     Reason,
     VerboseError,
 };
@@ -141,9 +140,10 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         uri: &str,
     ) -> Result<NexusStatus, Error> {
-        let name = device_create(uri).await.context(CreateChild {
-            name: self.name.clone(),
-        })?;
+        let name =
+            device_create(uri).await.context(nexus_err::CreateChild {
+                name: self.name.clone(),
+            })?;
 
         assert!(self.num_blocks() > 0);
         assert!(self.block_len() > 0);
@@ -158,7 +158,7 @@ impl<'n> Nexus<'n> {
                     if let Err(err) = device_destroy(uri).await {
                         error!(
                             "Failed to destroy child bdev with wrong geometry: {}",
-                            err
+                            err.to_string()
                         );
                     }
 
@@ -234,10 +234,10 @@ impl<'n> Nexus<'n> {
                 if let Err(err) = device_destroy(uri).await {
                     error!(
                         "Failed to destroy child which failed to open: {}",
-                        err
+                        err.to_string()
                     );
                 }
-                Err(e).context(OpenChild {
+                Err(e).context(nexus_err::OpenChild {
                     child: uri.to_owned(),
                     name: self.name.clone(),
                 })
@@ -406,10 +406,13 @@ impl<'n> Nexus<'n> {
 
         let child = self.as_mut().child_mut(child_uri)?;
 
-        child.online(nexus_size).await.context(OpenChild {
-            child: child_uri.to_owned(),
-            name: nexus_name,
-        })?;
+        child
+            .online(nexus_size)
+            .await
+            .context(nexus_err::OpenChild {
+                child: child_uri.to_owned(),
+                name: nexus_name,
+            })?;
 
         self.as_mut().start_rebuild(child_uri).await.map(|_| {})?;
 
@@ -747,7 +750,8 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                             {
                                 warn!(
                                     "retiring child {} returned {}",
-                                    child_dev2, e
+                                    child_dev2,
+                                    e.to_string()
                                 );
                             }
                         });

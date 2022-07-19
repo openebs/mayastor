@@ -5,6 +5,7 @@ use std::pin::Pin;
 
 mod nexus_bdev;
 mod nexus_bdev_children;
+mod nexus_bdev_error;
 mod nexus_bdev_rebuild;
 mod nexus_bdev_snapshot;
 mod nexus_channel;
@@ -17,28 +18,19 @@ mod nexus_nbd;
 mod nexus_persistence;
 mod nexus_share;
 
+pub(crate) use nexus_bdev::NEXUS_PRODUCT_ID;
 pub use nexus_bdev::{
     nexus_create,
     nexus_create_v2,
-    Error,
     Nexus,
     NexusNvmeParams,
     NexusState,
     NexusStatus,
     NexusTarget,
     NvmeAnaState,
-    VerboseError,
 };
-pub(crate) use nexus_bdev::{
-    CreateChild,
-    CreateRebuild,
-    OpenChild,
-    RebuildOperation,
-    ShareNbdNexus,
-    ShareNvmfNexus,
-    UnshareNexus,
-    NEXUS_PRODUCT_ID,
-};
+pub use nexus_bdev_error::VerboseError;
+pub(crate) use nexus_bdev_error::{nexus_err, Error};
 pub(crate) use nexus_channel::{
     fault_nexus_child,
     DrEvent,
@@ -53,7 +45,7 @@ pub use nexus_child::{
     Reason,
 };
 pub(crate) use nexus_io::{nexus_submit_request, NioCtx};
-pub(self) use nexus_io_subsystem::NexusIoSubsystem;
+pub(self) use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};
 pub use nexus_iter::{
     nexus_iter,
     nexus_iter_mut,
