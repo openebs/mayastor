@@ -9,8 +9,8 @@ use io_engine::{
         nexus::{nexus_create, nexus_lookup_mut},
         util::uring,
     },
+    bdev_api::{bdev_create, bdev_destroy},
     core::{MayastorCliArgs, Protocol, UntypedBdev, UntypedBdevHandle},
-    nexus_uri::{bdev_create, bdev_destroy},
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";

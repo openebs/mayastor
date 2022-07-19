@@ -47,6 +47,7 @@ use crate::{
         NvmeNamespace,
         NVME_CONTROLLERS,
     },
+    bdev_api::BdevError,
     core::{
         poller,
         BlockDeviceIoStats,
@@ -59,7 +60,6 @@ use crate::{
         OpCompletionCallbackArg,
     },
     ffihelper::{cb_arg, done_cb},
-    nexus_uri::NexusBdevError,
     sleep::mayastor_sleep,
 };
 
@@ -443,7 +443,7 @@ impl<'a> NvmeController<'a> {
                 self.name,
                 self.state_machine.current_state()
             );
-            return Err(CoreError::DeviceStatisticsError {
+            return Err(CoreError::DeviceStatisticsFailed {
                 source: Errno::EAGAIN,
             });
         }
@@ -469,7 +469,7 @@ impl<'a> NvmeController<'a> {
             let stats = if result == 0 {
                 Ok(ctx.io_stats)
             } else {
-                Err(CoreError::DeviceStatisticsError {
+                Err(CoreError::DeviceStatisticsFailed {
                     source: Errno::EAGAIN,
                 })
             };
@@ -876,9 +876,9 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
 }
 
 /// Destroy target controller and notify all listeners about device removal.
-pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
+pub(crate) async fn destroy_device(name: String) -> Result<(), BdevError> {
     let carc = NVME_CONTROLLERS.lookup_by_name(&name).ok_or(
-        NexusBdevError::BdevNotFound {
+        BdevError::BdevNotFound {
             name: String::from(&name),
         },
     )?;
@@ -896,7 +896,7 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
             }
 
             controller.shutdown(_shutdown_callback, cb_arg(s)).map_err(
-                |_| NexusBdevError::DestroyBdev {
+                |_| BdevError::DestroyBdevFailed {
                     name: String::from(&name),
                     source: Errno::EAGAIN,
                 },
@@ -907,7 +907,7 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
 
             if !r.await.expect("Failed awaiting at shutdown()") {
                 error!(?name, "failed to shutdown controller");
-                return Err(NexusBdevError::DestroyBdev {
+                return Err(BdevError::DestroyBdevFailed {
                     name: String::from(&name),
                     source: Errno::EAGAIN,
                 });

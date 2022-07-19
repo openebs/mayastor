@@ -17,7 +17,7 @@ pub(crate) mod device;
 mod loopback;
 mod malloc;
 pub mod nexus;
-mod null;
+mod null_bdev;
 pub mod null_ng;
 mod nvme;
 mod nvmf;

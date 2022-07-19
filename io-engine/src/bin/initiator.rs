@@ -15,6 +15,7 @@ use clap::{App, Arg, SubCommand};
 
 use io_engine::{
     bdev::{device_create, device_open},
+    bdev_api::{bdev_create, BdevError},
     core::{
         mayastor_env_stop,
         CoreError,
@@ -25,7 +26,6 @@ use io_engine::{
     },
     jsonrpc::print_error_chain,
     logger,
-    nexus_uri::{bdev_create, NexusBdevError},
     subsys,
     subsys::Config,
 };
@@ -64,8 +64,8 @@ impl From<DmaError> for Error {
         }
     }
 }
-impl From<NexusBdevError> for Error {
-    fn from(err: NexusBdevError) -> Self {
+impl From<BdevError> for Error {
+    fn from(err: BdevError) -> Self {
         Self {
             msg: print_error_chain(&err),
         }

@@ -1,6 +1,7 @@
-use io_engine::bdev::nexus::nexus_create;
-
-use io_engine::core::{MayastorCliArgs, UntypedBdevHandle};
+use io_engine::{
+    bdev::nexus::nexus_create,
+    core::{MayastorCliArgs, UntypedBdevHandle},
+};
 use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;

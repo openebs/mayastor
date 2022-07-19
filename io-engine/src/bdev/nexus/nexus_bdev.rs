@@ -37,6 +37,7 @@ use crate::{
         device_destroy,
         nexus::{nexus_persistence::PersistentNexusInfo, NexusIoSubsystem},
     },
+    bdev_api::BdevError,
     core::{
         Bdev,
         BdevHandle,
@@ -49,7 +50,6 @@ use crate::{
         Share,
         MWQ,
     },
-    nexus_uri::NexusBdevError,
     rebuild::RebuildError,
     subsys::{NvmfError, NvmfSubsystem},
 };
@@ -92,7 +92,7 @@ where
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
 #[derive(Debug, Snafu)]
-#[snafu(visibility = "pub(crate)")]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum Error {
     #[snafu(display("Nexus {} does not exist", name))]
     NexusNotFound { name: String },
@@ -136,10 +136,7 @@ pub enum Error {
     ))]
     RegisterNexus { source: Errno, name: String },
     #[snafu(display("Failed to create child of nexus {}: {}", name, source))]
-    CreateChild {
-        source: NexusBdevError,
-        name: String,
-    },
+    CreateChild { source: BdevError, name: String },
     #[snafu(display("Deferring open because nexus {} is incomplete", name))]
     NexusIncomplete { name: String },
     #[snafu(display(
@@ -185,7 +182,7 @@ pub enum Error {
     },
     #[snafu(display("Failed to close child {} of nexus {}", child, name))]
     CloseChild {
-        source: NexusBdevError,
+        source: BdevError,
         child: String,
         name: String,
     },
@@ -215,7 +212,7 @@ pub enum Error {
     FaultingLastHealthyChild { child: String, name: String },
     #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
     DestroyChild {
-        source: NexusBdevError,
+        source: BdevError,
         child: String,
         name: String,
     },

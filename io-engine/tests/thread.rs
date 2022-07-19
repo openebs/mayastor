@@ -1,17 +1,12 @@
 use std::{pin::Pin, time::Duration};
 
-use io_engine::core::{
-    Cores,
-    MayastorCliArgs,
-    Mthread,
-    Reactor,
-    Share,
-    UntypedBdev,
+use io_engine::{
+    bdev_api::bdev_create,
+    core::{Cores, MayastorCliArgs, Mthread, Reactor, Share, UntypedBdev},
 };
 
 pub mod common;
 use common::MayastorTest;
-use io_engine::nexus_uri::bdev_create;
 
 async fn mayastor_to_runtime() {
     // the future is created on mayastor and send to tokio. So assert we are

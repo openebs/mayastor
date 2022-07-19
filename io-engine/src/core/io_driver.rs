@@ -12,9 +12,9 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
+    bdev_api::bdev_create,
     core::{Cores, UntypedBdev, UntypedDescriptorGuard},
     ffihelper::pair,
-    nexus_uri::bdev_create,
 };
 
 use spdk_rs::{DmaBuf, IoChannelGuard, Thread};

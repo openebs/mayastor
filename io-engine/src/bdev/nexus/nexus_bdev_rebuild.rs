@@ -354,7 +354,7 @@ impl<'n> Nexus<'n> {
                 // rebuild has failed so we need to set the child as faulted
                 // allowing the control plane to replace it with another
 
-                if let Some(RebuildError::ReadIoError {
+                if let Some(RebuildError::ReadIoFailed {
                     ..
                 }) = job.error
                 {

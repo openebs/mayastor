@@ -18,9 +18,9 @@ use spdk_rs::libspdk::{
 
 use crate::{
     bdev::{util::uri, CreateDestroy, GetName},
+    bdev_api::{self, BdevError},
     core::UntypedBdev,
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult, IntoCString},
-    nexus_uri::{self, NexusBdevError},
 };
 
 #[derive(Debug)]
@@ -33,11 +33,11 @@ pub(super) struct NVMe {
 
 /// Convert a URI to NVMe object
 impl TryFrom<&Url> for NVMe {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         if uri::segments(url).is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("no path segments"),
             });
@@ -58,7 +58,7 @@ impl GetName for NVMe {
 
 #[async_trait(? Send)]
 impl CreateDestroy for NVMe {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
         extern "C" fn nvme_create_cb(
@@ -76,7 +76,7 @@ impl CreateDestroy for NVMe {
         }
 
         if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: self.name.clone(),
             });
         }
@@ -104,17 +104,17 @@ impl CreateDestroy for NVMe {
         };
 
         errno_result_from_i32((), errno).context(
-            nexus_uri::CreateBdevInvalidParams {
+            bdev_api::CreateBdevInvalidParams {
                 name: self.name.clone(),
             },
         )?;
 
         receiver
             .await
-            .context(nexus_uri::CancelBdev {
+            .context(bdev_api::BdevCommandCanceled {
                 name: self.name.clone(),
             })?
-            .context(nexus_uri::CreateBdev {
+            .context(bdev_api::CreateBdevFailed {
                 name: self.name.clone(),
             })?;
 
@@ -141,11 +141,13 @@ impl CreateDestroy for NVMe {
                     std::ptr::null(),
                 )
             };
-            errno_result_from_i32((), errno).context(nexus_uri::DestroyBdev {
-                name: self.name.clone(),
-            })
+            errno_result_from_i32((), errno).context(
+                bdev_api::DestroyBdevFailed {
+                    name: self.name.clone(),
+                },
+            )
         } else {
-            Err(NexusBdevError::BdevNotFound {
+            Err(BdevError::BdevNotFound {
                 name: self.get_name(),
             })
         }

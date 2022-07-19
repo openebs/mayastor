@@ -4,6 +4,7 @@ use clap::{value_t, App, AppSettings, Arg};
 use rand::Rng;
 
 use io_engine::{
+    bdev_api::bdev_create,
     core::{
         mayastor_env_stop,
         Cores,
@@ -15,7 +16,6 @@ use io_engine::{
         UntypedDescriptorGuard,
     },
     logger,
-    nexus_uri::bdev_create,
     subsys::Config,
 };
 use spdk_rs::{

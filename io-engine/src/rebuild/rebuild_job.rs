@@ -11,6 +11,7 @@ use crate::{
         nexus::{nexus_iter, nexus_iter_mut, VerboseError},
         Nexus,
     },
+    bdev_api::bdev_get_name,
     core::{
         Bdev,
         BlockDevice,
@@ -19,7 +20,6 @@ use crate::{
         DescriptorGuard,
         Reactors,
     },
-    nexus_uri::bdev_get_name,
 };
 
 use super::{
@@ -344,7 +344,7 @@ impl<'n> RebuildJob<'n> {
         // This prevents other I/Os being issued to this LBA range whilst it is
         // being rebuilt.
         let lock = self.nexus_descriptor.lock_lba_range(r).await.context(
-            RangeLockError {
+            RangeLockFailed {
                 blk,
                 len,
             },
@@ -356,7 +356,7 @@ impl<'n> RebuildJob<'n> {
         // Wait for the LBA range to be unlocked.
         // This allows others I/Os to be issued to this LBA range once again.
         self.nexus_descriptor.unlock_lba_range(lock).await.context(
-            RangeUnLockError {
+            RangeUnlockFailed {
                 blk,
                 len,
             },
@@ -397,14 +397,14 @@ impl<'n> RebuildJob<'n> {
         source_hdl
             .read_at(blk * self.block_size, copy_buffer)
             .await
-            .context(ReadIoError {
+            .context(ReadIoFailed {
                 bdev: &self.src_uri,
             })?;
 
         destination_hdl
             .write_at(blk * self.block_size, copy_buffer)
             .await
-            .context(WriteIoError {
+            .context(WriteIoFailed {
                 bdev: &self.dst_uri,
             })?;
 

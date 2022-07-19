@@ -1,7 +1,7 @@
 use crate::{
     context::{Context, OutputFormat},
     parse_size,
-    Error,
+    ClientError,
     GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
@@ -148,18 +148,18 @@ async fn replica_create(
 ) -> crate::Result<()> {
     let pool = matches
         .value_of("pool")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();
     let name = matches
         .value_of("name")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
         .to_owned();
     let size = parse_size(matches.value_of("size").ok_or_else(|| {
-        Error::MissingValue {
+        ClientError::MissingValue {
             field: "size".to_string(),
         }
     })?)
@@ -202,24 +202,24 @@ async fn replica_create_v2(
 ) -> crate::Result<()> {
     let pool = matches
         .value_of("pool")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();
     let name = matches
         .value_of("name")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
         .to_owned();
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_owned();
     let size = parse_size(matches.value_of("size").ok_or_else(|| {
-        Error::MissingValue {
+        ClientError::MissingValue {
             field: "size".to_string(),
         }
     })?)
@@ -264,7 +264,7 @@ async fn replica_destroy(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_owned();

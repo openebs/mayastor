@@ -1,8 +1,8 @@
 use crate::{
+    bdev_api::BdevError,
     core::{Bdev, Protocol, Share, UntypedBdev},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, Lvs},
-    nexus_uri::NexusBdevError,
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -281,7 +281,7 @@ impl ReplicaRpc for ReplicaService {
                         }
 
                         None => Err(LvsError::InvalidBdev {
-                            source: NexusBdevError::BdevNotFound {
+                            source: BdevError::BdevNotFound {
                                 name: args.uuid.clone(),
                             },
                             name: args.uuid,
@@ -318,7 +318,7 @@ impl ReplicaRpc for ReplicaService {
                             Ok(Replica::from(lvol))
                         }
                         None => Err(LvsError::InvalidBdev {
-                            source: NexusBdevError::BdevNotFound {
+                            source: BdevError::BdevNotFound {
                                 name: args.uuid.clone(),
                             },
                             name: args.uuid,

@@ -1,8 +1,8 @@
 use common::{compose::Builder, MayastorTest};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
+    bdev_api::bdev_get_name,
     core::{MayastorCliArgs, Protocol, UntypedBdev},
-    nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};

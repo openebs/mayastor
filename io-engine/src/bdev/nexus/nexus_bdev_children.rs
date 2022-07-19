@@ -51,8 +51,8 @@ use crate::{
         device_lookup,
         nexus::nexus_persistence::PersistOp,
     },
+    bdev_api::BdevError,
     core::{partition, DeviceEventListener, DeviceEventType, Reactors},
-    nexus_uri::NexusBdevError,
 };
 
 impl<'n> Nexus<'n> {
@@ -83,7 +83,7 @@ impl<'n> Nexus<'n> {
     pub async fn create_and_register(
         mut self: Pin<&mut Self>,
         uri: &str,
-    ) -> Result<(), NexusBdevError> {
+    ) -> Result<(), BdevError> {
         assert_eq!(*self.state.lock(), NexusState::Init);
         let name = device_create(uri).await?;
         let nexus_name = self.name.clone();

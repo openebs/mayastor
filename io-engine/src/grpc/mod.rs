@@ -9,20 +9,20 @@ pub use server::MayastorGrpcServer;
 use tonic::{Response, Status};
 
 use crate::{
+    bdev_api::BdevError,
     core::{CoreError, Reactor},
-    nexus_uri::NexusBdevError,
 };
 
-impl From<NexusBdevError> for tonic::Status {
-    fn from(e: NexusBdevError) -> Self {
+impl From<BdevError> for tonic::Status {
+    fn from(e: BdevError) -> Self {
         match e {
-            NexusBdevError::UrlParseError {
+            BdevError::UriParseFailed {
                 ..
             } => Status::invalid_argument(e.to_string()),
-            NexusBdevError::UriSchemeUnsupported {
+            BdevError::UriSchemeUnsupported {
                 ..
             } => Status::invalid_argument(e.to_string()),
-            NexusBdevError::UriInvalid {
+            BdevError::InvalidUri {
                 ..
             } => Status::invalid_argument(e.to_string()),
             e => Status::internal(e.to_string()),

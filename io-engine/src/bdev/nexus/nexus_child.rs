@@ -14,6 +14,7 @@ use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent, VerboseError};
 
 use crate::{
     bdev::{device_create, device_destroy, device_lookup},
+    bdev_api::BdevError,
     core::{
         BlockDevice,
         BlockDeviceDescriptor,
@@ -23,7 +24,6 @@ use crate::{
         Reactor,
         Reactors,
     },
-    nexus_uri::NexusBdevError,
     persistent_store::PersistentStore,
     rebuild::RebuildJob,
 };
@@ -41,6 +41,7 @@ use spdk_rs::{
 };
 
 #[derive(Debug, Snafu)]
+#[snafu(context(suffix(false)))]
 pub enum ChildError {
     #[snafu(display("Child is not offline"))]
     ChildNotOffline {},
@@ -84,10 +85,7 @@ pub enum ChildError {
     #[snafu(display("Failed to get NVMe host ID: {}", source))]
     NvmeHostId { source: CoreError },
     #[snafu(display("Failed to create a BlockDevice for child {}", child))]
-    ChildBdevCreate {
-        child: String,
-        source: NexusBdevError,
-    },
+    ChildBdevCreate { child: String, source: BdevError },
 }
 
 /// TODO
@@ -584,7 +582,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Close the nexus child.
-    pub(crate) async fn close(&mut self) -> Result<(), NexusBdevError> {
+    pub(crate) async fn close(&mut self) -> Result<(), BdevError> {
         info!("{}: closing nexus child", self.name);
         if self.device.is_none() {
             info!("{}: nexus child already closed", self.name);
@@ -716,7 +714,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// destroy the child device
-    pub async fn destroy(&self) -> Result<(), NexusBdevError> {
+    pub async fn destroy(&self) -> Result<(), BdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
             info!("{}: destroying underlying block device", self.name);

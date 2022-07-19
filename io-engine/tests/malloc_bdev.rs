@@ -1,7 +1,7 @@
 use common::MayastorTest;
 use io_engine::{
+    bdev_api::{bdev_create, bdev_destroy},
     core::{MayastorCliArgs, UntypedBdev},
-    nexus_uri::{bdev_create, bdev_destroy},
 };
 use spdk_rs::DmaBuf;
 pub mod common;

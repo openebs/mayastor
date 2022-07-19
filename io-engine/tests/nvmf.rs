@@ -1,4 +1,5 @@
 use io_engine::{
+    bdev_api::bdev_create,
     core::{
         mayastor_env_stop,
         MayastorCliArgs,
@@ -6,7 +7,6 @@ use io_engine::{
         Reactor,
         UntypedBdev,
     },
-    nexus_uri::bdev_create,
     subsys::{NvmfSubsystem, SubType},
 };
 

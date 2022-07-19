@@ -42,10 +42,10 @@ use crate::{
         CreateDestroy,
         GetName,
     },
+    bdev_api::{self, BdevError},
     constants::NVME_NQN_PREFIX,
     core::poller,
     ffihelper::ErrnoResult,
-    nexus_uri::{self, NexusBdevError},
     subsys::Config,
 };
 
@@ -110,26 +110,25 @@ pub struct NvmfDeviceTemplate {
 }
 
 impl TryFrom<&Url> for NvmfDeviceTemplate {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        let host =
-            url.host_str().ok_or_else(|| NexusBdevError::UriInvalid {
-                uri: url.to_string(),
-                message: String::from("missing host"),
-            })?;
+        let host = url.host_str().ok_or_else(|| BdevError::InvalidUri {
+            uri: url.to_string(),
+            message: String::from("missing host"),
+        })?;
 
         let segments = uri::segments(url);
 
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("no path segment"),
             });
         }
 
         if segments.len() > 1 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("too many path segments"),
             });
@@ -142,7 +141,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
 
         if let Some(value) = parameters.remove("reftag") {
             if uri::boolean(&value, true).context(
-                nexus_uri::BoolParamParseError {
+                bdev_api::BoolParamParseFailed {
                     uri: url.to_string(),
                     parameter: String::from("reftag"),
                     value: value.to_string(),
@@ -155,7 +154,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
 
         if let Some(value) = parameters.remove("guard") {
             if uri::boolean(&value, true).context(
-                nexus_uri::BoolParamParseError {
+                bdev_api::BoolParamParseFailed {
                     uri: url.to_string(),
                     parameter: String::from("guard"),
                     value: value.to_string(),
@@ -166,7 +165,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
         }
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: url.to_string(),
             },
         )?;
@@ -266,13 +265,13 @@ impl<'probe> NvmeControllerContext<'probe> {
 }
 #[async_trait(?Send)]
 impl CreateDestroy for NvmfDeviceTemplate {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
         info!("::create() {}", self.get_name());
         let cname = self.get_name();
         if NVME_CONTROLLERS.lookup_by_name(&cname).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: cname,
             });
         }
@@ -301,7 +300,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
             None => {
                 // Remove controller record before returning error.
                 NVME_CONTROLLERS.remove_by_name(&cname).unwrap();
-                return Err(NexusBdevError::CreateBdev {
+                return Err(BdevError::CreateBdevFailed {
                     name: cname,
                     source: Errno::ENODEV,
                 });
@@ -366,7 +365,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
                     // Propagate initial error once controller has been
                     // deinitialized.
                     .and_then(|_| {
-                        Err(NexusBdevError::CreateBdev {
+                        Err(BdevError::CreateBdevFailed {
                             source: e,
                             name: self.name.clone(),
                         })

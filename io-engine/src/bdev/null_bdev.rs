@@ -12,12 +12,9 @@ use uuid::Uuid;
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
+    bdev_api::{self, BdevError},
     core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
-    nexus_uri::{
-        NexusBdevError,
-        {self},
-    },
 };
 
 #[derive(Debug)]
@@ -36,12 +33,12 @@ pub struct Null {
 }
 
 impl TryFrom<&Url> for Null {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(uri: &Url) -> Result<Self, Self::Error> {
         let segments = uri::segments(uri);
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message: "no path segments".to_string(),
             });
@@ -51,7 +48,7 @@ impl TryFrom<&Url> for Null {
             uri.query_pairs().into_owned().collect();
 
         let blk_size: u32 = if let Some(value) = parameters.remove("blk_size") {
-            value.parse().context(nexus_uri::IntParamParseError {
+            value.parse().context(bdev_api::IntParamParseFailed {
                 uri: uri.to_string(),
                 parameter: String::from("blk_size"),
                 value: value.clone(),
@@ -61,7 +58,7 @@ impl TryFrom<&Url> for Null {
         };
 
         if blk_size != 512 && blk_size != 4096 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message:
                     "invalid blk_size specified must be one of 512 or 4096"
@@ -70,7 +67,7 @@ impl TryFrom<&Url> for Null {
         }
 
         let size: u32 = if let Some(value) = parameters.remove("size_mb") {
-            value.parse().context(nexus_uri::IntParamParseError {
+            value.parse().context(bdev_api::IntParamParseFailed {
                 uri: uri.to_string(),
                 parameter: String::from("size_mb"),
                 value: value.clone(),
@@ -81,7 +78,7 @@ impl TryFrom<&Url> for Null {
 
         let num_blocks: u32 =
             if let Some(value) = parameters.remove("num_blocks") {
-                value.parse().context(nexus_uri::IntParamParseError {
+                value.parse().context(bdev_api::IntParamParseFailed {
                     uri: uri.to_string(),
                     parameter: String::from("blk_size"),
                     value: value.clone(),
@@ -91,7 +88,7 @@ impl TryFrom<&Url> for Null {
             };
 
         if size != 0 && num_blocks != 0 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message: "conflicting parameters num_blocks and size_mb are mutually exclusive"
                     .to_string(),
@@ -99,7 +96,7 @@ impl TryFrom<&Url> for Null {
         }
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: uri.to_string(),
             },
         )?;
@@ -128,11 +125,11 @@ impl GetName for Null {
 
 #[async_trait(?Send)]
 impl CreateDestroy for Null {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
         if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: self.name.clone(),
             });
         }
@@ -157,7 +154,7 @@ impl CreateDestroy for Null {
         };
 
         if errno != 0 {
-            return Err(NexusBdevError::CreateBdev {
+            return Err(BdevError::CreateBdevFailed {
                 source: Errno::from_i32(errno.abs()),
                 name: self.name.clone(),
             });
@@ -179,7 +176,7 @@ impl CreateDestroy for Null {
             return Ok(self.name.clone());
         }
 
-        Err(NexusBdevError::BdevNotFound {
+        Err(BdevError::BdevNotFound {
             name: self.name.clone(),
         })
     }
@@ -197,14 +194,14 @@ impl CreateDestroy for Null {
             };
 
             r.await
-                .context(nexus_uri::CancelBdev {
+                .context(bdev_api::BdevCommandCanceled {
                     name: self.name.clone(),
                 })?
-                .context(nexus_uri::DestroyBdev {
+                .context(bdev_api::DestroyBdevFailed {
                     name: self.name,
                 })
         } else {
-            Err(NexusBdevError::BdevNotFound {
+            Err(BdevError::BdevNotFound {
                 name: self.name,
             })
         }

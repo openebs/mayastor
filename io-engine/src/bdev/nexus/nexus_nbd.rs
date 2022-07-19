@@ -34,6 +34,7 @@ const SET_TIMEOUT: u32 = io!(0xab, 9);
 const SET_SIZE: u32 = io!(0xab, 2);
 
 #[derive(Debug, Snafu)]
+#[snafu(context(suffix(false)))]
 pub enum NbdError {
     #[snafu(display("No free NBD devices available (is NBD kmod loaded?)"))]
     Unavailable {},

@@ -18,9 +18,10 @@ use crate::{
 
 /// These are high-level context errors one for each rpc method.
 #[derive(Debug, Snafu)]
+#[snafu(context(suffix(false)))]
 pub enum RpcError {
     #[snafu(display("Failed to (un)share replica {}", uuid))]
-    ShareReplica { source: Error, uuid: String },
+    ShareReplica { source: ReplicaError, uuid: String },
 }
 
 impl From<RpcError> for tonic::Status {
@@ -35,7 +36,8 @@ impl From<RpcError> for tonic::Status {
 
 // Replica errors.
 #[derive(Debug, Snafu)]
-pub enum Error {
+#[snafu(context(suffix(false)))]
+pub enum ReplicaError {
     #[snafu(display("Replica has been already shared"))]
     ReplicaShared {},
     #[snafu(display("share nvmf"))]
@@ -48,19 +50,21 @@ pub enum Error {
     ReplicaNotFound {},
 }
 
-impl From<Error> for tonic::Status {
-    fn from(error: Error) -> Self {
+impl From<ReplicaError> for tonic::Status {
+    fn from(error: ReplicaError) -> Self {
         match error {
-            Error::InvalidProtocol {
+            ReplicaError::InvalidProtocol {
                 ..
             } => Self::invalid_argument(error.to_string()),
-            Error::ReplicaNotFound {} => Self::not_found(error.to_string()),
+            ReplicaError::ReplicaNotFound {} => {
+                Self::not_found(error.to_string())
+            }
             _ => Self::internal(error.to_string()),
         }
     }
 }
 
-type Result<T, E = Error> = std::result::Result<T, E>;
+type Result<T, E = ReplicaError> = std::result::Result<T, E>;
 
 /// Structure representing a replica which is basically SPDK lvol.
 ///
@@ -115,7 +119,7 @@ impl Replica {
     pub async fn share(&self, kind: ShareType) -> Result<()> {
         let name = self.get_name().to_owned();
         if detect_share(&name).is_some() {
-            return Err(Error::ReplicaShared {});
+            return Err(ReplicaError::ReplicaShared {});
         }
 
         let bdev = unsafe {
@@ -293,7 +297,7 @@ pub(crate) async fn share_replica(
 ) -> Result<rpc::ShareReplicaReply, RpcError> {
     let want_share = match rpc::ShareProtocolReplica::from_i32(args.share) {
         Some(val) => val,
-        None => Err(Error::InvalidProtocol {
+        None => Err(ReplicaError::InvalidProtocol {
             protocol: args.share,
         })
         .context(ShareReplica {
@@ -302,9 +306,11 @@ pub(crate) async fn share_replica(
     };
     let replica = match Replica::lookup(&args.uuid) {
         Some(replica) => replica,
-        None => Err(Error::ReplicaNotFound {}).context(ShareReplica {
-            uuid: args.uuid.clone(),
-        })?,
+        None => {
+            Err(ReplicaError::ReplicaNotFound {}).context(ShareReplica {
+                uuid: args.uuid.clone(),
+            })?
+        }
     };
     // first unshare the replica if there is a protocol change
     let unshare = match replica.get_share_type() {

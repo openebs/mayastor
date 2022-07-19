@@ -1,8 +1,8 @@
 use common::compose::{Builder, ComposeTest, MayastorTest};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
+    bdev_api::bdev_destroy,
     core::{MayastorCliArgs, Share},
-    nexus_uri::bdev_destroy,
 };
 use once_cell::sync::OnceCell;
 use rpc::mayastor::{BdevShareRequest, BdevUri};

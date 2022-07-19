@@ -230,12 +230,12 @@ impl Reactors {
                 Ok(())
             } else {
                 error!("failed to launch core {}", core);
-                Err(CoreError::ReactorError {
+                Err(CoreError::ReactorConfigureFailed {
                     source: Errno::from_i32(rc),
                 })
             };
         } else {
-            Err(CoreError::ReactorError {
+            Err(CoreError::ReactorConfigureFailed {
                 source: Errno::ENOSYS,
             })
         }

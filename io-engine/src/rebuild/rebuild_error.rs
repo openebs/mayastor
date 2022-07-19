@@ -1,9 +1,9 @@
-use crate::{core::CoreError, nexus_uri::NexusBdevError};
+use crate::{bdev_api::BdevError, core::CoreError};
 use snafu::Snafu;
 use spdk_rs::DmaError;
 
 #[derive(Debug, Snafu, Clone)]
-#[snafu(visibility = "pub(crate)")]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 #[allow(missing_docs)]
 /// Various rebuild errors when interacting with a rebuild job or
 /// encountered during a rebuild copy
@@ -17,11 +17,11 @@ pub enum RebuildError {
     #[snafu(display("Bdev {} not found", bdev))]
     BdevNotFound { source: CoreError, bdev: String },
     #[snafu(display("IO failed for bdev {}", bdev))]
-    IoError { source: CoreError, bdev: String },
+    IoFailed { source: CoreError, bdev: String },
     #[snafu(display("Read IO failed for bdev {}", bdev))]
-    ReadIoError { source: CoreError, bdev: String },
+    ReadIoFailed { source: CoreError, bdev: String },
     #[snafu(display("Write IO failed for bdev {}", bdev))]
-    WriteIoError { source: CoreError, bdev: String },
+    WriteIoFailed { source: CoreError, bdev: String },
     #[snafu(display("Failed to find rebuild job {}", job))]
     JobNotFound { job: String },
     #[snafu(display("Missing rebuild destination {}", job))]
@@ -40,7 +40,7 @@ pub enum RebuildError {
         len,
         source,
     ))]
-    RangeLockError {
+    RangeLockFailed {
         blk: u64,
         len: u64,
         source: nix::errno::Errno,
@@ -51,11 +51,11 @@ pub enum RebuildError {
         len,
         source,
     ))]
-    RangeUnLockError {
+    RangeUnlockFailed {
         blk: u64,
         len: u64,
         source: nix::errno::Errno,
     },
     #[snafu(display("Failed to get bdev name from URI {}", uri))]
-    BdevInvalidUri { source: NexusBdevError, uri: String },
+    BdevInvalidUri { source: BdevError, uri: String },
 }

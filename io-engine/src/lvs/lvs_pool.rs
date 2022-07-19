@@ -36,10 +36,10 @@ use url::Url;
 
 use crate::{
     bdev::uri,
+    bdev_api::{bdev_destroy, BdevError},
     core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
-    nexus_uri::{bdev_destroy, NexusBdevError},
     pool::PoolArgs,
 };
 
@@ -241,7 +241,7 @@ impl Lvs {
 
         let mut bdev =
             UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
-                source: NexusBdevError::BdevNotFound {
+                source: BdevError::BdevNotFound {
                     name: bdev.to_string(),
                 },
                 name: name.to_string(),
@@ -320,7 +320,7 @@ impl Lvs {
 
         let bdev = match parsed.create().await {
             Err(e) => match e {
-                NexusBdevError::BdevExists {
+                BdevError::BdevExists {
                     ..
                 } => Ok(parsed.get_name()),
                 _ => Err(Error::InvalidBdev {
@@ -446,7 +446,7 @@ impl Lvs {
 
         let bdev = match parsed.create().await {
             Err(e) => match e {
-                NexusBdevError::BdevExists {
+                BdevError::BdevExists {
                     ..
                 } => Ok(parsed.get_name()),
                 _ => Err(Error::InvalidBdev {

@@ -10,6 +10,7 @@
 
 use crate::{
     bdev::{nexus, NvmeControllerState as ControllerState},
+    bdev_api::BdevError,
     core::{
         BlockDeviceIoStats,
         CoreError,
@@ -37,7 +38,6 @@ use crate::{
     },
     host::{blk_device, resource},
     lvs::{Error as LvsError, Lvol, Lvs},
-    nexus_uri::NexusBdevError,
     pool::PoolArgs,
     rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
@@ -768,7 +768,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         }
 
                         None => Err(LvsError::InvalidBdev {
-                            source: NexusBdevError::BdevNotFound {
+                            source: BdevError::BdevNotFound {
                                 name: args.uuid.clone(),
                             },
                             name: args.uuid,

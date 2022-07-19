@@ -3,8 +3,8 @@ use io_engine::{
         device_lookup,
         nexus::{nexus_create, nexus_lookup_mut},
     },
+    bdev_api::bdev_create,
     core::{MayastorCliArgs, UntypedBdev},
-    nexus_uri::bdev_create,
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 

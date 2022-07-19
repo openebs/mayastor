@@ -69,7 +69,7 @@ mod share;
 pub(crate) mod thread;
 
 #[derive(Debug, Snafu, Clone)]
-#[snafu(visibility = "pub")]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum CoreError {
     #[snafu(display("bdev {} not found", name))]
     BdevNotFound {
@@ -194,15 +194,15 @@ pub enum CoreError {
         source: Errno,
     },
     #[snafu(display("failed to configure reactor: {}", source))]
-    ReactorError {
+    ReactorConfigureFailed {
         source: Errno,
     },
     #[snafu(display("Failed to allocate DMA buffer of {} bytes", size))]
-    DmaAllocationError {
+    DmaAllocationFailed {
         size: u64,
     },
     #[snafu(display("Failed to get I/O satistics for device: {}", source))]
-    DeviceStatisticsError {
+    DeviceStatisticsFailed {
         source: Errno,
     },
     #[snafu(display("No devices available for I/O"))]

@@ -1,6 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
-    Error,
+    ClientError,
     GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
@@ -67,13 +67,13 @@ async fn create(
 ) -> crate::Result<()> {
     let name = matches
         .value_of("pool")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();
     let disks = matches
         .values_of("disk")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "disk".to_string(),
         })?
         .map(|dev| dev.to_owned())
@@ -112,7 +112,7 @@ async fn destroy(
 ) -> crate::Result<()> {
     let name = matches
         .value_of("pool")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();

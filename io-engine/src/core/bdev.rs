@@ -12,6 +12,7 @@ use spdk_rs::libspdk::spdk_bdev;
 
 use crate::{
     bdev::bdev_event_callback,
+    bdev_api::bdev_uri_eq,
     core::{
         share::{Protocol, Share},
         BlockDeviceIoStats,
@@ -20,7 +21,6 @@ use crate::{
         ShareNvmf,
         UnshareNvmf,
     },
-    nexus_uri::bdev_uri_eq,
     subsys::NvmfSubsystem,
     target::nvmf,
 };
@@ -170,7 +170,7 @@ where
                 num_unmap_ops: stat.num_unmap_ops,
                 bytes_unmapped: stat.bytes_unmapped,
             }),
-            Err(err) => Err(CoreError::DeviceStatisticsError {
+            Err(err) => Err(CoreError::DeviceStatisticsFailed {
                 source: err,
             }),
         }
