@@ -338,10 +338,13 @@ impl<'n> Nexus<'n> {
             RebuildState::Completed => {
                 dst_child.set_state(ChildState::Open);
                 info!("Child {} has been rebuilt successfully", child_uri);
-                let child_name = child_uri.to_owned();
+                let child_uri = child_uri.to_owned();
                 let child_state = dst_child.state();
-                self.persist(PersistOp::Update((child_name, child_state)))
-                    .await;
+                self.persist(PersistOp::Update {
+                    child_uri,
+                    child_state,
+                })
+                .await;
             }
             RebuildState::Stopped => {
                 info!(

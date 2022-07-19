@@ -191,15 +191,15 @@ impl<'n> Nexus<'n> {
             Some(child_bdev),
         );
 
-        let mut child_name = child.open(self.req_size());
+        let mut res = child.open(self.req_size());
 
-        if let Ok(ref name) = child_name {
+        if let Ok(ref child_uri) = res {
             // we have created the bdev, and created a nexusChild struct. To
             // make use of the device itself the
             // data and metadata must be validated. The child
             // will be added and marked as faulted, once the rebuild has
             // completed the device can transition to online
-            info!("{}: child opened successfully {}", self.name, name);
+            info!("{}: child opened successfully {}", self.name, child_uri);
 
             if let Err(e) = child
                 .acquire_write_exclusive(
@@ -208,12 +208,12 @@ impl<'n> Nexus<'n> {
                 )
                 .await
             {
-                child_name = Err(e);
+                res = Err(e);
             }
         }
 
-        match child_name {
-            Ok(cn) => {
+        match res {
+            Ok(child_uri) => {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.fault(Reason::OutOfSync).await;
@@ -226,7 +226,11 @@ impl<'n> Nexus<'n> {
                     self.as_mut().child_add_unsafe(child);
                 }
 
-                self.persist(PersistOp::AddChild((cn, child_state))).await;
+                self.persist(PersistOp::AddChild {
+                    child_uri,
+                    child_state,
+                })
+                .await;
 
                 Ok(self.status())
             }
@@ -301,8 +305,11 @@ impl<'n> Nexus<'n> {
             self.as_mut().child_remove_at_unsafe(idx);
         }
 
-        self.persist(PersistOp::Update((uri.to_string(), child_state)))
-            .await;
+        self.persist(PersistOp::Update {
+            child_uri: uri.to_string(),
+            child_state,
+        })
+        .await;
 
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
         Ok(())

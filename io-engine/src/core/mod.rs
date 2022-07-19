@@ -1,6 +1,6 @@
 //!
 //! core contains the primary abstractions around the SPDK primitives.
-use std::{fmt::Debug, sync::atomic::AtomicUsize, time::Duration};
+use std::{fmt::Debug, sync::atomic::AtomicUsize};
 
 use nix::errno::Errno;
 use snafu::Snafu;
@@ -26,6 +26,11 @@ pub use device_events::{
     DeviceEventListener,
     DeviceEventSink,
     DeviceEventType,
+};
+pub use device_monitor::{
+    device_cmd_queue,
+    device_monitor_loop,
+    DeviceCommand,
 };
 pub use env::{
     mayastor_env_stop,
@@ -55,6 +60,7 @@ mod bdev;
 mod block_device;
 mod descriptor;
 mod device_events;
+mod device_monitor;
 mod env;
 mod handle;
 mod io_device;
@@ -67,6 +73,7 @@ mod reactor;
 pub mod runtime;
 mod share;
 pub(crate) mod thread;
+mod work_queue;
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
@@ -220,87 +227,6 @@ pub enum IoCompletionStatus {
 // TODO move this elsewhere ASAP
 pub static PAUSING: AtomicUsize = AtomicUsize::new(0);
 pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
-
-/// TODO
-pub async fn device_monitor() {
-    let mut interval = tokio::time::interval(Duration::from_millis(10));
-    loop {
-        interval.tick().await;
-        if let Some(w) = MWQ.take() {
-            info!(?w, "executing command");
-            match w {
-                Command::RemoveDevice(nexus, child) => {
-                    let rx = Reactor::spawn_at_primary(async move {
-                        if let Some(n) =
-                            crate::bdev::nexus::nexus_lookup_mut(&nexus)
-                        {
-                            if let Err(e) = n.destroy_child(&child).await {
-                                error!(?e, "destroy child failed");
-                            }
-                        }
-                    });
-
-                    match rx {
-                        Err(e) => {
-                            error!(?e, "failed to equeue removal request")
-                        }
-                        Ok(rx) => rx.await.unwrap(),
-                    }
-                }
-            }
-        }
-    }
-}
-
-type Nexus = String;
-type Child = String;
-
-#[derive(Debug, Clone)]
-pub enum Command {
-    RemoveDevice(Nexus, Child),
-}
-
-#[derive(Debug)]
-pub struct MayastorWorkQueue<T: Send + Debug> {
-    incoming: crossbeam::queue::SegQueue<T>,
-}
-
-impl<T: Send + Debug> Default for MayastorWorkQueue<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: Send + Debug> MayastorWorkQueue<T> {
-    pub fn new() -> Self {
-        Self {
-            incoming: crossbeam::queue::SegQueue::new(),
-        }
-    }
-
-    pub fn enqueue(&self, entry: T) {
-        trace!(?entry, "enqueued");
-        self.incoming.push(entry)
-    }
-
-    pub fn len(&self) -> usize {
-        self.incoming.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.incoming.len() == 0
-    }
-
-    pub fn take(&self) -> Option<T> {
-        if let Some(elem) = self.incoming.pop() {
-            return Some(elem);
-        }
-        None
-    }
-}
-
-pub static MWQ: once_cell::sync::Lazy<MayastorWorkQueue<Command>> =
-    once_cell::sync::Lazy::new(MayastorWorkQueue::new);
 
 #[derive(Debug, Clone)]
 pub struct MayastorFeatures {

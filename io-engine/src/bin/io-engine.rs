@@ -9,7 +9,7 @@ use structopt::StructOpt;
 use io_engine::{
     bdev::util::uring,
     core::{
-        device_monitor,
+        device_monitor_loop,
         runtime,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -55,7 +55,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             }
 
             PersistentStore::init(persistent_store_endpoint).await;
-            runtime::spawn(device_monitor());
+            runtime::spawn(device_monitor_loop());
 
             futures.push(
                 grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
