@@ -29,6 +29,8 @@ use spdk_rs::libspdk::{
     SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
 
+use super::{Error, Lvs};
+
 use crate::{
     bdev::nexus::Nexus,
     core::{Bdev, Mthread, Protocol, Share, UntypedBdev},
@@ -40,7 +42,6 @@ use crate::{
         FfiResult,
         IntoCString,
     },
-    lvs::{error::Error, lvs_pool::Lvs},
     subsys::NvmfReq,
 };
 

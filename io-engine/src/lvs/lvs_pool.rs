@@ -34,12 +34,13 @@ use spdk_rs::libspdk::{
 };
 use url::Url;
 
+use super::{Error, Lvol, PropName, PropValue};
+
 use crate::{
     bdev::uri,
     bdev_api::{bdev_destroy, BdevError},
     core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
-    lvs::{Error, Lvol, PropName, PropValue},
     pool::PoolArgs,
 };
 

@@ -1,7 +1,9 @@
 use nix::errno::Errno;
 use snafu::Snafu;
 
-use crate::{bdev_api::BdevError, core::CoreError, lvs::PropName};
+use super::PropName;
+
+use crate::{bdev_api::BdevError, core::CoreError};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
