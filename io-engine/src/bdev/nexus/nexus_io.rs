@@ -11,13 +11,7 @@ use spdk_rs::{
     BdevIo,
 };
 
-use super::{
-    nexus_lookup_mut,
-    Nexus,
-    NexusChannel,
-    NexusStatus,
-    NEXUS_PRODUCT_ID,
-};
+use super::{Nexus, NexusChannel, NEXUS_PRODUCT_ID};
 
 use crate::core::{
     BlockDevice,
@@ -30,7 +24,6 @@ use crate::core::{
     IoType,
     Mthread,
     NvmeCommandStatus,
-    Reactors,
 };
 
 /// TODO
@@ -273,7 +266,7 @@ impl<'n> NexusBio<'n> {
                     "(core: {} thread: {}): read IO to {} submission failed with error {:?}",
                     Cores::current(), Mthread::current().unwrap().name(), device, r);
 
-                self.retire_device(device);
+                self.retire_device(&device);
 
                 self.fail();
             } else {
@@ -419,7 +412,7 @@ impl<'n> NexusBio<'n> {
 
             self.channel_mut().disconnect_device(&device);
 
-            self.retire_device(device);
+            self.retire_device(&device);
         }
 
         // partial submission
@@ -438,21 +431,10 @@ impl<'n> NexusBio<'n> {
     }
 
     /// TODO
-    fn retire_device(&mut self, child_device: String) {
-        // check if this child needs to be retired
-        let need_retire = self
-            .channel_mut()
+    fn retire_device(&mut self, child_device: &str) {
+        self.channel_mut()
             .nexus_mut()
-            .child_io_faulted(&child_device);
-
-        // The child state was not faulted yet, so this is the first IO
-        // to this child for which we encountered an error.
-        if need_retire {
-            Reactors::master().send_future(nexus_child_retire(
-                self.nexus().name.clone(),
-                child_device,
-            ));
-        }
+            .retire_child(child_device, true);
     }
 
     /// TODO
@@ -497,7 +479,7 @@ impl<'n> NexusBio<'n> {
             )
         );
 
-        self.retire_device(child.device_name());
+        self.retire_device(&child.device_name());
 
         // if the IO was failed because of retire, resubmit the IO
         if retry {
@@ -505,23 +487,5 @@ impl<'n> NexusBio<'n> {
         }
 
         self.fail_checked();
-    }
-}
-
-/// Retire a child for this nexus.
-async fn nexus_child_retire(nexus_name: String, device: String) {
-    if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
-        warn!(?nexus, ?device, "retiring child");
-
-        if let Err(e) = nexus.as_mut().child_retire(device.clone()).await {
-            error!(?e, "double pause which we cant sneak in...");
-            Reactors::current()
-                .send_future(nexus_child_retire(nexus_name, device));
-            return;
-        }
-
-        if matches!(nexus.status(), NexusStatus::Faulted) {
-            warn!(?nexus, "no children left");
-        }
     }
 }

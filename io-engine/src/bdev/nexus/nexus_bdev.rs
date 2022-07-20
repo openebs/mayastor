@@ -37,11 +37,9 @@ use crate::{
         nexus::{nexus_persistence::PersistentNexusInfo, NexusIoSubsystem},
     },
     core::{
-        device_cmd_queue,
         Bdev,
         BdevHandle,
         CoreError,
-        DeviceCommand,
         DeviceEventSink,
         IoType,
         Protocol,
@@ -169,7 +167,7 @@ pub struct Nexus<'n> {
     /// enum containing the protocol-specific target used to publish the nexus
     pub(super) nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
-    has_io_device: bool,
+    pub(super) has_io_device: bool,
     /// Information associated with the persisted NexusInfo structure.
     pub(super) nexus_info: futures::lock::Mutex<PersistentNexusInfo>,
     /// Nexus I/O subsystem.
@@ -227,34 +225,6 @@ impl ToString for NexusStatus {
         .parse()
         .unwrap()
     }
-}
-
-/// TODO
-struct UpdateFailFastCtx {
-    sender: oneshot::Sender<bool>,
-    nexus_name: String,
-    child_device: Option<String>,
-}
-
-/// TODO
-fn update_failfast_cb(
-    channel: &mut NexusChannel,
-    ctx: &mut UpdateFailFastCtx,
-) -> ChannelTraverseStatus {
-    ctx.child_device.as_ref().map(|dev| {
-        channel.disconnect_device(dev);
-        channel.nexus_mut().child_io_faulted(dev)
-    });
-    debug!(?ctx.nexus_name, ?ctx.child_device, "removed from channel");
-    ChannelTraverseStatus::Ok
-}
-
-/// TODO
-fn update_failfast_done(
-    _status: ChannelTraverseStatus,
-    ctx: UpdateFailFastCtx,
-) {
-    ctx.sender.send(true).expect("Receiver disappeared");
 }
 
 impl<'n> Nexus<'n> {
@@ -608,138 +578,6 @@ impl<'n> Nexus<'n> {
     /// be called only from the master core.
     pub async fn pause(self: Pin<&mut Self>) -> Result<(), Error> {
         self.io_subsystem_mut().suspend().await
-    }
-
-    // Abort all active I/O for target child and set I/O fail-fast flag
-    // for the child.
-    #[allow(dead_code)]
-    async fn update_failfast(
-        &self,
-        increment: bool,
-        child_device: Option<String>,
-    ) -> Result<(), Error> {
-        let (sender, r) = oneshot::channel::<bool>();
-
-        let ctx = UpdateFailFastCtx {
-            sender,
-            nexus_name: self.name.clone(),
-            child_device,
-        };
-
-        assert!(self.has_io_device);
-
-        self.traverse_io_channels(
-            update_failfast_cb,
-            update_failfast_done,
-            ctx,
-        );
-
-        info!("{}: Updating fail-fast, increment={}", self.name, increment);
-        r.await.expect("update failfast sender already dropped");
-        info!("{}: Failfast updated", self.name);
-        Ok(())
-    }
-
-    async fn child_retire_for_each_channel(
-        &self,
-        child: Option<String>,
-    ) -> Result<(), Error> {
-        let (sender, r) = oneshot::channel::<bool>();
-
-        let ctx = UpdateFailFastCtx {
-            sender,
-            nexus_name: self.name.clone(),
-            child_device: child,
-        };
-
-        // if let Some(io_device) = self.io_device.as_ref() {
-        if self.has_io_device {
-            self.traverse_io_channels(
-                update_failfast_cb,
-                update_failfast_done,
-                ctx,
-            );
-
-            debug!(?self, "all channels retired");
-            r.await.expect("update failfast sender already dropped");
-        }
-
-        Ok(())
-    }
-
-    /// Retires a child with the given device.
-    pub async fn child_retire(
-        mut self: Pin<&mut Self>,
-        device_name: String,
-    ) -> Result<(), Error> {
-        self.child_retire_for_each_channel(Some(device_name.clone()))
-            .await?;
-
-        debug!(?self, "PAUSE");
-        self.as_mut().pause().await?;
-        debug!(?self, "UNPAUSE");
-
-        if let Some(child) = self.lookup_child_device(&device_name) {
-            let uri = child.uri();
-
-            // Schedule the deletion of the child eventhough etcd has not been
-            // updated yet we do not need to wait for that to
-            // complete anyway.
-            device_cmd_queue().enqueue(DeviceCommand::RemoveDevice {
-                nexus_name: self.name.clone(),
-                child_device: device_name.clone(),
-            });
-
-            // Do not persist child state in case it's the last healthy child of
-            // the nexus: let Control Plane reconstruct the nexus
-            // using this device as the replica with the most recent
-            // user data.
-            self.persist(PersistOp::UpdateCond {
-                child_uri: uri.to_owned(),
-                child_state: child.state(),
-                predicate: &|nexus_info| {
-                    // Determine the amount of healthy replicas in the persistent state and
-                    // check against the last healthy replica remaining.
-                    let num_healthy = nexus_info.children.iter().fold(0, |n, c| {
-                        if c.healthy {
-                            n + 1
-                        } else {
-                            n
-                        }
-                    });
-
-                    match num_healthy {
-                        0 => {
-                            warn!(
-                                "nexus {}: no healthy replicas persent in persistent store when retiring replica {}:
-                                not persisting the replica state",
-                                &device_name, uri,
-                            );
-                            false
-                        }
-                        1 => {
-                            warn!(
-                                "nexus {}: retiring the last healthy replica {}, not persisting the replica state",
-                                &device_name, uri,
-                            );
-                            false
-                        },
-                        _ => true,
-                    }
-                }
-            }).await;
-        }
-        self.resume().await
-    }
-
-    #[allow(dead_code)]
-    pub async fn set_failfast(&self) -> Result<(), Error> {
-        self.update_failfast(true, None).await
-    }
-
-    #[allow(dead_code)]
-    pub async fn clear_failfast(&self) -> Result<(), Error> {
-        self.update_failfast(false, None).await
     }
 
     /// get ANA state of the NVMe subsystem

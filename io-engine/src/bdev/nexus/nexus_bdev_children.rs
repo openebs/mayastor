@@ -25,33 +25,39 @@
 
 use std::{cmp::min, pin::Pin};
 
-use futures::future::join_all;
+use futures::{channel::oneshot, future::join_all};
 use snafu::ResultExt;
 
 use super::{
     nexus_err,
-    nexus_iter_mut,
+    nexus_lookup_mut,
     ChildState,
     DrEvent,
     Error,
     Nexus,
+    NexusChannel,
     NexusChild,
     NexusState,
     NexusStatus,
+    PersistOp,
     Reason,
     VerboseError,
 };
 
 use crate::{
-    bdev::{
-        device_create,
-        device_destroy,
-        device_lookup,
-        nexus::nexus_persistence::PersistOp,
-    },
+    bdev::{device_create, device_destroy, device_lookup},
     bdev_api::BdevError,
-    core::{partition, DeviceEventListener, DeviceEventType, Reactors},
+    core::{
+        device_cmd_queue,
+        partition,
+        DeviceCommand,
+        DeviceEventListener,
+        DeviceEventType,
+        Reactors,
+    },
 };
+
+use spdk_rs::{ChannelTraverseStatus, IoDeviceChannelTraverse};
 
 impl<'n> Nexus<'n> {
     /// register children with the nexus, only allowed during the nexus init
@@ -649,34 +655,6 @@ impl<'n> Nexus<'n> {
         }
     }
 
-    /// Marks a child device as faulted.
-    /// Returns true if the child was in open state, false otherwise.
-    pub(super) fn child_io_faulted(
-        self: Pin<&mut Self>,
-        device_name: &str,
-    ) -> bool {
-        self.children_iter()
-            .filter(|c| c.state() == ChildState::Open)
-            .filter(|c| {
-                // If there were previous retires, we do not have a reference
-                // to a BlockDevice. We do however, know it can't be the device
-                // we are attempting to retire in the first place so this
-                // condition is fine.
-                if let Ok(child) = c.get_device().as_ref() {
-                    child.device_name() == device_name
-                } else {
-                    false
-                }
-            })
-            .any(|c| {
-                Ok(ChildState::Open)
-                    == c.state.compare_exchange(
-                        ChildState::Open,
-                        ChildState::Faulted(Reason::IoError),
-                    )
-            })
-    }
-
     /// The nexus is allowed to be smaller then the underlying child devices
     /// this function returns the smallest blkcnt of all online children as
     /// they MAY vary in size.
@@ -766,36 +744,12 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                 }
             }
             DeviceEventType::AdminCommandCompletionFailed => {
-                let cn = &dev_name;
-                for mut nexus in nexus_iter_mut() {
-                    if nexus.as_mut().child_io_faulted(cn) {
-                        info!(
-                            "{}: retiring child {} in response to admin command completion failure event",
-                            nexus.name,
-                            dev_name,
-                        );
-
-                        let child_dev = dev_name.to_string();
-                        Reactors::master().send_future(async move {
-                            // Error indicates it is already paused and another
-                            // thread is processing the fault
-                            let child_dev2 = child_dev.clone();
-                            if let Err(e) = nexus.child_retire(child_dev).await
-                            {
-                                warn!(
-                                    "retiring child {} returned {}",
-                                    child_dev2,
-                                    e.to_string()
-                                );
-                            }
-                        });
-                        return;
-                    }
-                }
-                warn!(
-                    "No nexus child exists for device {}, ignoring admin command completion failure event",
-                    dev_name
+                info!(
+                    "{}: retiring child {} in response to admin command completion failure event",
+                    self.name,
+                    dev_name,
                 );
+                self.retire_child(dev_name, false);
             }
             _ => {
                 info!("Ignoring {:?} event for device {}", evt, dev_name);
@@ -805,5 +759,215 @@ impl<'n> DeviceEventListener for Nexus<'n> {
 
     fn get_listener_name(&self) -> String {
         self.name.to_string()
+    }
+}
+
+/// TODO
+struct UpdateFailFastCtx {
+    sender: oneshot::Sender<bool>,
+    nexus_name: String,
+    child_device: Option<String>,
+}
+
+/// TODO
+fn update_failfast_cb(
+    channel: &mut NexusChannel,
+    ctx: &mut UpdateFailFastCtx,
+) -> ChannelTraverseStatus {
+    ctx.child_device.as_ref().map(|dev| {
+        channel.disconnect_device(dev);
+        channel.nexus_mut().child_io_faulted(dev)
+    });
+    debug!(?ctx.nexus_name, ?ctx.child_device, "removed from channel");
+    ChannelTraverseStatus::Ok
+}
+
+/// TODO
+fn update_failfast_done(
+    _status: ChannelTraverseStatus,
+    ctx: UpdateFailFastCtx,
+) {
+    ctx.sender.send(true).expect("Receiver disappeared");
+}
+
+impl<'n> Nexus<'n> {
+    /// Marks a child device as faulted.
+    /// Returns true if the child was in open state, false otherwise.
+    fn child_io_faulted(self: Pin<&mut Self>, device_name: &str) -> bool {
+        self.children_iter()
+            .filter(|c| c.state() == ChildState::Open)
+            .filter(|c| {
+                // If there were previous retires, we do not have a reference
+                // to a BlockDevice. We do however, know it can't be the device
+                // we are attempting to retire in the first place so this
+                // condition is fine.
+                if let Ok(child) = c.get_device().as_ref() {
+                    child.device_name() == device_name
+                } else {
+                    false
+                }
+            })
+            .any(|c| {
+                Ok(ChildState::Open)
+                    == c.state.compare_exchange(
+                        ChildState::Open,
+                        ChildState::Faulted(Reason::IoError),
+                    )
+            })
+    }
+
+    /// TODO
+    pub(super) fn retire_child(
+        mut self: Pin<&mut Self>,
+        child_device: &str,
+        retry: bool,
+    ) {
+        // check if this child needs to be retired
+        let need_retire = self.as_mut().child_io_faulted(child_device);
+
+        // The child state was not faulted yet, so this is the first IO
+        // to this child for which we encountered an error.
+        if need_retire {
+            Reactors::master().send_future(Nexus::child_retire_routine(
+                self.name.clone(),
+                child_device.to_owned(),
+                retry,
+            ));
+        }
+    }
+
+    /// Retire a child for this nexus.
+    async fn child_retire_routine(
+        nexus_name: String,
+        child_device: String,
+        retry: bool,
+    ) {
+        if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
+            warn!(?nexus, ?child_device, "retiring child");
+
+            // Error indicates it is already paused and another
+            // thread is processing the fault
+            if let Err(err) =
+                nexus.as_mut().do_child_retire(child_device.clone()).await
+            {
+                if retry {
+                    error!(?err, "double pause which we cant sneak in...");
+
+                    assert!(Reactors::is_master());
+
+                    Reactors::current().send_future(
+                        Nexus::child_retire_routine(
+                            nexus_name,
+                            child_device,
+                            retry,
+                        ),
+                    );
+                } else {
+                    warn!(
+                        "retiring child {} returned {}",
+                        child_device,
+                        err.to_string()
+                    );
+                }
+                return;
+            }
+
+            if matches!(nexus.status(), NexusStatus::Faulted) {
+                warn!(?nexus, "no children left");
+            }
+        }
+    }
+
+    /// Retires a child with the given device.
+    async fn do_child_retire(
+        mut self: Pin<&mut Self>,
+        device_name: String,
+    ) -> Result<(), Error> {
+        self.disconnect_all_children(Some(device_name.clone()))
+            .await?;
+
+        debug!(?self, "PAUSE");
+        self.as_mut().pause().await?;
+        debug!(?self, "UNPAUSE");
+
+        if let Some(child) = self.lookup_child_device(&device_name) {
+            let uri = child.uri();
+
+            // Schedule the deletion of the child eventhough etcd has not been
+            // updated yet we do not need to wait for that to
+            // complete anyway.
+            device_cmd_queue().enqueue(DeviceCommand::RemoveDevice {
+                nexus_name: self.name.clone(),
+                child_device: device_name.clone(),
+            });
+
+            // Do not persist child state in case it's the last healthy child of
+            // the nexus: let Control Plane reconstruct the nexus
+            // using this device as the replica with the most recent
+            // user data.
+            self.persist(PersistOp::UpdateCond {
+                child_uri: uri.to_owned(),
+                child_state: child.state(),
+                predicate: &|nexus_info| {
+                    // Determine the amount of healthy replicas in the persistent state and
+                    // check against the last healthy replica remaining.
+                    let num_healthy = nexus_info.children.iter().fold(0, |n, c| {
+                        if c.healthy {
+                            n + 1
+                        } else {
+                            n
+                        }
+                    });
+
+                    match num_healthy {
+                        0 => {
+                            warn!(
+                                "nexus {}: no healthy replicas persent in persistent store when retiring replica {}:
+                                not persisting the replica state",
+                                &device_name, uri,
+                            );
+                            false
+                        }
+                        1 => {
+                            warn!(
+                                "nexus {}: retiring the last healthy replica {}, not persisting the replica state",
+                                &device_name, uri,
+                            );
+                            false
+                        },
+                        _ => true,
+                    }
+                }
+            }).await;
+        }
+        self.resume().await
+    }
+
+    // TODO
+    async fn disconnect_all_children(
+        &self,
+        child_device: Option<String>,
+    ) -> Result<(), Error> {
+        let (sender, r) = oneshot::channel::<bool>();
+
+        let ctx = UpdateFailFastCtx {
+            sender,
+            nexus_name: self.name.clone(),
+            child_device,
+        };
+
+        if self.has_io_device {
+            self.traverse_io_channels(
+                update_failfast_cb,
+                update_failfast_done,
+                ctx,
+            );
+
+            debug!(?self, "all channels disconnected");
+            r.await
+                .expect("disconnect_all_children() sender already dropped");
+        }
+
+        Ok(())
     }
 }

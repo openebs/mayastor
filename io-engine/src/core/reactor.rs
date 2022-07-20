@@ -255,6 +255,10 @@ impl Reactors {
         Self::get_by_core(Cores::first()).expect("no reactor allocated")
     }
 
+    pub fn is_master() -> bool {
+        Cores::first() == Cores::current()
+    }
+
     /// returns an iterator over all reactors
     pub fn iter() -> Iter<'static, Reactor> {
         REACTOR_LIST.get().unwrap().into_iter()
