@@ -19,11 +19,11 @@ use uuid::Uuid;
 use super::{
     nexus_err,
     nexus_lookup_name_uuid,
-    nexus_submit_request,
     ChildState,
     DrEvent,
     Error,
     NbdDisk,
+    NexusBio,
     NexusChannel,
     NexusChild,
     NexusModule,
@@ -241,7 +241,6 @@ fn update_failfast_cb(
     channel: &mut NexusChannel,
     ctx: &mut UpdateFailFastCtx,
 ) -> ChannelTraverseStatus {
-    let channel = channel.inner_mut();
     ctx.child_device
         .as_ref()
         .map(|dev| channel.remove_device(dev));
@@ -418,7 +417,7 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         child: NexusChild<'n>,
     ) {
-        self.as_mut_unsafe().children.push(child)
+        self.unpin_mut().children.push(child)
     }
 
     /// TODO
@@ -426,7 +425,7 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         idx: usize,
     ) {
-        self.as_mut_unsafe().children.remove(idx);
+        self.unpin_mut().children.remove(idx);
     }
 
     /// TODO
@@ -439,7 +438,7 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         idx: usize,
     ) -> &mut NexusChild<'n> {
-        self.as_mut_unsafe()
+        self.unpin_mut()
             .children
             .get_mut(idx)
             .expect("Bad child index")
@@ -454,7 +453,7 @@ impl<'n> Nexus<'n> {
     pub(super) unsafe fn children_iter_mut(
         self: Pin<&mut Self>,
     ) -> std::slice::IterMut<NexusChild<'n>> {
-        self.as_mut_unsafe().children.iter_mut()
+        self.unpin_mut().children.iter_mut()
     }
 
     /// TODO
@@ -473,7 +472,7 @@ impl<'n> Nexus<'n> {
 
         self.traverse_io_channels(
             |chan, _sender| -> ChannelTraverseStatus {
-                chan.inner_mut().refresh();
+                chan.refresh();
                 ChannelTraverseStatus::Ok
             },
             |status, sender| {
@@ -831,12 +830,24 @@ impl<'n> Nexus<'n> {
 
 // Unsafe part of Nexus.
 impl<'n> Nexus<'n> {
-    /// Returns mutable reference to Nexus.
-    unsafe fn as_mut_unsafe(self: Pin<&mut Self>) -> &mut Nexus<'n> {
-        Pin::get_unchecked_mut(self)
+    /// Returns a mutable reference to the Nexus with the lifetime as the Nexus
+    /// itself.
+    #[inline(always)]
+    unsafe fn unpin_mut(self: Pin<&mut Self>) -> &'n mut Nexus<'n> {
+        &mut *(self.get_unchecked_mut() as *mut _)
+    }
+
+    /// Returns a pinned mutable reference of the same lifetime as the Nexus
+    /// itself.
+    #[inline(always)]
+    pub(super) unsafe fn pinned_mut(
+        self: Pin<&mut Self>,
+    ) -> Pin<&'n mut Nexus<'n>> {
+        Pin::new_unchecked(self.unpin_mut())
     }
 
     /// Returns a reference to Nexus's Bdev.
+    #[inline(always)]
     pub(super) unsafe fn bdev(&self) -> &Bdev<Nexus<'n>> {
         self.bdev
             .as_ref()
@@ -844,6 +855,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// Returns a mutable reference to Nexus's Bdev.
+    #[inline(always)]
     pub(super) unsafe fn bdev_mut(
         self: Pin<&mut Self>,
     ) -> &mut Bdev<Nexus<'n>> {
@@ -852,6 +864,7 @@ impl<'n> Nexus<'n> {
 
     /// Returns a pinned Bdev reference to allow calling methods that require a
     /// Pin<&mut>, e.g. methods of Share trait.
+    #[inline(always)]
     pub(super) fn pin_bdev_mut(self: Pin<&mut Self>) -> Pin<&mut Bdev<Self>> {
         unsafe { Pin::new_unchecked(self.bdev_mut()) }
     }
@@ -913,17 +926,17 @@ impl Display for Nexus<'_> {
     }
 }
 
-impl IoDevice for Nexus<'_> {
-    type ChannelData = NexusChannel;
+impl<'n> IoDevice for Nexus<'n> {
+    type ChannelData = NexusChannel<'n>;
 
-    fn io_channel_create(self: Pin<&mut Self>) -> NexusChannel {
+    fn io_channel_create(self: Pin<&mut Self>) -> NexusChannel<'n> {
         debug!("{}: Creating IO channels", self.bdev_name());
         NexusChannel::new(self)
     }
 
-    fn io_channel_destroy(self: Pin<&mut Self>, chan: NexusChannel) {
+    fn io_channel_destroy(self: Pin<&mut Self>, chan: NexusChannel<'n>) {
         debug!("{} Destroying IO channels", self.bdev_name());
-        chan.clear(); // TODO: use chan drop.
+        chan.destroy();
     }
 }
 
@@ -935,7 +948,7 @@ unsafe fn unsafe_static_ptr(nexus: &Nexus) -> *mut Nexus<'static> {
 }
 
 impl<'n> BdevOps for Nexus<'n> {
-    type ChannelData = NexusChannel;
+    type ChannelData = NexusChannel<'n>;
     type BdevData = Nexus<'n>;
     type IoDev = Nexus<'n>;
 
@@ -986,10 +999,11 @@ impl<'n> BdevOps for Nexus<'n> {
     /// This function is not called when the IO is re-submitted (see below).
     fn submit_request(
         &self,
-        chan: IoChannel<NexusChannel>,
+        chan: IoChannel<NexusChannel<'n>>,
         bio: BdevIo<Nexus<'n>>,
     ) {
-        nexus_submit_request(chan, bio);
+        let io = NexusBio::new(chan, bio);
+        io.submit_request();
     }
 
     fn io_type_supported(&self, io_type: IoType) -> bool {
