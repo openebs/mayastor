@@ -254,8 +254,7 @@ impl<'n> NexusBio<'n> {
 
     /// submit a read operation
     fn do_readv(&mut self) -> Result<(), CoreError> {
-        if let Some(i) = self.channel_mut().child_select() {
-            let hdl = self.channel().reader_at(i);
+        if let Some(hdl) = self.channel().select_reader() {
             let r = self.submit_read(hdl);
 
             if r.is_err() {
@@ -274,11 +273,7 @@ impl<'n> NexusBio<'n> {
                     "(core: {} thread: {}): read IO to {} submission failed with error {:?}",
                     Cores::current(), Mthread::current().unwrap().name(), device, r);
 
-                let chan = self.channel_mut();
-                let must_retire = chan.fault_device(&device);
-                if must_retire {
-                    self.do_retire(device);
-                }
+                self.retire_device(device);
 
                 self.fail();
             } else {
@@ -384,27 +379,27 @@ impl<'n> NexusBio<'n> {
         // Name of the device which experiences I/O submission failures.
         let mut failed_device = None;
 
-        let result = self.channel().writers().iter().try_for_each(|h| {
+        let result = self.channel().for_each_writer(|h| {
             match self.io_type() {
-                IoType::Write => self.submit_write(h.as_ref()),
-                IoType::Unmap => self.submit_unmap(h.as_ref()),
-                IoType::WriteZeros => self.submit_write_zeroes(h.as_ref()),
-                IoType::Reset => self.submit_reset(h.as_ref()),
+                IoType::Write => self.submit_write(h),
+                IoType::Unmap => self.submit_unmap(h),
+                IoType::WriteZeros => self.submit_write_zeroes(h),
+                IoType::Reset => self.submit_reset(h),
                 // we should never reach here, if we do it is a bug.
                 _ => unreachable!(),
             }
                 .map(|_| {
                     inflight += 1;
                 })
-                .map_err(|se| {
+                .map_err(|err| {
                     error!(
                         "(core: {} thread: {}): IO submission failed with error {:?}, I/Os submitted: {}",
-                        Cores::current(), Mthread::current().unwrap().name(), se, inflight
+                        Cores::current(), Mthread::current().unwrap().name(), err, inflight
                     );
 
                     // Record the name of the device for immediate retire.
                     failed_device = Some(h.get_device().device_name());
-                    se
+                    err
                 })
         });
 
@@ -421,9 +416,10 @@ impl<'n> NexusBio<'n> {
             let device = failed_device.unwrap();
             // set the IO as failed in the submission stage.
             self.ctx_mut().must_fail = true;
-            if self.channel_mut().remove_device(&device) {
-                self.do_retire(device);
-            }
+
+            self.channel_mut().disconnect_device(&device);
+
+            self.retire_device(device);
         }
 
         // partial submission
@@ -441,13 +437,25 @@ impl<'n> NexusBio<'n> {
         result
     }
 
-    fn do_retire(&self, child_device: String) {
-        Reactors::master().send_future(nexus_child_retire(
-            self.nexus().name.clone(),
-            child_device,
-        ));
+    /// TODO
+    fn retire_device(&mut self, child_device: String) {
+        // check if this child needs to be retired
+        let need_retire = self
+            .channel_mut()
+            .nexus_mut()
+            .child_io_faulted(&child_device);
+
+        // The child state was not faulted yet, so this is the first IO
+        // to this child for which we encountered an error.
+        if need_retire {
+            Reactors::master().send_future(nexus_child_retire(
+                self.nexus().name.clone(),
+                child_device,
+            ));
+        }
     }
 
+    /// TODO
     fn handle_failure(
         &mut self,
         child: &dyn BlockDevice,
@@ -489,14 +497,7 @@ impl<'n> NexusBio<'n> {
             )
         );
 
-        let child = child.device_name();
-        // check if this child needs to be retired
-        let needs_retire = self.channel_mut().fault_device(&child);
-        // The child state was not faulted yet, so this is the first IO
-        // to this child for which we encountered an error.
-        if needs_retire {
-            self.do_retire(child);
-        }
+        self.retire_device(child.device_name());
 
         // if the IO was failed because of retire, resubmit the IO
         if retry {

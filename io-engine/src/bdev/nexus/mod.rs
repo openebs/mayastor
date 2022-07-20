@@ -31,7 +31,7 @@ pub use nexus_bdev::{
 };
 pub use nexus_bdev_error::VerboseError;
 pub(crate) use nexus_bdev_error::{nexus_err, Error};
-pub(crate) use nexus_channel::{fault_nexus_child, DrEvent, NexusChannel};
+pub(crate) use nexus_channel::{DrEvent, NexusChannel};
 pub use nexus_child::{
     lookup_nexus_child,
     ChildError,

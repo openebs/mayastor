@@ -241,9 +241,10 @@ fn update_failfast_cb(
     channel: &mut NexusChannel,
     ctx: &mut UpdateFailFastCtx,
 ) -> ChannelTraverseStatus {
-    ctx.child_device
-        .as_ref()
-        .map(|dev| channel.remove_device(dev));
+    ctx.child_device.as_ref().map(|dev| {
+        channel.disconnect_device(dev);
+        channel.nexus_mut().child_io_faulted(dev)
+    });
     debug!(?ctx.nexus_name, ?ctx.child_device, "removed from channel");
     ChannelTraverseStatus::Ok
 }
@@ -472,7 +473,7 @@ impl<'n> Nexus<'n> {
 
         self.traverse_io_channels(
             |chan, _sender| -> ChannelTraverseStatus {
-                chan.refresh();
+                chan.reconnect_all();
                 ChannelTraverseStatus::Ok
             },
             |status, sender| {

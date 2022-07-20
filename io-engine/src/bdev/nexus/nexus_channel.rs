@@ -1,24 +1,19 @@
 //!
 //! IO is driven by means of so called channels.
-use std::{fmt::Debug, pin::Pin};
+use std::{cell::UnsafeCell, fmt::Debug, pin::Pin};
 
 use super::{ChildState, Nexus, Reason};
 
-use crate::core::{BlockDeviceHandle, Cores, Mthread};
-
-#[repr(C)]
-struct Inner<'n> {
-    writers: Vec<Box<dyn BlockDeviceHandle>>,
-    readers: Vec<Box<dyn BlockDeviceHandle>>,
-    previous: usize,
-    fail_fast: u32,
-    nexus: Pin<&'n mut Nexus<'n>>,
-}
+use crate::core::{BlockDeviceHandle, CoreError, Cores, Mthread};
 
 /// io channel, per core
 #[repr(C)]
 pub struct NexusChannel<'n> {
-    inner: Box<Inner<'n>>,
+    writers: Vec<Box<dyn BlockDeviceHandle>>,
+    readers: Vec<Box<dyn BlockDeviceHandle>>,
+    previous_reader: UnsafeCell<usize>,
+    fail_fast: u32,
+    nexus: Pin<&'n mut Nexus<'n>>,
 }
 
 impl<'n> Debug for NexusChannel<'n> {
@@ -26,8 +21,8 @@ impl<'n> Debug for NexusChannel<'n> {
         write!(
             f,
             "readers = {}, writers = {}",
-            self.inner.readers.len(),
-            self.inner.writers.len()
+            self.readers.len(),
+            self.writers.len()
         )
     }
 }
@@ -44,34 +39,6 @@ pub enum DrEvent {
     ChildRemove,
     /// Child rebuild event
     ChildRebuild,
-}
-
-/// Mark nexus child as faulted based on its device name
-pub(crate) fn fault_nexus_child(
-    nexus: Pin<&mut Nexus>,
-    device_name: &str,
-) -> bool {
-    nexus
-        .children_iter()
-        .filter(|c| c.state() == ChildState::Open)
-        .filter(|c| {
-            // If there were previous retires, we do not have a reference
-            // to a BlockDevice. We do however, know it can't be the device
-            // we are attempting to retire in the first place so this
-            // condition is fine.
-            if let Ok(child) = c.get_device().as_ref() {
-                child.device_name() == device_name
-            } else {
-                false
-            }
-        })
-        .any(|c| {
-            Ok(ChildState::Open)
-                == c.state.compare_exchange(
-                    ChildState::Open,
-                    ChildState::Faulted(Reason::IoError),
-                )
-        })
 }
 
 impl<'n> NexusChannel<'n> {
@@ -95,47 +62,40 @@ impl<'n> NexusChannel<'n> {
                 });
         }
 
-        let inner = Box::new(Inner {
+        Self {
             writers,
             readers,
-            previous: 0,
+            previous_reader: UnsafeCell::new(0),
             nexus: unsafe { nexus.pinned_mut() },
             fail_fast: 0,
-        });
-
-        Self {
-            inner,
         }
     }
 
     /// TODO
     pub(crate) fn destroy(mut self) {
-        self.inner.writers.clear();
-        self.inner.readers.clear();
+        self.writers.clear();
+        self.readers.clear();
     }
 
     /// Returns reference to channel's Nexus.
     #[inline(always)]
-    fn nexus(&self) -> &Nexus<'n> {
-        &self.inner.nexus
+    pub(super) fn nexus(&self) -> &Nexus<'n> {
+        &self.nexus
     }
 
     /// Returns mutable reference to channel's Nexus.
     #[inline(always)]
-    fn nexus_mut(&mut self) -> Pin<&mut Nexus<'n>> {
-        self.inner.nexus.as_mut()
-    }
-
-    /// helper routine to get a channel to read from
-    #[inline(always)]
-    pub(super) fn reader_at(&self, i: usize) -> &dyn BlockDeviceHandle {
-        &*self.inner.readers[i]
+    pub(super) fn nexus_mut(&mut self) -> Pin<&mut Nexus<'n>> {
+        self.nexus.as_mut()
     }
 
     /// TODO
     #[inline(always)]
-    pub(super) fn writers(&self) -> &Vec<Box<dyn BlockDeviceHandle>> {
-        &self.inner.writers
+    pub(super) fn for_each_writer<F>(&self, mut f: F) -> Result<(), CoreError>
+    where
+        F: FnMut(&dyn BlockDeviceHandle) -> Result<(), CoreError>,
+    {
+        self.writers.iter().try_for_each(|h| f(h.as_ref()))
     }
 
     /// very simplistic routine to rotate between children for read operations
@@ -143,64 +103,61 @@ impl<'n> NexusChannel<'n> {
     /// not the case but a side effect of using the async. As we poll
     /// threads more often depending on what core we are on etc, we might be
     /// "awaiting' while the thread is already trying to submit IO.
-    pub(crate) fn child_select(&mut self) -> Option<usize> {
-        if self.inner.readers.is_empty() {
+    pub(crate) fn select_reader(&self) -> Option<&dyn BlockDeviceHandle> {
+        if self.readers.is_empty() {
             None
         } else {
-            if self.inner.previous < self.inner.readers.len() - 1 {
-                self.inner.previous += 1;
-            } else {
-                self.inner.previous = 0;
-            }
-            Some(self.inner.previous)
+            let idx = unsafe {
+                let idx = &mut *self.previous_reader.get();
+                if *idx < self.readers.len() - 1 {
+                    *idx += 1;
+                } else {
+                    *idx = 0;
+                }
+                *idx
+            };
+            Some(self.readers[idx].as_ref())
         }
     }
 
-    /// Removes a child device from the readers and writers.
-    pub fn remove_device(&mut self, device_name: &str) -> bool {
-        self.inner.previous = 0;
+    /// Disconnects a child device from the I/O path.
+    pub fn disconnect_device(&mut self, device_name: &str) {
+        self.previous_reader = UnsafeCell::new(0);
+
         trace!(
             ?device_name,
             "core: {} thread: {} removing from during submission channels",
             Cores::current(),
             Mthread::current().unwrap().name()
         );
+
         trace!(
             "{}: Current number of IO channels write: {} read: {}",
             self.nexus().name,
-            self.inner.writers.len(),
-            self.inner.readers.len(),
+            self.writers.len(),
+            self.readers.len(),
         );
-        self.inner
-            .readers
+
+        self.readers
             .retain(|c| c.get_device().device_name() != device_name);
-        self.inner
-            .writers
+        self.writers
             .retain(|c| c.get_device().device_name() != device_name);
 
         trace!(?device_name,
             "core: {} thread: {}: New number of IO channels write:{} read:{} out of {} children",
             Cores::current(),
             Mthread::current().unwrap().name(),
-            self.inner.writers.len(),
-            self.inner.readers.len(),
+            self.writers.len(),
+            self.readers.len(),
             self.nexus().child_count()
         );
-
-        self.fault_device(device_name)
-    }
-
-    /// Marks a child device as faulted.
-    /// Returns true if the child was in open state, false otherwise.
-    pub fn fault_device(&mut self, device_name: &str) -> bool {
-        fault_nexus_child(self.nexus_mut(), device_name)
     }
 
     /// Refreshing our channels simply means that we either have a child going
     /// online or offline. We don't know which child has gone, or was added, so
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
-    pub(crate) fn refresh(&mut self) {
+    pub(crate) fn reconnect_all(&mut self) {
         info!(
             "{}(thread:{:?}), refreshing IO channels",
             self.nexus().name,
@@ -210,14 +167,14 @@ impl<'n> NexusChannel<'n> {
         trace!(
             "{}: Current number of IO channels write: {} read: {}",
             self.nexus().name,
-            self.inner.writers.len(),
-            self.inner.readers.len(),
+            self.writers.len(),
+            self.readers.len(),
         );
 
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
-        self.inner.previous = 0;
+        self.previous_reader = UnsafeCell::new(0);
 
         // nvmx will drop the IO qpairs which is different from all other
         // bdevs we might be dealing with. So instead of clearing and refreshing
@@ -245,7 +202,7 @@ impl<'n> NexusChannel<'n> {
         }
 
         // then add write-only children
-        if !self.inner.readers.is_empty() {
+        if !self.readers.is_empty() {
             unsafe {
                 self.nexus_mut()
                     .children_iter_mut()
@@ -261,17 +218,17 @@ impl<'n> NexusChannel<'n> {
             }
         }
 
-        self.inner.writers.clear();
-        self.inner.readers.clear();
+        self.writers.clear();
+        self.readers.clear();
 
-        self.inner.writers = writers;
-        self.inner.readers = readers;
+        self.writers = writers;
+        self.readers = readers;
 
         trace!(
             "{}: New number of IO channels write:{} read:{} out of {} children",
             self.nexus().name,
-            self.inner.writers.len(),
-            self.inner.readers.len(),
+            self.writers.len(),
+            self.readers.len(),
             self.nexus().child_count()
         );
     }
