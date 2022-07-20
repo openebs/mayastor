@@ -232,8 +232,8 @@ impl ToString for NexusStatus {
 /// TODO
 struct UpdateFailFastCtx {
     sender: oneshot::Sender<bool>,
-    nexus: String,
-    child: Option<String>,
+    nexus_name: String,
+    child_device: Option<String>,
 }
 
 /// TODO
@@ -242,8 +242,10 @@ fn update_failfast_cb(
     ctx: &mut UpdateFailFastCtx,
 ) -> ChannelTraverseStatus {
     let channel = channel.inner_mut();
-    ctx.child.as_ref().map(|child| channel.remove_child(child));
-    debug!(?ctx.nexus, ?ctx.child, "removed from channel");
+    ctx.child_device
+        .as_ref()
+        .map(|dev| channel.remove_device(dev));
+    debug!(?ctx.nexus_name, ?ctx.child_device, "removed from channel");
     ChannelTraverseStatus::Ok
 }
 
@@ -614,14 +616,14 @@ impl<'n> Nexus<'n> {
     async fn update_failfast(
         &self,
         increment: bool,
-        child: Option<String>,
+        child_device: Option<String>,
     ) -> Result<(), Error> {
         let (sender, r) = oneshot::channel::<bool>();
 
         let ctx = UpdateFailFastCtx {
             sender,
-            nexus: self.name.clone(),
-            child,
+            nexus_name: self.name.clone(),
+            child_device,
         };
 
         assert!(self.has_io_device);
@@ -646,8 +648,8 @@ impl<'n> Nexus<'n> {
 
         let ctx = UpdateFailFastCtx {
             sender,
-            nexus: self.name.clone(),
-            child,
+            nexus_name: self.name.clone(),
+            child_device: child,
         };
 
         // if let Some(io_device) = self.io_device.as_ref() {
@@ -672,12 +674,15 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         self.child_retire_for_each_channel(Some(device_name.clone()))
             .await?;
+
         debug!(?self, "PAUSE");
         self.as_mut().pause().await?;
         debug!(?self, "UNPAUSE");
+
         if let Some(child) = self.lookup_child_device(&device_name) {
             let uri = child.uri();
-            // schedule the deletion of the child eventhough etcd has not been
+
+            // Schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
             // complete anyway.
             device_cmd_queue().enqueue(DeviceCommand::RemoveDevice {

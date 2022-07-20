@@ -132,7 +132,7 @@ impl<'n> NexusBio<'n> {
 
     /// assess the IO if we need to mark it failed or ok.
     /// obtain the Nexus struct embedded within the bdev
-    pub(crate) fn nexus_as_ref(&self) -> &Nexus<'n> {
+    pub(crate) fn nexus(&self) -> &Nexus<'n> {
         self.bdev_checked(NEXUS_PRODUCT_ID).data()
     }
 
@@ -231,8 +231,7 @@ impl<'n> NexusBio<'n> {
 
     /// Returns the offset in num blocks where the data partition starts.
     fn data_ent_offset(&self) -> u64 {
-        // TODO make const
-        self.nexus_as_ref().data_ent_offset
+        self.nexus().data_ent_offset
     }
 
     /// helper routine to get a channel to read from
@@ -280,7 +279,7 @@ impl<'n> NexusBio<'n> {
                     Cores::current(), Mthread::current().unwrap().name(), device, r);
 
                 let inner = self.inner_channel_mut();
-                let must_retire = inner.fault_child(&device);
+                let must_retire = inner.fault_device(&device);
                 if must_retire {
                     self.do_retire(device);
                 }
@@ -426,7 +425,7 @@ impl<'n> NexusBio<'n> {
             let device = failed_device.unwrap();
             // set the IO as failed in the submission stage.
             self.ctx_mut().must_fail = true;
-            if self.inner_channel_mut().remove_child(&device) {
+            if self.inner_channel_mut().remove_device(&device) {
                 self.do_retire(device);
             }
         }
@@ -446,10 +445,10 @@ impl<'n> NexusBio<'n> {
         result
     }
 
-    fn do_retire(&self, child: String) {
+    fn do_retire(&self, child_device: String) {
         Reactors::master().send_future(nexus_child_retire(
-            self.nexus_as_ref().name.clone(),
-            child,
+            self.nexus().name.clone(),
+            child_device,
         ));
     }
 
@@ -496,7 +495,7 @@ impl<'n> NexusBio<'n> {
 
         let child = child.device_name();
         // check if this child needs to be retired
-        let needs_retire = self.inner_channel_mut().fault_child(&child);
+        let needs_retire = self.inner_channel_mut().fault_device(&child);
         // The child state was not faulted yet, so this is the first IO
         // to this child for which we encountered an error.
         if needs_retire {
