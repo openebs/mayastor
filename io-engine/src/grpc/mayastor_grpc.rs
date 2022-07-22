@@ -805,7 +805,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     )
                     .await?;
                     let nexus = nexus_lookup(&uuid)?;
-                    info!("Created nexus {}", uuid);
+                    info!("Created nexus: '{}'", uuid);
                     Ok(nexus.to_grpc())
                 })?;
                 rx.await
@@ -854,7 +854,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     )
                     .await?;
                     let nexus = nexus_lookup(&args.name)?;
-                    info!("Created nexus {}", &args.name);
+                    info!("Created nexus '{}'", &args.name);
                     Ok(nexus.to_grpc())
                 })?;
                 rx.await

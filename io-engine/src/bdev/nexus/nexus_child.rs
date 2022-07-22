@@ -10,7 +10,7 @@ use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
-use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent, VerboseError};
+use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent};
 
 use crate::{
     bdev::{device_create, device_destroy, device_lookup},
@@ -23,6 +23,7 @@ use crate::{
         DeviceEventSink,
         Reactor,
         Reactors,
+        VerboseError,
     },
     persistent_store::PersistentStore,
     rebuild::RebuildJob,
@@ -109,18 +110,12 @@ pub enum Reason {
 impl Display for Reason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unknown => write!(f, "Unknown"),
-            Self::OutOfSync => {
-                write!(f, "The child is out of sync and requires a rebuild")
-            }
-            Self::CantOpen => {
-                write!(f, "The child block device could not be opened")
-            }
-            Self::RebuildFailed => {
-                write!(f, "The child failed to rebuild successfully")
-            }
-            Self::IoError => write!(f, "The child had too many I/O errors"),
-            Self::Rpc => write!(f, "The child is faulted due to a rpc call"),
+            Self::Unknown => write!(f, "unknown"),
+            Self::OutOfSync => write!(f, "out of sync"),
+            Self::CantOpen => write!(f, "cannot open"),
+            Self::RebuildFailed => write!(f, "rebuild failed"),
+            Self::IoError => write!(f, "i/o"),
+            Self::Rpc => write!(f, "client"),
         }
     }
 }
@@ -145,12 +140,12 @@ pub enum ChildState {
 impl Display for ChildState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Faulted(r) => write!(f, "Faulted with reason {}", r),
-            Self::Init => write!(f, "Init"),
-            Self::ConfigInvalid => write!(f, "Config parameters are invalid"),
-            Self::Open => write!(f, "Child is open"),
-            Self::Destroying => write!(f, "Child is being destroyed"),
-            Self::Closed => write!(f, "Closed"),
+            Self::Faulted(r) => write!(f, "faulted ({})", r),
+            Self::Init => write!(f, "init"),
+            Self::ConfigInvalid => write!(f, "config invalid"),
+            Self::Open => write!(f, "open"),
+            Self::Destroying => write!(f, "destroying"),
+            Self::Closed => write!(f, "closed"),
         }
     }
 }
@@ -190,20 +185,22 @@ pub struct NexusChild<'c> {
 
 impl Debug for NexusChild<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "parent = {}, name = {}", self.parent, self.name)
-    }
-}
-
-impl Display for NexusChild<'_> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        match &self.device {
-            Some(_dev) => writeln!(f, "{}: {:?}", self.name, self.state(),),
-            None => writeln!(f, "{}: state {:?}", self.name, self.state()),
-        }
+        write!(
+            f,
+            "Child '{} @ {}' [{}: {}]",
+            self.name,
+            self.parent,
+            self.state(),
+            match &self.device {
+                Some(d) => d.device_name(),
+                None => "no dev".to_owned(),
+            },
+        )
     }
 }
 
 impl<'c> NexusChild<'c> {
+    /// TODO
     pub(crate) fn set_state(&self, state: ChildState) {
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
@@ -230,29 +227,23 @@ impl<'c> NexusChild<'c> {
         &mut self,
         parent_size: u64,
     ) -> Result<String, ChildError> {
-        trace!("{}: Opening child device {}", self.parent, self.name);
+        info!("{:?}: opening child device...", self);
 
         // verify the state of the child before we open it
         match self.state() {
-            ChildState::Faulted(reason) => {
-                error!(
-                    "{}: can not open child {} reason {}",
-                    self.parent, self.name, reason
-                );
+            ChildState::Faulted(_) => {
+                error!("{:?}: cannot open: state is {}", self, self.state());
                 return Err(ChildError::ChildFaulted {});
             }
             ChildState::Open => {
-                // the child (should) already be open
+                // The child (should) already be open.
                 assert!(self.device.is_some());
                 assert!(self.device_descriptor.is_some());
-                info!("called open on an already opened child");
+                warn!("{:?}: already opened", self);
                 return Ok(self.name.clone());
             }
             ChildState::Destroying => {
-                error!(
-                    "{}: cannot open child {} being destroyed",
-                    self.parent, self.name
-                );
+                error!("{:?}: cannot open: being destroyed", self);
                 return Err(ChildError::ChildBeingDestroyed {});
             }
             _ => {}
@@ -263,8 +254,8 @@ impl<'c> NexusChild<'c> {
         let child_size = dev.size_in_bytes();
         if parent_size > child_size {
             error!(
-                "{}: child {} too small, parent size: {} child size: {}",
-                self.parent, self.name, parent_size, child_size
+                "{:?}: child is too small, parent size: {} child size: {}",
+                self, parent_size, child_size
             );
 
             self.set_state(ChildState::ConfigInvalid);
@@ -284,7 +275,7 @@ impl<'c> NexusChild<'c> {
 
         self.set_state(ChildState::Open);
 
-        debug!("{}: child {} opened successfully", self.parent, self.name);
+        info!("{:?}: opened successfully", self);
         Ok(self.name.clone())
     }
 
@@ -583,9 +574,9 @@ impl<'c> NexusChild<'c> {
 
     /// Close the nexus child.
     pub(crate) async fn close(&mut self) -> Result<(), BdevError> {
-        info!("{}: closing nexus child", self.name);
+        info!("{:?}: closing child...", self);
         if self.device.is_none() {
-            info!("{}: nexus child already closed", self.name);
+            warn!("{:?}: already closed", self);
             return Ok(());
         }
 
@@ -606,7 +597,7 @@ impl<'c> NexusChild<'c> {
             self.remove_channel.1.next().await;
         }
 
-        info!("{}: nexus child closed", self.name);
+        info!("{:?}: child closed successfully", self);
         destroyed
     }
 
@@ -616,7 +607,7 @@ impl<'c> NexusChild<'c> {
     ///
     /// Note: The descriptor *must* be dropped for the remove to complete.
     pub(crate) fn remove(&mut self) {
-        info!("{}: removing child", self.name);
+        info!("{:?}: removing child...", self);
 
         let mut state = self.state();
 
@@ -641,7 +632,8 @@ impl<'c> NexusChild<'c> {
                 if destroying {
                     // Restore the previous state
                     info!(
-                        "Restoring previous child state {}",
+                        "{:?}: restoring previous child state {}",
+                        self,
                         state.to_string()
                     );
                     self.set_state(state);
@@ -660,7 +652,7 @@ impl<'c> NexusChild<'c> {
             Reactor::block_on(async move {
                 match nexus_lookup_mut(&nexus_name) {
                     Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
-                    None => error!("Nexus {} not found", nexus_name),
+                    None => error!("Nexus '{}' not found", nexus_name),
                 }
             });
         }
@@ -672,7 +664,7 @@ impl<'c> NexusChild<'c> {
         }
 
         self.remove_complete();
-        info!("Child {} removed", self.name);
+        info!("{:?}: child successfully removed", self);
     }
 
     /// Signal that the child removal is complete.
@@ -717,11 +709,11 @@ impl<'c> NexusChild<'c> {
     pub async fn destroy(&self) -> Result<(), BdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
-            info!("{}: destroying underlying block device", self.name);
+            info!("{:?}: destroying block device...", self);
             device_destroy(&self.name).await?;
-            info!("{}: underlying block device destroyed", self.name);
+            info!("{:?}: block device destroyed", self);
         } else {
-            warn!("{}: no underlying block device", self.name);
+            warn!("{:?}: no block device", self);
         }
 
         Ok(())
@@ -810,18 +802,21 @@ impl<'c> NexusChild<'c> {
             .get_device()
             .expect("No block device associated with a Nexus child");
 
-        let name = listener.get_listener_name();
         match dev.add_event_listener(listener) {
             Err(err) => {
                 error!(
                     ?err,
-                    "{}: failed to register event listener for child {}",
-                    name,
-                    self.uri(),
+                    "{:?}: failed to add event for device '{}'",
+                    self,
+                    dev.device_name()
                 )
             }
             _ => {
-                info!("{}: listening to child events: {}", name, self.uri());
+                debug!(
+                    "{:?}: added event listener for device '{}'",
+                    self,
+                    dev.device_name()
+                );
             }
         }
     }

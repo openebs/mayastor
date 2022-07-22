@@ -11,11 +11,10 @@ use super::{
     Error,
     Nexus,
     Reason,
-    VerboseError,
 };
 
 use crate::{
-    core::Reactors,
+    core::{Reactors, VerboseError},
     rebuild::{RebuildError, RebuildJob, RebuildState, RebuildStats},
 };
 
@@ -206,6 +205,8 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         src_uri: &str,
     ) -> Vec<String> {
+        info!("{:?}: cancel rebuild jobs from {}...", self, src_uri);
+
         let mut src_jobs = self.as_mut().rebuild_jobs_src_mut(src_uri);
         let mut terminated_jobs = Vec::new();
         let mut rebuilding_children = Vec::new();

@@ -306,7 +306,7 @@ impl Target {
         let tgt = self.tgt.as_ptr();
         Reactors::master().send_future(async move {
             NvmfSubsystem::stop_all(tgt).await;
-            debug!("all subsystems stopped!");
+            debug!("All subsystems stopped");
             NvmfSubsystem::destroy_all();
         });
     }

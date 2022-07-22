@@ -1,4 +1,9 @@
-use std::{collections::HashMap, convert::TryFrom, ffi::CString};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    ffi::CString,
+    fmt::{Debug, Formatter},
+};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -11,16 +16,21 @@ use spdk_rs::libspdk::{bdev_aio_delete, create_aio_bdev};
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
     bdev_api::{self, BdevError},
-    core::UntypedBdev,
+    core::{UntypedBdev, VerboseError},
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
 };
 
-#[derive(Debug)]
 pub(super) struct Aio {
     name: String,
     alias: String,
     blk_size: u32,
     uuid: Option<uuid::Uuid>,
+}
+
+impl Debug for Aio {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Aio '{}'", self.name)
+    }
 }
 
 /// Convert a URI to an Aio "object"
@@ -86,6 +96,8 @@ impl CreateDestroy for Aio {
             });
         }
 
+        debug!("{:?}: creating bdev", self);
+
         let cname = CString::new(self.get_name()).unwrap();
 
         let errno = unsafe {
@@ -93,10 +105,14 @@ impl CreateDestroy for Aio {
         };
 
         if errno != 0 {
-            return Err(BdevError::CreateBdevFailed {
+            let err = BdevError::CreateBdevFailed {
                 source: Errno::from_i32(errno.abs()),
                 name: self.get_name(),
-            });
+            };
+
+            error!("{:?} error: {}", self, err.verbose());
+
+            return Err(err);
         }
 
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
@@ -105,11 +121,7 @@ impl CreateDestroy for Aio {
             }
 
             if !bdev.add_alias(&self.alias) {
-                error!(
-                    "failed to add alias {} to device {}",
-                    self.alias,
-                    self.get_name()
-                );
+                warn!("{:?}: failed to add alias '{}'", self, self.alias);
             }
 
             return Ok(self.get_name());
@@ -122,6 +134,8 @@ impl CreateDestroy for Aio {
 
     /// Destroy the given AIO bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
+        debug!("{:?}: deleting", self);
+
         match UntypedBdev::lookup_by_name(&self.name) {
             Some(mut bdev) => {
                 bdev.remove_alias(&self.alias);

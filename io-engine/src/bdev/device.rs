@@ -74,7 +74,9 @@ impl SpdkBlockDevice {
 
     /// Lookup existing SPDK bdev by its name.
     pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
+        debug!("Searching SPDK devices for '{}'...", name);
         let bdev = UntypedBdev::lookup_by_name(name)?;
+        debug!("SPDK {} device found: '{}'", bdev.driver(), name);
         Some(SpdkBlockDevice::new(bdev))
     }
 
@@ -603,15 +605,18 @@ pub fn bdev_event_callback<T: BdevOps>(
     // Translate SPDK events into common device events.
     let event = match event {
         spdk_rs::BdevEvent::Remove => {
-            info!("Received remove event for Bdev '{}'", dev.name());
+            info!("Received SPDK remove event for bdev '{}'", dev.name());
             DeviceEventType::DeviceRemoved
         }
         spdk_rs::BdevEvent::Resize => {
-            warn!("Received resize event for Bdev '{}'", dev.name());
+            warn!("Received SPDK resize event for bdev '{}'", dev.name());
             DeviceEventType::DeviceResized
         }
         spdk_rs::BdevEvent::MediaManagement => {
-            warn!("Received media management event for Bdev '{}'", dev.name());
+            warn!(
+                "Received SPDK media management event for Bdev '{}'",
+                dev.name()
+            );
             DeviceEventType::MediaManagement
         }
     };

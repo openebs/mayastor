@@ -41,7 +41,6 @@ use super::{
     NexusStatus,
     PersistOp,
     Reason,
-    VerboseError,
 };
 
 use crate::{
@@ -54,50 +53,36 @@ use crate::{
         DeviceEventListener,
         DeviceEventType,
         Reactors,
+        VerboseError,
     },
 };
 
 use spdk_rs::{ChannelTraverseStatus, IoDeviceChannelTraverse};
 
 impl<'n> Nexus<'n> {
-    /// register children with the nexus, only allowed during the nexus init
-    /// phase
-    pub fn register_children(mut self: Pin<&mut Self>, dev_name: &[String]) {
-        assert_eq!(*self.state.lock(), NexusState::Init);
-
-        let nexus_name = self.name.clone();
-        dev_name
-            .iter()
-            .map(|c| {
-                debug!("{}: Adding child {}", self.name, c);
-
-                unsafe {
-                    self.as_mut().child_add_unsafe(NexusChild::new(
-                        c.clone(),
-                        nexus_name.clone(),
-                        device_lookup(c),
-                    ))
-                }
-            })
-            .for_each(drop);
-    }
-
     /// Create and register a single child to nexus, only allowed during the
     /// nexus init phase
-    pub async fn create_and_register(
+    pub async fn new_child(
         mut self: Pin<&mut Self>,
         uri: &str,
     ) -> Result<(), BdevError> {
         assert_eq!(*self.state.lock(), NexusState::Init);
-        let name = device_create(uri).await?;
-        let nexus_name = self.name.clone();
+
+        info!("{:?}: adding child: '{}'...", self, uri);
+
+        let nexus_name = self.nexus_name().to_owned();
+        let device_name = device_create(uri).await?;
+
+        let c = NexusChild::new(
+            uri.to_string(),
+            nexus_name,
+            device_lookup(&device_name),
+        );
+
+        info!("{:?}: added to nexus", c);
 
         unsafe {
-            self.as_mut().child_add_unsafe(NexusChild::new(
-                uri.to_string(),
-                nexus_name,
-                device_lookup(&name),
-            ));
+            self.as_mut().child_add_unsafe(c);
         }
 
         Ok(())
@@ -192,20 +177,18 @@ impl<'n> Nexus<'n> {
 
         let mut child = NexusChild::new(
             uri.to_owned(),
-            self.name.clone(),
+            self.nexus_name().to_owned(),
             Some(child_bdev),
         );
 
         let mut res = child.open(self.req_size());
 
-        if let Ok(ref child_uri) = res {
+        if res.is_ok() {
             // we have created the bdev, and created a nexusChild struct. To
             // make use of the device itself the
             // data and metadata must be validated. The child
             // will be added and marked as faulted, once the rebuild has
             // completed the device can transition to online
-            info!("{}: child opened successfully {}", self.name, child_uri);
-
             if let Err(e) = child
                 .acquire_write_exclusive(
                     self.nvme_params.resv_key,
@@ -437,7 +420,7 @@ impl<'n> Nexus<'n> {
             unsafe { self.as_mut().children_iter_mut().map(|c| c.close()) };
         let results = join_all(futures).await;
         if results.iter().any(|c| c.is_err()) {
-            error!("{}: Failed to close children", self.name);
+            error!("{:?}: failed to close children", self);
         }
     }
 
@@ -447,6 +430,8 @@ impl<'n> Nexus<'n> {
     pub(crate) async fn try_open_children(
         mut self: Pin<&mut Self>,
     ) -> Result<(), Error> {
+        info!("{:?}: opening nexus children...", self);
+
         let name = self.name.clone();
 
         if self.children().is_empty() {
@@ -524,24 +509,11 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             for child in self.as_mut().children_iter_mut() {
-                match child.open(size) {
-                    Ok(child_name) => {
-                        info!(
-                            "{}: successfully opened child {}",
-                            name, child_name
-                        );
-                        child.set_event_listener(evt_listener.clone());
-                    }
-                    Err(error) => {
-                        error!(
-                            "{}: failed to open child {}: {}",
-                            name,
-                            child.uri(),
-                            error.verbose()
-                        );
-                        failed = true;
-                    }
-                };
+                if child.open(size).is_ok() {
+                    child.set_event_listener(evt_listener.clone());
+                } else {
+                    failed = true;
+                }
             }
         }
 
@@ -556,9 +528,8 @@ impl<'n> Nexus<'n> {
                     if child.state() == ChildState::Open {
                         if let Err(error) = child.close().await {
                             error!(
-                                "{}: failed to close child {}: {}",
-                                name,
-                                child.uri(),
+                                "{:?}: child failed to close: {}",
+                                child,
                                 error.verbose()
                             );
                         }
@@ -596,9 +567,8 @@ impl<'n> Nexus<'n> {
                 for child in self.as_mut().children_iter_mut() {
                     if let Err(error) = child.close().await {
                         error!(
-                            "{}: child {} failed to close with error {}",
-                            name,
-                            child.uri(),
+                            "{:?}: child failed to close: {}",
+                            child,
                             error.verbose()
                         );
                     }
@@ -613,12 +583,9 @@ impl<'n> Nexus<'n> {
             let alignment = child.get_device().as_ref().unwrap().alignment();
             if new_alignment < alignment {
                 info!(
-                    "{}: child {} has alignment {}, updating \
+                    "{:?}: child has alignment {}, updating \
                         required_alignment from {}",
-                    name,
-                    child.uri(),
-                    alignment,
-                    new_alignment
+                    child, alignment, new_alignment
                 );
                 new_alignment = alignment;
             }
@@ -631,9 +598,9 @@ impl<'n> Nexus<'n> {
         }
 
         info!(
-            "{}: updated specs: start_blk={}, end_blk={}, \
+            "{:?}: children opened, updated specs: start_blk={}, end_blk={}, \
                 block_len={}, required_alignment={}",
-            name, start_blk, end_blk, blk_size, new_alignment
+            self, start_blk, end_blk, blk_size, new_alignment
         );
 
         Ok(())
@@ -729,9 +696,8 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                 match self.lookup_child_device_mut(dev_name) {
                     Some(child) => {
                         info!(
-                            "{}: removing child {} in response to device removal event",
-                            child.nexus_name(),
-                            child.uri(),
+                            "{:?}: removing child in response to device removal event",
+                            child,
                         );
                         child.remove();
                     }
@@ -817,7 +783,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub(super) fn retire_child(
+    pub(crate) fn retire_child(
         mut self: Pin<&mut Self>,
         child_device: &str,
         retry: bool,
@@ -886,9 +852,9 @@ impl<'n> Nexus<'n> {
         self.disconnect_all_children(Some(device_name.clone()))
             .await?;
 
-        debug!(?self, "PAUSE");
+        info!(?self, "PAUSE");
         self.as_mut().pause().await?;
-        debug!(?self, "UNPAUSE");
+        info!(?self, "UNPAUSE");
 
         if let Some(child) = self.lookup_child_device(&device_name) {
             let uri = child.uri();
@@ -963,7 +929,7 @@ impl<'n> Nexus<'n> {
                 ctx,
             );
 
-            debug!(?self, "all channels disconnected");
+            info!("{:?}: all channels disconnected", self);
             r.await
                 .expect("disconnect_all_children() sender already dropped");
         }

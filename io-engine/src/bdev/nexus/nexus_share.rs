@@ -139,6 +139,7 @@ impl<'n> Nexus<'n> {
 
     /// TODO
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        info!("{:?}: unsharing nexus...", self);
         unsafe {
             match self.as_mut().get_unchecked_mut().nexus_target.take() {
                 Some(NexusTarget::NbdDisk(disk)) => {
@@ -148,7 +149,7 @@ impl<'n> Nexus<'n> {
                     self.as_mut().unshare().await?;
                 }
                 None => {
-                    warn!("{} was not shared", self.name);
+                    info!("{:?}: not shared", self);
                 }
             }
         }

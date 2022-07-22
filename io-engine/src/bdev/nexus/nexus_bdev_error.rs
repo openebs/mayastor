@@ -11,28 +11,6 @@ use crate::{
     subsys::NvmfError,
 };
 
-/// Obtain the full error chain
-pub trait VerboseError {
-    fn verbose(&self) -> String;
-}
-
-impl<T> VerboseError for T
-where
-    T: std::error::Error,
-{
-    /// loops through the error chain and formats into a single string
-    /// containing all the lower level errors
-    fn verbose(&self) -> String {
-        let mut msg = format!("{}", self);
-        let mut opt_source = self.source();
-        while let Some(source) = opt_source {
-            msg = format!("{}: {}", msg, source);
-            opt_source = source.source();
-        }
-        msg
-    }
-}
-
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
 #[derive(Debug, Snafu)]

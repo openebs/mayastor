@@ -8,7 +8,7 @@ use spdk_rs::{DmaBuf, LbaRange};
 use crate::{
     bdev::{
         device_open,
-        nexus::{nexus_iter, nexus_iter_mut, VerboseError},
+        nexus::{nexus_iter, nexus_iter_mut},
         Nexus,
     },
     bdev_api::bdev_get_name,
@@ -19,6 +19,7 @@ use crate::{
         BlockDeviceHandle,
         DescriptorGuard,
         Reactors,
+        VerboseError,
     },
 };
 

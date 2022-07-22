@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use tonic::Status;
 
 use crate::{
-    bdev::nexus::VerboseError,
-    core::{runtime, Cores, Reactor, Share},
+    core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
     lvs::{Error as LvsError, Lvs},
     pool::{Pool as SpdkPool, PoolArgs, PoolsIter},

@@ -1,6 +1,10 @@
 //!
 //! IO is driven by means of so called channels.
-use std::{cell::UnsafeCell, fmt::Debug, pin::Pin};
+use std::{
+    cell::UnsafeCell,
+    fmt::{Debug, Display, Formatter},
+    pin::Pin,
+};
 
 use super::{ChildState, Nexus, Reason};
 
@@ -14,6 +18,7 @@ pub struct NexusChannel<'n> {
     previous_reader: UnsafeCell<usize>,
     fail_fast: u32,
     nexus: Pin<&'n mut Nexus<'n>>,
+    core: u32,
 }
 
 impl<'n> Debug for NexusChannel<'n> {
@@ -41,9 +46,26 @@ pub enum DrEvent {
     ChildRebuild,
 }
 
+impl Display for DrEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::ChildOffline => "child offline",
+                Self::ChildFault => "child fault",
+                Self::ChildRemove => "child remove",
+                Self::ChildRebuild => "child rebuild",
+            }
+        )
+    }
+}
+
 impl<'n> NexusChannel<'n> {
     /// TODO
     pub(crate) fn new(mut nexus: Pin<&mut Nexus<'n>>) -> Self {
+        debug!("{:?}: new channel on core {}", nexus, Cores::current());
+
         let mut writers = Vec::new();
         let mut readers = Vec::new();
 
@@ -68,11 +90,16 @@ impl<'n> NexusChannel<'n> {
             previous_reader: UnsafeCell::new(0),
             nexus: unsafe { nexus.pinned_mut() },
             fail_fast: 0,
+            core: Cores::current(),
         }
     }
 
     /// TODO
     pub(crate) fn destroy(mut self) {
+        debug!(
+            "{:?}: destroying IO channel on core {}",
+            self.nexus, self.core
+        );
         self.writers.clear();
         self.readers.clear();
     }
@@ -124,7 +151,7 @@ impl<'n> NexusChannel<'n> {
     pub fn disconnect_device(&mut self, device_name: &str) {
         self.previous_reader = UnsafeCell::new(0);
 
-        trace!(
+        debug!(
             ?device_name,
             "core: {} thread: {} removing from during submission channels",
             Cores::current(),
@@ -132,8 +159,8 @@ impl<'n> NexusChannel<'n> {
         );
 
         trace!(
-            "{}: Current number of IO channels write: {} read: {}",
-            self.nexus().name,
+            "{:?}: current number of IO channels write: {} read: {}",
+            self.nexus(),
             self.writers.len(),
             self.readers.len(),
         );
@@ -158,15 +185,15 @@ impl<'n> NexusChannel<'n> {
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
     pub(crate) fn reconnect_all(&mut self) {
-        info!(
-            "{}(thread:{:?}), refreshing IO channels",
-            self.nexus().name,
+        debug!(
+            "{:?} (thread:{:?}), refreshin  g IO channels",
+            self.nexus(),
             Mthread::current().unwrap().name(),
         );
 
         trace!(
-            "{}: Current number of IO channels write: {} read: {}",
-            self.nexus().name,
+            "{:?}: current number of IO channels write: {} read: {}",
+            self.nexus(),
             self.writers.len(),
             self.readers.len(),
         );
@@ -225,8 +252,8 @@ impl<'n> NexusChannel<'n> {
         self.readers = readers;
 
         trace!(
-            "{}: New number of IO channels write:{} read:{} out of {} children",
-            self.nexus().name,
+            "{:?}: new number of IO channels write:{} read:{} out of {} children",
+            self.nexus(),
             self.writers.len(),
             self.readers.len(),
             self.nexus().child_count()

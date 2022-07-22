@@ -5,7 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
     marker::PhantomPinned,
     os::raw::c_void,
     pin::Pin,
@@ -28,7 +28,6 @@ use super::{
     NexusChild,
     NexusModule,
     PersistOp,
-    VerboseError,
 };
 
 use crate::{
@@ -45,6 +44,7 @@ use crate::{
         Protocol,
         Reactor,
         Share,
+        VerboseError,
     },
     subsys::NvmfSubsystem,
 };
@@ -141,7 +141,6 @@ impl NexusNvmeParams {
 }
 
 /// The main nexus structure
-#[derive(Debug)]
 pub struct Nexus<'n> {
     /// Name of the Nexus instance
     pub(crate) name: String,
@@ -178,6 +177,13 @@ pub struct Nexus<'n> {
     _pin: PhantomPinned,
 }
 
+impl<'n> Debug for Nexus<'n> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = self.state.lock();
+        write!(f, "Nexus '{}' [{}]", self.name, s)
+    }
+}
+
 /// Nexus status enumeration.
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusStatus {
@@ -187,6 +193,20 @@ pub enum NexusStatus {
     Degraded,
     /// Online
     Online,
+}
+
+impl Display for NexusStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                NexusStatus::Degraded => "degraded",
+                NexusStatus::Online => "online",
+                NexusStatus::Faulted => "faulted",
+            }
+        )
+    }
 }
 
 /// Nexus state enumeration.
@@ -202,28 +222,18 @@ pub enum NexusState {
     Reconfiguring,
 }
 
-impl ToString for NexusState {
-    fn to_string(&self) -> String {
-        match *self {
-            NexusState::Init => "init",
-            NexusState::Closed => "closed",
-            NexusState::Open => "open",
-            NexusState::Reconfiguring => "reconfiguring",
-        }
-        .parse()
-        .unwrap()
-    }
-}
-
-impl ToString for NexusStatus {
-    fn to_string(&self) -> String {
-        match *self {
-            NexusStatus::Degraded => "degraded",
-            NexusStatus::Online => "online",
-            NexusStatus::Faulted => "faulted",
-        }
-        .parse()
-        .unwrap()
+impl Display for NexusState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                NexusState::Init => "init",
+                NexusState::Closed => "closed",
+                NexusState::Open => "open",
+                NexusState::Reconfiguring => "reconfiguring",
+            }
+        )
     }
 }
 
@@ -236,7 +246,6 @@ impl<'n> Nexus<'n> {
         bdev_uuid: Option<&str>,
         nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
-        child_bdevs: Option<&[String]>,
         nexus_info_key: Option<String>,
     ) -> spdk_rs::Bdev<Nexus<'n>> {
         let n = Nexus {
@@ -287,10 +296,11 @@ impl<'n> Nexus<'n> {
             ));
         }
 
-        // register children
-        if let Some(child_bdevs) = child_bdevs {
-            bdev.data_mut().register_children(child_bdevs);
-        }
+        info!(
+            "{:?}: creating new nexus bdev with UUID '{}'",
+            bdev.data(),
+            bdev.data().uuid()
+        );
 
         bdev
     }
@@ -308,24 +318,26 @@ impl<'n> Nexus<'n> {
         match uuid {
             Some(s) => match uuid::Uuid::parse_str(s) {
                 Ok(u) => {
-                    info!("UUID set to {} for nexus {}", u, name);
+                    debug!("Nexus '{}': UUID set to '{}'", name, u);
                     return u.into();
                 }
                 Err(error) => {
-                    warn!(
-                        "nexus {}: invalid UUID specified {}: {}",
-                        name, s, error
-                    );
+                    warn!("Nexus '{}': invalid UUID '{}': {}", name, s, error);
                 }
             },
             None => {
-                info!("no UUID specified for nexus {}", name);
+                warn!("Nexus '{}': no UUID specified", name);
             }
         }
 
         let u = spdk_rs::Uuid::generate();
-        info!("using generated UUID {} for nexus {}", u, name);
+        debug!("Nexus '{}': using generated UUID '{}'", name, u);
         u
+    }
+
+    /// Returns nexus name.
+    pub(crate) fn nexus_name(&self) -> &str {
+        &self.name
     }
 
     /// Returns the Nexus uuid.
@@ -335,10 +347,7 @@ impl<'n> Nexus<'n> {
 
     /// Sets the state of the Nexus.
     fn set_state(self: Pin<&mut Self>, state: NexusState) -> NexusState {
-        debug!(
-            "{} Transitioned state from {:?} to {:?}",
-            self.name, self.state, state
-        );
+        info!("{:?}: changing state to {}", self, state);
         *self.state.lock() = state;
         state
     }
@@ -435,8 +444,8 @@ impl<'n> Nexus<'n> {
     /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
         info!(
-            "{}: Dynamic reconfiguration event: {:?} started",
-            self.name, event
+            "{:?}: dynamic reconfiguration event: {} started...",
+            self, event
         );
 
         let (sender, recv) = oneshot::channel::<ChannelTraverseStatus>();
@@ -447,7 +456,7 @@ impl<'n> Nexus<'n> {
                 ChannelTraverseStatus::Ok
             },
             |status, sender| {
-                info!("{}: Reconfigure completed", self.name);
+                info!("{:?}: reconfigure completed", self);
                 sender.send(status).expect("reconfigure channel gone");
             },
             sender,
@@ -456,8 +465,8 @@ impl<'n> Nexus<'n> {
         let result = recv.await.expect("reconfigure sender already dropped");
 
         info!(
-            "{}: Dynamic reconfiguration event: {:?} completed {:?}",
-            self.name, event, result
+            "{:?}: dynamic reconfiguration event: {} completed: {:?}",
+            self, event, result
         );
     }
 
@@ -470,7 +479,7 @@ impl<'n> Nexus<'n> {
         let mut nex = bdev.data_mut();
         assert_eq!(*nex.state.lock(), NexusState::Init);
 
-        debug!("Opening nexus {}", nex.name);
+        info!("{:?}: registering nexus bdev...", nex);
 
         nex.as_mut().try_open_children().await?;
 
@@ -478,10 +487,7 @@ impl<'n> Nexus<'n> {
         // creation.
         nex.register_io_device(Some(&nex.name));
 
-        debug!(
-            "{}: IO device registered at {:p}",
-            nex.name, &*nex as *const Nexus
-        );
+        info!("{:?}: IO device registered", nex);
 
         match bdev.register_bdev() {
             Ok(_) => {
@@ -490,19 +496,22 @@ impl<'n> Nexus<'n> {
                 // nexus list does not return this nexus until it is persisted.
                 nex.persist(PersistOp::Create).await;
                 nex.as_mut().set_state(NexusState::Open);
-                unsafe { nex.get_unchecked_mut().has_io_device = true };
+                unsafe { nex.as_mut().unpin_mut().has_io_device = true };
+                info!("{:?}: nexus bdev registered successfully", nex);
                 Ok(())
             }
             Err(err) => {
+                error!(
+                    "{:?}: nexus bdev registration failed: {}",
+                    nex,
+                    err.verbose()
+                );
                 unsafe {
-                    for child in
-                        nex.as_mut().get_unchecked_mut().children.iter_mut()
-                    {
+                    for child in nex.as_mut().children_iter_mut() {
                         if let Err(e) = child.close().await {
                             error!(
-                                "{}: child {} failed to close with error {}",
-                                bdev.data_mut().name,
-                                child.uri(),
+                                "{:?}: child failed to close: {}",
+                                child,
                                 e.verbose()
                             );
                         }
@@ -518,7 +527,7 @@ impl<'n> Nexus<'n> {
 
     /// Destroy the Nexus.
     pub async fn destroy(mut self: Pin<&mut Self>) -> Result<(), Error> {
-        info!("Destroying nexus {}", self.name);
+        info!("{:?}: destroying nexus...", self);
 
         self.as_mut().destroy_shares().await;
 
@@ -529,30 +538,43 @@ impl<'n> Nexus<'n> {
             self.as_mut().cancel_rebuild_jobs_with_src(&child).await;
         }
 
+        info!("{:?}: closing {} children...", self, self.children.len());
         unsafe {
-            for child in self.as_mut().get_unchecked_mut().children.iter_mut() {
-                info!("Destroying child bdev {}", child.uri());
+            for child in self.as_mut().children_iter_mut() {
                 if let Err(e) = child.close().await {
                     // TODO: should an error be returned here?
                     error!(
-                        "Failed to close child {} with error {}",
-                        child.uri(),
+                        "{:?}: child failed to close: {}",
+                        child,
                         e.verbose()
                     );
                 }
             }
         }
+        info!("{:?}: children closed", self);
 
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
 
         unsafe {
             let name = self.name.clone();
-            match self.bdev_mut().unregister_bdev_async().await {
-                Ok(_) => Ok(()),
-                Err(_) => Err(Error::NexusDestroy {
-                    name,
-                }),
+
+            // After calling unregister_bdev_async(), Nexus is gone.
+            match self.as_mut().bdev_mut().unregister_bdev_async().await {
+                Ok(_) => {
+                    info!("Nexus '{}': nexus destroyed ok", name);
+                    Ok(())
+                }
+                Err(err) => {
+                    error!(
+                        "Nexus '{}': failed to destroy: {}",
+                        name,
+                        err.verbose()
+                    );
+                    Err(Error::NexusDestroy {
+                        name,
+                    })
+                }
             }
         }
     }
@@ -742,26 +764,7 @@ impl<'n> Nexus<'n> {
 
 impl Drop for Nexus<'_> {
     fn drop(&mut self) {
-        info!("Dropping Nexus instance: {}", self.name);
-    }
-}
-
-impl Display for Nexus<'_> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        let _ = writeln!(
-            f,
-            "{}: state: {:?} blk_cnt: {}, blk_size: {}",
-            self.name,
-            self.state,
-            self.num_blocks(),
-            self.block_len(),
-        );
-
-        self.children
-            .iter()
-            .map(|c| write!(f, "\t{}", c))
-            .for_each(drop);
-        Ok(())
+        info!("{:?}: dropping nexus bdev", self);
     }
 }
 
@@ -769,12 +772,10 @@ impl<'n> IoDevice for Nexus<'n> {
     type ChannelData = NexusChannel<'n>;
 
     fn io_channel_create(self: Pin<&mut Self>) -> NexusChannel<'n> {
-        debug!("{}: Creating IO channels", self.bdev_name());
         NexusChannel::new(self)
     }
 
     fn io_channel_destroy(self: Pin<&mut Self>, chan: NexusChannel<'n>) {
-        debug!("{} Destroying IO channels", self.bdev_name());
         chan.destroy();
     }
 }
@@ -793,29 +794,41 @@ impl<'n> BdevOps for Nexus<'n> {
 
     /// TODO
     fn destruct(mut self: Pin<&mut Self>) {
+        info!("{:?}: unregistering nexus bdev...", self);
+
         // A closed operation might already be in progress calling unregister
         // will trip an assertion within the external libraries
         if *self.state.lock() == NexusState::Closed {
-            trace!("{}: already closed", self.name);
+            info!("{:?}: nexus already closed", self);
             return;
         }
-
-        trace!("{}: closing, from state: {:?} ", self.name, self.state);
 
         let self_ptr = unsafe { unsafe_static_ptr(&*self) };
 
         Reactor::block_on(async move {
             let self_ref = unsafe { &mut *self_ptr };
 
-            for child in self_ref.children.iter_mut() {
-                if child.state() == ChildState::Open {
-                    if let Err(e) = child.close().await {
-                        error!(
-                            "{}: child {} failed to close with error {}",
-                            self_ref.name,
-                            child.uri(),
-                            e.verbose()
-                        );
+            let n = self_ref
+                .children
+                .iter()
+                .filter(|c| c.state() == ChildState::Open)
+                .count();
+
+            if n > 0 {
+                warn!(
+                    "{:?}: {} open children remain(s), closing...",
+                    self_ref, n
+                );
+
+                for child in self_ref.children.iter_mut() {
+                    if child.state() == ChildState::Open {
+                        if let Err(e) = child.close().await {
+                            error!(
+                                "{:?}: child failed to close: {}",
+                                child,
+                                e.verbose()
+                            );
+                        }
                     }
                 }
             }
@@ -824,13 +837,13 @@ impl<'n> BdevOps for Nexus<'n> {
         });
 
         self.as_mut().unregister_io_device();
-
         unsafe {
             self.as_mut().get_unchecked_mut().has_io_device = false;
         }
 
-        trace!("{}: closed", self.name);
-        self.set_state(NexusState::Closed);
+        self.as_mut().set_state(NexusState::Closed);
+
+        info!("{:?}: nexus bdev unregistered", self);
     }
 
     /// Main entry point to submit IO to the underlying children this uses
@@ -856,19 +869,14 @@ impl<'n> BdevOps for Nexus<'n> {
             | IoType::WriteZeros => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {
-                    trace!(
-                        "IO type {:?} not supported for {}",
-                        io_type,
-                        self.bdev_name()
-                    );
+                    info!("{:?}: IO type {:#?} not supported", self, io_type);
                 }
                 supported
             }
             _ => {
-                debug!(
-                    "un matched IO type {:#?} not supported for {}",
-                    io_type,
-                    self.bdev_name()
+                warn!(
+                    "{:?}: IO type {:#?} support not implemented",
+                    self, io_type
                 );
                 false
             }
@@ -877,7 +885,7 @@ impl<'n> BdevOps for Nexus<'n> {
 
     /// Called per core to create IO channels per Nexus instance.
     fn get_io_device(&self) -> &Self::IoDev {
-        trace!("{}: Get IO channel", self.bdev_name());
+        trace!("{:?}: getting IO channel", self);
         self
     }
 
@@ -993,6 +1001,8 @@ async fn nexus_create_internal(
     children: &[String],
     nexus_info_key: Option<String>,
 ) -> Result<(), Error> {
+    info!("Creating new nexus '{}'...", name);
+
     if let Some(nexus) = nexus_lookup_name_uuid(name, nexus_uuid) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.
@@ -1023,30 +1033,32 @@ async fn nexus_create_internal(
         bdev_uuid,
         nexus_uuid,
         nvme_params,
-        None,
         nexus_info_key,
     );
 
-    for child in children {
-        if let Err(error) =
-            nexus_bdev.data_mut().create_and_register(child).await
-        {
+    for uri in children {
+        if let Err(error) = nexus_bdev.data_mut().new_child(uri).await {
             error!(
-                "failed to create nexus {}: failed to create child {}: {}",
-                name,
-                child,
-                error.to_string()
+                "{:?}: failed to add child '{}': {}",
+                nexus_bdev.data(),
+                uri,
+                error.verbose()
             );
             nexus_bdev.data_mut().close_children().await;
 
+            error!(
+                "{:?}: nexus creation failed: failed to create child '{}'",
+                nexus_bdev.data(),
+                uri
+            );
+
             return Err(Error::CreateChild {
                 source: error,
-                name: String::from(name),
+                name: name.to_owned(),
             });
         }
     }
 
-    // let ni = nexus_bdev.data_mut();
     match Nexus::register_instance(&mut nexus_bdev).await {
         Err(Error::NexusIncomplete {
             ..
@@ -1055,12 +1067,8 @@ async fn nexus_create_internal(
             // although this currently only works for config files.
             // We need to explicitly clean up child devices
             // if we get this error.
-            error!(
-                "failed to open nexus {}: not all children are available",
-                name
-            );
-            let ni = nexus_bdev.data();
-            for child in ni.children.iter() {
+            error!("{:?}: not all children are available", nexus_bdev.data());
+            for child in nexus_bdev.data().children_iter() {
                 // TODO: children may already be destroyed
                 // TODO: mutability violation
                 let _ = device_destroy(child.uri()).await;
@@ -1071,10 +1079,17 @@ async fn nexus_create_internal(
         }
 
         Err(error) => {
-            error!("failed to open nexus {}: {}", name, error.to_string());
+            error!(
+                "{:?}: failed to open nexus: {}",
+                nexus_bdev.data(),
+                error.verbose()
+            );
             nexus_bdev.data_mut().close_children().await;
             Err(error)
         }
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            info!("{:?}: nexus created ok", nexus_bdev.data());
+            Ok(())
+        }
     }
 }

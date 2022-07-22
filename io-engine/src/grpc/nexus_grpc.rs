@@ -195,7 +195,7 @@ pub async fn nexus_destroy(uuid: &str) -> Result<(), nexus::Error> {
     if let Ok(n) = nexus_lookup(uuid) {
         let result = n.destroy().await;
         if result.is_ok() {
-            info!("Nexus {} destroyed", uuid)
+            info!("Destroyed nexus: '{}'", uuid)
         } else {
             return result;
         }

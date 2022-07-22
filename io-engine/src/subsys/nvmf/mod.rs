@@ -86,7 +86,7 @@ impl Nvmf {
     /// initialize a new subsystem that handles NVMF (confusing names, cannot
     /// help it)
     extern "C" fn init() {
-        debug!("mayastor nvmf subsystem init");
+        debug!("NVMF subsystem init");
 
         // this code only ever gets run on the first core
 
@@ -102,7 +102,8 @@ impl Nvmf {
     }
 
     extern "C" fn fini() {
-        debug!("mayastor nvmf fini");
+        debug!("NVMF subsystem fini");
+
         if Config::get().nexus_opts.nvmf_enable {
             NVMF_TGT.with(|tgt| {
                 tgt.borrow_mut().start_shutdown();
@@ -113,7 +114,8 @@ impl Nvmf {
     }
 
     pub fn new() -> Self {
-        debug!("creating Mayastor nvmf subsystem...");
+        debug!("Creating NVMF subsystem...");
+
         let mut ss = Box::new(spdk_subsystem::default());
         ss.name = b"mayastor_nvmf_tgt\x00" as *const u8 as *const libc::c_char;
         ss.init = Some(Self::init);
