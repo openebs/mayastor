@@ -52,4 +52,9 @@ v1/pool
 v1/replica
 v1/nexus
 
+cross-grpc-version/pool
+cross-grpc-version/nexus
+cross-grpc-version/rebuild
+cross-grpc-version/replica
+
 END

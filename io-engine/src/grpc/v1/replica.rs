@@ -108,15 +108,20 @@ impl ReplicaRpc for ReplicaService {
                 }).map_err(Status::from);
             }
 
-
             let rx = rpc_submit(async move {
                 let lvs = match Lvs::lookup_by_uuid(&args.pooluuid) {
                     Some(lvs) => lvs,
                     None => {
-                        return Err(LvsError::Invalid {
-                            source: Errno::ENOSYS,
-                            msg: format!("Pool {} not found", args.pooluuid),
-                        })
+                        // lookup takes care of backward compatibility
+                        match Lvs::lookup(&args.pooluuid) {
+                            Some(lvs) => lvs,
+                            None => {
+                                return Err(LvsError::Invalid {
+                                    source: Errno::ENOSYS,
+                                    msg: format!("Pool {} not found", args.pooluuid),
+                                })
+                            }
+                        }
                     }
                 };
                 // if pooltype is not Lvs, the provided replica uuid need to be added as
