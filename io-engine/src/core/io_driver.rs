@@ -241,7 +241,7 @@ impl Job {
             Thread::new(format!("job_{}", self.bdev.name()), self.core)
                 .unwrap();
         thread.with(|| {
-            self.ch = self.desc.io_channel();
+            self.ch = self.desc.io_channel().ok();
             let mut boxed = Box::new(self);
             let ptr = boxed.as_ptr();
             boxed.queue.iter_mut().for_each(|q| q.run(ptr));

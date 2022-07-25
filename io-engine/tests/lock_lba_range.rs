@@ -14,7 +14,7 @@ use io_engine::{
         UntypedBdev,
     },
 };
-use spdk_rs::{DmaBuf, LbaRange, LbaRangeLock};
+use spdk_rs::{BdevDescError, DmaBuf, LbaRange, LbaRangeLock};
 pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";
@@ -63,14 +63,12 @@ async fn create_nexus() {
         .unwrap();
 }
 
-async fn lock_range(
-    ctx: LbaRange,
-) -> Result<LbaRangeLock<()>, nix::errno::Errno> {
+async fn lock_range(ctx: LbaRange) -> Result<LbaRangeLock<()>, BdevDescError> {
     let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.lock_lba_range(ctx).await
 }
 
-async fn unlock_range(lock: LbaRangeLock<()>) -> Result<(), nix::errno::Errno> {
+async fn unlock_range(lock: LbaRangeLock<()>) -> Result<(), BdevDescError> {
     let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.unlock_lba_range(lock).await
 }

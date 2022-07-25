@@ -349,7 +349,7 @@ impl<T: BdevOps> TryFrom<Arc<DescriptorGuard<T>>> for BdevHandle<T> {
     type Error = CoreError;
 
     fn try_from(desc: Arc<DescriptorGuard<T>>) -> Result<Self, Self::Error> {
-        if let Some(channel) = desc.io_channel() {
+        if let Ok(channel) = desc.io_channel() {
             return Ok(Self {
                 channel,
                 desc,

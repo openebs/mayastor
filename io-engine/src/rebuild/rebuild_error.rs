@@ -1,6 +1,6 @@
 use crate::{bdev_api::BdevError, core::CoreError};
 use snafu::Snafu;
-use spdk_rs::DmaError;
+use spdk_rs::{BdevDescError, DmaError};
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
@@ -43,7 +43,7 @@ pub enum RebuildError {
     RangeLockFailed {
         blk: u64,
         len: u64,
-        source: nix::errno::Errno,
+        source: BdevDescError,
     },
     #[snafu(display(
         "Failed to unlock LBA range for blk {}, len {}, with error: {}",
@@ -54,7 +54,7 @@ pub enum RebuildError {
     RangeUnlockFailed {
         blk: u64,
         len: u64,
-        source: nix::errno::Errno,
+        source: BdevDescError,
     },
     #[snafu(display("Failed to get bdev name from URI {}", uri))]
     BdevInvalidUri { source: BdevError, uri: String },

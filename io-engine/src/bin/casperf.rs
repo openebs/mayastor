@@ -188,7 +188,7 @@ impl Job {
 
     /// start the job that will dispatch an IO up to the provided queue depth
     fn run(mut self: Box<Self>) {
-        self.ch = self.desc.io_channel();
+        self.ch = self.desc.io_channel().ok();
         let ptr = self.as_ptr();
         self.queue.iter_mut().for_each(|q| q.run(ptr));
         JOBLIST.with(|l| l.borrow_mut().push(self));
