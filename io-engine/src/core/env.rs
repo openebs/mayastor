@@ -90,6 +90,9 @@ pub struct MayastorCliArgs {
     #[structopt(short = "L")]
     /// Enable logging for sub components.
     pub log_components: Vec<String>,
+    #[structopt(short = "F")]
+    /// Log format.
+    pub log_format: Option<logger::LogFormat>,
     #[structopt(short = "m", default_value = "0x1")]
     /// The reactor mask to be used for starting up the instance
     pub reactor_mask: String,
@@ -171,6 +174,7 @@ impl Default for MayastorCliArgs {
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
             no_pci: true,
             log_components: vec![],
+            log_format: None,
             mayastor_config: None,
             pool_config: None,
             hugedir: None,
@@ -561,7 +565,7 @@ impl MayastorEnvironment {
     }
 
     /// initialize the logging subsystem
-    fn init_logger(&mut self) -> Result<()> {
+    fn init_logger(&mut self) {
         // if log flags are specified increase the loglevel and print level.
         if !self.log_component.is_empty() {
             warn!("Increasing debug and print level ...");
@@ -573,7 +577,7 @@ impl MayastorEnvironment {
             for flag in &self.log_component {
                 let cflag = CString::new(flag.as_str()).unwrap();
                 if spdk_log_set_flag(cflag.as_ptr(), true) != 0 {
-                    return Err(EnvError::InitLog);
+                    error!("Failed to set SPDK log flag: {:?}", cflag);
                 }
             }
 
@@ -584,7 +588,6 @@ impl MayastorEnvironment {
             // our callback called defined in rust called by our wrapper
             spdk_rs::logfn = Some(logger::log_impl);
         }
-        Ok(())
     }
 
     /// Returns NVMF target's IP address.
@@ -751,7 +754,7 @@ impl MayastorEnvironment {
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
         // setup the logger as soon as possible
-        self.init_logger().unwrap();
+        self.init_logger();
 
         self.load_yaml_config();
 

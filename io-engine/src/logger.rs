@@ -1,8 +1,8 @@
-use std::{ffi::CStr, os::raw::c_char, path::Path};
+use std::{ffi::CStr, fmt::Write, os::raw::c_char, path::Path, str::FromStr};
 
 use ansi_term::{Colour, Style};
 
-use tracing_core::{event::Event, Metadata};
+use tracing_core::{event::Event, Level, Metadata};
 use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{
     fmt::{
@@ -68,15 +68,43 @@ pub extern "C" fn log_impl(
 
 // Custom struct used to format the log/trace LEVEL
 struct FormatLevel<'a> {
-    level: &'a tracing::Level,
+    level: &'a Level,
     ansi: bool,
 }
 
 impl<'a> FormatLevel<'a> {
-    fn new(level: &'a tracing::Level, ansi: bool) -> Self {
+    fn new(level: &'a Level, ansi: bool) -> Self {
         Self {
             level,
             ansi,
+        }
+    }
+
+    fn short(&self) -> &str {
+        match *self.level {
+            Level::TRACE => "T",
+            Level::DEBUG => "D",
+            Level::INFO => "I",
+            Level::WARN => "W",
+            Level::ERROR => "E",
+        }
+    }
+
+    fn fmt_line(&self, f: &mut dyn Write, line: &str) -> std::fmt::Result {
+        if self.ansi {
+            write!(
+                f,
+                "{}",
+                match *self.level {
+                    Level::TRACE => Colour::Cyan.dimmed().paint(line),
+                    Level::DEBUG => Colour::White.dimmed().paint(line),
+                    Level::INFO => Colour::White.paint(line),
+                    Level::WARN => Colour::Yellow.paint(line),
+                    Level::ERROR => Colour::Red.paint(line),
+                }
+            )
+        } else {
+            write!(f, "{}", line)
         }
     }
 }
@@ -92,29 +120,19 @@ impl std::fmt::Display for FormatLevel<'_> {
 
         if self.ansi {
             match *self.level {
-                tracing::Level::TRACE => {
-                    write!(f, "{}", Colour::Purple.paint(TRACE))
-                }
-                tracing::Level::DEBUG => {
-                    write!(f, "{}", Colour::Blue.paint(DEBUG))
-                }
-                tracing::Level::INFO => {
-                    write!(f, "{}", Colour::Green.paint(INFO))
-                }
-                tracing::Level::WARN => {
-                    write!(f, "{}", Colour::Yellow.paint(WARN))
-                }
-                tracing::Level::ERROR => {
-                    write!(f, "{}", Colour::Red.paint(ERROR))
-                }
+                Level::TRACE => write!(f, "{}", Colour::Purple.paint(TRACE)),
+                Level::DEBUG => write!(f, "{}", Colour::Blue.paint(DEBUG)),
+                Level::INFO => write!(f, "{}", Colour::Green.paint(INFO)),
+                Level::WARN => write!(f, "{}", Colour::Yellow.paint(WARN)),
+                Level::ERROR => write!(f, "{}", Colour::Red.paint(ERROR)),
             }
         } else {
             match *self.level {
-                tracing::Level::TRACE => f.pad(TRACE),
-                tracing::Level::DEBUG => f.pad(DEBUG),
-                tracing::Level::INFO => f.pad(INFO),
-                tracing::Level::WARN => f.pad(WARN),
-                tracing::Level::ERROR => f.pad(ERROR),
+                Level::TRACE => f.pad(TRACE),
+                Level::DEBUG => f.pad(DEBUG),
+                Level::INFO => f.pad(INFO),
+                Level::WARN => f.pad(WARN),
+                Level::ERROR => f.pad(ERROR),
             }
         }
     }
@@ -208,37 +226,110 @@ impl std::fmt::Display for Location<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(file) = self.meta.file() {
             if let Some(line) = self.meta.line() {
-                write!(f, ":{}:{}", basename(file), line)?;
+                write!(f, "{}:{}", basename(file), line)?;
             }
         }
         Ok(())
     }
 }
 
+/// Log output styles.
+#[derive(Debug, Copy, Clone)]
+pub enum LogStyle {
+    Default,
+    Compact,
+}
+
 // Custom struct used to format trace events.
-struct CustomFormat {
+#[derive(Debug, Copy, Clone)]
+pub struct LogFormat {
     ansi: bool,
+    style: LogStyle,
+    no_date: bool,
+}
+
+impl Default for LogFormat {
+    fn default() -> Self {
+        Self {
+            ansi: atty::is(atty::Stream::Stdout),
+            style: LogStyle::Default,
+            no_date: false,
+        }
+    }
+}
+
+impl FromStr for LogFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let mut r = Self::default();
+
+        for p in s.split(',').filter(|i| !i.is_empty()) {
+            match p {
+                "default" => r.style = LogStyle::Default,
+                "compact" => r.style = LogStyle::Compact,
+                "color" => r.ansi = true,
+                "nocolor" => r.ansi = false,
+                "nodate" => r.no_date = true,
+                _ => return Err(format!("Bad log format option: {}", p)),
+            }
+        }
+
+        Ok(r)
+    }
 }
 
 // Format a trace event.
-impl<S, N> FormatEvent<S, N> for CustomFormat
+impl<S, N> FormatEvent<S, N> for LogFormat
 where
     S: tracing_core::subscriber::Subscriber + for<'s> LookupSpan<'s>,
     N: for<'w> FormatFields<'w> + 'static,
 {
     fn format_event(
         &self,
-        context: &FmtContext<'_, S, N>,
-        writer: &mut dyn std::fmt::Write,
-        event: &Event<'_>,
+        ctx: &FmtContext<'_, S, N>,
+        w: &mut dyn Write,
+        evt: &Event<'_>,
     ) -> std::fmt::Result {
+        match self.style {
+            LogStyle::Default => self.default_style(ctx, w, evt),
+            LogStyle::Compact => self.compact_style(ctx, w, evt),
+        }
+    }
+}
+
+fn ellipsis(s: &str, w: usize) -> String {
+    if w < 8 || s.len() <= w {
+        s.to_owned()
+    } else {
+        format!("{}...", &s[.. w - 3])
+    }
+}
+
+impl LogFormat {
+    /// Formats an event in default mode.
+    fn default_style<S, N>(
+        &self,
+        context: &FmtContext<'_, S, N>,
+        writer: &mut dyn Write,
+        event: &Event<'_>,
+    ) -> std::fmt::Result
+    where
+        S: tracing_core::subscriber::Subscriber + for<'s> LookupSpan<'s>,
+        N: for<'w> FormatFields<'w> + 'static,
+    {
         let normalized = event.normalized_metadata();
         let meta = normalized.as_ref().unwrap_or_else(|| event.metadata());
+        let chrono_fmt = if self.no_date {
+            "%T%.6f"
+        } else {
+            "%FT%T%.9f%Z"
+        };
 
         write!(
             writer,
-            "[{} {} {}{}{}] ",
-            chrono::Local::now().format("%FT%T%.9f%Z"),
+            "[{} {} {}{}:{}] ",
+            chrono::Local::now().format(chrono_fmt),
             FormatLevel::new(meta.level(), self.ansi),
             meta.target(),
             CustomContext::new(context, event.parent(), self.ansi),
@@ -249,24 +340,53 @@ where
 
         writeln!(writer)
     }
+
+    /// Formats an event in compact mode.
+    fn compact_style<S, N>(
+        &self,
+        context: &FmtContext<'_, S, N>,
+        writer: &mut dyn Write,
+        event: &Event<'_>,
+    ) -> std::fmt::Result
+    where
+        S: tracing_core::subscriber::Subscriber + for<'s> LookupSpan<'s>,
+        N: for<'w> FormatFields<'w> + 'static,
+    {
+        let normalized = event.normalized_metadata();
+        let meta = normalized.as_ref().unwrap_or_else(|| event.metadata());
+        let loc = ellipsis(&Location::new(meta).to_string(), 18);
+        let fmt = FormatLevel::new(meta.level(), self.ansi);
+        let now = chrono::Local::now();
+
+        let mut buf = String::new();
+
+        write!(
+            buf,
+            "{} | {:<18} [{}] ",
+            now.format(if self.no_date { "%T%.6f" } else { "%x %T%.6f" }),
+            loc,
+            fmt.short(),
+        )?;
+
+        context.format_fields(&mut buf, event)?;
+
+        fmt.fmt_line(writer, &buf)?;
+
+        writeln!(writer)
+    }
 }
 
 /// This function configures the logging format. The loglevel is also processed
-/// here i.e `RUST_LOG=mayastor=TRACE` will print all trace!() and higher
+/// here i.e `RUST_LOG=io_engine=TRACE` will print all trace!() and higher
 /// messages to the console.
 ///
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
-pub fn init(level: &str) {
+pub fn init_ex(level: &str, format: LogFormat) {
     // Set up a "logger" that simply translates any "log" messages it receives
     // to trace events. This is for our custom spdk log messages, but also
     // for any other third party crates still using the logging facade.
     LogTracer::init().expect("failed to initialise LogTracer");
-
-    // Our own custom format for displaying trace events.
-    let format = CustomFormat {
-        ansi: atty::is(atty::Stream::Stdout),
-    };
 
     // Create a default subscriber.
     let builder = tracing_subscriber::fmt::Subscriber::builder()
@@ -280,4 +400,8 @@ pub fn init(level: &str) {
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("failed to set default subscriber");
+}
+
+pub fn init(level: &str) {
+    init_ex(level, Default::default())
 }

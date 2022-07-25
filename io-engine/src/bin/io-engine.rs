@@ -119,14 +119,16 @@ fn hugepage_check() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = MayastorCliArgs::from_args();
 
+    let log_format = args.log_format.unwrap_or_default();
+
     // setup our logger first if -L is passed, raise the log level
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
     // passed, we will use it regardless.
 
     if !args.log_components.is_empty() {
-        logger::init("TRACE");
+        logger::init_ex("TRACE", log_format);
     } else {
-        logger::init("INFO");
+        logger::init_ex("INFO", log_format);
     }
 
     info!("{}", fmt_package_info!());
