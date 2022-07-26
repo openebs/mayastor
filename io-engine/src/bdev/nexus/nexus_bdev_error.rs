@@ -102,6 +102,12 @@ pub enum Error {
         child: String,
         name: String,
     },
+    #[snafu(display("Failed to online child {} of nexus {}", child, name))]
+    OnlineChild {
+        source: ChildError,
+        child: String,
+        name: String,
+    },
     #[snafu(display("Failed to close child {} of nexus {}", child, name))]
     CloseChild {
         source: BdevError,

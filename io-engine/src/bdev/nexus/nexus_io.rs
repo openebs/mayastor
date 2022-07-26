@@ -434,7 +434,7 @@ impl<'n> NexusBio<'n> {
     fn retire_device(&mut self, child_device: &str) {
         self.channel_mut()
             .nexus_mut()
-            .retire_child(child_device, true);
+            .retire_child_device(child_device, true);
     }
 
     /// TODO

@@ -243,6 +243,8 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         uri: &str,
     ) -> Result<(), Error> {
+        info!("{:?}: remove child request: '{}'", self, uri);
+
         if self.child_count() == 1 {
             return Err(Error::DestroyLastChild {
                 name: self.name.clone(),
@@ -269,69 +271,63 @@ impl<'n> Nexus<'n> {
             });
         }
 
-        let cancelled_rebuilding_children =
-            self.as_mut().cancel_rebuild_jobs_with_src(uri).await;
+        let paused = self.as_mut().pause_rebuild_jobs(uri).await;
 
         let idx = match self.children_iter().position(|c| c.uri() == uri) {
             None => return Ok(()),
             Some(val) => val,
         };
 
-        unsafe {
-            if let Err(e) = self.as_mut().child_at_mut(idx).close().await {
-                return Err(Error::CloseChild {
+        let res = unsafe {
+            self.as_mut().child_at_mut(idx).close().await.map_err(|e| {
+                Error::CloseChild {
                     name: self.name.clone(),
                     child: self.child_at(idx).uri().to_string(),
                     source: e,
-                });
+                }
+            })
+        };
+
+        if res.is_ok() {
+            let child_state = self.child_at(idx).state();
+
+            unsafe {
+                self.as_mut().child_remove_at_unsafe(idx);
             }
+
+            self.persist(PersistOp::Update {
+                child_uri: uri.to_string(),
+                child_state,
+            })
+            .await;
         }
 
-        let child_state = self.child_at(idx).state();
+        paused.resume().await;
 
-        unsafe {
-            self.as_mut().child_remove_at_unsafe(idx);
-        }
-
-        self.persist(PersistOp::Update {
-            child_uri: uri.to_string(),
-            child_state,
-        })
-        .await;
-
-        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
-        Ok(())
+        res
     }
 
     /// offline a child device and reconfigure the IO channels
-    pub async fn offline_child(
+    pub(crate) async fn offline_child(
         mut self: Pin<&mut Self>,
-        name: &str,
+        child_uri: &str,
     ) -> Result<NexusStatus, Error> {
-        trace!("{}: Offline child request for {}", self.name, name);
+        info!("{:?}: offline child request: '{}'", self, child_uri);
 
-        let cancelled_rebuilding_children =
-            self.as_mut().cancel_rebuild_jobs_with_src(name).await;
+        let paused = self.as_mut().pause_rebuild_jobs(child_uri).await;
 
-        unsafe {
-            if let Some(child) =
-                self.as_mut().children_iter_mut().find(|c| c.uri() == name)
-            {
+        let res = match self.as_mut().child_mut(child_uri) {
+            Ok(child) => {
                 child.offline().await;
-            } else {
-                return Err(Error::ChildNotFound {
-                    name: self.name.clone(),
-                    child: name.to_owned(),
-                });
+                self.reconfigure(DrEvent::ChildOffline).await;
+                Ok(self.status())
             }
-        }
+            Err(e) => Err(e),
+        };
 
-        self.reconfigure(DrEvent::ChildOffline).await;
-        self.as_mut()
-            .start_rebuild_jobs(cancelled_rebuilding_children)
-            .await;
+        paused.resume().await;
 
-        Ok(self.status())
+        res
     }
 
     /// Faults a child device and reconfigures the IO channels.
@@ -340,7 +336,7 @@ impl<'n> Nexus<'n> {
         child_uri: &str,
         reason: Reason,
     ) -> Result<(), Error> {
-        trace!("{}: fault child request for {}", self.name, child_uri);
+        info!("{:?}: fault child request for '{}'", self, child_uri);
 
         if self.children().len() < 2 {
             return Err(Error::RemoveLastChild {
@@ -349,13 +345,12 @@ impl<'n> Nexus<'n> {
             });
         }
 
-        let healthy_children = self
+        let healthy = self
             .children_iter()
             .filter(|c| c.state() == ChildState::Open)
             .collect::<Vec<_>>();
 
-        if healthy_children.len() == 1 && healthy_children[0].uri() == child_uri
-        {
+        if healthy.len() == 1 && healthy[0].uri() == child_uri {
             // the last healthy child cannot be faulted
             return Err(Error::FaultingLastHealthyChild {
                 name: self.name.clone(),
@@ -363,13 +358,14 @@ impl<'n> Nexus<'n> {
             });
         }
 
-        let cancelled_rebuilding_children =
-            self.as_mut().cancel_rebuild_jobs_with_src(child_uri).await;
+        let paused = self.as_mut().pause_rebuild_jobs(child_uri).await;
 
-        let result = match self.as_mut().child_mut(child_uri) {
+        let res = match self.as_mut().child_mut(child_uri) {
             Ok(child) => {
                 match child.state() {
-                    ChildState::Faulted(_) => {}
+                    ChildState::Faulted(_) => {
+                        warn!("{:?}: already faulted", child);
+                    }
                     _ => {
                         child.fault(reason).await;
                         self.reconfigure(DrEvent::ChildFault).await;
@@ -380,11 +376,29 @@ impl<'n> Nexus<'n> {
             Err(e) => Err(e),
         };
 
-        // start rebuilding the children that previously had their rebuild jobs
-        // cancelled, in spite of whether or not the child was correctly faulted
-        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
+        paused.resume().await;
 
-        result
+        res
+    }
+
+    /// Retires a child immediately.
+    #[allow(dead_code)]
+    pub(crate) async fn retire_child(
+        mut self: Pin<&mut Self>,
+        child_uri: &str,
+    ) -> Result<NexusStatus, Error> {
+        info!("{:?}: retire child request: '{}'", self, child_uri);
+
+        // Check that device does exist.
+        let ch = self.as_mut().child_mut(child_uri)?;
+
+        if let Some(dev_name) = ch.get_device_name() {
+            self.as_mut().retire_child_device(&dev_name, false);
+        } else {
+            warn!("{:?}: child is not open, won't retire", ch);
+        }
+
+        Ok(self.status())
     }
 
     /// online a child and reconfigure the IO channels. The child is already
@@ -397,14 +411,14 @@ impl<'n> Nexus<'n> {
         let nexus_name = self.name.clone();
         let nexus_size = self.req_size();
 
-        trace!("{} Online child request", nexus_name);
+        info!("{:?}: online child request: '{}'", self, child_uri);
 
         let child = self.as_mut().child_mut(child_uri)?;
 
         child
             .online(nexus_size)
             .await
-            .context(nexus_err::OpenChild {
+            .context(nexus_err::OnlineChild {
                 child: child_uri.to_owned(),
                 name: nexus_name,
             })?;
@@ -711,11 +725,10 @@ impl<'n> DeviceEventListener for Nexus<'n> {
             }
             DeviceEventType::AdminCommandCompletionFailed => {
                 info!(
-                    "{}: retiring child {} in response to admin command completion failure event",
-                    self.name,
-                    dev_name,
+                    "{:?}: retiring child in response to admin command completion failure event",
+                    self,
                 );
-                self.retire_child(dev_name, false);
+                self.retire_child_device(dev_name, false);
             }
             _ => {
                 info!("Ignoring {:?} event for device {}", evt, dev_name);
@@ -744,7 +757,7 @@ fn update_failfast_cb(
         channel.disconnect_device(dev);
         channel.nexus_mut().child_io_faulted(dev)
     });
-    debug!(?ctx.nexus_name, ?ctx.child_device, "removed from channel");
+    debug!(?ctx.nexus_name, ?ctx.child_device, "disconnected from channel");
     ChannelTraverseStatus::Ok
 }
 
@@ -783,7 +796,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub(crate) fn retire_child(
+    pub(crate) fn retire_child_device(
         mut self: Pin<&mut Self>,
         child_device: &str,
         retry: bool,
@@ -794,11 +807,20 @@ impl<'n> Nexus<'n> {
         // The child state was not faulted yet, so this is the first IO
         // to this child for which we encountered an error.
         if need_retire {
+            debug!(
+                "{:?}: I/O faulted on '{}', child retire scheduled",
+                self, child_device
+            );
             Reactors::master().send_future(Nexus::child_retire_routine(
                 self.name.clone(),
                 child_device.to_owned(),
                 retry,
             ));
+        } else {
+            debug!(
+                "{:?}: I/O faulted on '{}', no need to retire",
+                self, child_device
+            );
         }
     }
 
@@ -809,15 +831,17 @@ impl<'n> Nexus<'n> {
         retry: bool,
     ) {
         if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
-            warn!(?nexus, ?child_device, "retiring child");
-
             // Error indicates it is already paused and another
             // thread is processing the fault
             if let Err(err) =
                 nexus.as_mut().do_child_retire(child_device.clone()).await
             {
                 if retry {
-                    error!(?err, "double pause which we cant sneak in...");
+                    warn!(
+                        "{:?}: retire failed (double pause), retrying: {}",
+                        nexus,
+                        err.verbose()
+                    );
 
                     assert!(Reactors::is_master());
 
@@ -830,17 +854,25 @@ impl<'n> Nexus<'n> {
                     );
                 } else {
                     warn!(
-                        "retiring child {} returned {}",
-                        child_device,
-                        err.to_string()
+                        "{:?}: retire failed (double pause): {}",
+                        nexus,
+                        err.verbose()
                     );
                 }
                 return;
             }
 
             if matches!(nexus.status(), NexusStatus::Faulted) {
-                warn!(?nexus, "no children left");
+                error!(
+                    "{:?}: failed to retire '{}': nexus is faulted",
+                    nexus, child_device
+                );
             }
+        } else {
+            warn!(
+                "Nexus '{}': retiring device '{}': nexus already gone",
+                nexus_name, child_device
+            );
         }
     }
 
@@ -849,12 +881,14 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         device_name: String,
     ) -> Result<(), Error> {
+        warn!("{:?}: retiring child device '{}'", self, device_name);
+
         self.disconnect_all_children(Some(device_name.clone()))
             .await?;
 
-        info!(?self, "PAUSE");
+        debug!("{:?}: pausing...", self);
         self.as_mut().pause().await?;
-        info!(?self, "UNPAUSE");
+        debug!("{:?}: pausing ok", self);
 
         if let Some(child) = self.lookup_child_device(&device_name) {
             let uri = child.uri();
@@ -862,6 +896,7 @@ impl<'n> Nexus<'n> {
             // Schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
             // complete anyway.
+            debug!("{:?}: enqueuing remove device '{}'", child, device_name);
             device_cmd_queue().enqueue(DeviceCommand::RemoveDevice {
                 nexus_name: self.name.clone(),
                 child_device: device_name.clone(),
@@ -905,8 +940,17 @@ impl<'n> Nexus<'n> {
                     }
                 }
             }).await;
+        } else {
+            error!(
+                "{:?}: child device to retire is not found: '{}'",
+                self, device_name
+            );
         }
-        self.resume().await
+
+        debug!("{:?}: resuming...", self);
+        let r = self.as_mut().resume().await;
+        debug!("{:?}: resuming ok", self);
+        r
     }
 
     // TODO

@@ -1,6 +1,6 @@
 use futures::channel::oneshot::Receiver;
 use snafu::ResultExt;
-use std::pin::Pin;
+use std::{marker::PhantomData, pin::Pin};
 
 use super::{
     nexus_err,
@@ -17,6 +17,53 @@ use crate::{
     core::{Reactors, VerboseError},
     rebuild::{RebuildError, RebuildJob, RebuildState, RebuildStats},
 };
+
+/// Rebuild pause guard ensures rebuild jobs are resumed before it is dropped.
+pub(crate) struct RebuildPauseGuard<'a> {
+    /// Nexus name.
+    nexus_name: String,
+    /// Cancelled rebuilding children.
+    cancelled: Vec<String>,
+    /// Indicates that rebuilds were started.
+    restarted: bool,
+    /// Nexus life time.
+    _a: PhantomData<&'a ()>,
+}
+
+impl<'a> Drop for RebuildPauseGuard<'a> {
+    fn drop(&mut self) {
+        assert!(self.restarted);
+    }
+}
+
+impl<'a> RebuildPauseGuard<'a> {
+    /// Creates a rebuild pause guard for the given children.
+    fn new(nexus_name: String, cancelled: Vec<String>) -> Self {
+        Self {
+            nexus_name,
+            cancelled,
+            restarted: false,
+            _a: Default::default(),
+        }
+    }
+
+    /// Consumes the rebuild cancel guard and starts rebuilding the children
+    /// that previously had their rebuild jobs cancelled, in spite of whether or
+    /// not the child was correctly faulted.
+    pub(super) async fn resume(mut self) {
+        assert!(!self.restarted);
+        self.restarted = true;
+
+        if let Some(nexus) = nexus_lookup_mut(&self.nexus_name) {
+            nexus.start_rebuild_jobs(&self.cancelled).await;
+        } else {
+            warn!(
+                "Nexus '{}': not found on resume cancelled rebuild jobs",
+                self.nexus_name
+            );
+        }
+    }
+}
 
 impl<'n> Nexus<'n> {
     /// Starts a rebuild job and returns a receiver channel
@@ -199,13 +246,23 @@ impl<'n> Nexus<'n> {
         Ok(rj.stats().progress as u32)
     }
 
+    /// Pauses rebuild jobs, returing rebuild pause guard.
+    pub(super) async fn pause_rebuild_jobs<'a>(
+        mut self: Pin<&mut Self>,
+        src_uri: &str,
+    ) -> RebuildPauseGuard<'a> {
+        let cancelled = self.as_mut().cancel_rebuild_jobs(src_uri).await;
+
+        RebuildPauseGuard::new(self.nexus_name().to_owned(), cancelled)
+    }
+
     /// Cancels all rebuilds jobs associated with the child.
     /// Returns a list of rebuilding children whose rebuild job was cancelled.
-    pub async fn cancel_rebuild_jobs_with_src(
+    pub async fn cancel_rebuild_jobs(
         mut self: Pin<&mut Self>,
         src_uri: &str,
     ) -> Vec<String> {
-        info!("{:?}: cancel rebuild jobs from {}...", self, src_uri);
+        info!("{:?}: cancel rebuild jobs from '{}'...", self, src_uri);
 
         let mut src_jobs = self.as_mut().rebuild_jobs_src_mut(src_uri);
         let mut terminated_jobs = Vec::new();
@@ -220,7 +277,12 @@ impl<'n> Nexus<'n> {
         // wait for the jobs to complete terminating
         for job in terminated_jobs {
             if let Err(e) = job.await {
-                error!("Error {} when waiting for the job to terminate", e);
+                error!(
+                    "{:?}: error when waiting for the rebuild job \
+                    to terminate: {}",
+                    self,
+                    e.verbose()
+                );
             }
         }
 
@@ -233,11 +295,16 @@ impl<'n> Nexus<'n> {
     /// TODO: how to proceed if no healthy child is found?
     pub async fn start_rebuild_jobs(
         mut self: Pin<&mut Self>,
-        child_uris: Vec<String>,
+        child_uris: &[String],
     ) {
         for uri in child_uris {
-            if let Err(e) = self.as_mut().start_rebuild(&uri).await {
-                error!("Failed to start rebuild: {}", e.verbose());
+            if let Err(e) = self.as_mut().start_rebuild(uri).await {
+                error!(
+                    "{:?}: failed to start rebuild of '{}': {}",
+                    self,
+                    uri,
+                    e.verbose()
+                );
             }
         }
     }

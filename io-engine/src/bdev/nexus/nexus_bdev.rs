@@ -405,6 +405,12 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         idx: usize,
     ) {
+        debug!(
+            "{:?}: removing child at index: {}: '{}'",
+            self,
+            idx,
+            self.children[idx].uri()
+        );
         self.unpin_mut().children.remove(idx);
     }
 
@@ -456,7 +462,7 @@ impl<'n> Nexus<'n> {
                 ChannelTraverseStatus::Ok
             },
             |status, sender| {
-                info!("{:?}: reconfigure completed", self);
+                debug!("{:?}: reconfigure completed", self);
                 sender.send(status).expect("reconfigure channel gone");
             },
             sender,
@@ -535,7 +541,7 @@ impl<'n> Nexus<'n> {
         // destruction of the nexus
         let child_uris = self.children_uris();
         for child in child_uris {
-            self.as_mut().cancel_rebuild_jobs_with_src(&child).await;
+            self.as_mut().cancel_rebuild_jobs(&child).await;
         }
 
         info!("{:?}: closing {} children...", self, self.children.len());

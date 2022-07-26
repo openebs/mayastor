@@ -114,7 +114,7 @@ impl Display for Reason {
             Self::OutOfSync => write!(f, "out of sync"),
             Self::CantOpen => write!(f, "cannot open"),
             Self::RebuildFailed => write!(f, "rebuild failed"),
-            Self::IoError => write!(f, "i/o"),
+            Self::IoError => write!(f, "io error"),
             Self::Rpc => write!(f, "client"),
         }
     }
@@ -202,15 +202,9 @@ impl Debug for NexusChild<'_> {
 impl<'c> NexusChild<'c> {
     /// TODO
     pub(crate) fn set_state(&self, state: ChildState) {
+        info!("{:?}: changing state to {}", self, state);
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
-        trace!(
-            "{}: child {}: state change from {} to {}",
-            self.parent,
-            self.name,
-            prev_state.to_string(),
-            state.to_string(),
-        );
     }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
@@ -482,12 +476,7 @@ impl<'c> NexusChild<'c> {
             }
             _ => {
                 if let Err(e) = self.close().await {
-                    error!(
-                        "{}: child {} failed to close with error {}",
-                        self.parent,
-                        self.name,
-                        e.verbose()
-                    );
+                    error!("{:?}: failed to close: {}", self, e.verbose());
                 }
                 self.set_state(ChildState::Faulted(reason));
             }
@@ -497,12 +486,7 @@ impl<'c> NexusChild<'c> {
     /// Set the child as temporarily offline
     pub(crate) async fn offline(&mut self) {
         if let Err(e) = self.close().await {
-            error!(
-                "{}: child {} failed to close with error {}",
-                self.parent,
-                self.name,
-                e.verbose()
-            );
+            error!("{:?}: failed to close: {}", self, e.verbose());
         }
     }
 
@@ -523,6 +507,8 @@ impl<'c> NexusChild<'c> {
         &mut self,
         parent_size: u64,
     ) -> Result<String, ChildError> {
+        info!("{:?}: bringing child online", self);
+
         // Only online a child if it was previously set offline. Check for a
         // "Closed" state as that is what offlining a child will set it to.
         match self.state.load() {
@@ -538,12 +524,15 @@ impl<'c> NexusChild<'c> {
                 self.device = device_lookup(&name);
                 if self.device.is_none() {
                     warn!(
-                        "{}: failed to lookup device after successful creation",
-                        self.name,
+                        "{:?}: failed to lookup device after successful creation",
+                        self,
                     );
                 }
             }
-            _ => return Err(ChildError::ChildNotClosed {}),
+            _ => {
+                warn!("{:?}: child must be in closed state for online", self);
+                return Err(ChildError::ChildNotClosed {});
+            }
         }
 
         let result = self.open(parent_size);
@@ -621,6 +610,7 @@ impl<'c> NexusChild<'c> {
 
             state = self.prev_state.load();
         }
+
         match state {
             ChildState::Open | ChildState::Faulted(Reason::OutOfSync) => {
                 // Change the state of the child to ensure it is taken out of
@@ -632,7 +622,7 @@ impl<'c> NexusChild<'c> {
                 if destroying {
                     // Restore the previous state
                     info!(
-                        "{:?}: restoring previous child state {}",
+                        "{:?}: restoring previous child state: {}",
                         self,
                         state.to_string()
                     );
@@ -776,7 +766,7 @@ impl<'c> NexusChild<'c> {
         if let Some(desc) = self.device_descriptor.as_ref() {
             desc.get_io_handle()
         } else {
-            error!("{}: nexus child does not have valid descriptor", self.name);
+            error!("{:?}: child does not have valid descriptor", self);
             Err(CoreError::InvalidDescriptor {
                 name: self.name.clone(),
             })
