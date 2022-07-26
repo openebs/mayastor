@@ -62,6 +62,7 @@ mkShell {
   PROTOC = io-engine.PROTOC;
   PROTOC_INCLUDE = io-engine.PROTOC_INCLUDE;
   SPDK_PATH = if nospdk then null else "${libspdk-dev}";
+  ETCD_BIN = "${etcd}/bin/etcd";
 
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
