@@ -40,8 +40,8 @@ pub enum DrEvent {
     ChildOffline,
     /// mark the child as faulted
     ChildFault,
-    /// Child remove reconfiguration event
-    ChildRemove,
+    /// Child unplug reconfiguration event
+    ChildUnplug,
     /// Child rebuild event
     ChildRebuild,
 }
@@ -52,10 +52,10 @@ impl Display for DrEvent {
             f,
             "{}",
             match self {
-                Self::ChildOffline => "child offline",
-                Self::ChildFault => "child fault",
-                Self::ChildRemove => "child remove",
-                Self::ChildRebuild => "child rebuild",
+                Self::ChildOffline => "offline",
+                Self::ChildFault => "fault",
+                Self::ChildUnplug => "unplug",
+                Self::ChildRebuild => "rebuild",
             }
         )
     }

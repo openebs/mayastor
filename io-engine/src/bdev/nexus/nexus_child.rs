@@ -129,7 +129,7 @@ pub enum ChildState {
     ConfigInvalid,
     /// the child is open for RW
     Open,
-    /// the child is being destroyed
+    /// the child device is being destroyed
     Destroying,
     /// the child has been closed by the nexus
     Closed,
@@ -202,7 +202,7 @@ impl Debug for NexusChild<'_> {
 impl<'c> NexusChild<'c> {
     /// TODO
     pub(crate) fn set_state(&self, state: ChildState) {
-        info!("{:?}: changing state to {}", self, state);
+        debug!("{:?}: changing state to {}", self, state);
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
     }
@@ -220,6 +220,7 @@ impl<'c> NexusChild<'c> {
     pub(crate) fn open(
         &mut self,
         parent_size: u64,
+        opened_state: ChildState,
     ) -> Result<String, ChildError> {
         info!("{:?}: opening child device...", self);
 
@@ -237,7 +238,10 @@ impl<'c> NexusChild<'c> {
                 return Ok(self.name.clone());
             }
             ChildState::Destroying => {
-                error!("{:?}: cannot open: being destroyed", self);
+                error!(
+                    "{:?}: cannot open: block device is being destroyed",
+                    self
+                );
                 return Err(ChildError::ChildBeingDestroyed {});
             }
             _ => {}
@@ -267,7 +271,7 @@ impl<'c> NexusChild<'c> {
         })?;
         self.device_descriptor = Some(desc);
 
-        self.set_state(ChildState::Open);
+        self.set_state(opened_state);
 
         info!("{:?}: opened successfully", self);
         Ok(self.name.clone())
@@ -291,10 +295,7 @@ impl<'c> NexusChild<'c> {
             nvme_reservation_register_cptpl::NO_CHANGES,
         )
         .await?;
-        info!(
-            "{}: registered key {:0x}h on child {}",
-            self.parent, new_key, self.name
-        );
+        info!("{:?}: registered key {:0x}h", self, new_key);
         Ok(())
     }
 
@@ -320,9 +321,11 @@ impl<'c> NexusChild<'c> {
                 source: e,
             });
         }
+
         info!(
-            "{}: acquired reservation type {:x}h, action {:x}h, current key {:0x}h, preempt key {:0x}h on child {}",
-            self.parent, resv_type, acquire_action, current_key, preempt_key, self.name
+            "{:?}: acquired reservation type {:x}h, action {:x}h, \
+            current key {:0x}h, preempt key {:0x}h",
+            self, resv_type, acquire_action, current_key, preempt_key,
         );
         Ok(())
     }
@@ -339,32 +342,36 @@ impl<'c> NexusChild<'c> {
                 source: e,
             });
         }
-        trace!(
-            "{}: received reservation report for child {}",
-            self.parent,
-            self.name
-        );
+
+        trace!("{:?}: received reservation report", self);
+
         let (stext, sl) = buffer.as_slice().split_at(std::mem::size_of::<
             spdk_nvme_reservation_status_extended_data,
         >());
         let (pre, resv_status_ext, post) = unsafe {
             stext.align_to::<spdk_nvme_reservation_status_extended_data>()
         };
+
         assert!(pre.is_empty());
         assert!(post.is_empty());
+
         let regctl = resv_status_ext[0].data.regctl;
+
         trace!(
             "reservation status: rtype {}, regctl {}, ptpls {}",
             resv_status_ext[0].data.rtype,
             regctl,
             resv_status_ext[0].data.ptpls,
         );
+
         let (pre, reg_ctrlr_ext, _post) = unsafe {
             sl.align_to::<spdk_nvme_registered_ctrlr_extended_data>()
         };
+
         if !pre.is_empty() {
             return Ok(None);
         }
+
         let mut numctrlr: usize = regctl.into();
         if numctrlr > reg_ctrlr_ext.len() {
             numctrlr = reg_ctrlr_ext.len();
@@ -373,11 +380,13 @@ impl<'c> NexusChild<'c> {
                 regctl, numctrlr
             );
         }
+
         for (i, c) in reg_ctrlr_ext.iter().enumerate().take(numctrlr) {
             let cntlid = c.cntlid;
             let rkey = c.rkey;
             trace!(
-                "ctrlr {}: cntlid {:0x}h, status {}, hostid {:0x?}, rkey {:0x}h",
+                "ctrlr {}: cntlid {:0x}h, status {}, hostid {:0x?}, \
+                rkey {:0x}h",
                 i,
                 cntlid,
                 c.rcsts.status(),
@@ -403,6 +412,7 @@ impl<'c> NexusChild<'c> {
         if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
             return Ok(());
         }
+
         let hdl = self.get_io_handle().context(HandleOpen {})?;
         if let Err(e) = self.resv_register(&*hdl, key).await {
             match e {
@@ -416,6 +426,7 @@ impl<'c> NexusChild<'c> {
                 }
             }
         }
+
         if let Err(e) = self
             .resv_acquire(
                 &*hdl,
@@ -434,6 +445,7 @@ impl<'c> NexusChild<'c> {
         {
             warn!("{}", e);
         }
+
         if let Some((pkey, hostid)) = self.resv_report(&*hdl).await? {
             let my_hostid = match hdl.host_id().await {
                 Ok(h) => h,
@@ -535,9 +547,7 @@ impl<'c> NexusChild<'c> {
             }
         }
 
-        let result = self.open(parent_size);
-        self.set_state(ChildState::Faulted(Reason::OutOfSync));
-        result
+        self.open(parent_size, ChildState::Faulted(Reason::OutOfSync))
     }
 
     /// Extract a UUID from a URI.
@@ -561,11 +571,11 @@ impl<'c> NexusChild<'c> {
             && self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
 
-    /// Close the nexus child.
+    /// Closes the nexus child.
     pub(crate) async fn close(&mut self) -> Result<(), BdevError> {
         info!("{:?}: closing child...", self);
         if self.device.is_none() {
-            warn!("{:?}: already closed", self);
+            warn!("{:?}: no block device: appears to be already closed", self);
             return Ok(());
         }
 
@@ -575,7 +585,7 @@ impl<'c> NexusChild<'c> {
         }
 
         // Destruction raises a device removal event.
-        let destroyed = self.destroy().await;
+        let destroyed = self.destroy_device().await;
 
         // Only wait for block device removal if the child has been initialised.
         // An uninitialized child won't have an underlying devices.
@@ -594,20 +604,21 @@ impl<'c> NexusChild<'c> {
     /// All the necessary teardown should be performed here before the
     /// underlying device is removed.
     ///
-    /// Note: The descriptor *must* be dropped for the remove to complete.
-    pub(crate) fn remove(&mut self) {
-        info!("{:?}: removing child...", self);
+    /// Note: The descriptor *must* be dropped for the unplug to complete.
+    pub(crate) fn unplug(&mut self) {
+        info!("{:?}: unplugging child...", self);
 
         let mut state = self.state();
 
-        let mut destroying = false;
-        // Only remove the device if the child is being destroyed instead of
-        // a hot remove event.
+        // Only drop the device and the device descriptor if the child is being
+        // destroyed. For a hot remove event, keep the device and descriptor.
+        let mut was_destroying = false;
         if state == ChildState::Destroying {
+            debug!("{:?}: dropping block device", self);
+
             // Block device is being removed, so ensure we don't use it again.
             self.device = None;
-            destroying = true;
-
+            was_destroying = true;
             state = self.prev_state.load();
         }
 
@@ -615,17 +626,13 @@ impl<'c> NexusChild<'c> {
             ChildState::Open | ChildState::Faulted(Reason::OutOfSync) => {
                 // Change the state of the child to ensure it is taken out of
                 // the I/O path when the nexus is reconfigured.
-                self.set_state(ChildState::Closed)
+                self.set_state(ChildState::Closed);
             }
             // leave the state into whatever we found it as
             _ => {
-                if destroying {
+                if was_destroying {
                     // Restore the previous state
-                    info!(
-                        "{:?}: restoring previous child state: {}",
-                        self,
-                        state.to_string()
-                    );
+                    info!("{:?}: reverting to previous state: {}", self, state);
                     self.set_state(state);
                 }
             }
@@ -641,30 +648,30 @@ impl<'c> NexusChild<'c> {
             let nexus_name = self.parent.clone();
             Reactor::block_on(async move {
                 match nexus_lookup_mut(&nexus_name) {
-                    Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
+                    Some(n) => n.reconfigure(DrEvent::ChildUnplug).await,
                     None => error!("Nexus '{}' not found", nexus_name),
                 }
             });
         }
 
-        if destroying {
+        if was_destroying {
             // Dropping the last descriptor results in the device being removed.
             // This must be performed in this function.
             self.device_descriptor.take();
         }
 
-        self.remove_complete();
-        info!("{:?}: child successfully removed", self);
+        self.unplug_complete();
+        info!("{:?}: child successfully unplugged", self);
     }
 
-    /// Signal that the child removal is complete.
-    fn remove_complete(&self) {
+    /// Signal that the child unplug is complete.
+    fn unplug_complete(&self) {
         let mut sender = self.remove_channel.0.clone();
         let name = self.name.clone();
         Reactors::current().send_future(async move {
             if let Err(e) = sender.send(()).await {
                 error!(
-                    "Failed to send remove complete for child {}, error {}",
+                    "Failed to send unplug complete for child '{}': {}",
                     name, e
                 );
             }
@@ -695,13 +702,13 @@ impl<'c> NexusChild<'c> {
         }
     }
 
-    /// destroy the child device
-    pub async fn destroy(&self) -> Result<(), BdevError> {
+    /// Destroys the child's block device.
+    pub(super) async fn destroy_device(&self) -> Result<(), BdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
-            info!("{:?}: destroying block device...", self);
+            info!("{:?}: destroy block device...", self);
             device_destroy(&self.name).await?;
-            info!("{:?}: block device destroyed", self);
+            info!("{:?}: destroy block device ok", self);
         } else {
             warn!("{:?}: no block device", self);
         }
@@ -709,7 +716,7 @@ impl<'c> NexusChild<'c> {
         Ok(())
     }
 
-    /// Return reference to child's block device.
+    /// Returns reference to child's block device.
     pub fn get_device(&self) -> Result<&dyn BlockDevice, ChildError> {
         if let Some(ref device) = self.device {
             Ok(&**device)

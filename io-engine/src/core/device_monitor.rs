@@ -1,6 +1,7 @@
 use std::{fmt::Debug, time::Duration};
 
 use super::{work_queue::WorkQueue, Reactor};
+use crate::{bdev::nexus::nexus_lookup_mut, core::VerboseError};
 
 /// TODO
 #[derive(Debug, Clone)]
@@ -26,26 +27,32 @@ pub async fn device_monitor_loop() {
     loop {
         interval.tick().await;
         if let Some(w) = device_cmd_queue().take() {
-            info!(?w, "executing command");
+            info!("Device monitor: executing command: {:?}", w);
             match w {
                 DeviceCommand::RemoveDevice {
                     nexus_name,
                     child_device,
                 } => {
                     let rx = Reactor::spawn_at_primary(async move {
-                        if let Some(n) =
-                            crate::bdev::nexus::nexus_lookup_mut(&nexus_name)
-                        {
-                            if let Err(e) = n.destroy_child(&child_device).await
+                        if let Some(n) = nexus_lookup_mut(&nexus_name) {
+                            if let Err(e) =
+                                n.destroy_child_device(&child_device).await
                             {
-                                error!(?e, "destroy child failed");
+                                error!(
+                                    "{:?}: destroy child failed: {}",
+                                    n,
+                                    e.verbose()
+                                );
                             }
                         }
                     });
 
                     match rx {
                         Err(e) => {
-                            error!(?e, "failed to equeue removal request")
+                            error!(
+                                "Failed to schedule removal request: {}",
+                                e.verbose()
+                            )
                         }
                         Ok(rx) => rx.await.unwrap(),
                     }
