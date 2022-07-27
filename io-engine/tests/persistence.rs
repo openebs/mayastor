@@ -342,7 +342,7 @@ async fn start_infrastructure(test_name: &str) -> ComposeTest {
         .add_container_spec(
             ContainerSpec::from_binary(
                 "etcd",
-                Binary::from_nix("etcd").with_args(vec![
+                Binary::from_nix(env!("ETCD_BIN")).with_args(vec![
                     "--data-dir",
                     "/tmp/etcd-data",
                     "--advertise-client-urls",
