@@ -1,4 +1,7 @@
-use std::{fmt::Debug, time::Duration};
+use std::{
+    fmt::{Debug, Display, Formatter},
+    time::Duration,
+};
 
 use super::{work_queue::WorkQueue, Reactor};
 use crate::{bdev::nexus::nexus_lookup_mut, core::VerboseError};
@@ -10,6 +13,21 @@ pub enum DeviceCommand {
         nexus_name: String,
         child_device: String,
     },
+}
+
+impl Display for DeviceCommand {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Self::RemoveDevice {
+                nexus_name,
+                child_device,
+            } => write!(
+                f,
+                "remove device '{}' from nexus '{}'",
+                child_device, nexus_name
+            ),
+        }
+    }
 }
 
 /// TODO
@@ -27,7 +45,7 @@ pub async fn device_monitor_loop() {
     loop {
         interval.tick().await;
         if let Some(w) = device_cmd_queue().take() {
-            info!("Device monitor: executing command: {:?}", w);
+            info!("Device monitor exexuting command: {}", w);
             match w {
                 DeviceCommand::RemoveDevice {
                     nexus_name,

@@ -202,7 +202,7 @@ impl Debug for NexusChild<'_> {
 impl<'c> NexusChild<'c> {
     /// TODO
     pub(crate) fn set_state(&self, state: ChildState) {
-        debug!("{:?}: changing state to {}", self, state);
+        debug!("{:?}: changing state to '{}'", self, state);
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
     }
@@ -706,11 +706,11 @@ impl<'c> NexusChild<'c> {
     pub(super) async fn destroy_device(&self) -> Result<(), BdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
-            info!("{:?}: destroy block device...", self);
+            info!("{:?}: destroying block device...", self);
             device_destroy(&self.name).await?;
-            info!("{:?}: destroy block device ok", self);
+            info!("{:?}: block device destroyed ok", self);
         } else {
-            warn!("{:?}: no block device", self);
+            warn!("{:?}: no block device, ignoring device destroy call", self);
         }
 
         Ok(())

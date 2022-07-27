@@ -347,7 +347,7 @@ impl<'n> Nexus<'n> {
 
     /// Sets the state of the Nexus.
     fn set_state(self: Pin<&mut Self>, state: NexusState) -> NexusState {
-        info!("{:?}: changing state to {}", self, state);
+        debug!("{:?}: changing state to '{}'", self, state);
         *self.state.lock() = state;
         state
     }
@@ -875,13 +875,17 @@ impl<'n> BdevOps for Nexus<'n> {
             | IoType::WriteZeros => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {
-                    info!("{:?}: IO type {:#?} not supported", self, io_type);
+                    info!(
+                        "{:?}: I/O type '{:?}' not supported by at least \
+                        one of child devices",
+                        self, io_type
+                    );
                 }
                 supported
             }
             _ => {
                 warn!(
-                    "{:?}: IO type {:#?} support not implemented",
+                    "{:?}: I/O type '{:?}' support not implemented",
                     self, io_type
                 );
                 false

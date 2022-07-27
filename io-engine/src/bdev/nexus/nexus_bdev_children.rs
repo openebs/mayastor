@@ -761,8 +761,7 @@ impl<'n> DeviceEventListener for Nexus<'n> {
 /// TODO
 struct UpdateFailFastCtx {
     sender: oneshot::Sender<bool>,
-    nexus_name: String,
-    child_device: Option<String>,
+    child_device: String,
 }
 
 /// TODO
@@ -770,11 +769,8 @@ fn update_failfast_cb(
     channel: &mut NexusChannel,
     ctx: &mut UpdateFailFastCtx,
 ) -> ChannelTraverseStatus {
-    ctx.child_device.as_ref().map(|dev| {
-        channel.disconnect_device(dev);
-        channel.nexus_mut().child_io_faulted(dev)
-    });
-    debug!(?ctx.nexus_name, ?ctx.child_device, "disconnected from channel");
+    channel.disconnect_device(&ctx.child_device);
+    channel.nexus_mut().child_io_faulted(&ctx.child_device);
     ChannelTraverseStatus::Ok
 }
 
@@ -835,7 +831,7 @@ impl<'n> Nexus<'n> {
             ));
         } else {
             debug!(
-                "{:?}: I/O faulted on '{}', no need to retire",
+                "{:?}: I/O faulted on '{}': already in faulted state",
                 self, child_device
             );
         }
@@ -900,8 +896,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         warn!("{:?}: retiring child device '{}'", self, device_name);
 
-        self.disconnect_all_children(Some(device_name.clone()))
-            .await?;
+        self.disconnect_all_channels(device_name.clone()).await?;
 
         debug!("{:?}: pausing...", self);
         self.as_mut().pause().await?;
@@ -971,20 +966,22 @@ impl<'n> Nexus<'n> {
     }
 
     // TODO
-    async fn disconnect_all_children(
+    async fn disconnect_all_channels(
         &self,
-        child_device: Option<String>,
+        child_device: String,
     ) -> Result<(), Error> {
         let (sender, r) = oneshot::channel::<bool>();
 
         let ctx = UpdateFailFastCtx {
             sender,
-            nexus_name: self.name.clone(),
-            child_device,
+            child_device: child_device.clone(),
         };
 
         if self.has_io_device {
-            info!("{:?}: disconnecting all channels...", self);
+            info!(
+                "{:?}: disconnecting all channels from '{}'...",
+                self, child_device
+            );
 
             self.traverse_io_channels(
                 update_failfast_cb,
@@ -995,7 +992,10 @@ impl<'n> Nexus<'n> {
             r.await
                 .expect("disconnect_all_children() sender already dropped");
 
-            info!("{:?}: all channels disconnected", self);
+            info!(
+                "{:?}: device '{}' disconnected from all I/O channels",
+                self, child_device
+            );
         }
 
         Ok(())
