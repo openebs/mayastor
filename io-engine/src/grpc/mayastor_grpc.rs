@@ -1004,6 +1004,81 @@ impl mayastor_server::Mayastor for MayastorSvc {
             .map(Response::new)
     }
 
+    async fn inject_nexus_fault(
+        &self,
+        request: Request<InjectNexusFaultRequest>,
+    ) -> GrpcResult<Null> {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let args = request.into_inner();
+            trace!("{:?}", args);
+            let uuid = args.uuid.clone();
+            let uri = args.uri.clone();
+            debug!("Injecting fault to nexus '{}': '{}'", uuid, uri);
+            nexus_lookup(&args.uuid)?
+                .inject_add_fault(&args.uri)
+                .await?;
+            info!("Injected fault to nexus '{}': '{}'", uuid, uri);
+            Ok(Null {})
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
+    async fn remove_injected_nexus_fault(
+        &self,
+        request: Request<RemoveInjectedNexusFaultRequest>,
+    ) -> GrpcResult<Null> {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let args = request.into_inner();
+            trace!("{:?}", args);
+            let uuid = args.uuid.clone();
+            let uri = args.uri.clone();
+            debug!("Removing injected fault to nexus '{}': '{}'", uuid, uri);
+            nexus_lookup(&args.uuid)?
+                .inject_remove_fault(&args.uri)
+                .await?;
+            info!("Removed injected fault to nexus '{}': '{}'", uuid, uri);
+            Ok(Null {})
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
+    async fn list_injected_nexus_faults(
+        &self,
+        request: Request<ListInjectedNexusFaultsRequest>,
+    ) -> GrpcResult<ListInjectedNexusFaultsReply> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let res = nexus_lookup(&args.uuid)?
+                .list_injections()
+                .await?
+                .into_iter()
+                .map(|inj| InjectedFault {
+                    device_name: inj.device_name,
+                    is_active: inj.is_active,
+                })
+                .collect();
+
+            Ok(ListInjectedNexusFaultsReply {
+                injections: res,
+            })
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,
@@ -1124,18 +1199,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     let args = request.into_inner();
                     trace!("{:?}", args);
 
-                    let onl = match args.action {
-                        1 => Ok(true),
-                        0 => Ok(false),
+                    let nexus = nexus_lookup(&args.uuid)?;
+
+                    match args.action {
+                        0 => nexus.offline_child(&args.uri).await,
+                        1 => nexus.online_child(&args.uri).await,
+                        2 => nexus.retire_child(&args.uri).await,
                         _ => Err(nexus::Error::InvalidKey {}),
                     }?;
-
-                    let nexus = nexus_lookup(&args.uuid)?;
-                    if onl {
-                        nexus.online_child(&args.uri).await?;
-                    } else {
-                        nexus.offline_child(&args.uri).await?;
-                    }
 
                     Ok(Null {})
                 })?;

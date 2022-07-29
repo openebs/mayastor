@@ -2,7 +2,12 @@ use nix::errno::Errno;
 use snafu::Snafu;
 use tonic::{Code, Status};
 
-use super::{ChildError, NbdError, NexusPauseState};
+use super::{
+    nexus_injection::InjectionError,
+    ChildError,
+    NbdError,
+    NexusPauseState,
+};
 
 use crate::{
     bdev_api::BdevError,
@@ -214,6 +219,11 @@ pub enum Error {
     #[snafu(display("failed to pause {} current state {:?}", name, state))]
     Pause {
         state: NexusPauseState,
+        name: String,
+    },
+    #[snafu(display("Nexus '{}': bad fault injection", name))]
+    BadFaultInjection {
+        source: InjectionError,
         name: String,
     },
 }

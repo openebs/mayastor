@@ -820,7 +820,7 @@ impl<'n> Nexus<'n> {
         // The child state was not faulted yet, so this is the first IO
         // to this child for which we encountered an error.
         if need_retire {
-            debug!(
+            warn!(
                 "{:?}: I/O faulted on '{}', child retire scheduled",
                 self, child_device
             );

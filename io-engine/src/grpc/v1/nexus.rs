@@ -405,6 +405,81 @@ impl NexusRpc for NexusService {
             .map(Response::new)
     }
 
+    async fn inject_nexus_fault(
+        &self,
+        request: Request<InjectNexusFaultRequest>,
+    ) -> GrpcResult<()> {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let args = request.into_inner();
+            trace!("{:?}", args);
+            let uuid = args.uuid.clone();
+            let uri = args.uri.clone();
+            debug!("Injecting fault to nexus '{}': '{}'", uuid, uri);
+            nexus_lookup(&args.uuid)?
+                .inject_add_fault(&args.uri)
+                .await?;
+            info!("Injectinged fault to nexus '{}': '{}'", uuid, uri);
+            Ok(())
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
+    async fn remove_injected_nexus_fault(
+        &self,
+        request: Request<RemoveInjectedNexusFaultRequest>,
+    ) -> GrpcResult<()> {
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let args = request.into_inner();
+            trace!("{:?}", args);
+            let uuid = args.uuid.clone();
+            let uri = args.uri.clone();
+            debug!("Removing injected fault to nexus '{}': '{}'", uuid, uri);
+            nexus_lookup(&args.uuid)?
+                .inject_remove_fault(&args.uri)
+                .await?;
+            info!("Removed injected fault to nexus '{}': '{}'", uuid, uri);
+            Ok(())
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
+    async fn list_injected_nexus_faults(
+        &self,
+        request: Request<ListInjectedNexusFaultsRequest>,
+    ) -> GrpcResult<ListInjectedNexusFaultsReply> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let res = nexus_lookup(&args.uuid)?
+                .list_injections()
+                .await?
+                .into_iter()
+                .map(|inj| InjectedFault {
+                    device_name: inj.device_name,
+                    is_active: inj.is_active,
+                })
+                .collect();
+
+            Ok(ListInjectedNexusFaultsReply {
+                injections: res,
+            })
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,
@@ -543,20 +618,16 @@ impl NexusRpc for NexusService {
                     let args = request.into_inner();
                     info!("{:?}", args);
 
-                    let online = match args.action {
-                        1 => Ok(true),
-                        0 => Ok(false),
+                    let mut nexus = nexus_lookup(&args.nexus_uuid)?;
+
+                    match args.action {
+                        0 => nexus.as_mut().offline_child(&args.uri).await,
+                        1 => nexus.as_mut().online_child(&args.uri).await,
+                        2 => nexus.as_mut().retire_child(&args.uri).await,
                         _ => Err(nexus::Error::InvalidKey {}),
                     }?;
 
-                    let nexus = nexus_lookup(&args.nexus_uuid)?;
-                    if online {
-                        nexus.online_child(&args.uri).await?;
-                    } else {
-                        nexus.offline_child(&args.uri).await?;
-                    }
-
-                    Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+                    Ok(nexus.into_grpc().await)
                 })?;
 
                 rx.await

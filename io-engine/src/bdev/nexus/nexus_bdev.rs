@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use super::{
     nexus_err,
+    nexus_injection::Injections,
     nexus_lookup_name_uuid,
     ChildState,
     DrEvent,
@@ -173,6 +174,9 @@ pub struct Nexus<'n> {
     io_subsystem: Option<NexusIoSubsystem<'n>>,
     /// TODO
     event_sink: Option<DeviceEventSink>,
+    /// TODO
+    #[allow(dead_code)]
+    pub(super) injections: Injections,
     /// Prevent auto-Unpin.
     _pin: PhantomPinned,
 }
@@ -265,6 +269,7 @@ impl<'n> Nexus<'n> {
             io_subsystem: None,
             nexus_uuid: Default::default(),
             event_sink: None,
+            injections: Injections::new(),
             _pin: Default::default(),
         };
 

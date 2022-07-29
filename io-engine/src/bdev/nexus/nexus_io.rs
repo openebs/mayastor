@@ -241,6 +241,15 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        #[cfg(feature = "fault_injection")]
+        if self.nexus().inject_is_faulted(hdl.get_device()) {
+            return Err(CoreError::ReadDispatch {
+                source: Errno::ENODEV,
+                offset: self.offset(),
+                len: self.num_blocks(),
+            });
+        }
+
         hdl.readv_blocks(
             self.iovs(),
             self.iov_count(),

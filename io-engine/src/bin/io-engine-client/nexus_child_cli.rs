@@ -20,6 +20,7 @@ pub async fn handler(
         ("fault", Some(args)) => fault(ctx, args).await,
         ("offline", Some(args)) => child_operation(ctx, args, 0).await,
         ("online", Some(args)) => child_operation(ctx, args, 1).await,
+        ("retire", Some(args)) => child_operation(ctx, args, 2).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
                 .context(GrpcStatus)
@@ -73,6 +74,21 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uri of the child"),
         );
 
+    let retire = SubCommand::with_name("retire")
+        .about("retire a child")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid of the nexus"),
+        )
+        .arg(
+            Arg::with_name("uri")
+                .required(true)
+                .index(2)
+                .help("uri of the child"),
+        );
+
     SubCommand::with_name("child")
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
@@ -83,6 +99,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(fault)
         .subcommand(offline)
         .subcommand(online)
+        .subcommand(retire)
 }
 
 async fn fault(
