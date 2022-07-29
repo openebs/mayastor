@@ -2,7 +2,7 @@ use snafu::Snafu;
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
-#[snafu(visibility = "pub(crate)")]
+#[snafu(visibility(pub(crate)))]
 pub enum NvmeError {
     #[snafu(display("IO error:"))]
     IoError { source: std::io::Error },

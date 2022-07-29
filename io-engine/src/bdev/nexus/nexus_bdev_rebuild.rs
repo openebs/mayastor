@@ -333,7 +333,12 @@ impl<'n> Nexus<'n> {
         }
 
         let dst_child = self.as_mut().child_mut(child_uri)?;
-        let job = dst_child.remove_rebuild_job().unwrap();
+        let job = dst_child.remove_rebuild_job();
+        if job.is_none() {
+            warn!("{:?}: inconsistent rebuild job state", dst_child);
+            return Ok(());
+        }
+        let job = job.unwrap();
 
         match job.state() {
             RebuildState::Completed => {

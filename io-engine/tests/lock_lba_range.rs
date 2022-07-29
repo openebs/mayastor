@@ -139,9 +139,6 @@ fn multiple_locks() {
     // Poll reactor to allow the second lock to be obtained
     let lock2 = recv_from(lock_receiver);
 
-    // // First lock released, second lock should succeed.
-    // assert!(lock_receiver.try_recv().is_ok());
-
     // Second unlock
     let (s, r) = unbounded::<()>();
     reactor.send_future(async move {
