@@ -3,7 +3,7 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    Error,
+    ClientError,
     GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
@@ -51,7 +51,7 @@ async fn create(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();

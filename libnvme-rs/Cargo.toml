@@ -17,7 +17,7 @@ cc = "1.0.69"
 [dependencies]
 glob = "0.3.0"
 libc = "0.2"
-snafu = "0.6.10"
+snafu = "0.7.1"
 url = "2.2.2"
 
 [dependencies.mio08]

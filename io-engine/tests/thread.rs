@@ -1,10 +1,12 @@
 use std::{pin::Pin, time::Duration};
 
-use io_engine::core::{Cores, MayastorCliArgs, Mthread, Share, UntypedBdev};
+use io_engine::{
+    bdev_api::bdev_create,
+    core::{Cores, MayastorCliArgs, Mthread, Reactor, Share, UntypedBdev},
+};
 
 pub mod common;
 use common::MayastorTest;
-use io_engine::nexus_uri::bdev_create;
 
 async fn mayastor_to_runtime() {
     // the future is created on mayastor and send to tokio. So assert we are
@@ -28,14 +30,12 @@ async fn runtime_to_mayastor() {
     tokio::time::sleep(Duration::from_micros(400)).await;
     // simulate we perform some work
 
-    let st = Mthread::get_init();
-    let rx = st
-        .spawn_local(async move {
-            let mut bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
-            let bdev = Pin::new(&mut bdev);
-            bdev.share_nvmf(None).await.unwrap();
-        })
-        .unwrap();
+    let rx = Reactor::spawn_at_primary(async move {
+        let mut bdev = UntypedBdev::lookup_by_name("malloc0").unwrap();
+        let bdev = Pin::new(&mut bdev);
+        bdev.share_nvmf(None).await.unwrap();
+    })
+    .unwrap();
     let _ = rx.await;
 }
 
@@ -54,9 +54,8 @@ async fn thread_tokio() {
 
     let ms = MayastorTest::new(args);
 
-    let st = Mthread::get_init();
     let name = "malloc:///malloc0?size_mb=4";
-    let rx = st.spawn_local(async move { bdev_create(name).await });
+    let rx = Reactor::spawn_at_primary(async move { bdev_create(name).await });
 
     ms.send(mayastor_to_runtime());
 

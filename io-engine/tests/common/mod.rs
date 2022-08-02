@@ -16,7 +16,7 @@ use tracing::{error, info, trace};
 use io_engine::{
     core::{MayastorEnvironment, Mthread},
     logger,
-    rebuild::{ClientOperations, RebuildJob, RebuildState},
+    rebuild::{RebuildJob, RebuildState},
 };
 
 pub mod bdev_io;
@@ -101,7 +101,7 @@ macro_rules! test_init {
             })
             .init()
         });
-        io_engine::core::Mthread::get_init().enter();
+        io_engine::core::Mthread::primary().enter();
     };
     ($yaml_config:expr) => {
         common::MSTEST.get_or_init(|| {
@@ -319,7 +319,7 @@ pub fn clean_up_temp() {
 }
 
 pub fn thread() -> Mthread {
-    Mthread::get_init()
+    Mthread::primary()
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> i32 {
@@ -417,17 +417,21 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
 }
 
 /// Waits for the rebuild to reach `state`, up to `timeout`
-pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
+pub fn wait_for_rebuild(
+    dst_uri: String,
+    state: RebuildState,
+    timeout: Duration,
+) {
     let (s, r) = unbounded::<()>();
-    let job = match RebuildJob::lookup(&name) {
+    let job = match RebuildJob::lookup(&dst_uri) {
         Ok(job) => job,
         Err(_) => return,
     };
-    job.as_client().stats();
+    job.stats();
 
     let mut curr_state = job.state();
     let ch = job.notify_chan.1.clone();
-    let cname = name.clone();
+    let cname = dst_uri.clone();
     let t = Mthread::spawn_unaffinitized(move || {
         let now = std::time::Instant::now();
         let mut error = Ok(());
@@ -452,8 +456,8 @@ pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
         error
     });
     reactor_poll!(r);
-    if let Ok(job) = RebuildJob::lookup(&name) {
-        job.as_client().stats();
+    if let Ok(job) = RebuildJob::lookup(&dst_uri) {
+        job.stats();
     }
     t.join().unwrap().unwrap();
 }

@@ -1,6 +1,7 @@
-use io_engine::bdev::nexus::nexus_create;
-
-use io_engine::core::{BdevHandle, MayastorCliArgs};
+use io_engine::{
+    bdev::nexus::nexus_create,
+    core::{MayastorCliArgs, UntypedBdevHandle},
+};
 use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
@@ -48,7 +49,8 @@ async fn nexus_reset_mirror() {
                 .await
                 .unwrap();
 
-            let bdev = BdevHandle::open("reset_test", true, true).unwrap();
+            let bdev =
+                UntypedBdevHandle::open("reset_test", true, true).unwrap();
             bdev.reset().await.unwrap();
         })
         .await

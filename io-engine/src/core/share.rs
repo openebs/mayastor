@@ -1,10 +1,11 @@
-use crate::lvs::Error;
 use async_trait::async_trait;
 use pin_utils::core_reexport::fmt::Formatter;
 use std::{convert::TryFrom, fmt::Display, pin::Pin};
 
+use crate::lvs::Error as LvsError;
+
+/// Indicates what protocol the bdev is shared as.
 #[derive(Debug, PartialOrd, PartialEq)]
-/// Indicates what protocol the bdev is shared as
 pub enum Protocol {
     /// not shared by any of the variants
     Off,
@@ -13,7 +14,7 @@ pub enum Protocol {
 }
 
 impl TryFrom<i32> for Protocol {
-    type Error = Error;
+    type Error = LvsError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
@@ -22,7 +23,7 @@ impl TryFrom<i32> for Protocol {
             // 2 was for iSCSI
             // the gRPC code does not validate enums so we have
             // to do it here
-            _ => Err(Error::ReplicaShareProtocol {
+            _ => Err(LvsError::ReplicaShareProtocol {
                 value,
             }),
         }

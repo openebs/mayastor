@@ -4,19 +4,18 @@ use clap::{value_t, App, AppSettings, Arg};
 use rand::Rng;
 
 use io_engine::{
+    bdev_api::bdev_create,
     core::{
         mayastor_env_stop,
         Cores,
-        Descriptor,
-        IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
         Mthread,
         Reactors,
         UntypedBdev,
+        UntypedDescriptorGuard,
     },
     logger,
-    nexus_uri::bdev_create,
     subsys::Config,
 };
 use spdk_rs::{
@@ -30,6 +29,7 @@ use spdk_rs::{
         spdk_poller_unregister,
     },
     DmaBuf,
+    IoChannelGuard,
 };
 use version_info::version_info_str;
 
@@ -54,9 +54,9 @@ const IO_SIZE: u64 = 512;
 struct Job {
     bdev: UntypedBdev,
     /// descriptor to the bdev
-    desc: Descriptor,
+    desc: UntypedDescriptorGuard,
     /// io channel being used to submit IO
-    ch: Option<IoChannel>,
+    ch: Option<IoChannelGuard<()>>,
     /// queue depth configured for this job
     qd: u64,
     /// io_size the io_size is the number of blocks submit per IO
@@ -81,6 +81,10 @@ struct Job {
     /// number of seconds we are running
     period: u64,
 }
+
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for Job {}
+
 thread_local! {
     #[allow(clippy::vec_box)]
     static JOBLIST: RefCell<Vec<Box<Job>>> = RefCell::new(Vec::new());
@@ -184,7 +188,7 @@ impl Job {
 
     /// start the job that will dispatch an IO up to the provided queue depth
     fn run(mut self: Box<Self>) {
-        self.ch = self.desc.get_channel();
+        self.ch = self.desc.io_channel().ok();
         let ptr = self.as_ptr();
         self.queue.iter_mut().for_each(|q| q.run(ptr));
         JOBLIST.with(|l| l.borrow_mut().push(self));
@@ -202,6 +206,8 @@ struct Io {
     /// pointer to our the job we belong too
     job: NonNull<Job>,
 }
+
+unsafe impl Send for Io {}
 
 impl Io {
     /// start submitting
@@ -225,8 +231,8 @@ impl Io {
     fn read(&mut self, offset: u64) {
         unsafe {
             if spdk_bdev_read(
-                self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
                 self.buf.len(),
@@ -248,8 +254,8 @@ impl Io {
     fn write(&mut self, offset: u64) {
         unsafe {
             if spdk_bdev_write(
-                self.job.as_ref().desc.as_ptr(),
-                self.job.as_ref().ch.as_ref().unwrap().as_ptr(),
+                self.job.as_ref().desc.legacy_as_ptr(),
+                self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 *self.buf,
                 offset,
                 self.buf.len(),
@@ -272,7 +278,7 @@ impl Io {
 /// before we can shut down
 fn sig_override() {
     let handler = || {
-        Mthread::get_init().msg((), |_| {
+        Mthread::primary().send_msg((), |_| {
             PERF_TICK.with(|t| {
                 let ticker = t.borrow_mut().take().unwrap();
                 unsafe { spdk_poller_unregister(&mut ticker.as_ptr()) }
@@ -385,7 +391,7 @@ fn main() {
             let thread =
                 Mthread::new(job.bdev.name().to_string(), Cores::current())
                     .unwrap();
-            thread.msg(job, |job| {
+            thread.send_msg(job, |job| {
                 job.run();
             });
         }

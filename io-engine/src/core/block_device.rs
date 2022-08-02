@@ -85,11 +85,14 @@ pub trait BlockDeviceDescriptor: Send {
     fn get_device(&self) -> Box<dyn BlockDevice>;
 
     /// TODO
+    fn device_name(&self) -> String;
+
+    /// Consumes BlockDeviceDescriptor and returns a BlockDeviceHandle.
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
 
-    /// TODO
+    /// Returns a BlockDeviceHandle for this descriptor without consuming it.
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
 
     /// TODO

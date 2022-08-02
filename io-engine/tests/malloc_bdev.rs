@@ -1,7 +1,7 @@
 use common::MayastorTest;
 use io_engine::{
+    bdev_api::{bdev_create, bdev_destroy},
     core::{MayastorCliArgs, UntypedBdev},
-    nexus_uri::{bdev_create, bdev_destroy},
 };
 use spdk_rs::DmaBuf;
 pub mod common;
@@ -27,15 +27,9 @@ async fn malloc_bdev() {
         let m0 = UntypedBdev::open_by_name("malloc0", true).unwrap();
         let m1 = UntypedBdev::open_by_name("malloc1", true).unwrap();
 
-        assert_eq!(
-            m0.get_bdev().size_in_bytes(),
-            m1.get_bdev().size_in_bytes()
-        );
-        assert_eq!(m0.get_bdev().num_blocks(), m1.get_bdev().num_blocks());
-        assert_ne!(
-            m0.get_bdev().uuid_as_string(),
-            m1.get_bdev().uuid_as_string()
-        );
+        assert_eq!(m0.bdev().size_in_bytes(), m1.bdev().size_in_bytes());
+        assert_eq!(m0.bdev().num_blocks(), m1.bdev().num_blocks());
+        assert_ne!(m0.bdev().uuid_as_string(), m1.bdev().uuid_as_string());
 
         let h0 = m0.into_handle().unwrap();
         let h1 = m1.into_handle().unwrap();

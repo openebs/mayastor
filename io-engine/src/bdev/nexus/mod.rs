@@ -5,6 +5,7 @@ use std::pin::Pin;
 
 mod nexus_bdev;
 mod nexus_bdev_children;
+mod nexus_bdev_error;
 mod nexus_bdev_rebuild;
 mod nexus_bdev_snapshot;
 mod nexus_channel;
@@ -17,36 +18,19 @@ mod nexus_nbd;
 mod nexus_persistence;
 mod nexus_share;
 
+pub(crate) use nexus_bdev::NEXUS_PRODUCT_ID;
 pub use nexus_bdev::{
     nexus_create,
     nexus_create_v2,
-    Error,
     Nexus,
     NexusNvmeParams,
     NexusState,
     NexusStatus,
     NexusTarget,
     NvmeAnaState,
-    VerboseError,
 };
-pub(crate) use nexus_bdev::{
-    CreateChild,
-    CreateRebuild,
-    OpenChild,
-    RebuildJobNotFound,
-    RebuildOperation,
-    RemoveRebuildJob,
-    ShareNbdNexus,
-    ShareNvmfNexus,
-    UnshareNexus,
-    NEXUS_PRODUCT_ID,
-};
-pub(crate) use nexus_channel::{
-    fault_nexus_child,
-    DrEvent,
-    NexusChannel,
-    NexusChannelInner,
-};
+pub(crate) use nexus_bdev_error::{nexus_err, Error};
+pub(crate) use nexus_channel::{DrEvent, NexusChannel};
 pub use nexus_child::{
     lookup_nexus_child,
     ChildError,
@@ -54,8 +38,8 @@ pub use nexus_child::{
     NexusChild,
     Reason,
 };
-pub(crate) use nexus_io::{nexus_submit_request, NioCtx};
-pub(self) use nexus_io_subsystem::NexusIoSubsystem;
+use nexus_io::{NexusBio, NioCtx};
+use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};
 pub use nexus_iter::{
     nexus_iter,
     nexus_iter_mut,
@@ -145,11 +129,11 @@ pub fn register_module() {
 /// called during shutdown so that all nexus children are in Destroying state
 /// so that a possible remove event from SPDK also results in bdev removal
 pub async fn nexus_children_to_destroying_state() {
-    info!("setting all nexus children to destroying state...");
+    info!("Setting all nexus children to destroying state...");
     for nexus in nexus_iter() {
-        for child in nexus.children.iter() {
+        for child in nexus.children_iter() {
             child.set_state(nexus_child::ChildState::Destroying);
         }
     }
-    info!("set all nexus children to destroying state");
+    info!("Setting all nexus children to destroying state done");
 }

@@ -2,15 +2,7 @@ use async_trait::async_trait;
 use snafu::ResultExt;
 use std::pin::Pin;
 
-use super::{
-    Error,
-    NbdDisk,
-    Nexus,
-    NexusTarget,
-    ShareNbdNexus,
-    ShareNvmfNexus,
-    UnshareNexus,
-};
+use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
 
 use crate::core::{Protocol, Share};
 
@@ -38,7 +30,7 @@ impl<'n> Share for Nexus<'n> {
                     .pin_bdev_mut()
                     .share_nvmf(cntlid_range)
                     .await
-                    .context(ShareNvmfNexus {
+                    .context(nexus_err::ShareNvmfNexus {
                         name,
                     })?;
             }
@@ -52,9 +44,12 @@ impl<'n> Share for Nexus<'n> {
         self: Pin<&mut Self>,
     ) -> Result<Self::Output, Self::Error> {
         let name = self.name.clone();
-        self.pin_bdev_mut().unshare().await.context(UnshareNexus {
-            name,
-        })
+        self.pin_bdev_mut()
+            .unshare()
+            .await
+            .context(nexus_err::UnshareNexus {
+                name,
+            })
     }
 
     /// TODO
@@ -115,7 +110,7 @@ impl<'n> Nexus<'n> {
             // code once we refactor the rust tests that use nbd.
             Protocol::Off => {
                 let disk = NbdDisk::create(&self.name).await.context(
-                    ShareNbdNexus {
+                    nexus_err::ShareNbdNexus {
                         name: self.name.clone(),
                     },
                 )?;
@@ -144,6 +139,7 @@ impl<'n> Nexus<'n> {
 
     /// TODO
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        info!("{:?}: unsharing nexus...", self);
         unsafe {
             match self.as_mut().get_unchecked_mut().nexus_target.take() {
                 Some(NexusTarget::NbdDisk(disk)) => {
@@ -153,7 +149,7 @@ impl<'n> Nexus<'n> {
                     self.as_mut().unshare().await?;
                 }
                 None => {
-                    warn!("{} was not shared", self.name);
+                    info!("{:?}: not shared", self);
                 }
             }
         }

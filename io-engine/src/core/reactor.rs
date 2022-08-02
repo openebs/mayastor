@@ -32,19 +32,21 @@
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
+    future::Future,
     os::raw::c_void,
     pin::Pin,
     slice::Iter,
     time::Duration,
 };
 
+use once_cell::sync::OnceCell;
+
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::{
+    channel::oneshot::{Receiver as OnceShotRecv, Sender as OneShotSend},
     task::{Context, Poll},
-    Future,
 };
-use once_cell::sync::OnceCell;
 
 use spdk_rs::libspdk::{
     spdk_cpuset_get_cpu,
@@ -54,10 +56,11 @@ use spdk_rs::libspdk::{
     spdk_thread_get_cpumask,
     spdk_thread_lib_init_ext,
     spdk_thread_op,
+    spdk_thread_send_msg,
     SPDK_THREAD_OP_NEW,
 };
 
-use crate::core::{CoreError, Cores, Mthread};
+use crate::core::{CoreError, Cores};
 use nix::errno::Errno;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -102,10 +105,10 @@ pub struct Reactor {
     /// protected by a RefCell to avoid, at runtime, mutating the vector.
     /// This, ideally, we don't want to do but considering the unsafety we
     /// keep it for now
-    threads: RefCell<VecDeque<Mthread>>,
+    threads: RefCell<VecDeque<spdk_rs::Thread>>,
     /// incoming threads that have been scheduled to this core but are not
     /// polled yet
-    incoming: crossbeam::queue::SegQueue<Mthread>,
+    incoming: crossbeam::queue::SegQueue<spdk_rs::Thread>,
     /// the logical core this reactor is created on
     lcore: u32,
     /// represents the state of the reactor
@@ -147,7 +150,9 @@ impl Reactors {
 
         // construct one main init thread, this thread is used to bootstrap
         // and should be used to teardown as well.
-        if let Some(t) = Mthread::new("init_thread".into(), Cores::first()) {
+        if let Some(t) =
+            spdk_rs::Thread::new("init_thread".into(), Cores::first())
+        {
             info!("Init thread ID {}", t.id());
         }
     }
@@ -171,7 +176,7 @@ impl Reactors {
         let mask = unsafe { spdk_thread_get_cpumask(thread) };
         let scheduled = Reactors::iter().any(|r| {
             if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {
-                let mt = Mthread::from(thread);
+                let mt = spdk_rs::Thread::from_ptr(thread);
                 info!(
                     "scheduled {} {:p} on core:{}",
                     mt.name(),
@@ -191,6 +196,7 @@ impl Reactors {
             0
         }
     }
+
     /// launch the poll loop on the master core, this is implemented somewhat
     /// different from the remote cores.
     pub fn launch_master() {
@@ -224,12 +230,12 @@ impl Reactors {
                 Ok(())
             } else {
                 error!("failed to launch core {}", core);
-                Err(CoreError::ReactorError {
+                Err(CoreError::ReactorConfigureFailed {
                     source: Errno::from_i32(rc),
                 })
             };
         } else {
-            Err(CoreError::ReactorError {
+            Err(CoreError::ReactorConfigureFailed {
                 source: Errno::ENOSYS,
             })
         }
@@ -247,6 +253,10 @@ impl Reactors {
 
     pub fn master() -> &'static Reactor {
         Self::get_by_core(Cores::first()).expect("no reactor allocated")
+    }
+
+    pub fn is_master() -> bool {
+        Cores::first() == Cores::current()
     }
 
     /// returns an iterator over all reactors
@@ -351,8 +361,8 @@ impl Reactor {
         R: 'static,
     {
         // hold on to the any potential thread we might be running on right now
-        let thread = Mthread::current();
-        Mthread::get_init().enter();
+        let thread = spdk_rs::Thread::current();
+        spdk_rs::Thread::primary().enter();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
         let (runnable, task) = async_task::spawn_local(future, schedule);
 
@@ -366,7 +376,7 @@ impl Reactor {
         loop {
             match task.as_mut().poll(cx) {
                 Poll::Ready(output) => {
-                    Mthread::get_init().exit();
+                    spdk_rs::Thread::primary().exit();
                     if let Some(t) = thread {
                         t.enter()
                     }
@@ -485,6 +495,87 @@ impl Reactor {
         while let Some(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);
         }
+    }
+
+    /// TODO
+    ///
+    /// # Note
+    ///
+    /// Spawns a future on a core the current thread is running on returning a
+    /// channel which can be awaited. This decouples the SPDK runtime from the
+    /// future runtimes within Rust.
+    pub fn spawn_at<F>(
+        thread: &spdk_rs::Thread,
+        f: F,
+    ) -> Result<OnceShotRecv<F::Output>, CoreError>
+    where
+        F: Future + 'static,
+        F::Output: Send + Debug,
+    {
+        // context structure which is passed to the callback as argument
+        struct Ctx<F>
+        where
+            F: Future,
+            F::Output: Send + Debug,
+        {
+            future: F,
+            sender: Option<OneShotSend<F::Output>>,
+        }
+
+        // helper routine to unpack the closure and its arguments
+        extern "C" fn trampoline<F>(arg: *mut c_void)
+        where
+            F: Future + 'static,
+            F::Output: Send + Debug,
+        {
+            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F>) };
+            Reactors::current()
+                .spawn_local(async move {
+                    let result = ctx.future.await;
+                    if let Err(e) = ctx
+                        .sender
+                        .take()
+                        .expect("sender already taken")
+                        .send(result)
+                    {
+                        error!("Failed to send response future result {:?}", e);
+                    }
+                })
+                .detach();
+        }
+
+        let (s, r) = futures::channel::oneshot::channel::<F::Output>();
+
+        let ctx = Box::new(Ctx {
+            future: f,
+            sender: Some(s),
+        });
+
+        let rc = unsafe {
+            spdk_thread_send_msg(
+                thread.as_ptr(),
+                Some(trampoline::<F>),
+                Box::into_raw(ctx).cast(),
+            )
+        };
+        if rc != 0 {
+            Err(CoreError::NotSupported {
+                source: Errno::UnknownErrno,
+            })
+        } else {
+            Ok(r)
+        }
+    }
+
+    /// TODO
+    pub fn spawn_at_primary<F>(
+        f: F,
+    ) -> Result<OnceShotRecv<F::Output>, CoreError>
+    where
+        F: Future + 'static,
+        F::Output: Send + Debug,
+    {
+        Self::spawn_at(&spdk_rs::Thread::primary(), f)
     }
 }
 

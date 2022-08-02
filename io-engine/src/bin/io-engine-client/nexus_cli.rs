@@ -2,7 +2,7 @@ use crate::{
     context::{Context, OutputFormat},
     nexus_child_cli,
     parse_size,
-    Error,
+    ClientError,
     GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
@@ -249,7 +249,7 @@ fn nexus_create_parse(
 )> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let size = parse_size(matches.value_of("size").ok_or_else(|| {
-        Error::MissingValue {
+        ClientError::MissingValue {
             field: "size".to_string(),
         }
     })?)
@@ -257,7 +257,7 @@ fn nexus_create_parse(
     .context(GrpcStatus)?;
     let children = matches
         .values_of("children")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "children".to_string(),
         })?
         .map(|c| c.to_string())
@@ -523,7 +523,7 @@ async fn nexus_children(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
@@ -579,7 +579,7 @@ async fn nexus_publish(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
@@ -630,7 +630,7 @@ async fn nexus_unpublish(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
@@ -722,13 +722,13 @@ async fn nexus_add(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
         .value_of("uri")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
         .to_string();
@@ -772,13 +772,13 @@ async fn nexus_remove(
 ) -> crate::Result<()> {
     let uuid = matches
         .value_of("uuid")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
         .value_of("uri")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
         .to_string();

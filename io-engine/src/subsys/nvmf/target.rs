@@ -306,7 +306,7 @@ impl Target {
         let tgt = self.tgt.as_ptr();
         Reactors::master().send_future(async move {
             NvmfSubsystem::stop_all(tgt).await;
-            debug!("all subsystems stopped!");
+            debug!("All subsystems stopped");
             NvmfSubsystem::destroy_all();
         });
     }
@@ -340,15 +340,17 @@ impl Target {
         NVMF_PGS.with(|t| {
             t.borrow().iter().for_each(|pg| {
                 trace!("destroying pg: {:?}", pg);
-                pg.thread.send_msg(
-                    pg_destroy,
-                    Box::into_raw(Box::new(pg.clone())) as *mut _,
-                );
+                unsafe {
+                    pg.thread.send_msg_unsafe(
+                        pg_destroy,
+                        Box::into_raw(Box::new(pg.clone())) as *mut _,
+                    );
+                }
             });
         })
     }
 
-    /// final state for the target during init
+    /// Final state for the target during init.
     pub fn running(&mut self) {
         self.enable_discovery();
         info!(
@@ -359,7 +361,7 @@ impl Target {
         unsafe { spdk_subsystem_init_next(0) }
     }
 
-    ///  shutdown procedure
+    /// Shutdown procedure.
     fn shutdown(&mut self) {
         extern "C" fn destroy_cb(_arg: *mut c_void, _status: i32) {
             info!("NVMe-oF target shutdown completed");

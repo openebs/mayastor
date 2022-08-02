@@ -3,7 +3,11 @@
 //! that the backing memory is allocated from huge pages and not from the
 //! heap. IOW, you must ensure you do not run out of huge pages while using
 //! this.
-use std::{collections::HashMap, convert::TryFrom};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    fmt::{Debug, Formatter},
+};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -18,11 +22,11 @@ use spdk_rs::{
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
+    bdev_api::{self, BdevError},
+    core::VerboseError,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
-    nexus_uri::{self, NexusBdevError},
 };
 
-#[derive(Debug)]
 pub struct Malloc {
     /// the name of the bdev we created, this is equal to the URI path minus
     /// the leading '/'
@@ -37,13 +41,19 @@ pub struct Malloc {
     uuid: Option<uuid::Uuid>,
 }
 
+impl Debug for Malloc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Malloc '{}' ({} blocks)", self.name, self.num_blocks)
+    }
+}
+
 impl TryFrom<&Url> for Malloc {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(uri: &Url) -> Result<Self, Self::Error> {
         let segments = uri::segments(uri);
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message: "empty path".to_string(),
             });
@@ -53,7 +63,7 @@ impl TryFrom<&Url> for Malloc {
             uri.query_pairs().into_owned().collect();
 
         let blk_size: u32 = if let Some(value) = parameters.remove("blk_size") {
-            value.parse().context(nexus_uri::IntParamParseError {
+            value.parse().context(bdev_api::IntParamParseFailed {
                 uri: uri.to_string(),
                 parameter: String::from("blk_size"),
                 value: value.clone(),
@@ -63,7 +73,7 @@ impl TryFrom<&Url> for Malloc {
         };
 
         let size: u32 = if let Some(value) = parameters.remove("size_mb") {
-            value.parse().context(nexus_uri::IntParamParseError {
+            value.parse().context(bdev_api::IntParamParseFailed {
                 uri: uri.to_string(),
                 parameter: String::from("size_mb"),
                 value: value.clone(),
@@ -74,7 +84,7 @@ impl TryFrom<&Url> for Malloc {
 
         let num_blocks: u32 =
             if let Some(value) = parameters.remove("num_blocks") {
-                value.parse().context(nexus_uri::IntParamParseError {
+                value.parse().context(bdev_api::IntParamParseFailed {
                     uri: uri.to_string(),
                     parameter: String::from("num_blocks"),
                     value: value.clone(),
@@ -84,7 +94,7 @@ impl TryFrom<&Url> for Malloc {
             };
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: uri.to_string(),
             },
         )?;
@@ -93,14 +103,14 @@ impl TryFrom<&Url> for Malloc {
 
         // Validate parameters.
         if blk_size != 512 && blk_size != 4096 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message: "'blk_size' must be one of: 512, 4096".to_string(),
             });
         }
 
         if size != 0 && num_blocks != 0 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message: "'num_blocks' and 'size_mb' are mutually exclusive"
                     .to_string(),
@@ -108,7 +118,7 @@ impl TryFrom<&Url> for Malloc {
         }
 
         if size == 0 && num_blocks == 0 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: uri.to_string(),
                 message: "either 'num_blocks' or 'size_mb' must be specified"
                     .to_string(),
@@ -137,14 +147,16 @@ impl GetName for Malloc {
 
 #[async_trait(?Send)]
 impl CreateDestroy for Malloc {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
         if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: self.name.clone(),
             });
         }
+
+        debug!("{:?}: creating bdev", self);
 
         let cname = self.name.clone().into_cstring();
 
@@ -161,10 +173,14 @@ impl CreateDestroy for Malloc {
         };
 
         if errno != 0 {
-            return Err(NexusBdevError::CreateBdev {
+            let err = BdevError::CreateBdevFailed {
                 source: Errno::from_i32(errno.abs()),
                 name: self.name.clone(),
-            });
+            };
+
+            error!("{:?} error: {}", self, err.verbose());
+
+            return Err(err);
         }
 
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
@@ -183,12 +199,14 @@ impl CreateDestroy for Malloc {
             return Ok(self.name.clone());
         }
 
-        Err(NexusBdevError::BdevNotFound {
+        Err(BdevError::BdevNotFound {
             name: self.name.clone(),
         })
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
+        debug!("{:?}: deleting", self);
+
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
@@ -202,14 +220,14 @@ impl CreateDestroy for Malloc {
             }
 
             r.await
-                .context(nexus_uri::CancelBdev {
+                .context(bdev_api::BdevCommandCanceled {
                     name: self.name.clone(),
                 })?
-                .context(nexus_uri::DestroyBdev {
+                .context(bdev_api::DestroyBdevFailed {
                     name: self.name,
                 })
         } else {
-            Err(NexusBdevError::BdevNotFound {
+            Err(BdevError::BdevNotFound {
                 name: self.name,
             })
         }

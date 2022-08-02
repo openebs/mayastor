@@ -69,7 +69,7 @@ pub struct ControllerStateMachine {
 }
 
 #[derive(Debug, Snafu, Clone)]
-#[snafu(visibility = "pub")]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum ControllerStateMachineError {
     #[snafu(display(
         "invalid transition from {:?} to {:?}",

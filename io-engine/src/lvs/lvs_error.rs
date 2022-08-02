@@ -1,52 +1,72 @@
 use nix::errno::Errno;
 use snafu::Snafu;
 
-use crate::{core::CoreError, lvs::PropName, nexus_uri::NexusBdevError};
+use super::PropName;
+
+use crate::{bdev_api::BdevError, core::CoreError};
 
 #[derive(Debug, Snafu)]
-#[snafu(visibility = "pub(crate)")]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum Error {
     #[snafu(display("failed to import pool {}", name))]
-    Import { source: Errno, name: String },
-
+    Import {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("errno: {} failed to create pool {}", source, name))]
-    PoolCreate { source: Errno, name: String },
-
+    PoolCreate {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("failed to export pool {}", name))]
-    Export { source: Errno, name: String },
-
+    Export {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("failed to destroy pool {}", name))]
     Destroy {
-        source: NexusBdevError,
+        source: BdevError,
         name: String,
     },
-
     InvalidBdev {
-        source: NexusBdevError,
+        source: BdevError,
         name: String,
     },
-
     #[snafu(display("errno {}: {}", source, msg))]
-    Invalid { source: Errno, msg: String },
-
+    Invalid {
+        source: Errno,
+        msg: String,
+    },
     #[snafu(display("lvol exists {}", name))]
-    RepExists { source: Errno, name: String },
-
+    RepExists {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("errno: {} failed to create lvol {}", source, name))]
-    RepCreate { source: Errno, name: String },
-
+    RepCreate {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("failed to destroy lvol {}", name))]
-    RepDestroy { source: Errno, name: String },
-
+    RepDestroy {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("bdev {} is not a lvol", name))]
-    NotALvol { source: Errno, name: String },
-
+    NotALvol {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("failed to share lvol {}", name))]
-    LvolShare { source: CoreError, name: String },
-
+    LvolShare {
+        source: CoreError,
+        name: String,
+    },
     #[snafu(display("failed to unshare lvol {}", name))]
-    LvolUnShare { source: CoreError, name: String },
-
+    LvolUnShare {
+        source: CoreError,
+        name: String,
+    },
     #[snafu(display(
         "failed to get property {} ({}) from {}",
         prop,
@@ -65,9 +85,17 @@ pub enum Error {
         name: String,
     },
     #[snafu(display("failed to sync properties {}", name))]
-    SyncProperty { source: Errno, name: String },
+    SyncProperty {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("invalid property value: {}", name))]
-    Property { source: Errno, name: String },
+    Property {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("invalid replica share protocol value: {}", value))]
-    ReplicaShareProtocol { value: i32 },
+    ReplicaShareProtocol {
+        value: i32,
+    },
 }

@@ -1,4 +1,4 @@
-use crate::core::{runtime::spawn, Mthread};
+use crate::core::{runtime::spawn, Reactor};
 use futures::channel::oneshot;
 use std::time::Duration;
 
@@ -11,16 +11,14 @@ pub(crate) fn mayastor_sleep(duration: Duration) -> oneshot::Receiver<()> {
     let (tx, rx) = oneshot::channel::<()>();
     spawn(async move {
         tokio::time::sleep(duration).await;
-        let thread = Mthread::get_init();
-        let rx = thread
-            .spawn_local(async move {
-                if tx.send(()).is_err() {
-                    tracing::error!(
-                        "Failed to send completion for Mayastor sleep."
-                    );
-                }
-            })
-            .unwrap();
+        let rx = Reactor::spawn_at_primary(async move {
+            if tx.send(()).is_err() {
+                tracing::error!(
+                    "Failed to send completion for Mayastor sleep."
+                );
+            }
+        })
+        .unwrap();
         let _ = rx.await;
     });
     rx

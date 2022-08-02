@@ -16,9 +16,9 @@ use rpc::mayastor::{
 };
 
 use crate::{
+    bdev_api::{bdev_create, bdev_destroy, BdevError},
     core::{CoreError, Share, UntypedBdev},
     grpc::{rpc_submit, GrpcResult},
-    nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 
 impl From<UntypedBdev> for RpcBdev {
@@ -57,7 +57,7 @@ impl Default for BdevSvc {
 impl BdevRpc for BdevSvc {
     #[instrument(level = "debug", err)]
     async fn list(&self, _request: Request<Null>) -> GrpcResult<Bdevs> {
-        let rx = rpc_submit::<_, _, NexusBdevError>(async {
+        let rx = rpc_submit::<_, _, BdevError>(async {
             let mut list: Vec<RpcBdev> = Vec::new();
             if let Some(bdev) = UntypedBdev::bdev_first() {
                 bdev.into_iter().for_each(|bdev| list.push(bdev.into()))

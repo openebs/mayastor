@@ -9,9 +9,9 @@ use spdk_rs::libspdk::{create_uring_bdev, delete_uring_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
+    bdev_api::{self, BdevError},
     core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
-    nexus_uri::{self, NexusBdevError},
 };
 
 #[derive(Debug)]
@@ -24,13 +24,13 @@ pub(super) struct Uring {
 
 /// Convert a URI to an Uring "object"
 impl TryFrom<&Url> for Uring {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         let segments = uri::segments(url);
 
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("no path segments"),
             });
@@ -41,7 +41,7 @@ impl TryFrom<&Url> for Uring {
 
         let blk_size: u32 = match parameters.remove("blk_size") {
             Some(value) => {
-                value.parse().context(nexus_uri::IntParamParseError {
+                value.parse().context(bdev_api::IntParamParseFailed {
                     uri: url.to_string(),
                     parameter: String::from("blk_size"),
                     value: value.clone(),
@@ -51,7 +51,7 @@ impl TryFrom<&Url> for Uring {
         };
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: url.to_string(),
             },
         )?;
@@ -75,12 +75,12 @@ impl GetName for Uring {
 
 #[async_trait(?Send)]
 impl CreateDestroy for Uring {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     /// Create a uring bdev
     async fn create(&self) -> Result<String, Self::Error> {
         if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: self.get_name(),
             });
         }
@@ -109,7 +109,7 @@ impl CreateDestroy for Uring {
             return Ok(bdev.name().to_string());
         }
 
-        Err(NexusBdevError::BdevNotFound {
+        Err(BdevError::BdevNotFound {
             name: self.get_name(),
         })
     }
@@ -129,14 +129,14 @@ impl CreateDestroy for Uring {
                 }
                 receiver
                     .await
-                    .context(nexus_uri::CancelBdev {
+                    .context(bdev_api::BdevCommandCanceled {
                         name: self.get_name(),
                     })?
-                    .context(nexus_uri::DestroyBdev {
+                    .context(bdev_api::DestroyBdevFailed {
                         name: self.get_name(),
                     })
             }
-            None => Err(NexusBdevError::BdevNotFound {
+            None => Err(BdevError::BdevNotFound {
                 name: self.get_name(),
             }),
         }

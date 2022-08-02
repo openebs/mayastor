@@ -1,8 +1,8 @@
 use common::{compose::Builder, MayastorTest};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
+    bdev_api::bdev_get_name,
     core::{MayastorCliArgs, Protocol, UntypedBdev},
-    nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
@@ -131,7 +131,7 @@ async fn replica_stop_cont() {
             );
             let nx = nexus_lookup_mut(NXNAME).unwrap();
             assert_eq!(nx.status(), NexusStatus::Faulted);
-            assert_eq!(nx.children.len(), 1, "nexus child must still exist");
+            assert_eq!(nx.children().len(), 1, "nexus child must still exist");
             nx.unshare_nexus().await.expect("should unpublish nexus");
         })
         .await;

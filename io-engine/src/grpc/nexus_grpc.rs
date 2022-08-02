@@ -78,7 +78,7 @@ impl<'c> NexusChild<'c> {
     /// All we have is a reference to a child.
     pub fn to_grpc(&self) -> rpc::Child {
         rpc::Child {
-            uri: self.get_name().to_string(),
+            uri: self.uri().to_string(),
             state: rpc::ChildState::from(self.state()) as i32,
             rebuild_progress: self.get_rebuild_progress(),
         }
@@ -93,12 +93,11 @@ impl<'n> Nexus<'n> {
     pub fn to_grpc(&self) -> rpc::Nexus {
         rpc::Nexus {
             uuid: name_to_uuid(&self.name).to_string(),
-            size: self.req_size,
+            size: self.req_size(),
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
             children: self
-                .children
-                .iter()
+                .children_iter()
                 .map(|ch| ch.to_grpc())
                 .collect::<Vec<_>>(),
             rebuilds: RebuildJob::count() as u32,
@@ -118,12 +117,11 @@ impl<'n> Nexus<'n> {
         rpc::NexusV2 {
             name: name_to_uuid(&self.name).to_string(),
             uuid: self.uuid().to_string(),
-            size: self.req_size,
+            size: self.req_size(),
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
             children: self
-                .children
-                .iter()
+                .children_iter()
                 .map(|ch| ch.to_grpc())
                 .collect::<Vec<_>>(),
             rebuilds: RebuildJob::count() as u32,
@@ -189,7 +187,7 @@ pub async fn nexus_add_child(
     // For that we need api to check existence of child by name (not uri that
     // contain parameters that may change).
     n.as_mut().add_child(&args.uri, args.norebuild).await?;
-    n.get_child_by_name(&args.uri).map(|ch| ch.to_grpc())
+    n.child_mut(&args.uri).map(|ch| ch.to_grpc())
 }
 
 /// Idempotent destruction of the nexus.
@@ -197,7 +195,7 @@ pub async fn nexus_destroy(uuid: &str) -> Result<(), nexus::Error> {
     if let Ok(n) = nexus_lookup(uuid) {
         let result = n.destroy().await;
         if result.is_ok() {
-            info!("Nexus {} destroyed", uuid)
+            info!("Destroyed nexus: '{}'", uuid)
         } else {
             return result;
         }

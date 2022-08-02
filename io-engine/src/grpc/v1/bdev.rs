@@ -1,8 +1,8 @@
 use crate::{
+    bdev_api::{bdev_create, bdev_destroy, BdevError},
     core,
     core::{CoreError, Protocol, Share},
     grpc::{rpc_submit, GrpcResult},
-    nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 use rpc::mayastor::v1::bdev::{
     Bdev,
@@ -63,7 +63,7 @@ impl BdevRpc for BdevService {
         &self,
         request: Request<ListBdevOptions>,
     ) -> GrpcResult<ListBdevResponse> {
-        let rx = rpc_submit::<_, _, NexusBdevError>(async {
+        let rx = rpc_submit::<_, _, BdevError>(async {
             let mut bdevs = Vec::new();
             let args = request.into_inner();
             if let Some(name) = args.name {
@@ -100,7 +100,7 @@ impl BdevRpc for BdevService {
                     bdev: Some(bdev.into()),
                 }))
             } else {
-                Err(NexusBdevError::BdevNotFound {
+                Err(BdevError::BdevNotFound {
                     name,
                 })
             }

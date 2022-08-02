@@ -50,7 +50,7 @@ pub struct NexusIter<'n> {
 }
 
 impl<'n> Iterator for NexusIter<'n> {
-    type Item = Pin<&'n Nexus<'n>>;
+    type Item = &'n Nexus<'n>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|b| b.data())

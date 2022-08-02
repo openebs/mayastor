@@ -29,14 +29,15 @@ type BdevClient = BdevRpcClient<Channel>;
 type JsonClient = JsonRpcClient<Channel>;
 
 #[derive(Debug, Snafu)]
-pub enum Error {
+#[snafu(context(suffix(false)))]
+pub enum ClientError {
     #[snafu(display("gRPC status: {}", source))]
     GrpcStatus {
         source: tonic::Status,
         backtrace: Backtrace,
     },
     #[snafu(display("Context building error: {}", source))]
-    ContextError {
+    ContextCreate {
         source: context::Error,
         backtrace: Backtrace,
     },
@@ -44,7 +45,7 @@ pub enum Error {
     MissingValue { field: String },
 }
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = ClientError> = std::result::Result<T, E>;
 
 pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())
@@ -113,7 +114,7 @@ async fn main() -> crate::Result<()> {
         .subcommand(controller_cli::subcommands())
         .get_matches();
 
-    let ctx = Context::new(&matches).await.context(ContextError)?;
+    let ctx = Context::new(&matches).await.context(ContextCreate)?;
 
     let status = match matches.subcommand() {
         ("bdev", Some(args)) => bdev_cli::handler(ctx, args).await,

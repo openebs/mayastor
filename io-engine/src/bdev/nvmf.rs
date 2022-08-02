@@ -23,9 +23,9 @@ use spdk_rs::libspdk::{
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
+    bdev_api::{self, BdevError},
     core::UntypedBdev,
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult},
-    nexus_uri::{self, NexusBdevError},
 };
 
 const DEFAULT_NVMF_PORT: u16 = 4420;
@@ -51,26 +51,25 @@ pub(super) struct Nvmf {
 
 /// Convert a URI to an Nvmf "object"
 impl TryFrom<&Url> for Nvmf {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        let host =
-            url.host_str().ok_or_else(|| NexusBdevError::UriInvalid {
-                uri: url.to_string(),
-                message: String::from("missing host"),
-            })?;
+        let host = url.host_str().ok_or_else(|| BdevError::InvalidUri {
+            uri: url.to_string(),
+            message: String::from("missing host"),
+        })?;
 
         let segments = uri::segments(url);
 
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("no path segment"),
             });
         }
 
         if segments.len() > 1 {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("too many path segments"),
             });
@@ -83,7 +82,7 @@ impl TryFrom<&Url> for Nvmf {
 
         if let Some(value) = parameters.remove("reftag") {
             if uri::boolean(&value, true).context(
-                nexus_uri::BoolParamParseError {
+                bdev_api::BoolParamParseFailed {
                     uri: url.to_string(),
                     parameter: String::from("reftag"),
                     value: value.to_string(),
@@ -95,7 +94,7 @@ impl TryFrom<&Url> for Nvmf {
 
         if let Some(value) = parameters.remove("guard") {
             if uri::boolean(&value, true).context(
-                nexus_uri::BoolParamParseError {
+                bdev_api::BoolParamParseFailed {
                     uri: url.to_string(),
                     parameter: String::from("guard"),
                     value: value.to_string(),
@@ -106,7 +105,7 @@ impl TryFrom<&Url> for Nvmf {
         }
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: url.to_string(),
             },
         )?;
@@ -136,12 +135,12 @@ impl GetName for Nvmf {
 
 #[async_trait(?Send)]
 impl CreateDestroy for Nvmf {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     /// Create an NVMF bdev
     async fn create(&self) -> Result<String, Self::Error> {
         if UntypedBdev::lookup_by_name(&self.get_name()).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: self.get_name(),
             });
         }
@@ -183,17 +182,17 @@ impl CreateDestroy for Nvmf {
         };
 
         errno_result_from_i32((), errno).context(
-            nexus_uri::CreateBdevInvalidParams {
+            bdev_api::CreateBdevInvalidParams {
                 name: self.name.clone(),
             },
         )?;
 
         let bdev_count = receiver
             .await
-            .context(nexus_uri::CancelBdev {
+            .context(bdev_api::BdevCommandCanceled {
                 name: self.name.clone(),
             })?
-            .context(nexus_uri::CreateBdev {
+            .context(bdev_api::CreateBdevFailed {
                 name: self.name.clone(),
             })?;
 
@@ -207,7 +206,7 @@ impl CreateDestroy for Nvmf {
                 "removed partially created bdev {}, returned {}",
                 self.name, errno
             );
-            return Err(NexusBdevError::BdevNotFound {
+            return Err(BdevError::BdevNotFound {
                 name: self.name.clone(),
             });
         }
@@ -245,14 +244,14 @@ impl CreateDestroy for Nvmf {
 
                 async {
                     errno_result_from_i32((), errno).context(
-                        nexus_uri::DestroyBdev {
+                        bdev_api::DestroyBdevFailed {
                             name: self.name.clone(),
                         },
                     )
                 }
                 .await
             }
-            None => Err(NexusBdevError::BdevNotFound {
+            None => Err(BdevError::BdevNotFound {
                 name: self.get_name(),
             }),
         }

@@ -72,6 +72,10 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
         Box::new(NvmeBlockDevice::from_ns(&self.name, self.ns.clone()))
     }
 
+    fn device_name(&self) -> String {
+        self.name.clone()
+    }
+
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
@@ -288,6 +292,7 @@ impl DeviceIoController for NvmeDeviceIoController {
  * Lookup target NVMeOF device by its name (starts with nvmf://).
  */
 pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
+    debug!("Searching NVMe devices for '{}'...", name);
     if let Some(c) = NVME_CONTROLLERS.lookup_by_name(name) {
         let controller = c.lock();
         // Make sure controller is available.
@@ -295,10 +300,10 @@ pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
             let ns = controller
                 .namespace()
                 .expect("no namespaces for this controller");
+            debug!("NVMe device found: '{}'", name);
             return Some(Box::new(NvmeBlockDevice::from_ns(name, ns)));
         }
     }
-    debug!("{}: NVMe controller not found", name);
     None
 }
 

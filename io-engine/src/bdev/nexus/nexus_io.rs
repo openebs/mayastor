@@ -1,7 +1,6 @@
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
-    pin::Pin,
 };
 
 use libc::c_void;
@@ -12,14 +11,7 @@ use spdk_rs::{
     BdevIo,
 };
 
-use super::{
-    nexus_lookup_mut,
-    Nexus,
-    NexusChannel,
-    NexusChannelInner,
-    NexusStatus,
-    NEXUS_PRODUCT_ID,
-};
+use super::{Nexus, NexusChannel, NEXUS_PRODUCT_ID};
 
 use crate::core::{
     BlockDevice,
@@ -32,20 +24,19 @@ use crate::core::{
     IoType,
     Mthread,
     NvmeCommandStatus,
-    Reactors,
 };
 
 /// TODO
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct NioCtx {
+pub(super) struct NioCtx<'n> {
     /// number of IO's submitted. Nexus IO's may never be freed until this
     /// counter drops to zero.
     in_flight: u8,
     /// intermediate status of the IO
     status: IoStatus,
     /// a reference to  our channel
-    channel: spdk_rs::IoChannel<NexusChannel>,
+    channel: spdk_rs::IoChannel<NexusChannel<'n>>,
     /// the IO must fail regardless of when it completes
     must_fail: bool,
 }
@@ -53,7 +44,7 @@ pub(crate) struct NioCtx {
 /// TODO
 #[repr(transparent)]
 #[derive(Debug)]
-struct NexusBio<'n>(BdevIo<Nexus<'n>>);
+pub(super) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
 
 impl<'n> Deref for NexusBio<'n> {
     type Target = BdevIo<Nexus<'n>>;
@@ -87,8 +78,8 @@ impl<'n> NexusBio<'n> {
     }
 
     /// Makes a new instance of `NexusBio` from a channel and `BdevIo`.
-    fn new(
-        channel: spdk_rs::IoChannel<NexusChannel>,
+    pub(super) fn new(
+        channel: spdk_rs::IoChannel<NexusChannel<'n>>,
         io: BdevIo<Nexus<'n>>,
     ) -> Self {
         let mut bio = NexusBio(io);
@@ -101,7 +92,7 @@ impl<'n> NexusBio<'n> {
     }
 
     /// TODO
-    fn submit_request(mut self) {
+    pub(super) fn submit_request(mut self) {
         if let Err(_e) = match self.io_type() {
             IoType::Read => self.readv(),
             // these IOs are submitted to all the underlying children
@@ -133,7 +124,7 @@ impl<'n> NexusBio<'n> {
 
     /// assess the IO if we need to mark it failed or ok.
     /// obtain the Nexus struct embedded within the bdev
-    pub(crate) fn nexus_as_ref(&self) -> Pin<&Nexus<'n>> {
+    pub(crate) fn nexus(&self) -> &Nexus<'n> {
         self.bdev_checked(NEXUS_PRODUCT_ID).data()
     }
 
@@ -147,16 +138,16 @@ impl<'n> NexusBio<'n> {
         nexus_io.complete(device, status);
     }
 
+    /// immutable reference to the IO context
     #[inline(always)]
-    /// a mutable reference to the IO context
-    fn ctx_mut(&mut self) -> &mut NioCtx {
-        self.driver_ctx_mut::<NioCtx>()
+    fn ctx(&self) -> &NioCtx<'n> {
+        self.driver_ctx::<NioCtx>()
     }
 
+    /// a mutable reference to the IO context
     #[inline(always)]
-    /// immutable reference to the IO context
-    fn ctx(&self) -> &NioCtx {
-        self.driver_ctx::<NioCtx>()
+    fn ctx_mut(&mut self) -> &mut NioCtx<'n> {
+        self.driver_ctx_mut::<NioCtx>()
     }
 
     /// completion handler for the nexus when a child IO completes
@@ -218,28 +209,24 @@ impl<'n> NexusBio<'n> {
         }
     }
 
-    /// reference to the inner channels. The inner channel contains the specific
+    /// reference to the channel. The channel contains the specific
     /// per-core data structures.
-    fn inner_channel(&self) -> &NexusChannelInner {
-        self.ctx().channel.channel_data().inner()
+    #[inline(always)]
+    fn channel(&self) -> &NexusChannel<'n> {
+        self.ctx().channel.channel_data()
     }
 
-    /// mutable reference to the inner channels. The inner channel contains the
+    /// mutable reference to the channels. The channel contains the
     /// specific per-core data structures.
-    fn inner_channel_mut(&mut self) -> &mut NexusChannelInner {
-        self.ctx_mut().channel.channel_data_mut().inner_mut()
+    #[inline(always)]
+    fn channel_mut(&mut self) -> &mut NexusChannel<'n> {
+        self.ctx_mut().channel.channel_data_mut()
     }
 
     /// Returns the offset in num blocks where the data partition starts.
-    fn data_ent_offset(&self) -> u64 {
-        // TODO make const
-        self.nexus_as_ref().data_ent_offset
-    }
-
-    /// helper routine to get a channel to read from
     #[inline]
-    fn read_channel_at_index(&self, i: usize) -> &dyn BlockDeviceHandle {
-        &*self.inner_channel().readers[i]
+    fn data_ent_offset(&self) -> u64 {
+        self.nexus().data_ent_offset
     }
 
     /// submit a read operation to one of the children of this nexus
@@ -260,8 +247,7 @@ impl<'n> NexusBio<'n> {
 
     /// submit a read operation
     fn do_readv(&mut self) -> Result<(), CoreError> {
-        if let Some(i) = self.inner_channel_mut().child_select() {
-            let hdl = self.read_channel_at_index(i);
+        if let Some(hdl) = self.channel().select_reader() {
             let r = self.submit_read(hdl);
 
             if r.is_err() {
@@ -280,11 +266,7 @@ impl<'n> NexusBio<'n> {
                     "(core: {} thread: {}): read IO to {} submission failed with error {:?}",
                     Cores::current(), Mthread::current().unwrap().name(), device, r);
 
-                let inner = self.inner_channel_mut();
-                let must_retire = inner.fault_child(&device);
-                if must_retire {
-                    self.do_retire(device);
-                }
+                self.retire_device(&device);
 
                 self.fail();
             } else {
@@ -390,27 +372,27 @@ impl<'n> NexusBio<'n> {
         // Name of the device which experiences I/O submission failures.
         let mut failed_device = None;
 
-        let result = self.inner_channel().writers.iter().try_for_each(|h| {
+        let result = self.channel().for_each_writer(|h| {
             match self.io_type() {
-                IoType::Write => self.submit_write(h.as_ref()),
-                IoType::Unmap => self.submit_unmap(h.as_ref()),
-                IoType::WriteZeros => self.submit_write_zeroes(h.as_ref()),
-                IoType::Reset => self.submit_reset(h.as_ref()),
+                IoType::Write => self.submit_write(h),
+                IoType::Unmap => self.submit_unmap(h),
+                IoType::WriteZeros => self.submit_write_zeroes(h),
+                IoType::Reset => self.submit_reset(h),
                 // we should never reach here, if we do it is a bug.
                 _ => unreachable!(),
             }
                 .map(|_| {
                     inflight += 1;
                 })
-                .map_err(|se| {
+                .map_err(|err| {
                     error!(
                         "(core: {} thread: {}): IO submission failed with error {:?}, I/Os submitted: {}",
-                        Cores::current(), Mthread::current().unwrap().name(), se, inflight
+                        Cores::current(), Mthread::current().unwrap().name(), err, inflight
                     );
 
                     // Record the name of the device for immediate retire.
                     failed_device = Some(h.get_device().device_name());
-                    se
+                    err
                 })
         });
 
@@ -427,9 +409,10 @@ impl<'n> NexusBio<'n> {
             let device = failed_device.unwrap();
             // set the IO as failed in the submission stage.
             self.ctx_mut().must_fail = true;
-            if self.inner_channel_mut().remove_child(&device) {
-                self.do_retire(device);
-            }
+
+            self.channel_mut().disconnect_device(&device);
+
+            self.retire_device(&device);
         }
 
         // partial submission
@@ -447,13 +430,14 @@ impl<'n> NexusBio<'n> {
         result
     }
 
-    fn do_retire(&self, child: String) {
-        Reactors::master().send_future(nexus_child_retire(
-            self.nexus_as_ref().name.clone(),
-            child,
-        ));
+    /// TODO
+    fn retire_device(&mut self, child_device: &str) {
+        self.channel_mut()
+            .nexus_mut()
+            .retire_child_device(child_device, true);
     }
 
+    /// TODO
     fn handle_failure(
         &mut self,
         child: &dyn BlockDevice,
@@ -495,14 +479,7 @@ impl<'n> NexusBio<'n> {
             )
         );
 
-        let child = child.device_name();
-        // check if this child needs to be retired
-        let needs_retire = self.inner_channel_mut().fault_child(&child);
-        // The child state was not faulted yet, so this is the first IO
-        // to this child for which we encountered an error.
-        if needs_retire {
-            self.do_retire(child);
-        }
+        self.retire_device(&child.device_name());
 
         // if the IO was failed because of retire, resubmit the IO
         if retry {
@@ -510,32 +487,5 @@ impl<'n> NexusBio<'n> {
         }
 
         self.fail_checked();
-    }
-}
-
-/// TODO
-pub(crate) fn nexus_submit_request(
-    chan: spdk_rs::IoChannel<NexusChannel>,
-    bio: BdevIo<Nexus>,
-) {
-    let io = NexusBio::new(chan, bio);
-    io.submit_request();
-}
-
-/// Retire a child for this nexus.
-async fn nexus_child_retire(nexus_name: String, device: String) {
-    if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
-        warn!(?nexus, ?device, "retiring child");
-
-        if let Err(e) = nexus.as_mut().child_retire(device.clone()).await {
-            error!(?e, "double pause which we cant sneak in...");
-            Reactors::current()
-                .send_future(nexus_child_retire(nexus_name, device));
-            return;
-        }
-
-        if matches!(nexus.status(), NexusStatus::Faulted) {
-            warn!(?nexus, "no children left");
-        }
     }
 }

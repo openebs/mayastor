@@ -7,7 +7,7 @@ use snafu::Snafu;
 
 /// Definition of errors that can be returned from the key-value store.
 #[derive(Debug, Snafu)]
-#[snafu(visibility = "pub(crate)")]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum StoreError {
     /// Failed to connect to the key-value store.
     #[snafu(display("Failed to connect to store. Error {}", source))]

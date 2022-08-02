@@ -8,6 +8,7 @@ use std::{cmp::max, str::FromStr};
 use tonic::transport::Endpoint;
 
 #[derive(Debug, Snafu)]
+#[snafu(context(suffix(false)))]
 pub enum Error {
     #[snafu(display("Invalid URI"))]
     InvalidUriBytes {

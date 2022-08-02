@@ -22,12 +22,14 @@ use spdk_rs::{
         spdk_nvme_cmd,
     },
     nvme_admin_opc,
+    BdevOps,
     DmaBuf,
     DmaError,
+    IoChannelGuard,
 };
 
 use crate::{
-    core::{Bdev, CoreError, Descriptor, IoChannel, UntypedBdev},
+    core::{Bdev, CoreError, DescriptorGuard},
     ffihelper::cb_arg,
     subsys,
 };
@@ -35,22 +37,26 @@ use crate::{
 /// A handle to a bdev, is an interface to submit IO. The ['Descriptor'] may be
 /// shared between cores freely. The ['IoChannel'] however, must be allocated on
 /// the core where the IO is submitted from.
-pub struct BdevHandle {
+pub struct BdevHandle<T: BdevOps> {
     /// Rust guarantees proper ordering of dropping. The channel MUST be
     /// dropped before we close the descriptor
-    channel: IoChannel,
-    desc: Arc<Descriptor>,
+    channel: IoChannelGuard<T::ChannelData>,
+
+    /// TODO
+    desc: Arc<DescriptorGuard<T>>,
 }
 
-impl BdevHandle {
-    /// open a new bdev handle allocating a new ['Descriptor'] as well as a new
-    /// ['IoChannel']
+pub type UntypedBdevHandle = BdevHandle<()>;
+
+impl<T: BdevOps> BdevHandle<T> {
+    /// Opens a new bdev handle allocating a new descriptor as well as a new
+    /// I/O channel.
     pub fn open(
         name: &str,
         read_write: bool,
         claim: bool,
-    ) -> Result<BdevHandle, CoreError> {
-        if let Ok(desc) = UntypedBdev::open_by_name(name, read_write) {
+    ) -> Result<BdevHandle<T>, CoreError> {
+        if let Ok(desc) = Bdev::<T>::open_by_name(name, read_write) {
             if claim && !desc.claim() {
                 return Err(CoreError::BdevNotFound {
                     name: name.into(),
@@ -64,34 +70,34 @@ impl BdevHandle {
         })
     }
 
-    /// open a new bdev handle given a bdev
-    pub fn open_with_bdev<T: spdk_rs::BdevOps>(
+    /// Opens a new bdev handle given a bdev.
+    pub fn open_with_bdev(
         bdev: &Bdev<T>,
         read_write: bool,
-    ) -> Result<BdevHandle, CoreError> {
+    ) -> Result<BdevHandle<T>, CoreError> {
         let desc = bdev.open(read_write)?;
         BdevHandle::try_from(Arc::new(desc))
     }
 
-    /// close the BdevHandle causing
+    /// Closes the BdevHandle.
     pub fn close(self) {
         drop(self);
     }
 
     /// get the bdev associated with this handle
-    pub fn get_bdev(&self) -> UntypedBdev {
-        self.desc.get_bdev()
+    pub fn get_bdev(&self) -> Bdev<T> {
+        self.desc.bdev()
     }
 
     /// return a tuple to be used directly for read/write operations
     pub fn io_tuple(&self) -> (*mut spdk_bdev_desc, *mut spdk_io_channel) {
-        (self.desc.as_ptr(), self.channel.as_ptr())
+        (self.desc.legacy_as_ptr(), self.channel.legacy_as_ptr())
     }
 
     /// Allocate memory from the memory pool (the mem is zeroed out)
     /// with given size and proper alignment for the bdev.
     pub fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError> {
-        DmaBuf::new(size, self.desc.get_bdev().alignment())
+        DmaBuf::new(size, self.desc.bdev().alignment())
     }
 
     /// private io completion callback that sends back the success status of the
@@ -123,8 +129,8 @@ impl BdevHandle {
         let (s, r) = oneshot::channel::<bool>();
         let errno = unsafe {
             spdk_bdev_write(
-                self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.desc.legacy_as_ptr(),
+                self.channel.legacy_as_ptr(),
                 **buffer,
                 offset,
                 buffer.len() as u64,
@@ -160,8 +166,8 @@ impl BdevHandle {
         let (s, r) = oneshot::channel::<bool>();
         let errno = unsafe {
             spdk_bdev_read(
-                self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.desc.legacy_as_ptr(),
+                self.channel.legacy_as_ptr(),
                 **buffer,
                 offset,
                 buffer.len() as u64,
@@ -192,8 +198,8 @@ impl BdevHandle {
         let (s, r) = oneshot::channel::<bool>();
         let errno = unsafe {
             spdk_bdev_reset(
-                self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.desc.legacy_as_ptr(),
+                self.channel.legacy_as_ptr(),
                 Some(Self::io_completion_cb),
                 cb_arg(s),
             )
@@ -220,8 +226,8 @@ impl BdevHandle {
         let (s, r) = oneshot::channel::<bool>();
         let errno = unsafe {
             spdk_bdev_write_zeroes(
-                self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.desc.legacy_as_ptr(),
+                self.channel.legacy_as_ptr(),
                 offset,
                 len,
                 Some(Self::io_completion_cb),
@@ -291,8 +297,8 @@ impl BdevHandle {
         // assumes read commands
         let errno = unsafe {
             spdk_bdev_nvme_admin_passthru_ro(
-                self.desc.as_ptr(),
-                self.channel.as_ptr(),
+                self.desc.legacy_as_ptr(),
+                self.channel.legacy_as_ptr(),
                 &*nvme_cmd,
                 match buffer {
                     Some(ref b) => ***b,
@@ -324,35 +330,26 @@ impl BdevHandle {
     }
 }
 
-impl Debug for BdevHandle {
+impl<T: BdevOps> Debug for BdevHandle<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(f, "{:?}", self.desc)?;
         write!(f, "{:?}", self.channel)
     }
 }
 
-impl TryFrom<Descriptor> for BdevHandle {
+impl<T: BdevOps> TryFrom<DescriptorGuard<T>> for BdevHandle<T> {
     type Error = CoreError;
 
-    fn try_from(desc: Descriptor) -> Result<Self, Self::Error> {
-        if let Some(channel) = desc.get_channel() {
-            return Ok(Self {
-                desc: Arc::new(desc),
-                channel,
-            });
-        }
-
-        Err(CoreError::GetIoChannel {
-            name: desc.get_bdev().name().to_string(),
-        })
+    fn try_from(desc: DescriptorGuard<T>) -> Result<Self, Self::Error> {
+        Self::try_from(Arc::new(desc))
     }
 }
 
-impl TryFrom<Arc<Descriptor>> for BdevHandle {
+impl<T: BdevOps> TryFrom<Arc<DescriptorGuard<T>>> for BdevHandle<T> {
     type Error = CoreError;
 
-    fn try_from(desc: Arc<Descriptor>) -> Result<Self, Self::Error> {
-        if let Some(channel) = desc.get_channel() {
+    fn try_from(desc: Arc<DescriptorGuard<T>>) -> Result<Self, Self::Error> {
+        if let Ok(channel) = desc.io_channel() {
             return Ok(Self {
                 channel,
                 desc,
@@ -360,7 +357,7 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
         }
 
         Err(CoreError::GetIoChannel {
-            name: desc.get_bdev().name().to_string(),
+            name: desc.bdev().name().to_string(),
         })
     }
 }

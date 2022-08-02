@@ -9,8 +9,8 @@ use io_engine::{
         nexus::{nexus_create, nexus_lookup_mut},
         util::uring,
     },
-    core::{BdevHandle, MayastorCliArgs, Protocol, UntypedBdev},
-    nexus_uri::{bdev_create, bdev_destroy},
+    bdev_api::{bdev_create, bdev_destroy},
+    core::{MayastorCliArgs, Protocol, UntypedBdev, UntypedBdevHandle},
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -77,7 +77,7 @@ async fn works() {
     assert_eq!(b.name(), "core_nexus");
 
     let desc = UntypedBdev::open_by_name("core_nexus", false).unwrap();
-    let channel = desc.get_channel().expect("failed to get IO channel");
+    let channel = desc.io_channel().expect("failed to get IO channel");
     drop(channel);
     drop(desc);
     let n = nexus_lookup_mut("core_nexus").expect("nexus not found");
@@ -98,8 +98,8 @@ async fn core_2() {
             let d2 = UntypedBdev::open_by_name("core_nexus", true)
                 .expect("failed to open second desc to nexus");
 
-            let ch1 = d1.get_channel().expect("failed to get channel!");
-            let ch2 = d2.get_channel().expect("failed to get channel!");
+            let ch1 = d1.io_channel().expect("failed to get channel!");
+            let ch2 = d2.io_channel().expect("failed to get channel!");
             drop(ch1);
             drop(ch2);
 
@@ -116,9 +116,9 @@ async fn core_3() {
     mayastor()
         .spawn(async {
             bdev_create(BDEVNAME1).await.expect("failed to create bdev");
-            let hdl2 = BdevHandle::open(BDEVNAME1, true, true)
+            let hdl2 = UntypedBdevHandle::open(BDEVNAME1, true, true)
                 .expect("failed to create the handle!");
-            let hdl3 = BdevHandle::open(BDEVNAME1, true, true);
+            let hdl3 = UntypedBdevHandle::open(BDEVNAME1, true, true);
             assert!(hdl3.is_err());
 
             // we must drop the descriptors before we destroy the nexus

@@ -12,4 +12,6 @@ members = [
 	"composer",
 	"spdk-rs",
 	"utils/io-engine-dependencies/version-info",
+	"utils/io-engine-dependencies/devinfo",
+	"utils/io-engine-dependencies/nvmeadm",
 ]

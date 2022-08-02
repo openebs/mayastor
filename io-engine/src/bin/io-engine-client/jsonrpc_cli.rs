@@ -1,6 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
-    Error,
+    ClientError,
     GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
@@ -32,13 +32,13 @@ pub async fn json_rpc_call(
 ) -> crate::Result<()> {
     let method = matches
         .value_of("method")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "method".to_string(),
         })?
         .to_owned();
     let params = matches
         .value_of("params")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "params".to_string(),
         })?
         .to_owned();

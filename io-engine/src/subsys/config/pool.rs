@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use tonic::Status;
 
 use crate::{
-    bdev::nexus::VerboseError,
-    core::{runtime, Cores, Mthread, Reactor, Share},
+    core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
     lvs::{Error as LvsError, Lvs},
     pool::{Pool as SpdkPool, PoolArgs, PoolsIter},
@@ -90,7 +89,7 @@ impl PoolConfig {
                     error!("error joining thread: {}", error);
                 }
 
-                let future = Mthread::get_init().spawn_local(async move {
+                let future = Reactor::spawn_at_primary(async move {
                     if sender.send(()).is_err() {
                         error!("error sending completion");
                     }

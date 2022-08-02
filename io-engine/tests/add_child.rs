@@ -51,11 +51,11 @@ async fn add_child() {
             .add_child(BDEVNAME2, false)
             .await
             .expect("Failed to add child");
-        assert_eq!(nexus.children.len(), 2);
+        assert_eq!(nexus.child_count(), 2);
 
         // Expect the added child to be in the out-of-sync state
         assert_matches!(
-            nexus.children[1].state(),
+            nexus.child_at(1).state(),
             ChildState::Faulted(Reason::OutOfSync)
         );
     })
@@ -69,7 +69,7 @@ async fn add_child() {
             .remove_child(BDEVNAME2)
             .await
             .expect("Failed to remove child");
-        assert_eq!(nexus.children.len(), 1);
+        assert_eq!(nexus.child_count(), 1);
     })
     .await;
 
@@ -91,11 +91,11 @@ async fn add_child() {
             .add_child(BDEVNAME2, false)
             .await
             .expect("Failed to add child");
-        assert_eq!(nexus.children.len(), 2);
+        assert_eq!(nexus.child_count(), 2);
 
         // Expect the added child to be in the out-of-sync state
         assert_matches!(
-            nexus.children[1].state(),
+            nexus.child_at(1).state(),
             ChildState::Faulted(Reason::OutOfSync)
         );
     })
@@ -109,7 +109,7 @@ async fn add_child() {
             .remove_child(BDEVNAME2)
             .await
             .expect("Failed to remove child");
-        assert_eq!(nexus.children.len(), 1);
+        assert_eq!(nexus.child_count(), 1);
     })
     .await;
 

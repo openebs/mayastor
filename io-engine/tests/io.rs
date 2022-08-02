@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use common::bdev_io;
-use io_engine::{core::MayastorCliArgs, nexus_uri::bdev_create};
+use io_engine::{bdev_api::bdev_create, core::MayastorCliArgs};
 
 static DISKNAME: &str = "/tmp/disk.img";
 static BDEVNAME: &str = "aio:///tmp/disk.img?blk_size=512";

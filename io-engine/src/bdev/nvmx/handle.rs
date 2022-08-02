@@ -1012,7 +1012,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError> {
         let mut buf = DmaBuf::new(4096, 8).map_err(|_e| {
-            CoreError::DmaAllocationError {
+            CoreError::DmaAllocationFailed {
                 size: 4096,
             }
         })?;

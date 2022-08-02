@@ -1,4 +1,9 @@
-use std::{collections::HashMap, convert::TryFrom, ffi::CString};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    ffi::CString,
+    fmt::{Debug, Formatter},
+};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -10,12 +15,11 @@ use spdk_rs::libspdk::{bdev_aio_delete, create_aio_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::UntypedBdev,
+    bdev_api::{self, BdevError},
+    core::{UntypedBdev, VerboseError},
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
-    nexus_uri::{self, NexusBdevError},
 };
 
-#[derive(Debug)]
 pub(super) struct Aio {
     name: String,
     alias: String,
@@ -23,15 +27,21 @@ pub(super) struct Aio {
     uuid: Option<uuid::Uuid>,
 }
 
+impl Debug for Aio {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Aio '{}'", self.name)
+    }
+}
+
 /// Convert a URI to an Aio "object"
 impl TryFrom<&Url> for Aio {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         let segments = uri::segments(url);
 
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("no path segments"),
             });
@@ -42,7 +52,7 @@ impl TryFrom<&Url> for Aio {
 
         let blk_size: u32 = match parameters.remove("blk_size") {
             Some(value) => {
-                value.parse().context(nexus_uri::IntParamParseError {
+                value.parse().context(bdev_api::IntParamParseFailed {
                     uri: url.to_string(),
                     parameter: String::from("blk_size"),
                     value: value.clone(),
@@ -52,7 +62,7 @@ impl TryFrom<&Url> for Aio {
         };
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: url.to_string(),
             },
         )?;
@@ -76,15 +86,17 @@ impl GetName for Aio {
 
 #[async_trait(?Send)]
 impl CreateDestroy for Aio {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     /// Create an AIO bdev
     async fn create(&self) -> Result<String, Self::Error> {
         if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(NexusBdevError::BdevExists {
+            return Err(BdevError::BdevExists {
                 name: self.get_name(),
             });
         }
+
+        debug!("{:?}: creating bdev", self);
 
         let cname = CString::new(self.get_name()).unwrap();
 
@@ -93,10 +105,14 @@ impl CreateDestroy for Aio {
         };
 
         if errno != 0 {
-            return Err(NexusBdevError::CreateBdev {
+            let err = BdevError::CreateBdevFailed {
                 source: Errno::from_i32(errno.abs()),
                 name: self.get_name(),
-            });
+            };
+
+            error!("{:?} error: {}", self, err.verbose());
+
+            return Err(err);
         }
 
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
@@ -105,23 +121,21 @@ impl CreateDestroy for Aio {
             }
 
             if !bdev.add_alias(&self.alias) {
-                error!(
-                    "failed to add alias {} to device {}",
-                    self.alias,
-                    self.get_name()
-                );
+                warn!("{:?}: failed to add alias '{}'", self, self.alias);
             }
 
             return Ok(self.get_name());
         }
 
-        Err(NexusBdevError::BdevNotFound {
+        Err(BdevError::BdevNotFound {
             name: self.get_name(),
         })
     }
 
     /// Destroy the given AIO bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
+        debug!("{:?}: deleting", self);
+
         match UntypedBdev::lookup_by_name(&self.name) {
             Some(mut bdev) => {
                 bdev.remove_alias(&self.alias);
@@ -135,14 +149,14 @@ impl CreateDestroy for Aio {
                 }
                 receiver
                     .await
-                    .context(nexus_uri::CancelBdev {
+                    .context(bdev_api::BdevCommandCanceled {
                         name: self.get_name(),
                     })?
-                    .context(nexus_uri::DestroyBdev {
+                    .context(bdev_api::DestroyBdevFailed {
                         name: self.get_name(),
                     })
             }
-            None => Err(NexusBdevError::BdevNotFound {
+            None => Err(BdevError::BdevNotFound {
                 name: self.get_name(),
             }),
         }

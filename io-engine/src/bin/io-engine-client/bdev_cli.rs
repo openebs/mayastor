@@ -3,7 +3,7 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    Error,
+    ClientError,
     GrpcStatus,
 };
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -119,7 +119,7 @@ async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> crate::Result<()> {
 async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     let uri = args
         .value_of("uri")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
         .to_owned();
@@ -153,7 +153,7 @@ async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
 async fn destroy(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     let name = args
         .value_of("name")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
         .to_owned();
@@ -209,13 +209,13 @@ async fn destroy(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
 async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     let name = args
         .value_of("name")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
         .to_owned();
     let protocol = args
         .value_of("protocol")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "protocol".to_string(),
         })?
         .to_owned();
@@ -249,7 +249,7 @@ async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
 async fn unshare(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     let name = args
         .value_of("name")
-        .ok_or_else(|| Error::MissingValue {
+        .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
         .to_owned();

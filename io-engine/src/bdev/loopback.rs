@@ -12,8 +12,8 @@ use crate::{
         CreateDestroy,
         GetName,
     },
+    bdev_api::{self, BdevError},
     core::UntypedBdev,
-    nexus_uri::{self, NexusBdevError},
 };
 
 #[derive(Debug)]
@@ -24,13 +24,13 @@ pub(super) struct Loopback {
 }
 
 impl TryFrom<&Url> for Loopback {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         let segments = uri::segments(url);
 
         if segments.is_empty() {
-            return Err(NexusBdevError::UriInvalid {
+            return Err(BdevError::InvalidUri {
                 uri: url.to_string(),
                 message: String::from("no path segments"),
             });
@@ -40,7 +40,7 @@ impl TryFrom<&Url> for Loopback {
             url.query_pairs().into_owned().collect();
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
-            nexus_uri::UuidParamParseError {
+            bdev_api::UuidParamParseFailed {
                 uri: url.to_string(),
             },
         )?;
@@ -63,12 +63,12 @@ impl GetName for Loopback {
 
 #[async_trait(?Send)]
 impl CreateDestroy for Loopback {
-    type Error = NexusBdevError;
+    type Error = BdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if self.uuid.is_some() && Some(bdev.uuid()) != self.uuid {
-                return Err(NexusBdevError::BdevWrongUuid {
+                return Err(BdevError::BdevWrongUuid {
                     name: self.get_name(),
                     uuid: bdev.uuid_as_string(),
                 });
@@ -85,7 +85,7 @@ impl CreateDestroy for Loopback {
             return Ok(self.get_name());
         }
 
-        Err(NexusBdevError::BdevNotFound {
+        Err(BdevError::BdevNotFound {
             name: self.get_name(),
         })
     }

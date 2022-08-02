@@ -61,9 +61,8 @@ impl WithModuleConfigJson for NexusModule {
     fn config_json(w: JsonWriteContext) -> i32 {
         nexus_iter().for_each(|nexus| {
             let uris = nexus
-                .children
-                .iter()
-                .map(|c| c.get_name().to_string())
+                .children_iter()
+                .map(|c| c.uri().to_string())
                 .collect::<Vec<String>>();
 
             let json = json!({
@@ -72,7 +71,7 @@ impl WithModuleConfigJson for NexusModule {
                     "name" : nexus.name,
                     "uuid" : unsafe { nexus.bdev().uuid_as_string() },
                     "children" : uris,
-                    "size": nexus.req_size,
+                    "size": nexus.req_size(),
                 },
             });
 

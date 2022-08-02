@@ -1,7 +1,7 @@
 use common::bdev_io;
 use io_engine::{
     bdev::nexus::nexus_create,
-    core::{BdevHandle, CoreError, MayastorCliArgs},
+    core::{CoreError, MayastorCliArgs, UntypedBdevHandle},
     lvs::{Lvol, Lvs},
     pool::PoolArgs,
 };
@@ -156,7 +156,7 @@ async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
 }
 
 async fn create_snapshot() -> Result<u64, CoreError> {
-    let h = BdevHandle::open(NXNAME, true, false).unwrap();
+    let h = UntypedBdevHandle::open(NXNAME, true, false).unwrap();
     let t = h
         .create_snapshot()
         .await
@@ -165,7 +165,7 @@ async fn create_snapshot() -> Result<u64, CoreError> {
 }
 
 async fn custom_nvme_admin(opc: u8) -> Result<(), CoreError> {
-    let h = BdevHandle::open(NXNAME, true, false).unwrap();
+    let h = UntypedBdevHandle::open(NXNAME, true, false).unwrap();
     h.nvme_admin_custom(opc).await?;
     Ok(())
 }
