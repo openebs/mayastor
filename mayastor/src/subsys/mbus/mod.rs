@@ -10,7 +10,7 @@ pub mod registration;
 use crate::core::MayastorEnvironment;
 use dns_lookup::{lookup_addr, lookup_host};
 use registration::Registration;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_add_subsystem,
     spdk_subsystem,
     spdk_subsystem_fini_next,

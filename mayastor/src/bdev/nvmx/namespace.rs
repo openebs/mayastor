@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_ns,
     spdk_nvme_ns_get_extended_sector_size,
     spdk_nvme_ns_get_flags,
@@ -17,6 +17,10 @@ use spdk_sys::{
 #[derive(Debug)]
 pub struct NvmeNamespace(NonNull<spdk_nvme_ns>);
 
+// TODO: is `NvmeNamespace` really a Sync/Send type?
+unsafe impl Sync for NvmeNamespace {}
+unsafe impl Send for NvmeNamespace {}
+
 impl NvmeNamespace {
     pub fn size_in_bytes(&self) -> u64 {
         unsafe { spdk_nvme_ns_get_size(self.0.as_ptr()) }
@@ -31,9 +35,9 @@ impl NvmeNamespace {
     }
 
     pub fn uuid(&self) -> uuid::Uuid {
-        unsafe {
-            crate::core::uuid::Uuid(spdk_nvme_ns_get_uuid(self.0.as_ptr()))
-        }
+        spdk_rs::Uuid::legacy_from_ptr(unsafe {
+            spdk_nvme_ns_get_uuid(self.0.as_ptr())
+        })
         .into()
     }
 

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
-    core::Bdev,
+    core::UntypedBdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
     nexus_uri::{
         NexusBdevError,
@@ -131,7 +131,7 @@ impl CreateDestroy for Null {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if UntypedBdev::lookup_by_name(&self.name).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: self.name.clone(),
             });
@@ -139,20 +139,21 @@ impl CreateDestroy for Null {
 
         let cname = self.name.clone().into_cstring();
 
-        let opts = spdk_sys::spdk_null_bdev_opts {
+        let opts = spdk_rs::libspdk::spdk_null_bdev_opts {
             name: cname.as_ptr(),
             uuid: std::ptr::null(),
             num_blocks: self.num_blocks,
             block_size: self.blk_size,
             md_size: 0,
             md_interleave: false,
-            dif_type: spdk_sys::SPDK_DIF_DISABLE,
+            dif_type: spdk_rs::libspdk::SPDK_DIF_DISABLE,
             dif_is_head_of_md: false,
         };
 
         let errno = unsafe {
-            let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
-            spdk_sys::bdev_null_create(&mut bdev, &opts)
+            let mut bdev: *mut spdk_rs::libspdk::spdk_bdev =
+                std::ptr::null_mut();
+            spdk_rs::libspdk::bdev_null_create(&mut bdev, &opts)
         };
 
         if errno != 0 {
@@ -162,9 +163,9 @@ impl CreateDestroy for Null {
             });
         }
 
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.set_raw_uuid(uuid.into()) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -184,12 +185,12 @@ impl CreateDestroy for Null {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
-                spdk_sys::bdev_null_delete(
-                    bdev.as_ptr(),
+                spdk_rs::libspdk::bdev_null_delete(
+                    bdev.unsafe_inner_mut_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
                 )

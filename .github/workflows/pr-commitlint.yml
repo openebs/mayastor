@@ -2,6 +2,9 @@ name: Lint Commit Messages
 on:
   pull_request:
     types: ['opened', 'edited', 'reopened', 'synchronize']
+  push:
+    branches:
+      - staging
 
 jobs:
   commitlint:
@@ -14,6 +17,9 @@ jobs:
         run: npm install @commitlint/config-conventional @commitlint/cli
       - name: Lint Commits
         run: |
-          first_commit=$(curl ${{ github.event.pull_request.commits_url }} 2>/dev/null | jq '.[0].sha' | sed 's/"//g')
-          last_commit=HEAD^2 # don't lint the merge commit
-          npx commitlint --from $first_commit~1 --to $last_commit -V
+          # Only run for PR's and simply succeed the bors staging branch
+          if [ ! ${{ github.ref }} = "refs/heads/staging" ]; then
+            first_commit=${{ github.event.pull_request.base.sha }}
+            last_commit=${{ github.event.pull_request.head.sha }}
+            npx commitlint --from $first_commit --to $last_commit -V
+          fi

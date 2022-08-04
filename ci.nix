@@ -33,7 +33,9 @@ mkShell {
     git
     kubernetes-helm
     libaio
-    libiscsi
+    libbsd
+    libnvme
+    libpcap
     libudev
     liburing
     llvmPackages_11.libclang
@@ -52,8 +54,10 @@ mkShell {
     utillinux
     xfsprogs
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
+  ++ pkgs.lib.optional (!norust) channel.stable
   ++ pkgs.lib.optional (!norust) channel.nightly;
 
+  RUST_NIGHTLY_PATH = channel.nightly;
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
@@ -62,8 +66,6 @@ mkShell {
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
-    ${pkgs.lib.optionalString (nospdk)
-    ''export RUSTFLAGS="-C link-args=-Wl,-rpath,$(pwd)/spdk-sys/spdk"''}
     ${pkgs.lib.optionalString (nospdk) "echo"}
     ${pkgs.lib.optionalString (norust) "cowsay ${norust_moth}"}
     ${pkgs.lib.optionalString (norust) "echo 'Hint: use rustup tool.'"}

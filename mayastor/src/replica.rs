@@ -8,9 +8,13 @@ use std::{ffi::CStr, os::raw::c_char};
 use ::rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
 
-use spdk_sys::{spdk_lvol, vbdev_lvol_get_from_bdev};
+use spdk_rs::libspdk::{spdk_lvol, vbdev_lvol_get_from_bdev};
 
-use crate::{core::Bdev, subsys::NvmfError, target};
+use crate::{
+    core::{Bdev, UntypedBdev},
+    subsys::NvmfError,
+    target,
+};
 
 /// These are high-level context errors one for each rpc method.
 #[derive(Debug, Snafu)]
@@ -36,12 +40,8 @@ pub enum Error {
     ReplicaShared {},
     #[snafu(display("share nvmf"))]
     ShareNvmf { source: NvmfError },
-    #[snafu(display("share iscsi"))]
-    ShareIscsi { source: target::iscsi::Error },
     #[snafu(display("unshare nvmf"))]
     UnshareNvmf { source: NvmfError },
-    #[snafu(display("unshare iscsi"))]
-    UnshareIscsi { source: target::iscsi::Error },
     #[snafu(display("Invalid share protocol {} in request", protocol))]
     InvalidProtocol { protocol: i32 },
     #[snafu(display("Replica does not exist"))]
@@ -76,7 +76,6 @@ pub struct Replica {
 /// Types of remote access storage protocols and IDs for sharing replicas.
 pub enum ShareType {
     Nvmf,
-    Iscsi,
 }
 
 /// Detect share protocol (if any) for replica with given uuid and share ID
@@ -87,26 +86,22 @@ fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
         return Some((ShareType::Nvmf, uri));
     }
 
-    // and then iscsi ...
-    if let Some(uri) = target::iscsi::get_uri(target::Side::Replica, uuid) {
-        return Some((ShareType::Iscsi, uri));
-    }
-
     None
 }
 
 impl Replica {
     /// Lookup replica by uuid (=name).
     pub fn lookup(uuid: &str) -> Option<Self> {
-        match Bdev::lookup_by_name(uuid) {
-            Some(bdev) => Replica::from_bdev(&bdev),
+        match UntypedBdev::lookup_by_name(uuid) {
+            Some(bdev) => Replica::from_bdev(bdev),
             None => None,
         }
     }
 
     /// Look up replica from Bdev
-    pub fn from_bdev(bdev: &Bdev) -> Option<Self> {
-        let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
+    pub fn from_bdev(mut bdev: UntypedBdev) -> Option<Self> {
+        let lvol =
+            unsafe { vbdev_lvol_get_from_bdev(bdev.unsafe_inner_mut_ptr()) };
         if lvol.is_null() {
             None
         } else {
@@ -116,24 +111,21 @@ impl Replica {
         }
     }
 
-    /// Expose replica over supported remote access storage protocols (nvmf
-    /// and iscsi).
+    /// Expose replica over supported remote access storage protocols (nvmf).
     pub async fn share(&self, kind: ShareType) -> Result<()> {
         let name = self.get_name().to_owned();
         if detect_share(&name).is_some() {
             return Err(Error::ReplicaShared {});
         }
 
-        let bdev = unsafe { Bdev::from((*self.lvol_ptr).bdev) };
+        let bdev = unsafe {
+            UntypedBdev::checked_from_ptr((*self.lvol_ptr).bdev).unwrap()
+        };
 
         match kind {
             ShareType::Nvmf => target::nvmf::share(&name, &bdev)
                 .await
                 .context(ShareNvmf {})?,
-            ShareType::Iscsi => {
-                target::iscsi::share(&name, &bdev, target::Side::Replica)
-                    .context(ShareIscsi {})?;
-            }
         }
         Ok(())
     }
@@ -147,16 +139,13 @@ impl Replica {
                 ShareType::Nvmf => target::nvmf::unshare(&name)
                     .await
                     .context(UnshareNvmf {})?,
-                ShareType::Iscsi => target::iscsi::unshare(&name)
-                    .await
-                    .context(UnshareIscsi {})?,
             }
         };
         Ok(())
     }
 
     /// Return either a type of share and a string identifying the share
-    /// (nqn for nvmf and iqn for iscsi) or none if the replica is not
+    /// (nqn for nvmf) or none if the replica is not
     /// shared.
     pub fn get_share_type(&self) -> Option<ShareType> {
         detect_share(self.get_name()).map(|val| val.0)
@@ -175,8 +164,11 @@ impl Replica {
 
     /// Get size of the replica in bytes.
     pub fn get_size(&self) -> u64 {
-        let bdev: Bdev = unsafe { (*self.lvol_ptr).bdev.into() };
-        u64::from(bdev.block_len()) * bdev.num_blocks()
+        unsafe {
+            UntypedBdev::checked_from_ptr((*self.lvol_ptr).bdev)
+                .unwrap()
+                .size_in_bytes()
+        }
     }
 
     /// Get name of the pool which replica belongs to.
@@ -215,7 +207,7 @@ impl Replica {
 #[derive(Default)]
 pub struct ReplicaIter {
     /// Last bdev examined by the iterator during the call to next()
-    bdev: Option<Bdev>,
+    bdev: Option<UntypedBdev>,
 }
 
 impl ReplicaIter {
@@ -234,25 +226,24 @@ impl Iterator for ReplicaIter {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let maybe_bdev = match &mut self.bdev {
-                Some(bdev) => {
-                    let ptr =
-                        unsafe { spdk_sys::spdk_bdev_next(bdev.as_ptr()) };
-                    if !ptr.is_null() {
-                        Some(Bdev::from(ptr))
-                    } else {
-                        None
-                    }
-                }
-                None => Bdev::bdev_first(),
+                Some(bdev) => unsafe {
+                    let ptr = spdk_rs::libspdk::spdk_bdev_next(
+                        bdev.unsafe_inner_mut_ptr(),
+                    );
+                    Bdev::checked_from_ptr(ptr)
+                },
+                None => UntypedBdev::bdev_first(),
             };
 
-            let bdev = match maybe_bdev {
+            let mut bdev = match maybe_bdev {
                 Some(bdev) => bdev,
                 None => return None,
             };
 
             // Skip all other bdevs which are not lvols (i.e. aio)
-            let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
+            let lvol = unsafe {
+                vbdev_lvol_get_from_bdev(bdev.unsafe_inner_mut_ptr())
+            };
             if !lvol.is_null() {
                 let mut aliases = bdev.aliases();
                 // each lvol has a first alias of form "pool/lvol-name"
@@ -288,7 +279,6 @@ impl From<Replica> for rpc::Replica {
             thin: r.is_thin(),
             share: match r.get_share_type() {
                 Some(share_type) => match share_type {
-                    ShareType::Iscsi => rpc::ShareProtocolReplica::ReplicaIscsi,
                     ShareType::Nvmf => rpc::ShareProtocolReplica::ReplicaNvmf,
                 },
                 None => rpc::ShareProtocolReplica::ReplicaNone,
@@ -319,9 +309,6 @@ pub(crate) async fn share_replica(
     // first unshare the replica if there is a protocol change
     let unshare = match replica.get_share_type() {
         Some(share_type) => match share_type {
-            ShareType::Iscsi => {
-                want_share != rpc::ShareProtocolReplica::ReplicaIscsi
-            }
             ShareType::Nvmf => {
                 want_share != rpc::ShareProtocolReplica::ReplicaNvmf
             }
@@ -337,18 +324,13 @@ pub(crate) async fn share_replica(
     // shared
     if replica.get_share_type().is_none() {
         match want_share {
-            rpc::ShareProtocolReplica::ReplicaIscsi => replica
-                .share(ShareType::Iscsi)
-                .await
-                .context(ShareReplica {
-                    uuid: args.uuid.clone(),
-                })?,
             rpc::ShareProtocolReplica::ReplicaNvmf => {
                 replica.share(ShareType::Nvmf).await.context(ShareReplica {
                     uuid: args.uuid.clone(),
                 })?
             }
-            rpc::ShareProtocolReplica::ReplicaNone => (),
+            rpc::ShareProtocolReplica::ReplicaIscsi
+            | rpc::ShareProtocolReplica::ReplicaNone => (),
         }
     }
     Ok(rpc::ShareReplicaReply {

@@ -5,11 +5,13 @@ use uuid::Uuid;
 
 use common::MayastorTest;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, util::uring},
-    core::{Bdev, BdevHandle, MayastorCliArgs},
+    bdev::{
+        nexus::{nexus_create, nexus_lookup_mut},
+        util::uring,
+    },
+    core::{BdevHandle, MayastorCliArgs, Protocol, UntypedBdev},
     nexus_uri::{bdev_create, bdev_destroy},
 };
-use rpc::mayastor::ShareProtocolNexus;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -69,16 +71,16 @@ async fn core() {
 }
 
 async fn works() {
-    assert!(Bdev::lookup_by_name("core_nexus").is_none());
+    assert!(UntypedBdev::lookup_by_name("core_nexus").is_none());
     create_nexus().await;
-    let b = Bdev::lookup_by_name("core_nexus").unwrap();
+    let b = UntypedBdev::lookup_by_name("core_nexus").unwrap();
     assert_eq!(b.name(), "core_nexus");
 
-    let desc = Bdev::open_by_name("core_nexus", false).unwrap();
+    let desc = UntypedBdev::open_by_name("core_nexus", false).unwrap();
     let channel = desc.get_channel().expect("failed to get IO channel");
     drop(channel);
     drop(desc);
-    let n = nexus_lookup("core_nexus").expect("nexus not found");
+    let n = nexus_lookup_mut("core_nexus").expect("nexus not found");
     n.destroy().await.unwrap();
 }
 
@@ -88,11 +90,12 @@ async fn core_2() {
         .spawn(async {
             create_nexus().await;
 
-            let n = nexus_lookup("core_nexus").expect("failed to lookup nexus");
+            let n =
+                nexus_lookup_mut("core_nexus").expect("failed to lookup nexus");
 
-            let d1 = Bdev::open_by_name("core_nexus", true)
+            let d1 = UntypedBdev::open_by_name("core_nexus", true)
                 .expect("failed to open first desc to nexus");
-            let d2 = Bdev::open_by_name("core_nexus", true)
+            let d2 = UntypedBdev::open_by_name("core_nexus", true)
                 .expect("failed to open second desc to nexus");
 
             let ch1 = d1.get_channel().expect("failed to get channel!");
@@ -168,24 +171,28 @@ async fn core_4() {
                             test_case_index
                         )
                     });
-                    let nexus = nexus_lookup(nexus_name).unwrap();
+                    let mut nexus = nexus_lookup_mut(nexus_name).unwrap();
 
                     if child_ok {
-                        nexus.add_child(BDEVNAME2, true).await.unwrap_or_else(
-                            |_| {
+                        nexus
+                            .as_mut()
+                            .add_child(BDEVNAME2, true)
+                            .await
+                            .unwrap_or_else(|_| {
                                 panic!(
                                     "Case {} - Child should have been added",
                                     test_case_index
                                 )
-                            },
-                        );
+                            });
                     } else {
-                        nexus.add_child(BDEVNAME2, true).await.expect_err(
-                            &format!(
+                        nexus
+                            .as_mut()
+                            .add_child(BDEVNAME2, true)
+                            .await
+                            .expect_err(&format!(
                                 "Case {} - Child should not have been added",
                                 test_case_index
-                            ),
-                        );
+                            ));
                     }
 
                     nexus.destroy().await.unwrap();
@@ -228,12 +235,11 @@ async fn core_5() {
                 )
                 .await
                 .unwrap();
-                let nexus = nexus_lookup(nexus_name).unwrap();
+                let mut nexus = nexus_lookup_mut(nexus_name).unwrap();
+                // need to refactor this test to use nvmf instead of nbd
+                // once the libnvme-rs refactoring is done
                 let device = common::device_path_from_uri(
-                    &nexus
-                        .share(ShareProtocolNexus::NexusNbd, None)
-                        .await
-                        .unwrap(),
+                    &nexus.as_mut().share(Protocol::Off, None).await.unwrap(),
                 );
 
                 let size = common::get_device_size(&device);

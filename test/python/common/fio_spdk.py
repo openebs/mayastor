@@ -25,7 +25,7 @@ class FioSpdk(object):
     def build(self) -> str:
         spdk_path = os.environ.get("SPDK_PATH")
         if spdk_path is None:
-            spdk_path = os.getcwd() + "/../../spdk-sys/spdk/build"
+            spdk_path = os.getcwd() + "/../../spdk-rs/spdk/build"
         command = (
             "sudo LD_PRELOAD={}/fio/spdk_nvme fio --ioengine=spdk "
             "--direct=1 --bs=4k --time_based=1 --runtime={} "

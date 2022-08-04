@@ -173,12 +173,8 @@ pub enum Error {
     ReplicaShared { },
     #[snafu(display("share nvmf"))]
     ShareNvmf { source: nvmf_target::Error },
-    #[snafu(display("share iscsi"))]
-    ShareIscsi { source: iscsi_target::Error },
     #[snafu(display("unshare nvmf"))]
     UnshareNvmf { source: nvmf_target::Error },
-    #[snafu(display("unshare iscsi"))]
-    UnshareIscsi { source: iscsi_target::Error },
     #[snafu(display("Invalid share protocol {} in request", protocol))]
     InvalidProtocol { protocol: i32 },
     #[snafu(display("Replica does not exist"))]
@@ -195,16 +191,14 @@ impl RpcErrorCode for Error {
             Error::CreateLvol { .. } => Code::InvalidParams,
             Error::InvalidProtocol { .. } => Code::InvalidParams,
             Error::ShareNvmf { source, .. } => source.rpc_error_code(),
-            Error::ShareIscsi { source, .. } => source.rpc_error_code(),
             Error::UnshareNvmf { source, .. } => source.rpc_error_code(),
-            Error::UnshareIscsi { source, .. } => source.rpc_error_code(),
             _ => Code::InternalError,
         }
     }
 }
 ```
 
-Sharing of replica is implemented either by the nvmf or iscsi target module.
+Sharing of replica is implemented by the nvmf target module.
 Each module comes with its own error type. For brevity, we mention only nvmf
 target errors and not all of them:
 

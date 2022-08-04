@@ -13,11 +13,12 @@
 use clap::{App, AppSettings, Arg, ArgMatches};
 use futures::FutureExt;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors, Share},
     grpc,
     logger,
 };
+use version_info::version_info_str;
 
 mayastor::CPS_INIT!();
 extern crate tracing;
@@ -57,13 +58,13 @@ async fn create_nexus(args: &ArgMatches<'_>) {
         .await
         .unwrap();
 
-    let nexus = nexus_lookup(NEXUS).unwrap();
+    let nexus = nexus_lookup_mut(NEXUS).unwrap();
     nexus.share_nvmf(None).await.unwrap();
 }
 
 fn main() {
     let matches = App::new("NVMeT CLI")
-        .version("0.1")
+        .version(version_info_str!())
         .settings(&[
             AppSettings::ColoredHelp,
             AppSettings::ColorAlways])

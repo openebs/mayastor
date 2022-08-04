@@ -22,7 +22,7 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services from mayastor's namespace
+      # To resolve services in the namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
@@ -33,11 +33,13 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:v1.0.1
+        image: mayadata/mayastor:v1.0.2
         imagePullPolicy: IfNotPresent
         env:
         - name: RUST_LOG
           value: info,mayastor=info
+        - name: NVME_QPAIR_CONNECT_ASYNC
+          value: "true"
         - name: NVMF_TCP_MAX_QUEUE_DEPTH
           value: "32"
         - name: MY_NODE_NAME
@@ -53,11 +55,10 @@ spec:
         # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.
         # Note: Ensure that the CPU resources are updated accordingly.
         #       If you use 2 CPUs, the CPU: field should also read 2.
-        - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
-        - "-l1"
+        - "-l1,2"
         - "-pmayastor-etcd"
         command:
         - mayastor
@@ -77,11 +78,11 @@ spec:
           # belong to Guaranteed QoS class, hence can never get evicted in case of
           # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
-            cpu: "1"
+            cpu: "2"
             memory: "1Gi"
             hugepages-2Mi: "2Gi"
           requests:
-            cpu: "1"
+            cpu: "2"
             memory: "1Gi"
             hugepages-2Mi: "2Gi"
         ports:

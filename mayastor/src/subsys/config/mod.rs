@@ -12,7 +12,7 @@ use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_json_write_ctx,
     spdk_json_write_val_raw,
     spdk_subsystem,
@@ -25,7 +25,6 @@ use crate::{
     subsys::config::opts::{
         BdevOpts,
         GetOpts,
-        IscsiTgtOpts,
         NexusOpts,
         NvmeBdevOpts,
         NvmfTgtConfig,
@@ -114,7 +113,7 @@ impl ConfigSubsystem {
 }
 
 /// Main config structure of Mayastor. This structure can be persisted to disk.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// location of the config file that we loaded
@@ -122,27 +121,12 @@ pub struct Config {
     /// these options are not set/copied but are applied
     /// on target creation.
     pub nvmf_tcp_tgt_conf: NvmfTgtConfig,
-    /// generic iSCSI options
-    pub iscsi_tgt_conf: IscsiTgtOpts,
     /// options specific to NVMe bdev types
     pub nvme_bdev_opts: NvmeBdevOpts,
     /// generic bdev options
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            source: None,
-            nvmf_tcp_tgt_conf: Default::default(),
-            iscsi_tgt_conf: Default::default(),
-            nvme_bdev_opts: Default::default(),
-            bdev_opts: Default::default(),
-            nexus_opts: Default::default(),
-        }
-    }
 }
 
 impl Config {
@@ -201,7 +185,6 @@ impl Config {
         Config {
             source: self.source.clone(),
             nvmf_tcp_tgt_conf: self.nvmf_tcp_tgt_conf.get(),
-            iscsi_tgt_conf: self.iscsi_tgt_conf.get(),
             nvme_bdev_opts: self.nvme_bdev_opts.get(),
             bdev_opts: self.bdev_opts.get(),
             nexus_opts: self.nexus_opts.get(),
@@ -234,8 +217,6 @@ impl Config {
         assert!(self.nvme_bdev_opts.set());
         assert!(self.bdev_opts.set());
 
-        // no way to validate this
-        self.iscsi_tgt_conf.set();
         debug!("{:#?}", self);
     }
 }

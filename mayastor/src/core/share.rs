@@ -1,7 +1,7 @@
 use crate::lvs::Error;
 use async_trait::async_trait;
 use pin_utils::core_reexport::fmt::Formatter;
-use std::{convert::TryFrom, fmt::Display};
+use std::{convert::TryFrom, fmt::Display, pin::Pin};
 
 #[derive(Debug, PartialOrd, PartialEq)]
 /// Indicates what protocol the bdev is shared as
@@ -10,8 +10,6 @@ pub enum Protocol {
     Off,
     /// shared as NVMe-oF TCP
     Nvmf,
-    /// shared as iSCSI
-    Iscsi,
 }
 
 impl TryFrom<i32> for Protocol {
@@ -21,8 +19,8 @@ impl TryFrom<i32> for Protocol {
         match value {
             0 => Ok(Self::Off),
             1 => Ok(Self::Nvmf),
-            2 => Ok(Self::Iscsi),
-            // the gRPC code does not validate enum's so we have
+            // 2 was for iSCSI
+            // the gRPC code does not validate enums so we have
             // to do it here
             _ => Err(Error::ReplicaShareProtocol {
                 value,
@@ -35,7 +33,6 @@ impl Display for Protocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let p = match self {
             Self::Off => "Not shared",
-            Self::Iscsi => "iSCSI",
             Self::Nvmf => "NVMe-oF TCP",
         };
         write!(f, "{}", p)
@@ -46,14 +43,24 @@ impl Display for Protocol {
 pub trait Share: std::fmt::Debug {
     type Error;
     type Output: std::fmt::Display + std::fmt::Debug;
-    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error>;
     async fn share_nvmf(
-        &self,
+        self: Pin<&mut Self>,
         cntlid_range: Option<(u16, u16)>,
     ) -> Result<Self::Output, Self::Error>;
-    async fn unshare(&self) -> Result<Self::Output, Self::Error>;
+
+    /// TODO
+    async fn unshare(self: Pin<&mut Self>)
+        -> Result<Self::Output, Self::Error>;
+
+    /// TODO
     fn shared(&self) -> Option<Protocol>;
+
+    /// TODO
     fn share_uri(&self) -> Option<String>;
+
+    /// TODO
     fn bdev_uri(&self) -> Option<String>;
+
+    /// TODO
     fn bdev_uri_original(&self) -> Option<String>;
 }

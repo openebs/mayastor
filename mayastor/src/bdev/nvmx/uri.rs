@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use controller::options::NvmeControllerOpts;
 use poller::Poller;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_opts,
@@ -89,6 +89,7 @@ extern "C" fn connect_attach_cb(
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct NvmfDeviceTemplate {
     /// name of the nvme controller and base name of the bdev
     /// that should be created for each namespace found
@@ -146,7 +147,8 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
                     value: value.to_string(),
                 },
             )? {
-                prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
+                prchk_flags |=
+                    spdk_rs::libspdk::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
             }
         }
 
@@ -158,7 +160,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
                     value: value.to_string(),
                 },
             )? {
-                prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
+                prchk_flags |= spdk_rs::libspdk::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
             }
         }
 
@@ -215,7 +217,7 @@ impl<'probe> NvmeControllerContext<'probe> {
                 Config::get().nvme_bdev_opts.keep_alive_timeout_ms,
             )
             .with_transport_retry_count(
-                Config::get().nvme_bdev_opts.retry_count as u8,
+                Config::get().nvme_bdev_opts.transport_retry_count as u8,
             );
 
         if let Ok(ext_host_id) = std::env::var("MAYASTOR_NVMF_HOSTID") {

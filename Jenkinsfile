@@ -183,9 +183,20 @@ pipeline {
         checkout([
           $class: 'GitSCM',
           branches: scm.branches,
-          extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [
-            [$class: 'CloneOption', noTags: false, reference: '', shallow: false],
-          ],
+          extensions: scm.extensions.findAll {
+            !(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)
+          } + [[
+            $class: 'CloneOption',
+            noTags: false,
+            reference: '', shallow: false
+          ], [
+            $class: 'SubmoduleOption',
+            disableSubmodules: false,
+            parentCredentials: true,
+            recursiveSubmodules: true,
+            reference: '',
+            trackingSubmodules: false
+          ]],
           userRemoteConfigs: scm.userRemoteConfigs
         ])
         stash name: 'source', useDefaultExcludes: false
@@ -206,7 +217,6 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
             expression { run_linter == false }
           }
         }
@@ -214,9 +224,10 @@ pipeline {
       steps {
         cleanWs()
         unstash 'source'
-        sh 'nix-shell --run "cargo fmt --all -- --check" ci.nix'
-        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings" ci.nix'
+        sh 'nix-shell --run "./scripts/rust-style.sh" ci.nix'
+        sh 'nix-shell --run "./scripts/rust-linter.sh" ci.nix'
         sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
+        sh 'nix-shell --run "./scripts/check-deploy-yamls.sh" ci.nix'
       }
     }
     stage('test') {
@@ -225,7 +236,6 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release/*'
           }
         }
       }
@@ -288,7 +298,21 @@ pipeline {
                 checkout([
                   $class: 'GitSCM',
                   branches: scm.branches,
-                  extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [[$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                  extensions: scm.extensions.findAll {
+                    !(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)
+                  } + [[
+                    $class: 'CloneOption',
+                    noTags: false,
+                    reference: '',
+                    shallow: false
+                  ], [
+                    $class: 'SubmoduleOption',
+                    disableSubmodules: false,
+                    parentCredentials: true,
+                    recursiveSubmodules: true,
+                    reference: '',
+                    trackingSubmodules: false
+                  ]],
                   userRemoteConfigs: scm.userRemoteConfigs
                 ])
               }
@@ -307,6 +331,9 @@ pipeline {
             stage('run tests') {
               steps {
                 sh 'printenv'
+                // Cleanup any existing containers.
+                // They could be lingering if there were previous test failures.
+                sh 'docker system prune -f'
                 sh 'nix-shell --run "./scripts/pytest-tests.sh" ci.nix'
               }
             }
@@ -551,11 +578,16 @@ pipeline {
           anyOf {
             branch 'master'
             branch 'release/*'
+            branch 'release-*'
             branch 'develop'
           }
         }
       }
       steps {
+        // Clean the workspace and unstash the source to ensure we build and push the correct images.
+        cleanWs()
+        unstash 'source'
+
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }

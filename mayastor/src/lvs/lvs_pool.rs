@@ -1,11 +1,15 @@
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, ptr::NonNull};
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    os::raw::c_void,
+    pin::Pin,
+    ptr::NonNull,
+};
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
-
-use rpc::mayastor::CreatePoolRequest;
-use spdk_sys::{
+use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -13,12 +17,14 @@ use spdk_sys::{
     spdk_lvol,
     spdk_lvol_store,
     vbdev_get_lvol_store_by_name,
+    vbdev_get_lvol_store_by_uuid,
     vbdev_get_lvs_bdev_by_lvs,
     vbdev_lvol_create,
     vbdev_lvol_create_with_uuid,
     vbdev_lvol_store_first,
     vbdev_lvol_store_next,
     vbdev_lvs_create,
+    vbdev_lvs_create_with_uuid,
     vbdev_lvs_destruct,
     vbdev_lvs_examine,
     vbdev_lvs_unload,
@@ -30,10 +36,11 @@ use url::Url;
 
 use crate::{
     bdev::uri,
-    core::{Bdev, IoType, Share, Uuid},
+    core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
     nexus_uri::{bdev_destroy, NexusBdevError},
+    pool::PoolArgs,
 };
 
 impl From<*mut spdk_lvol_store> for Lvs {
@@ -147,6 +154,18 @@ impl Lvs {
         }
     }
 
+    /// lookup a lvol store by its uuid
+    pub fn lookup_by_uuid(uuid: &str) -> Option<Self> {
+        let uuid = uuid.into_cstring();
+
+        let lvs = unsafe { vbdev_get_lvol_store_by_uuid(uuid.as_ptr()) };
+        if lvs.is_null() {
+            None
+        } else {
+            Some(Lvs::from(lvs))
+        }
+    }
+
     /// return the name of the current store
     pub fn name(&self) -> &str {
         unsafe { self.0.as_ref().name.as_str() }
@@ -175,16 +194,43 @@ impl Lvs {
     }
 
     /// returns the base bdev of this lvs
-    pub fn base_bdev(&self) -> Bdev {
-        Bdev::from(unsafe {
-            (*vbdev_get_lvs_bdev_by_lvs(self.0.as_ptr())).bdev
-        })
+    pub fn base_bdev(&self) -> UntypedBdev {
+        unsafe {
+            Bdev::checked_from_ptr(
+                (*vbdev_get_lvs_bdev_by_lvs(self.0.as_ptr())).bdev,
+            )
+            .unwrap()
+        }
     }
 
     /// returns the UUID of the lvs
     pub fn uuid(&self) -> String {
         let t = unsafe { self.0.as_ref().uuid.u.raw };
-        Uuid::from_bytes(t).to_string()
+        uuid::Uuid::from_bytes(t).to_string()
+    }
+
+    // checks for the disks length and parses to correct format
+    fn parse_disk(disks: Vec<String>) -> Result<String, Error> {
+        let disk = match disks.first() {
+            Some(disk) if disks.len() == 1 => {
+                if Url::parse(disk).is_err() {
+                    format!("aio://{}", disk)
+                } else {
+                    disk.clone()
+                }
+            }
+            _ => {
+                return Err(Error::Invalid {
+                    source: Errno::EINVAL,
+                    msg: format!(
+                        "invalid number {} of devices {:?}",
+                        disks.len(),
+                        disks,
+                    ),
+                })
+            }
+        };
+        Ok(disk)
     }
 
     /// imports a pool based on its name and base bdev name
@@ -193,12 +239,13 @@ impl Lvs {
 
         debug!("Trying to import pool {} on {}", name, bdev);
 
-        let bdev = Bdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
-            source: NexusBdevError::BdevNotFound {
-                name: bdev.to_string(),
-            },
-            name: name.to_string(),
-        })?;
+        let mut bdev =
+            UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
+                source: NexusBdevError::BdevNotFound {
+                    name: bdev.to_string(),
+                },
+                name: name.to_string(),
+            })?;
 
         // examining a bdev that is in-use by an lvs, will hang to avoid this
         // we will determine the usage of the bdev prior to examining it.
@@ -206,7 +253,7 @@ impl Lvs {
         if bdev.is_claimed() {
             return Err(Error::Import {
                 source: Errno::EBUSY,
-                name: bdev.name(),
+                name: bdev.name().to_string(),
             });
         }
 
@@ -214,7 +261,7 @@ impl Lvs {
             // EXISTS is SHOULD be returned when we import a lvs with different
             // names this however is not the case.
             vbdev_lvs_examine(
-                bdev.as_ptr(),
+                bdev.unsafe_inner_mut_ptr(),
                 Some(Self::lvs_cb),
                 cb_arg(sender),
             );
@@ -232,10 +279,11 @@ impl Lvs {
 
         if name != lvs.name() {
             warn!("no pool with name {} found on this device -- unloading the pool", name);
+            let pool_name = lvs.name().to_string();
             lvs.export().await.unwrap();
             Err(Error::Import {
                 source: Errno::EINVAL,
-                name: name.into(),
+                name: pool_name,
             })
         } else {
             lvs.share_all().await;
@@ -244,25 +292,108 @@ impl Lvs {
         }
     }
 
+    /// imports a pool based on its name, uuid and base bdev name
+    #[tracing::instrument(level = "debug", err)]
+    pub async fn import_from_args(args: PoolArgs) -> Result<Lvs, Error> {
+        let disk = Self::parse_disk(args.disks.clone())?;
+
+        let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
+            source: e,
+            name: args.name.clone(),
+        })?;
+
+        // At any point two pools with the same name should
+        // not exists so returning error
+        if let Some(pool) = Self::lookup(&args.name) {
+            return if pool.base_bdev().name() == parsed.get_name() {
+                Err(Error::Import {
+                    source: Errno::EEXIST,
+                    name: args.name.clone(),
+                })
+            } else {
+                Err(Error::Import {
+                    source: Errno::EINVAL,
+                    name: args.name.clone(),
+                })
+            };
+        }
+
+        let bdev = match parsed.create().await {
+            Err(e) => match e {
+                NexusBdevError::BdevExists {
+                    ..
+                } => Ok(parsed.get_name()),
+                _ => Err(Error::InvalidBdev {
+                    source: e,
+                    name: args.disks[0].clone(),
+                }),
+            },
+            Ok(name) => Ok(name),
+        }?;
+
+        let pool = Self::import(&args.name, &bdev).await?;
+
+        // if the uuid is provided for the import request check
+        // for the pool uuid to make sure it is the correct one
+        if let Some(uuid) = args.uuid {
+            if pool.uuid() == uuid {
+                Ok(pool)
+            } else {
+                pool.export().await?;
+                Err(Error::Import {
+                    source: Errno::EINVAL,
+                    name: args.name,
+                })
+            }
+        } else {
+            Ok(pool)
+        }
+    }
+
     /// Create a pool on base bdev
-    pub async fn create(name: &str, bdev: &str) -> Result<Lvs, Error> {
+    pub async fn create(
+        name: &str,
+        bdev: &str,
+        uuid: Option<String>,
+    ) -> Result<Lvs, Error> {
         let pool_name = name.into_cstring();
         let bdev_name = bdev.into_cstring();
 
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
-            vbdev_lvs_create(
-                bdev_name.as_ptr(),
-                pool_name.as_ptr(),
-                0,
-                // We used to clear a pool with UNMAP but that takes awfully
-                // long time on large SSDs (~ can take an hour). Clearing the
-                // pool is not necessary. Clearing the lvol must be done, but
-                // lvols tend to be small so there the overhead is acceptable.
-                LVS_CLEAR_WITH_NONE,
-                Some(Self::lvs_cb),
-                cb_arg(sender),
-            )
+            if let Some(uuid) = uuid {
+                let cuuid = uuid.into_cstring();
+                vbdev_lvs_create_with_uuid(
+                    bdev_name.as_ptr(),
+                    pool_name.as_ptr(),
+                    cuuid.as_ptr(),
+                    0,
+                    // We used to clear a pool with UNMAP but that takes
+                    // awfully long time on large SSDs (~
+                    // can take an hour). Clearing the pool
+                    // is not necessary. Clearing the lvol must be done, but
+                    // lvols tend to be small so there the overhead is
+                    // acceptable.
+                    LVS_CLEAR_WITH_NONE,
+                    Some(Self::lvs_cb),
+                    cb_arg(sender),
+                )
+            } else {
+                vbdev_lvs_create(
+                    bdev_name.as_ptr(),
+                    pool_name.as_ptr(),
+                    0,
+                    // We used to clear a pool with UNMAP but that takes
+                    // awfully long time on large SSDs (~
+                    // can take an hour). Clearing the pool
+                    // is not necessary. Clearing the lvol must be done, but
+                    // lvols tend to be small so there the overhead is
+                    // acceptable.
+                    LVS_CLEAR_WITH_NONE,
+                    Some(Self::lvs_cb),
+                    cb_arg(sender),
+                )
+            }
         }
         .to_result(|e| Error::PoolCreate {
             source: Errno::from_i32(e),
@@ -290,44 +421,24 @@ impl Lvs {
     }
 
     /// imports the pool if it exists, otherwise try to create it
-    pub async fn create_or_import(
-        args: CreatePoolRequest,
-    ) -> Result<Lvs, Error> {
-        if args.disks.len() != 1 {
-            return Err(Error::Invalid {
-                source: Errno::EINVAL,
-                msg: format!(
-                    "invalid number {} of devices {:?}",
-                    args.disks.len(),
-                    args.disks
-                ),
-            });
-        }
+    #[tracing::instrument(level = "debug", err)]
+    pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, Error> {
+        let disk = Self::parse_disk(args.disks.clone())?;
 
-        // default to aio if no specific driver scheme is specified
-        let disks = args
-            .disks
-            .iter()
-            .map(|d| {
-                if Url::parse(d).is_err() {
-                    format!("aio://{}", d)
-                } else {
-                    d.clone()
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let parsed = uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
+        let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
             source: e,
             name: args.name.clone(),
         })?;
 
         if let Some(pool) = Self::lookup(&args.name) {
             return if pool.base_bdev().name() == parsed.get_name() {
-                Ok(pool)
-            } else {
                 Err(Error::PoolCreate {
                     source: Errno::EEXIST,
+                    name: args.name.clone(),
+                })
+            } else {
+                Err(Error::PoolCreate {
+                    source: Errno::EINVAL,
                     name: args.name.clone(),
                 })
             };
@@ -346,7 +457,7 @@ impl Lvs {
             Ok(name) => Ok(name),
         }?;
 
-        match Self::import(&args.name, &bdev).await {
+        match Self::import_from_args(args.clone()).await {
             Ok(pool) => Ok(pool),
             Err(Error::Import {
                 source,
@@ -366,7 +477,7 @@ impl Lvs {
             Err(Error::Import {
                 source, ..
             }) if source == Errno::EILSEQ => {
-                match Self::create(&args.name, &bdev).await {
+                match Self::create(&args.name, &bdev, args.uuid).await {
                     Err(create) => {
                         let _ = parsed.destroy().await.map_err(|_e| {
                             // we failed to delete the base_bdev be loud about it
@@ -384,7 +495,8 @@ impl Lvs {
         }
     }
 
-    /// export the given lvl
+    /// export the given lvs
+    #[tracing::instrument(level = "debug", err)]
     pub async fn export(self) -> Result<(), Error> {
         let pool = self.name().to_string();
         let base_bdev = self.base_bdev();
@@ -408,7 +520,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                name: base_bdev.name(),
+                name: base_bdev.name().to_string(),
             })?;
         Ok(())
     }
@@ -418,8 +530,8 @@ impl Lvs {
         for l in self.lvols().unwrap() {
             // notice we dont use the unshare impl of the bdev
             // here. we do this to avoid the on disk persistence
-            let bdev = l.as_bdev();
-            if let Err(e) = bdev.unshare().await {
+            let mut bdev = l.as_bdev();
+            if let Err(e) = Pin::new(&mut bdev).unshare().await {
                 error!("failed to unshare lvol {} error {}", l, e.to_string())
             }
         }
@@ -429,14 +541,17 @@ impl Lvs {
     /// shared over nvmf
     async fn share_all(&self) {
         if let Some(lvols) = self.lvols() {
-            for l in lvols {
+            for mut l in lvols {
                 if let Ok(prop) = l.get(PropName::Shared).await {
                     match prop {
                         PropValue::Shared(true) => {
-                            if let Err(e) = l.share_nvmf(None).await {
+                            let name = l.name().clone();
+                            if let Err(e) =
+                                Pin::new(&mut l).share_nvmf(None).await
+                            {
                                 error!(
                                     "failed to share {} {}",
-                                    l.name(),
+                                    name,
                                     e.to_string()
                                 );
                             }
@@ -452,6 +567,7 @@ impl Lvs {
 
     /// destroys the given pool deleting the on disk super blob before doing so,
     /// un share all targets
+    #[tracing::instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<(), Error> {
         let pool = self.name().to_string();
         let (s, r) = pair::<i32>();
@@ -482,7 +598,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                name: base_bdev.name(),
+                name: base_bdev.name().to_string(),
             })?;
 
         Ok(())
@@ -491,8 +607,8 @@ impl Lvs {
     /// return an iterator that filters out all bdevs that patch the pool
     /// signature
     pub fn lvols(&self) -> Option<impl Iterator<Item = Lvol>> {
-        if let Some(bdev) = Bdev::bdev_first() {
-            let pool_name = format!("{}/", self.name().to_string());
+        if let Some(bdev) = UntypedBdev::bdev_first() {
+            let pool_name = format!("{}/", self.name());
             Some(
                 bdev.into_iter()
                     .filter(move |b| {
@@ -522,7 +638,16 @@ impl Lvs {
             LVOL_CLEAR_WITH_NONE
         };
 
-        if Bdev::lookup_by_name(name).is_some() {
+        if let Some(uuid) = uuid {
+            if UntypedBdev::lookup_by_uuid_str(uuid).is_some() {
+                return Err(Error::RepExists {
+                    source: Errno::EEXIST,
+                    name: uuid.to_string(),
+                });
+            }
+        }
+
+        if UntypedBdev::lookup_by_name(name).is_some() {
             return Err(Error::RepExists {
                 source: Errno::EEXIST,
                 name: name.to_string(),

@@ -6,7 +6,7 @@ version: 0.0.1
 # appVersion: "latest"
 dependencies:
   - name: etcd
-    repository: https://charts.bitnami.com/bitnami
+    repository: https://raw.githubusercontent.com/bitnami/charts/eb5f9a9513d987b519f0ecd732e7031241c50328/bitnami
     tags:
       - bitnami-etcd
     version: 6.2.3

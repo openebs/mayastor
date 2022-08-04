@@ -47,7 +47,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .short("p")
                 .help("the protocol to used to share the given bdev")
                 .required(false)
-                .possible_values(&["nvmf", "iscsi"])
+                .possible_values(&["nvmf"])
                 .default_value("nvmf"),
         );
 

@@ -15,7 +15,11 @@ use udev::{Device, Enumerator};
 use url::Url;
 use uuid::Uuid;
 
-use crate::{dev::util::extract_uuid, match_dev::match_nvmf_device};
+use crate::{
+    config::{config, NvmeConfig, NvmeParseParams},
+    dev::util::extract_uuid,
+    match_dev::match_nvmf_device,
+};
 
 use super::{Attach, Detach, DeviceError, DeviceName};
 
@@ -29,21 +33,29 @@ pub(super) struct NvmfAttach {
     uuid: Uuid,
     nqn: String,
     io_timeout: Option<u32>,
+    nr_io_queues: Option<u32>,
 }
 
 impl NvmfAttach {
-    fn new(host: String, port: u16, uuid: Uuid, nqn: String) -> NvmfAttach {
+    fn new(
+        host: String,
+        port: u16,
+        uuid: Uuid,
+        nqn: String,
+        nr_io_queues: Option<u32>,
+    ) -> NvmfAttach {
         NvmfAttach {
             host,
             port,
             uuid,
             nqn,
             io_timeout: None,
+            nr_io_queues,
         }
     }
 
     fn get_device(&self) -> Result<Option<Device>, DeviceError> {
-        let key: String = format!("uuid.{}", self.uuid.to_string());
+        let key: String = format!("uuid.{}", self.uuid);
         let mut enumerator = Enumerator::new()?;
 
         enumerator.match_subsystem("block")?;
@@ -94,11 +106,14 @@ impl TryFrom<&Url> for NvmfAttach {
 
         let port = url.port().unwrap_or(4420);
 
+        let nr_io_queues = config().nvme().nr_io_queues();
+
         Ok(NvmfAttach::new(
             host.to_string(),
             port,
             uuid,
             segments[0].to_string(),
+            nr_io_queues,
         ))
     }
 }
@@ -117,6 +132,10 @@ impl Attach for NvmfAttach {
                 ))
             })?);
         };
+        let nvme_config = NvmeConfig::try_from(context as NvmeParseParams)?;
+        if let Some(nr_io_queues) = nvme_config.nr_io_queues() {
+            self.nr_io_queues = Some(nr_io_queues);
+        }
         Ok(())
     }
 
@@ -139,6 +158,7 @@ impl Attach for NvmfAttach {
             .nqn(&self.nqn)
             .ctrl_loss_tmo(self.io_timeout)
             .reconnect_delay(reconnect_delay)
+            .nr_io_queues(self.nr_io_queues)
             .build()?;
         match ca.connect() {
             Err(NvmeError::ConnectInProgress) => Ok(()),

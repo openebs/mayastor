@@ -3,6 +3,7 @@ use std::{
     ffi::{c_void, CStr},
     fmt::Display,
     os::raw::c_char,
+    pin::Pin,
     ptr::NonNull,
 };
 
@@ -11,13 +12,16 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
-use spdk_sys::{
+use spdk_rs::libspdk::{
+    spdk_bdev_io,
+    spdk_bdev_io_get_thread,
     spdk_blob_get_xattr_value,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_lvol,
+    spdk_nvmf_request_complete,
     vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
@@ -26,8 +30,8 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_bdev::Nexus,
-    core::{Bdev, CoreError, Mthread, Protocol, Share},
+    bdev::nexus::Nexus,
+    core::{Bdev, Mthread, Protocol, Share, UntypedBdev},
     ffihelper::{
         cb_arg,
         errno_result_from_i32,
@@ -75,28 +79,28 @@ impl Display for PropName {
 /// struct representing an lvol
 pub struct Lvol(pub(crate) NonNull<spdk_lvol>);
 
-impl TryFrom<Bdev> for Lvol {
+impl TryFrom<UntypedBdev> for Lvol {
     type Error = Error;
 
-    fn try_from(b: Bdev) -> Result<Self, Self::Error> {
+    fn try_from(mut b: UntypedBdev) -> Result<Self, Self::Error> {
         if b.driver() == "lvol" {
             unsafe {
                 Ok(Lvol(NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
-                    b.as_ptr(),
+                    b.unsafe_inner_mut_ptr(),
                 ))))
             }
         } else {
             Err(Error::NotALvol {
                 source: Errno::EINVAL,
-                name: b.name(),
+                name: b.name().to_string(),
             })
         }
     }
 }
 
-impl From<Lvol> for Bdev {
+impl From<Lvol> for UntypedBdev {
     fn from(l: Lvol) -> Self {
-        Bdev::from(unsafe { l.0.as_ref().bdev })
+        unsafe { Bdev::checked_from_ptr(l.0.as_ref().bdev).unwrap() }
     }
 }
 
@@ -111,46 +115,37 @@ impl Share for Lvol {
     type Error = Error;
     type Output = String;
 
-    /// we dont (want to) support replica's over iSCSI
-    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
-        Err(Error::LvolShare {
-            source: CoreError::NotSupported {
-                source: Errno::EINVAL,
-            },
-            name: self.name(),
-        })
-    }
-
     /// share the lvol as a nvmf target
     async fn share_nvmf(
-        &self,
+        mut self: Pin<&mut Self>,
         cntlid_range: Option<(u16, u16)>,
     ) -> Result<Self::Output, Self::Error> {
-        let share =
-            self.as_bdev().share_nvmf(cntlid_range).await.map_err(|e| {
-                Error::LvolShare {
-                    source: e,
-                    name: self.name(),
-                }
+        let share = Pin::new(&mut self.as_bdev())
+            .share_nvmf(cntlid_range)
+            .await
+            .map_err(|e| Error::LvolShare {
+                source: e,
+                name: self.name(),
             })?;
 
-        self.set(PropValue::Shared(true)).await?;
+        self.as_mut().set(PropValue::Shared(true)).await?;
         info!("shared {}", self);
         Ok(share)
     }
 
     /// unshare the nvmf target
-    async fn unshare(&self) -> Result<Self::Output, Self::Error> {
+    async fn unshare(
+        mut self: Pin<&mut Self>,
+    ) -> Result<Self::Output, Self::Error> {
         let share =
-            self.as_bdev()
-                .unshare()
-                .await
-                .map_err(|e| Error::LvolUnShare {
+            Pin::new(&mut self.as_bdev()).unshare().await.map_err(|e| {
+                Error::LvolUnShare {
                     source: e,
                     name: self.name(),
-                })?;
+                }
+            })?;
 
-        self.set(PropValue::Shared(false)).await?;
+        self.as_mut().set(PropValue::Shared(false)).await?;
         info!("unshared {}", self);
         Ok(share)
     }
@@ -199,8 +194,8 @@ impl Lvol {
     }
 
     /// returns the underlying bdev of the lvol
-    pub(crate) fn as_bdev(&self) -> Bdev {
-        Bdev::from(unsafe { self.0.as_ref().bdev })
+    pub(crate) fn as_bdev(&self) -> UntypedBdev {
+        unsafe { Bdev::checked_from_ptr(self.0.as_ref().bdev).unwrap() }
     }
     /// return the size of the lvol in bytes
     pub fn size(&self) -> u64 {
@@ -209,7 +204,7 @@ impl Lvol {
 
     /// returns the name of the bdev
     pub fn name(&self) -> String {
-        self.as_bdev().name()
+        self.as_bdev().name().to_string()
     }
 
     /// returns the UUID of the lvol
@@ -217,12 +212,19 @@ impl Lvol {
         self.as_bdev().uuid_as_string()
     }
 
-    /// returns the pool of the lvol
+    /// returns the pool name of the lvol
     pub fn pool(&self) -> String {
         unsafe {
             Lvs(NonNull::new_unchecked(self.0.as_ref().lvol_store))
                 .name()
                 .to_string()
+        }
+    }
+
+    /// returns the pool uuid of the lvol
+    pub fn pool_uuid(&self) -> String {
+        unsafe {
+            Lvs(NonNull::new_unchecked(self.0.as_ref().lvol_store)).uuid()
         }
     }
 
@@ -286,7 +288,7 @@ impl Lvol {
     }
 
     /// destroy the lvol
-    pub async fn destroy(self) -> Result<String, Error> {
+    pub async fn destroy(mut self) -> Result<String, Error> {
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
                 unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
@@ -294,7 +296,7 @@ impl Lvol {
         }
 
         // we must always unshare before destroying bdev
-        let _ = self.unshare().await;
+        let _ = Pin::new(&mut self).unshare().await;
 
         let name = self.name();
 
@@ -305,12 +307,15 @@ impl Lvol {
 
         r.await
             .expect("lvol destroy callback is gone")
-            .to_result(|e| Error::RepDestroy {
-                source: Errno::from_i32(e),
-                name: self.name(),
+            .to_result(|e| {
+                warn!("error while destroying lvol {}", name);
+                Error::RepDestroy {
+                    source: Errno::from_i32(e),
+                    name: name.clone(),
+                }
             })?;
 
-        info!("Destroyed {}", name);
+        info!("destroyed lvol {}", name);
         Ok(name)
     }
 
@@ -322,7 +327,10 @@ impl Lvol {
     }
 
     /// write the property prop on to the lvol which is stored on disk
-    pub async fn set(&self, prop: PropValue) -> Result<(), Error> {
+    pub async fn set(
+        self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error> {
         let blob = unsafe { self.0.as_ref().blob };
         assert!(!blob.is_null());
 
@@ -436,7 +444,7 @@ impl Lvol {
 
             // From nvmf_bdev_ctrlr_complete_cmd
             unsafe {
-                spdk_sys::spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
+                spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
             }
         }
 
@@ -456,7 +464,7 @@ impl Lvol {
     /// Create snapshot for local replica
     pub async fn create_snapshot_local(
         &self,
-        io: *mut spdk_sys::spdk_bdev_io,
+        io: *mut spdk_bdev_io,
         snapshot_name: &str,
     ) {
         extern "C" fn snapshot_done_cb(
@@ -468,10 +476,8 @@ impl Lvol {
                 error!("vbdev_lvol_create_snapshot errno {}", errno);
             }
             // Must complete IO on thread IO was submitted from
-            Mthread::from(unsafe {
-                spdk_sys::spdk_bdev_io_get_thread(bio_ptr.cast())
-            })
-            .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
+            Mthread::from(unsafe { spdk_bdev_io_get_thread(bio_ptr.cast()) })
+                .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
         }
 
         let c_snapshot_name = snapshot_name.into_cstring();

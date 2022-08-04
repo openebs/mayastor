@@ -1,6 +1,6 @@
 # Overview
 
-This section shows a couple of examples of what you already can do with MayaStor today:
+This section shows a couple of examples of what you already can do with Mayastor today:
 
  - [mayastor-client](#mayastor-client)
 
@@ -10,9 +10,9 @@ This section shows a couple of examples of what you already can do with MayaStor
 
 ## mayastor-client
 
-`mayastor-client` is a small tool to interact with MayaStor and its Nexuses, pools and replicas. It currently does not
+`mayastor-client` is a small tool to interact with Mayastor and its Nexuses, pools and replicas. It currently does not
 interact with the local provisioner but you *can* use local storage with it already. As of this writing we have
-added support for sharing the Nexus over NBD, iSCSI and NVMf.
+added support for sharing the Nexus over NBD and NVMf.
 
 ```bash
 > mayastor-client --help
@@ -293,7 +293,7 @@ NAME                                 PATH       SIZE STATE  REBUILDS CHILDREN
 ```
 
 We can share the Nexus to this local machine rather simply and we will use the NBD protocol.
-This is something you typically would not do but it we in the near future, can exchange NBD for virtio, iSCSI
+This is something you typically would not do but it we in the near future, can exchange NBD for virtio,
 and NVMF
 
 

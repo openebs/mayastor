@@ -10,19 +10,18 @@ use std::{
 use crossbeam::channel::unbounded;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{
-        Bdev,
-        DmaBuf,
         IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
         RangeContext,
         Reactor,
         Reactors,
+        UntypedBdev,
     },
 };
-
+use spdk_rs::DmaBuf;
 pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";
@@ -45,7 +44,7 @@ struct ShareableContext {
 impl ShareableContext {
     /// Create a new Shareable Context
     pub fn new(offset: u64, len: u64) -> ShareableContext {
-        let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
         Self {
             ctx: Rc::new(RefCell::new(RangeContext::new(offset, len))),
             ch: Rc::new(RefCell::new(nexus.get_channel().unwrap())),
@@ -81,7 +80,7 @@ fn test_fini() {
     }
 
     Reactor::block_on(async {
-        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        let nexus = nexus_lookup_mut(NEXUS_NAME).unwrap();
         nexus.destroy().await.unwrap();
     });
 }
@@ -109,7 +108,7 @@ async fn lock_range(
     ctx: &mut RangeContext,
     ch: &IoChannel,
 ) -> Result<(), nix::errno::Errno> {
-    let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+    let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.lock_lba_range(ctx, ch).await
 }
 
@@ -117,7 +116,7 @@ async fn unlock_range(
     ctx: &mut RangeContext,
     ch: &IoChannel,
 ) -> Result<(), nix::errno::Errno> {
-    let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+    let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.unlock_lba_range(ctx, ch).await
 }
 
@@ -126,7 +125,7 @@ async fn unlock_range(
 fn lock_unlock() {
     test_ini();
     Reactor::block_on(async {
-        let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
         let mut ctx = RangeContext::new(1, 5);
         let ch = nexus.get_channel().unwrap();
         nexus
@@ -146,7 +145,7 @@ fn lock_unlock() {
 fn lock_unlock_different_context() {
     test_ini();
     Reactor::block_on(async {
-        let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        let nexus = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
 
         let mut ctx = RangeContext::new(1, 5);
         let ch = nexus.get_channel().unwrap();
@@ -268,7 +267,7 @@ fn lock_then_fe_io() {
     // Issue front-end I/O
     let (io_sender, io_receiver) = unbounded::<()>();
     reactor.send_future(async move {
-        let nexus_desc = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        let nexus_desc = UntypedBdev::open_by_name(NEXUS_NAME, true).unwrap();
         let h = nexus_desc.into_handle().unwrap();
 
         let blk = 2;

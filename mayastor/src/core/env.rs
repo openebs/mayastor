@@ -1,7 +1,6 @@
 use std::{
     env,
     ffi::CString,
-    net::Ipv4Addr,
     os::raw::{c_char, c_void},
     pin::Pin,
     sync::{
@@ -14,26 +13,28 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
-use git_version::git_version;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
-use spdk_sys::{
-    maya_log,
-    spdk_app_shutdown_cb,
-    spdk_log_level,
-    spdk_log_open,
-    spdk_log_set_level,
-    spdk_log_set_print_level,
-    spdk_pci_addr,
-    spdk_rpc_set_state,
-    spdk_thread_lib_fini,
-    spdk_thread_send_critical_msg,
-    SPDK_LOG_DEBUG,
-    SPDK_LOG_INFO,
-    SPDK_RPC_RUNTIME,
+use spdk_rs::{
+    libspdk::{
+        spdk_app_shutdown_cb,
+        spdk_log_level,
+        spdk_log_open,
+        spdk_log_set_level,
+        spdk_log_set_print_level,
+        spdk_pci_addr,
+        spdk_rpc_set_state,
+        spdk_thread_lib_fini,
+        spdk_thread_send_critical_msg,
+        SPDK_LOG_DEBUG,
+        SPDK_LOG_INFO,
+        SPDK_RPC_RUNTIME,
+    },
+    spdk_rs_log,
 };
 use structopt::StructOpt;
 use tokio::runtime::Builder;
+use version_info::{package_description, version_info_str};
 
 use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
@@ -47,7 +48,6 @@ use crate::{
     logger,
     persistent_store::PersistentStore,
     subsys::{self, Config, PoolConfig},
-    target::iscsi,
 };
 
 fn parse_mb(src: &str) -> Result<i32, String> {
@@ -72,9 +72,9 @@ fn parse_mb(src: &str) -> Result<i32, String> {
 
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(
-    name = "Mayastor",
+    name = package_description!(),
     about = "Containerized Attached Storage (CAS) for k8s",
-    version = git_version!(args = ["--tags", "--abbrev=12"], fallback="unkown"),
+    version = version_info_str!(),
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
@@ -219,6 +219,7 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 
 /// Mayastor argument
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MayastorEnvironment {
     pub node_name: String,
     pub mbus_endpoint: Option<String>,
@@ -312,7 +313,6 @@ async fn do_shutdown(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
-    iscsi::fini();
     nexus::nexus_children_to_destroying_state().await;
     crate::lvs::Lvs::export_all().await;
     unsafe {
@@ -373,7 +373,9 @@ impl MayastorEnvironment {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             mbus_endpoint: subsys::mbus_endpoint(args.mbus_endpoint),
             persistent_store_endpoint: args.persistent_store_endpoint,
-            node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
+            node_name: args.node_name.unwrap_or_else(|| {
+                env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
+            }),
             mayastor_config: args.mayastor_config,
             pool_config: args.pool_config,
             log_component: args.log_components,
@@ -567,46 +569,11 @@ impl MayastorEnvironment {
             spdk_log_set_level(self.debug_level);
             spdk_log_set_print_level(self.print_level);
             // open our log implementation which is implemented in the wrapper
-            spdk_log_open(Some(maya_log));
+            spdk_log_open(Some(spdk_rs_log));
             // our callback called defined in rust called by our wrapper
-            spdk_sys::logfn = Some(logger::log_impl);
+            spdk_rs::logfn = Some(logger::log_impl);
         }
         Ok(())
-    }
-
-    /// We implement our own default target init code here. Note that if there
-    /// is an existing target we will fail the init process.
-    extern "C" fn target_init() -> bool {
-        let address = MayastorEnvironment::get_pod_ip()
-            .map_err(|e| {
-                error!("Invalid IP address: MY_POD_IP={}", e);
-                mayastor_env_stop(-1);
-            })
-            .unwrap();
-
-        let cfg = Config::get();
-
-        if cfg.nexus_opts.iscsi_enable {
-            if let Err(msg) = iscsi::init(&address) {
-                error!("Failed to initialize Mayastor iSCSI target: {}", msg);
-                return false;
-            }
-        }
-
-        true
-    }
-
-    pub(crate) fn get_pod_ip() -> Result<String, String> {
-        match env::var("MY_POD_IP") {
-            Ok(val) => {
-                if val.parse::<Ipv4Addr>().is_ok() {
-                    Ok(val)
-                } else {
-                    Err(val)
-                }
-            }
-            Err(_) => Ok("127.0.0.1".to_owned()),
-        }
     }
 
     /// start the JSON rpc server which listens only to a local path
@@ -622,7 +589,7 @@ impl MayastorEnvironment {
                 spdk_rpc_set_state(SPDK_RPC_RUNTIME);
             };
 
-            let success = Self::target_init();
+            let success = true;
 
             ctx.sender.send(success).unwrap();
         }

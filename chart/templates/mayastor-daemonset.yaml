@@ -20,7 +20,7 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services from mayastor's namespace
+      # To resolve services in the namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
@@ -36,6 +36,8 @@ spec:
         env:
         - name: RUST_LOG
           value: info,mayastor={{ .Values.mayastorLogLevel }}
+        - name: NVME_QPAIR_CONNECT_ASYNC
+          value: "true"
         - name: NVMF_TCP_MAX_QUEUE_DEPTH
           value: "32"
         - name: MY_NODE_NAME
@@ -51,7 +53,6 @@ spec:
         # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.
         # Note: Ensure that the CPU resources are updated accordingly.
         #       If you use 2 CPUs, the CPU: field should also read 2.
-        - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"

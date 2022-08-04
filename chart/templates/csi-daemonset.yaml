@@ -51,6 +51,7 @@ spec:
         - "--node-name=$(MY_NODE_NAME)"
         - "--grpc-endpoint=$(MY_POD_IP):10199"{{ if .Values.csi.nvme.io_timeout_enabled }}
         - "--nvme-core-io-timeout={{ .Values.csi.nvme.io_timeout }}"{{ end }}
+        - "--nvme-nr-io-queues={{ .Values.mayastorCpuCount }}"
         - "-v"
         command:
         - mayastor-csi
