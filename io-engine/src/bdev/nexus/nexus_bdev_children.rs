@@ -967,15 +967,18 @@ impl<'n> Nexus<'n> {
         };
 
         if self.has_io_device {
+            info!("{:?}: disconnecting all channels...", self);
+
             self.traverse_io_channels(
                 update_failfast_cb,
                 update_failfast_done,
                 ctx,
             );
 
-            info!("{:?}: all channels disconnected", self);
             r.await
                 .expect("disconnect_all_children() sender already dropped");
+
+            info!("{:?}: all channels disconnected", self);
         }
 
         Ok(())

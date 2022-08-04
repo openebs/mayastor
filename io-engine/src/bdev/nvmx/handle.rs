@@ -248,15 +248,13 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
     inner.discard_io();
 
     // Invoke caller's callback and free I/O context.
-    if op_succeeded {
-        (io_ctx.cb)(&*inner.device, IoCompletionStatus::Success, io_ctx.cb_arg);
+    let status = if op_succeeded {
+        IoCompletionStatus::Success
     } else {
-        (io_ctx.cb)(
-            &*inner.device,
-            IoCompletionStatus::NvmeError(nvme_command_status(cpl)),
-            io_ctx.cb_arg,
-        );
-    }
+        IoCompletionStatus::NvmeError(nvme_command_status(cpl))
+    };
+
+    (io_ctx.cb)(&*inner.device, status, io_ctx.cb_arg);
 
     free_nvme_io_ctx(ctx);
 }

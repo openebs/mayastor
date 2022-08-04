@@ -65,11 +65,12 @@ static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
 
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
+#[derive(Copy, Clone)]
 pub struct SpdkBlockDevice(UntypedBdev);
 
 impl SpdkBlockDevice {
-    fn new(bdev: UntypedBdev) -> Box<Self> {
-        Box::new(Self(bdev))
+    fn new(bdev: UntypedBdev) -> Self {
+        Self(bdev)
     }
 
     /// Lookup existing SPDK bdev by its name.
@@ -77,7 +78,7 @@ impl SpdkBlockDevice {
         debug!("Searching SPDK devices for '{}'...", name);
         let bdev = UntypedBdev::lookup_by_name(name)?;
         debug!("SPDK {} device found: '{}'", bdev.driver(), name);
-        Some(SpdkBlockDevice::new(bdev))
+        Some(Box::new(SpdkBlockDevice::new(bdev)))
     }
 
     /// Open SPDK bdev by its name and get a block device descriptor.
@@ -173,7 +174,7 @@ impl From<UntypedDescriptorGuard> for SpdkBlockDeviceDescriptor {
 
 impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice> {
-        SpdkBlockDevice::new(self.0.bdev())
+        Box::new(SpdkBlockDevice::new(self.0.bdev()))
     }
 
     fn device_name(&self) -> String {
@@ -200,7 +201,7 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
 /// Wrapper around native SPDK block device I/O, which mimics target SPDK I/O
 /// handle as an abstract BlockDeviceDescriptor instance.
 struct SpdkBlockDeviceHandle {
-    device: Box<dyn BlockDevice>,
+    device: SpdkBlockDevice,
     handle: UntypedBdevHandle,
 }
 
@@ -227,7 +228,7 @@ impl From<UntypedBdevHandle> for SpdkBlockDeviceHandle {
 #[async_trait(?Send)]
 impl BlockDeviceHandle for SpdkBlockDeviceHandle {
     fn get_device(&self) -> &dyn BlockDevice {
-        &*self.device
+        &self.device
     }
 
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError> {
@@ -262,7 +263,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         let ctx = alloc_bdev_io_ctx(
             IoType::Read,
             IoCtx {
-                handle: self,
+                device: self.device,
                 cb,
                 cb_arg,
             },
@@ -307,7 +308,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         let ctx = alloc_bdev_io_ctx(
             IoType::Write,
             IoCtx {
-                handle: self,
+                device: self.device,
                 cb,
                 cb_arg,
             },
@@ -348,7 +349,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         let ctx = alloc_bdev_io_ctx(
             IoType::Reset,
             IoCtx {
-                handle: self,
+                device: self.device,
                 cb,
                 cb_arg,
             },
@@ -385,7 +386,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         let ctx = alloc_bdev_io_ctx(
             IoType::Unmap,
             IoCtx {
-                handle: self,
+                device: self.device,
                 cb,
                 cb_arg,
             },
@@ -426,7 +427,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         let ctx = alloc_bdev_io_ctx(
             IoType::WriteZeros,
             IoCtx {
-                handle: self,
+                device: self.device,
                 cb,
                 cb_arg,
             },
@@ -494,8 +495,8 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 }
 
 /// TODO
-struct IoCtx<'a> {
-    handle: &'a SpdkBlockDeviceHandle,
+struct IoCtx {
+    device: SpdkBlockDevice,
     cb: IoCompletionCallback,
     cb_arg: IoCompletionCallbackArg,
 }
@@ -584,7 +585,7 @@ extern "C" fn bdev_io_completion(
         IoCompletionStatus::NvmeError(nvme_cmd_status)
     };
 
-    (bio.cb)(&*bio.handle.device, status, bio.cb_arg);
+    (bio.cb)(&bio.device, status, bio.cb_arg);
 
     // Free ctx.
     free_bdev_io_ctx(&mut *bio);
