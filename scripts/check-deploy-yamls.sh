@@ -8,7 +8,7 @@ DEPLOYDIR="$ROOTDIR"/deploy
 
 CORES=2
 PROFILE=release
-TAG=release-1.0.2
+TAG=v1.0.2
 
 "$SCRIPTDIR"/generate-deploy-yamls.sh -c "$CORES" -t "$TAG" "$PROFILE"
 
