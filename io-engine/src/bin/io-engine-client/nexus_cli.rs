@@ -195,6 +195,35 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uuid of nexus"),
         );
 
+    let inject = SubCommand::with_name("inject")
+        .about("manage injected faults")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid of nexus"),
+        )
+        .arg(
+            Arg::with_name("add")
+                .short("a")
+                .long("add")
+                .required(false)
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1)
+                .help("new injection uri"),
+        )
+        .arg(
+            Arg::with_name("remove")
+                .short("r")
+                .long("remove")
+                .required(false)
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1)
+                .help("injection uri"),
+        );
+
     SubCommand::with_name("nexus")
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
@@ -213,6 +242,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(list)
         .subcommand(list2)
         .subcommand(children)
+        .subcommand(inject)
         .subcommand(nexus_child_cli::subcommands())
 }
 
@@ -233,6 +263,7 @@ pub async fn handler(
         ("add", Some(args)) => nexus_add(ctx, args).await,
         ("remove", Some(args)) => nexus_remove(ctx, args).await,
         ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
+        ("inject", Some(args)) => injections(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
                 .context(GrpcStatus)
@@ -806,6 +837,78 @@ async fn nexus_remove(
             println!("{}", &uri,)
         }
     };
+
+    Ok(())
+}
+
+async fn injections(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+
+    let inj_add = matches.values_of("add");
+    let inj_remove = matches.values_of("remove");
+
+    if inj_add.is_none() && inj_remove.is_none() {
+        return list_nexus_injections(ctx, &uuid).await;
+    }
+
+    if let Some(uris) = inj_add {
+        for uri in uris {
+            println!("Injecting fault: {}", uri);
+            ctx.client
+                .inject_nexus_fault(rpc::InjectNexusFaultRequest {
+                    uuid: uuid.clone(),
+                    uri: uri.to_owned(),
+                })
+                .await
+                .context(GrpcStatus)?;
+        }
+    }
+
+    if let Some(uris) = inj_remove {
+        for uri in uris {
+            println!("Removing injected fault: {}", uri);
+            ctx.client
+                .remove_injected_nexus_fault(
+                    rpc::RemoveInjectedNexusFaultRequest {
+                        uuid: uuid.clone(),
+                        uri: uri.to_owned(),
+                    },
+                )
+                .await
+                .context(GrpcStatus)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn list_nexus_injections(
+    mut ctx: Context,
+    uuid: &str,
+) -> crate::Result<()> {
+    let response = ctx
+        .client
+        .list_injected_nexus_faults(rpc::ListInjectedNexusFaultsRequest {
+            uuid: uuid.to_owned(),
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(response.get_ref())
+            .unwrap()
+            .to_colored_json_auto()
+            .unwrap()
+    );
 
     Ok(())
 }

@@ -181,7 +181,10 @@ impl<'n> Nexus<'n> {
             Some(child_bdev),
         );
 
-        let mut res = child.open(self.req_size());
+        // it can never take part in the IO path
+        // of the nexus until it's rebuilt from a healthy child.
+        let mut res =
+            child.open(self.req_size(), ChildState::Faulted(Reason::OutOfSync));
 
         if res.is_ok() {
             // we have created the bdev, and created a nexusChild struct. To
@@ -202,9 +205,6 @@ impl<'n> Nexus<'n> {
 
         match res {
             Ok(child_uri) => {
-                // it can never take part in the IO path
-                // of the nexus until it's rebuilt from a healthy child.
-                child.fault(Reason::OutOfSync).await;
                 let child_state = child.state();
 
                 // Register event listener for newly added child.
@@ -225,7 +225,10 @@ impl<'n> Nexus<'n> {
             Err(e) => {
                 if let Err(err) = device_destroy(uri).await {
                     error!(
-                        "Failed to destroy child which failed to open: {}",
+                        "{:?}: failed to destroy child '{}' which \
+                        failed to open: {}",
+                        self,
+                        uri,
                         err.to_string()
                     );
                 }
@@ -523,7 +526,7 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             for child in self.as_mut().children_iter_mut() {
-                if child.open(size).is_ok() {
+                if child.open(size, ChildState::Open).is_ok() {
                     child.set_event_listener(evt_listener.clone());
                 } else {
                     failed = true;
@@ -621,13 +624,21 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub async fn destroy_child(&self, device_name: &str) -> Result<(), Error> {
+    pub async fn destroy_child_device(
+        &self,
+        device_name: &str,
+    ) -> Result<(), Error> {
+        info!("{:?}: destroying child device: '{}'", self, device_name);
+
         if let Some(child) = self.lookup_child_device(device_name) {
-            child.destroy().await.map_err(|source| Error::DestroyChild {
-                source,
-                child: device_name.to_string(),
-                name: self.name.to_string(),
-            })
+            child
+                .destroy_device()
+                .await
+                .map_err(|source| Error::DestroyChild {
+                    source,
+                    child: device_name.to_string(),
+                    name: self.name.to_string(),
+                })
         } else {
             Err(Error::ChildNotFound {
                 child: device_name.to_string(),
@@ -701,37 +712,43 @@ impl<'n> Nexus<'n> {
 
 impl<'n> DeviceEventListener for Nexus<'n> {
     fn handle_device_event(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         evt: DeviceEventType,
         dev_name: &str,
     ) {
         match evt {
             DeviceEventType::DeviceRemoved => {
-                match self.lookup_child_device_mut(dev_name) {
+                match self.as_mut().lookup_child_device_mut(dev_name) {
                     Some(child) => {
                         info!(
-                            "{:?}: removing child in response to device removal event",
+                            "{:?}: device remove event: unplugging \
+                            child",
                             child,
                         );
-                        child.remove();
+                        child.unplug();
                     }
                     None => {
                         warn!(
-                            "No nexus child exists for device {}, ignoring device removal event",
-                            dev_name
+                            "{:?}: device remove event: child device '{}' \
+                            not found",
+                            self, dev_name
                         );
                     }
                 }
             }
             DeviceEventType::AdminCommandCompletionFailed => {
                 info!(
-                    "{:?}: retiring child in response to admin command completion failure event",
-                    self,
+                    "{:?}: admin command completion failure event: \
+                    retiring child '{}'",
+                    self, dev_name
                 );
                 self.retire_child_device(dev_name, false);
             }
             _ => {
-                info!("Ignoring {:?} event for device {}", evt, dev_name);
+                warn!(
+                    "{:?}: ignoring event '{:?}' for device '{}'",
+                    self, evt, dev_name
+                );
             }
         }
     }
@@ -744,8 +761,7 @@ impl<'n> DeviceEventListener for Nexus<'n> {
 /// TODO
 struct UpdateFailFastCtx {
     sender: oneshot::Sender<bool>,
-    nexus_name: String,
-    child_device: Option<String>,
+    child_device: String,
 }
 
 /// TODO
@@ -753,11 +769,8 @@ fn update_failfast_cb(
     channel: &mut NexusChannel,
     ctx: &mut UpdateFailFastCtx,
 ) -> ChannelTraverseStatus {
-    ctx.child_device.as_ref().map(|dev| {
-        channel.disconnect_device(dev);
-        channel.nexus_mut().child_io_faulted(dev)
-    });
-    debug!(?ctx.nexus_name, ?ctx.child_device, "disconnected from channel");
+    channel.disconnect_device(&ctx.child_device);
+    channel.nexus_mut().child_io_faulted(&ctx.child_device);
     ChannelTraverseStatus::Ok
 }
 
@@ -807,7 +820,7 @@ impl<'n> Nexus<'n> {
         // The child state was not faulted yet, so this is the first IO
         // to this child for which we encountered an error.
         if need_retire {
-            debug!(
+            warn!(
                 "{:?}: I/O faulted on '{}', child retire scheduled",
                 self, child_device
             );
@@ -818,7 +831,7 @@ impl<'n> Nexus<'n> {
             ));
         } else {
             debug!(
-                "{:?}: I/O faulted on '{}', no need to retire",
+                "{:?}: I/O faulted on '{}': already in faulted state",
                 self, child_device
             );
         }
@@ -883,8 +896,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         warn!("{:?}: retiring child device '{}'", self, device_name);
 
-        self.disconnect_all_children(Some(device_name.clone()))
-            .await?;
+        self.disconnect_all_channels(device_name.clone()).await?;
 
         debug!("{:?}: pausing...", self);
         self.as_mut().pause().await?;
@@ -954,20 +966,22 @@ impl<'n> Nexus<'n> {
     }
 
     // TODO
-    async fn disconnect_all_children(
+    async fn disconnect_all_channels(
         &self,
-        child_device: Option<String>,
+        child_device: String,
     ) -> Result<(), Error> {
         let (sender, r) = oneshot::channel::<bool>();
 
         let ctx = UpdateFailFastCtx {
             sender,
-            nexus_name: self.name.clone(),
-            child_device,
+            child_device: child_device.clone(),
         };
 
         if self.has_io_device {
-            info!("{:?}: disconnecting all channels...", self);
+            info!(
+                "{:?}: disconnecting all channels from '{}'...",
+                self, child_device
+            );
 
             self.traverse_io_channels(
                 update_failfast_cb,
@@ -978,7 +992,10 @@ impl<'n> Nexus<'n> {
             r.await
                 .expect("disconnect_all_children() sender already dropped");
 
-            info!("{:?}: all channels disconnected", self);
+            info!(
+                "{:?}: device '{}' disconnected from all I/O channels",
+                self, child_device
+            );
         }
 
         Ok(())

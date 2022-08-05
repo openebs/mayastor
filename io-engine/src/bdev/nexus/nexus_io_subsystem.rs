@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    fmt::{Debug, Display, Formatter},
     sync::atomic::{AtomicU32, Ordering},
 };
 
@@ -22,9 +23,23 @@ pub enum NexusPauseState {
     Unpausing,
 }
 
+impl Display for NexusPauseState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Unpaused => "unpaused",
+                Self::Pausing => "pausing",
+                Self::Paused => "paused",
+                Self::Unpausing => "unpausing",
+            }
+        )
+    }
+}
+
 /// Abstraction for managing pausing/unpausing I/O on NVMe subsystem, allowing
 /// concurrent pause/resume calls by serializing low-level SPDK calls.
-#[derive(Debug)]
 pub(super) struct NexusIoSubsystem<'n> {
     /// Subsystem name.
     name: String,
@@ -36,6 +51,17 @@ pub(super) struct NexusIoSubsystem<'n> {
     pause_waiters: VecDeque<oneshot::Sender<i32>>,
     /// Pause counter.
     pause_cnt: AtomicU32,
+}
+
+impl<'n> Debug for NexusIoSubsystem<'n> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?}: I/O subsystem [{}]",
+            self.bdev.data(),
+            self.pause_state.load()
+        )
+    }
 }
 
 impl<'n> NexusIoSubsystem<'n> {
@@ -60,9 +86,13 @@ impl<'n> NexusIoSubsystem<'n> {
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
     pub(super) async fn suspend(&mut self) -> Result<(), Error> {
-        assert_eq!(Cores::current(), Cores::first());
+        assert_eq!(
+            Cores::current(),
+            Cores::first(),
+            "NexusIoSubsystem::suspend() must called on the first core"
+        );
 
-        trace!(?self.name, "pausing nexus I/O");
+        trace!("{:?}: pausing I/O...", self);
 
         loop {
             let state = self.pause_state.compare_exchange(
@@ -84,9 +114,19 @@ impl<'n> NexusIoSubsystem<'n> {
                         if let Some(subsystem) =
                             NvmfSubsystem::nqn_lookup(&self.name)
                         {
-                            trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "pausing subsystem");
+                            trace!(
+                                "{:?}: pausing subsystem '{}'...",
+                                self,
+                                subsystem.get_nqn()
+                            );
+
                             subsystem.pause().await.unwrap();
-                            trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "subsystem paused");
+
+                            trace!(
+                                "{:?}: subsystem '{}' paused",
+                                self,
+                                subsystem.get_nqn()
+                            );
                         }
                     }
 
@@ -101,7 +141,11 @@ impl<'n> NexusIoSubsystem<'n> {
                 }
                 // Subsystem is already paused, increment number of paused.
                 Err(NexusPauseState::Paused) => {
-                    trace!(nexus=%self.name, "nexus is already paused, incrementing refcount");
+                    trace!(
+                        "{:?}: nexus is already paused, \
+                        incrementing pause count",
+                        self
+                    );
                     self.pause_cnt.fetch_add(1, Ordering::SeqCst);
                     break;
                 }
@@ -109,11 +153,21 @@ impl<'n> NexusIoSubsystem<'n> {
                 // operation.
                 Err(NexusPauseState::Unpausing)
                 | Err(NexusPauseState::Pausing) => {
-                    trace!(nexus=%self.name, "nexus is in intermediate state, deferring Pause operation");
+                    trace!(
+                        "{:?}: nexus is in intermediate state, \
+                            deferring pause operation",
+                        self
+                    );
+
                     let (s, r) = oneshot::channel::<i32>();
                     self.pause_waiters.push_back(s);
                     r.await.unwrap();
-                    trace!(nexus=%self.name, "nexus completed state transition, retrying Pause operation");
+
+                    trace!(
+                        "{:?}: nexus completed state transition, \
+                        retrying pause operation",
+                        self
+                    );
                 }
                 _ => {
                     panic!("Corrupted I/O subsystem state");
@@ -123,11 +177,11 @@ impl<'n> NexusIoSubsystem<'n> {
 
         // Resume one waiter in case there are any.
         if let Some(w) = self.pause_waiters.pop_front() {
-            trace!(nexus=%self.name, "resuming the first Pause waiter");
+            trace!("{:?}: resuming the first pause waiter", self);
             w.send(0).expect("I/O subsystem pause waiter disappeared");
         }
 
-        trace!(?self.name, "nexus I/O paused");
+        trace!("{:?}: I/O paused", self);
         Ok(())
     }
 
@@ -135,9 +189,13 @@ impl<'n> NexusIoSubsystem<'n> {
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
     pub(super) async fn resume(&mut self) -> Result<(), Error> {
-        assert_eq!(Cores::current(), Cores::first());
+        assert_eq!(
+            Cores::current(),
+            Cores::first(),
+            "NexusIoSubsystem::resume() must called on the first core"
+        );
 
-        trace!(?self.name, "resuming nexus I/O");
+        trace!("{:?}: resuming I/O...", self);
 
         loop {
             match self.pause_state.load() {
@@ -148,11 +206,21 @@ impl<'n> NexusIoSubsystem<'n> {
                 // Simultaneous pausing/unpausing: wait till the subsystem has
                 // completed transition and retry operation.
                 NexusPauseState::Pausing | NexusPauseState::Unpausing => {
-                    trace!(?self.name, "nexus is in intermediate state, deferring Resume operation");
+                    trace!(
+                        "{:?}: nexus is in intermediate state, \
+                        deferring resume operation",
+                        self
+                    );
+
                     let (s, r) = oneshot::channel::<i32>();
                     self.pause_waiters.push_back(s);
                     r.await.unwrap();
-                    trace!(?self.name, "completed state transition, retrying Resume operation");
+
+                    trace!(
+                        "{:?}: completed state transition, \
+                        retrying resume operation",
+                        self
+                    );
                 }
                 // Unpause the subsystem, taking into account the overall number
                 // of pauses.
@@ -164,9 +232,19 @@ impl<'n> NexusIoSubsystem<'n> {
                             NvmfSubsystem::nqn_lookup(&self.name)
                         {
                             self.pause_state.store(NexusPauseState::Unpausing);
-                            trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "resuming subsystem");
+                            trace!(
+                                "{:?}: resuming subsystem '{}'...",
+                                self,
+                                subsystem.get_nqn()
+                            );
+
                             subsystem.resume().await.unwrap();
-                            trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "subsystem resumed");
+
+                            trace!(
+                                "{:?}: subsystem '{}' resumed",
+                                self,
+                                subsystem.get_nqn()
+                            );
                         }
                         self.pause_state.store(NexusPauseState::Unpaused);
                     }
@@ -177,12 +255,12 @@ impl<'n> NexusIoSubsystem<'n> {
 
         // Resume one waiter in case there are any.
         if !self.pause_waiters.is_empty() {
-            trace!(nexus=%self.name, "resuming the first Resume waiter");
+            trace!("{:?}: resuming the first resume waiter", self);
             let w = self.pause_waiters.pop_front().unwrap();
             w.send(0).expect("I/O subsystem resume waiter disappeared");
         }
 
-        trace!(?self.name, "nexus I/O resumed");
+        trace!("{:?}: I/O resumed", self);
         Ok(())
     }
 }

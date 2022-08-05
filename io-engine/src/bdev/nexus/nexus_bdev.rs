@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use super::{
     nexus_err,
+    nexus_injection::Injections,
     nexus_lookup_name_uuid,
     ChildState,
     DrEvent,
@@ -173,6 +174,9 @@ pub struct Nexus<'n> {
     io_subsystem: Option<NexusIoSubsystem<'n>>,
     /// TODO
     event_sink: Option<DeviceEventSink>,
+    /// TODO
+    #[allow(dead_code)]
+    pub(super) injections: Injections,
     /// Prevent auto-Unpin.
     _pin: PhantomPinned,
 }
@@ -265,6 +269,7 @@ impl<'n> Nexus<'n> {
             io_subsystem: None,
             nexus_uuid: Default::default(),
             event_sink: None,
+            injections: Injections::new(),
             _pin: Default::default(),
         };
 
@@ -347,7 +352,7 @@ impl<'n> Nexus<'n> {
 
     /// Sets the state of the Nexus.
     fn set_state(self: Pin<&mut Self>, state: NexusState) -> NexusState {
-        info!("{:?}: changing state to {}", self, state);
+        debug!("{:?}: changing state to '{}'", self, state);
         *self.state.lock() = state;
         state
     }
@@ -875,13 +880,17 @@ impl<'n> BdevOps for Nexus<'n> {
             | IoType::WriteZeros => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {
-                    info!("{:?}: IO type {:#?} not supported", self, io_type);
+                    info!(
+                        "{:?}: I/O type '{:?}' not supported by at least \
+                        one of child devices",
+                        self, io_type
+                    );
                 }
                 supported
             }
             _ => {
                 warn!(
-                    "{:?}: IO type {:#?} support not implemented",
+                    "{:?}: I/O type '{:?}' support not implemented",
                     self, io_type
                 );
                 false

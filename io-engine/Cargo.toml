@@ -7,6 +7,10 @@ version = "1.0.0"
 default-run = "io-engine-client"
 build = "build.rs"
 
+[features]
+# Enables fault injection code.
+fault_injection = []
+
 [[bin]]
 name = "io-engine"
 path = "src/bin/io-engine.rs"

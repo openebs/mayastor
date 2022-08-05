@@ -1,5 +1,5 @@
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Formatter},
     ops::{Deref, DerefMut},
 };
 
@@ -43,8 +43,13 @@ pub(super) struct NioCtx<'n> {
 
 /// TODO
 #[repr(transparent)]
-#[derive(Debug)]
 pub(super) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
+
+impl<'n> Debug for NexusBio<'n> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} I/O [{:?}]", self.channel(), self.ctx().status)
+    }
+}
 
 impl<'n> Deref for NexusBio<'n> {
     type Target = BdevIo<Nexus<'n>>;
@@ -158,6 +163,7 @@ impl<'n> NexusBio<'n> {
     ) {
         let success = status == IoCompletionStatus::Success;
 
+        debug_assert!(self.ctx().in_flight > 0);
         self.ctx_mut().in_flight -= 1;
 
         if success {
@@ -165,8 +171,8 @@ impl<'n> NexusBio<'n> {
         } else {
             // IO failure, mark the IO failed and take the child out
             error!(
-                ?self,
-                "{} IO completion failed: {:?}",
+                "{:?}: IO completion for '{}' failed: {:?}",
+                self,
                 child.device_name(),
                 self.ctx()
             );
@@ -235,6 +241,15 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        #[cfg(feature = "fault_injection")]
+        if self.nexus().inject_is_faulted(hdl.get_device()) {
+            return Err(CoreError::ReadDispatch {
+                source: Errno::ENODEV,
+                offset: self.offset(),
+                len: self.num_blocks(),
+            });
+        }
+
         hdl.readv_blocks(
             self.iovs(),
             self.iov_count(),
@@ -262,9 +277,10 @@ impl<'n> NexusBio<'n> {
                 // device should not be retired in case of ENOMEM.
 
                 let device = hdl.get_device().device_name();
-                trace!(
-                    "(core: {} thread: {}): read IO to {} submission failed with error {:?}",
-                    Cores::current(), Mthread::current().unwrap().name(), device, r);
+                error!(
+                    "{:?}: read I/O to '{}' submission failed: {:?}",
+                    self, device, r
+                );
 
                 self.retire_device(&device);
 
@@ -274,9 +290,11 @@ impl<'n> NexusBio<'n> {
             }
             r
         } else {
-            trace!(
-                "(core: {} thread: {}): read IO submission failed no children available",
-                Cores::current(), Mthread::current().unwrap().name());
+            error!(
+                "{:?}: read I/O submission failed: no children available",
+                self
+            );
+
             self.fail();
             Err(CoreError::NoDevicesAvailable {})
         }

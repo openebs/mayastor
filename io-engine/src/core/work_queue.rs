@@ -1,18 +1,18 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 /// TODO
 #[derive(Debug)]
-pub struct WorkQueue<T: Send + Debug> {
+pub struct WorkQueue<T: Send + Debug + Display> {
     incoming: crossbeam::queue::SegQueue<T>,
 }
 
-impl<T: Send + Debug> Default for WorkQueue<T> {
+impl<T: Send + Debug + Display> Default for WorkQueue<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Send + Debug> WorkQueue<T> {
+impl<T: Send + Debug + Display> WorkQueue<T> {
     pub fn new() -> Self {
         Self {
             incoming: crossbeam::queue::SegQueue::new(),
@@ -20,7 +20,7 @@ impl<T: Send + Debug> WorkQueue<T> {
     }
 
     pub fn enqueue(&self, entry: T) {
-        trace!(?entry, "enqueued");
+        trace!("Enqueued {}", entry);
         self.incoming.push(entry)
     }
 

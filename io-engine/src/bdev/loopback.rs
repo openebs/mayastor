@@ -92,7 +92,7 @@ impl CreateDestroy for Loopback {
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(child) = lookup_nexus_child(&self.name) {
-            child.remove();
+            child.unplug();
         }
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);

@@ -368,6 +368,12 @@ impl LogFormat {
             fmt.short(),
         )?;
 
+        let ctx =
+            CustomContext::new(context, event.parent(), false).to_string();
+        if ctx.len() > 1 {
+            write!(buf, "{}: ", &ctx[1 ..])?;
+        }
+
         context.format_fields(&mut buf, event)?;
 
         fmt.fmt_line(writer, &buf)?;
