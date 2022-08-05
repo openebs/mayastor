@@ -31,6 +31,7 @@ use crate::{
 /// It is not possible to remove a bdev through a core other than the management
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
+#[derive(Copy, Clone)]
 pub struct Bdev<T: spdk_rs::BdevOps> {
     /// TODO
     inner: spdk_rs::Bdev<T>,
@@ -58,17 +59,6 @@ where
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
-    }
-}
-
-impl<T> Clone for Bdev<T>
-where
-    T: spdk_rs::BdevOps,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
     }
 }
 
