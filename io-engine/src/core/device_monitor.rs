@@ -45,7 +45,7 @@ pub async fn device_monitor_loop() {
     loop {
         interval.tick().await;
         if let Some(w) = device_cmd_queue().take() {
-            info!("Device monitor exexuting command: {}", w);
+            info!("Device monitor executing command: {}", w);
             match w {
                 DeviceCommand::RemoveDevice {
                     nexus_name,
