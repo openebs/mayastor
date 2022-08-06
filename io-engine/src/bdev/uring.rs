@@ -118,7 +118,7 @@ impl CreateDestroy for Uring {
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     delete_uring_bdev(
-                        bdev.unsafe_inner_mut_ptr(),
+                        (*bdev.unsafe_inner_ptr()).name,
                         Some(done_errno_cb),
                         cb_arg(sender),
                     );

@@ -243,6 +243,16 @@ pub struct NvmeBdevOpts {
     pub delay_cmd_submit: bool,
     /// attempts per I/O in bdev layer before I/O fails
     pub bdev_retry_count: i32,
+    /// TODO
+    pub transport_ack_timeout: u8,
+    /// TODO
+    pub ctrlr_loss_timeout_sec: i32,
+    /// TODO
+    pub reconnect_delay_sec: u32,
+    /// TODO
+    pub fast_io_fail_timeout_sec: u32,
+    /// TODO
+    pub disable_auto_failback: bool,
     /// enable creation of submission and completion queues asynchronously.
     pub async_mode: bool,
 }
@@ -286,6 +296,11 @@ impl Default for NvmeBdevOpts {
             io_queue_requests: 0,
             delay_cmd_submit: true,
             bdev_retry_count: try_from_env("NVME_BDEV_RETRY_COUNT", 0),
+            transport_ack_timeout: 0,
+            ctrlr_loss_timeout_sec: 0,
+            reconnect_delay_sec: 0,
+            fast_io_fail_timeout_sec: 0,
+            disable_auto_failback: false,
             async_mode: try_from_env("NVME_QPAIR_CONNECT_ASYNC", false),
         }
     }
@@ -308,6 +323,11 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             io_queue_requests: o.io_queue_requests,
             delay_cmd_submit: o.delay_cmd_submit,
             bdev_retry_count: o.bdev_retry_count,
+            transport_ack_timeout: o.transport_ack_timeout,
+            ctrlr_loss_timeout_sec: o.ctrlr_loss_timeout_sec,
+            reconnect_delay_sec: o.reconnect_delay_sec,
+            fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
+            disable_auto_failback: o.disable_auto_failback,
             async_mode: NvmeBdevOpts::default().async_mode,
         }
     }
@@ -330,6 +350,11 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             io_queue_requests: o.io_queue_requests,
             delay_cmd_submit: o.delay_cmd_submit,
             bdev_retry_count: o.bdev_retry_count,
+            transport_ack_timeout: o.transport_ack_timeout,
+            ctrlr_loss_timeout_sec: o.ctrlr_loss_timeout_sec,
+            reconnect_delay_sec: o.reconnect_delay_sec,
+            fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
+            disable_auto_failback: o.disable_auto_failback,
         }
     }
 }
@@ -416,6 +441,7 @@ pub struct PosixSocketOpts {
     enable_placement_id: u32,
     enable_zerocopy_send_server: bool,
     enable_zerocopy_send_client: bool,
+    zerocopy_threshold: u32,
 }
 
 impl Default for PosixSocketOpts {
@@ -435,6 +461,7 @@ impl Default for PosixSocketOpts {
                 "SOCK_ZEROCOPY_SEND_CLIENT",
                 false,
             ),
+            zerocopy_threshold: 0,
         }
     }
 }
@@ -463,6 +490,7 @@ impl GetOpts for PosixSocketOpts {
             enable_placement_id: opts.enable_placement_id,
             enable_zerocopy_send_server: opts.enable_zerocopy_send_server,
             enable_zerocopy_send_client: opts.enable_zerocopy_send_client,
+            zerocopy_threshold: opts.zerocopy_threshold,
         }
     }
 
@@ -476,6 +504,7 @@ impl GetOpts for PosixSocketOpts {
             enable_placement_id: self.enable_placement_id,
             enable_zerocopy_send_server: self.enable_zerocopy_send_server,
             enable_zerocopy_send_client: self.enable_zerocopy_send_client,
+            zerocopy_threshold: self.zerocopy_threshold,
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;

@@ -187,7 +187,7 @@ impl CreateDestroy for Null {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
                 spdk_rs::libspdk::bdev_null_delete(
-                    bdev.unsafe_inner_mut_ptr(),
+                    (*bdev.unsafe_inner_ptr()).name,
                     Some(done_errno_cb),
                     cb_arg(s),
                 )

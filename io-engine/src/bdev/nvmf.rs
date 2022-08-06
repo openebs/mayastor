@@ -170,14 +170,11 @@ impl CreateDestroy for Nvmf {
                 cname.as_ptr(),
                 &mut context.names[0],
                 context.count,
-                context.prchk_flags,
                 Some(done_nvme_create_cb),
                 cb_arg(sender),
+                std::ptr::null_mut(), // context.prchk_flags,
                 std::ptr::null_mut(),
                 false,
-                0,
-                0,
-                0,
             )
         };
 
@@ -261,6 +258,7 @@ impl CreateDestroy for Nvmf {
 /// The Maximum number of namespaces that a single bdev will connect to
 const MAX_NAMESPACES: usize = 1;
 
+#[allow(dead_code)]
 struct NvmeCreateContext {
     trid: spdk_nvme_transport_id,
     names: [*const c_char; MAX_NAMESPACES],
