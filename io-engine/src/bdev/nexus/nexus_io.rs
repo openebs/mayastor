@@ -11,7 +11,7 @@ use spdk_rs::{
     BdevIo,
 };
 
-use super::{Nexus, NexusChannel, NEXUS_PRODUCT_ID};
+use super::{Nexus, NexusChannel, Reason, NEXUS_PRODUCT_ID};
 
 use crate::core::{
     BlockDevice,
@@ -21,7 +21,9 @@ use crate::core::{
     GenericStatusCode,
     IoCompletionStatus,
     IoStatus,
+    IoSubmissionFailure,
     IoType,
+    LvolFailure,
     Mthread,
     NvmeCommandStatus,
 };
@@ -171,9 +173,10 @@ impl<'n> NexusBio<'n> {
         } else {
             // IO failure, mark the IO failed and take the child out
             error!(
-                "{:?}: IO completion for '{}' failed: {:?}",
+                "{:?}: IO completion for '{}' failed: {:?}, ctx={:?}",
                 self,
                 child.device_name(),
+                status,
                 self.ctx()
             );
             self.ctx_mut().status = IoStatus::Failed;
@@ -282,7 +285,12 @@ impl<'n> NexusBio<'n> {
                     self, device, r
                 );
 
-                self.retire_device(&device);
+                self.retire_device(
+                    &device,
+                    IoCompletionStatus::IoSubmissionError(
+                        IoSubmissionFailure::Write,
+                    ),
+                );
 
                 self.fail();
             } else {
@@ -430,7 +438,12 @@ impl<'n> NexusBio<'n> {
 
             self.channel_mut().disconnect_device(&device);
 
-            self.retire_device(&device);
+            self.retire_device(
+                &device,
+                IoCompletionStatus::IoSubmissionError(
+                    IoSubmissionFailure::Read,
+                ),
+            );
         }
 
         // partial submission
@@ -449,10 +462,23 @@ impl<'n> NexusBio<'n> {
     }
 
     /// TODO
-    fn retire_device(&mut self, child_device: &str) {
-        self.channel_mut()
-            .nexus_mut()
-            .retire_child_device(child_device, true);
+    fn retire_device(
+        &mut self,
+        child_device: &str,
+        io_status: IoCompletionStatus,
+    ) {
+        let reason = match io_status {
+            IoCompletionStatus::LvolError(LvolFailure::NoSpace) => {
+                Reason::NoSpace
+            }
+            _ => Reason::IoError,
+        };
+
+        self.channel_mut().nexus_mut().retire_child_device(
+            child_device,
+            reason,
+            true,
+        );
     }
 
     /// TODO
@@ -482,7 +508,8 @@ impl<'n> NexusBio<'n> {
             )
         ) {
             debug!(
-                "Device {} experienced invalid opcode error: retiring skipped",
+                "Device '{}' experienced invalid opcode error: \
+                retiring skipped",
                 child.device_name()
             );
             return;
@@ -497,7 +524,7 @@ impl<'n> NexusBio<'n> {
             )
         );
 
-        self.retire_device(&child.device_name());
+        self.retire_device(&child.device_name(), status);
 
         // if the IO was failed because of retire, resubmit the IO
         if retry {

@@ -396,7 +396,11 @@ impl<'n> Nexus<'n> {
         let ch = self.as_mut().child_mut(child_uri)?;
 
         if let Some(dev_name) = ch.get_device_name() {
-            self.as_mut().retire_child_device(&dev_name, false);
+            self.as_mut().retire_child_device(
+                &dev_name,
+                Reason::IoError,
+                false,
+            );
         } else {
             warn!("{:?}: child is not open, won't retire", ch);
         }
@@ -743,7 +747,11 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                     retiring child '{}'",
                     self, dev_name
                 );
-                self.retire_child_device(dev_name, false);
+                self.retire_child_device(
+                    dev_name,
+                    Reason::AdminCommandFailed,
+                    false,
+                );
             }
             _ => {
                 warn!(
@@ -771,7 +779,6 @@ fn update_failfast_cb(
     ctx: &mut UpdateFailFastCtx,
 ) -> ChannelTraverseStatus {
     channel.disconnect_device(&ctx.child_device);
-    channel.nexus_mut().child_io_faulted(&ctx.child_device);
     ChannelTraverseStatus::Ok
 }
 
@@ -786,55 +793,57 @@ fn update_failfast_done(
 impl<'n> Nexus<'n> {
     /// Marks a child device as faulted.
     /// Returns true if the child was in open state, false otherwise.
-    fn child_io_faulted(self: Pin<&mut Self>, device_name: &str) -> bool {
-        self.children_iter()
-            .filter(|c| c.state() == ChildState::Open)
-            .filter(|c| {
-                // If there were previous retires, we do not have a reference
-                // to a BlockDevice. We do however, know it can't be the device
-                // we are attempting to retire in the first place so this
-                // condition is fine.
-                if let Ok(child) = c.get_device().as_ref() {
-                    child.device_name() == device_name
-                } else {
-                    false
-                }
-            })
-            .any(|c| {
-                Ok(ChildState::Open)
+    fn child_io_faulted(
+        self: Pin<&mut Self>,
+        device_name: &str,
+        reason: Reason,
+    ) -> bool {
+        match self.lookup_child_device(device_name) {
+            Some(c) => {
+                debug!("{:?}: faulting with {}...", c, reason);
+
+                if Ok(ChildState::Open)
                     == c.state.compare_exchange(
                         ChildState::Open,
-                        ChildState::Faulted(Reason::IoError),
+                        ChildState::Faulted(reason),
                     )
-            })
+                {
+                    warn!("{:?}: I/O faulted; will retire", c);
+                    true
+                } else {
+                    warn!("{:?}: I/O faulted; child was already fauled", c);
+                    false
+                }
+            }
+            None => {
+                error!(
+                    "{:?}: trying to fault a child device which \
+                        cannot be not found '{}'",
+                    self, device_name
+                );
+                false
+            }
+        }
     }
 
     /// TODO
     pub(crate) fn retire_child_device(
         mut self: Pin<&mut Self>,
         child_device: &str,
+        reason: Reason,
         retry: bool,
     ) {
         // check if this child needs to be retired
-        let need_retire = self.as_mut().child_io_faulted(child_device);
+        let need_retire = self.as_mut().child_io_faulted(child_device, reason);
 
-        // The child state was not faulted yet, so this is the first IO
+        // The child state was not faulted yet, so this is the first I/O
         // to this child for which we encountered an error.
         if need_retire {
-            warn!(
-                "{:?}: I/O faulted on '{}', child retire scheduled",
-                self, child_device
-            );
             Reactors::master().send_future(Nexus::child_retire_routine(
                 self.name.clone(),
                 child_device.to_owned(),
                 retry,
             ));
-        } else {
-            debug!(
-                "{:?}: I/O faulted on '{}': already in faulted state",
-                self, child_device
-            );
         }
     }
 
@@ -895,7 +904,7 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         device_name: String,
     ) -> Result<(), Error> {
-        warn!("{:?}: retiring child device '{}'", self, device_name);
+        warn!("{:?}: retiring child device '{}'...", self, device_name);
 
         self.disconnect_all_channels(device_name.clone()).await?;
 

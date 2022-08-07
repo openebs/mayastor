@@ -92,19 +92,30 @@ pub enum ChildError {
 /// TODO
 #[derive(Debug, Serialize, PartialEq, Deserialize, Eq, Copy, Clone)]
 pub enum Reason {
-    /// no particular reason for the child to be in this state
-    /// this is typically the init state
+    /// No particular reason for the child to be in this state.
+    /// This is typically the init state.
     Unknown,
-    /// out of sync - needs to be rebuilt
+    /// Out of sync: child device is ok, but needs to be rebuilt.
     OutOfSync,
-    /// cannot open
+    /// Thin-provisioned child failed a write operate because
+    /// the underlying logical volume failed to allocate space.
+    /// This a recoverable state in case when addtional space
+    /// can be freed from the logical volume store.
+    NoSpace,
+    /// The underlying device timed out.
+    /// This a recoverable state in case the device can be expected
+    /// to come back online.
+    TimedOut,
+    /// Cannot open device.
     CantOpen,
-    /// the child failed to rebuild successfully
+    /// The child failed to rebuild successfully.
     RebuildFailed,
-    /// the child has been faulted due to I/O error(s)
+    /// The child has been faulted due to I/O error(s).
     IoError,
-    /// the child has been explicitly faulted due to a rpc call
+    /// The child has been explicitly faulted due to am RPC call.
     Rpc,
+    /// Admin command failure.
+    AdminCommandFailed,
 }
 
 impl Display for Reason {
@@ -112,28 +123,31 @@ impl Display for Reason {
         match self {
             Self::Unknown => write!(f, "unknown"),
             Self::OutOfSync => write!(f, "out of sync"),
+            Self::NoSpace => write!(f, "no space"),
+            Self::TimedOut => write!(f, "timed out"),
             Self::CantOpen => write!(f, "cannot open"),
             Self::RebuildFailed => write!(f, "rebuild failed"),
             Self::IoError => write!(f, "io error"),
             Self::Rpc => write!(f, "client"),
+            Self::AdminCommandFailed => write!(f, "admin command failed"),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum ChildState {
-    /// child has not been opened, but we are in the process of opening it
+    /// Child has not been opened, but we are in the process of opening it.
     Init,
-    /// cannot add this block device to the parent as its incompatible property
-    /// wise
+    /// Cannot add this block device to the parent as
+    /// it iss incompatible property-wise.
     ConfigInvalid,
-    /// the child is open for RW
+    /// The child is open for R/W.
     Open,
-    /// the child device is being destroyed
+    /// The child device is being destroyed.
     Destroying,
-    /// the child has been closed by the nexus
+    /// The child has been closed by the nexus.
     Closed,
-    /// the child is faulted
+    /// The child is faulted.
     Faulted(Reason),
 }
 
@@ -443,7 +457,11 @@ impl<'c> NexusChild<'c> {
             )
             .await
         {
-            warn!("{}", e);
+            warn!(
+                "{:?}: failed to acquire write exclusive: {}",
+                self,
+                e.verbose()
+            );
         }
 
         if let Some((pkey, hostid)) = self.resv_report(&*hdl).await? {
@@ -456,7 +474,10 @@ impl<'c> NexusChild<'c> {
                 }
             };
             if my_hostid != hostid {
-                info!("Write exclusive reservation held by {:0x?}", hostid);
+                info!(
+                    "{:?}: write exclusive reservation held by {:0x?}",
+                    self, hostid
+                );
                 self.resv_acquire(
                     &*hdl,
                     key,
@@ -468,13 +489,14 @@ impl<'c> NexusChild<'c> {
                 if let Some((_, hostid)) = self.resv_report(&*hdl).await? {
                     if my_hostid != hostid {
                         info!(
-                            "Write exclusive reservation held by {:0x?}",
-                            hostid
+                            "{:?}: write exclusive reservation held by {:0x?}",
+                            self, hostid
                         );
                     }
                 }
             }
         }
+
         Ok(())
     }
 
