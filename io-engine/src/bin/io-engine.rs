@@ -30,6 +30,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
     let registration_addr = args.registration_endpoint.clone();
     let rpc_address = args.rpc_address.clone();
+    let api_versions = args.api_versions.clone();
     // In case we do not have the node-name provided we would set the node name
     // as the hostname(env always present), because the csi-controller adds
     // the hostname in allowed nodes in the topology and in case there is
@@ -50,6 +51,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                     &node_name,
                     &grpc_address.to_string(),
                     registration_addr,
+                    api_versions.clone(),
                 );
                 futures.push(Registration::run().boxed());
             }
@@ -58,8 +60,12 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             runtime::spawn(device_monitor_loop());
 
             futures.push(
-                grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
-                    .boxed(),
+                grpc::MayastorGrpcServer::run(
+                    grpc_address,
+                    rpc_address,
+                    api_versions,
+                )
+                .boxed(),
             );
 
             futures::future::try_join_all(futures)

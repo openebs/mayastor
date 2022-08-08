@@ -86,7 +86,14 @@ pub mod mayastor {
                 UnshareReplicaRequest,
             };
         }
-
+        pub mod registration {
+            pub use super::pb::{
+                registration_client,
+                ApiVersion,
+                DeregisterRequest,
+                RegisterRequest,
+            };
+        }
         pub mod host {
             pub use super::pb::{
                 block_device::{Filesystem, Partition},
@@ -155,8 +162,4 @@ pub mod mayastor {
             };
         }
     }
-}
-
-pub mod registration {
-    include!(concat!(env!("OUT_DIR"), "/v1.registration.rs"));
 }

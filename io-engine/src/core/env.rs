@@ -50,7 +50,12 @@ use crate::{
     grpc,
     logger,
     persistent_store::PersistentStore,
-    subsys::{self, Config, PoolConfig},
+    subsys::{
+        self,
+        registration::registration_grpc::ApiVersion,
+        Config,
+        PoolConfig,
+    },
 };
 
 fn parse_mb(src: &str) -> Result<i32, String> {
@@ -101,11 +106,7 @@ pub struct MayastorCliArgs {
     pub node_name: Option<String>,
     /// The maximum amount of hugepage memory we are allowed to allocate in
     /// MiB. A value of 0 means no limit.
-    #[structopt(
-    short = "s",
-    parse(try_from_str = parse_mb),
-    default_value = "0"
-    )]
+    #[structopt(short = "s", parse(try_from_str = parse_mb), default_value = "0")]
     pub mem_size: i32,
     #[structopt(short = "u")]
     /// Disable the use of PCIe devices.
@@ -141,6 +142,14 @@ pub struct MayastorCliArgs {
     #[structopt(short = "T", long = "tgt-iface", env = "NVMF_TGT_IFACE")]
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
+    /// api Version
+    #[structopt(
+        long,
+        value_delimiter = ",",
+        default_value = "V0,V1",
+        env = "API_VERSIONS"
+    )]
+    pub api_versions: Vec<ApiVersion>,
 }
 
 /// Mayastor features.
@@ -183,6 +192,7 @@ impl Default for MayastorCliArgs {
             nvme_ctl_io_ctx_pool_size: 65535,
             registration_endpoint: None,
             nvmf_tgt_interface: None,
+            api_versions: vec![ApiVersion::V0, ApiVersion::V1],
         }
     }
 }
@@ -266,6 +276,7 @@ pub struct MayastorEnvironment {
     bdev_io_ctx_pool_size: u64,
     nvme_ctl_io_ctx_pool_size: u64,
     nvmf_tgt_interface: Option<String>,
+    api_versions: Vec<ApiVersion>,
 }
 
 impl Default for MayastorEnvironment {
@@ -305,6 +316,7 @@ impl Default for MayastorEnvironment {
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             nvmf_tgt_interface: None,
+            api_versions: vec![ApiVersion::V0, ApiVersion::V1],
         }
     }
 }
@@ -403,6 +415,7 @@ impl MayastorEnvironment {
             bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
             nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
             nvmf_tgt_interface: args.nvmf_tgt_interface,
+            api_versions: args.api_versions,
             ..Default::default()
         }
         .setup_static()
@@ -635,7 +648,7 @@ impl MayastorEnvironment {
                 return Err(format!(
                     "Invalid NVMF target interface: '{}'",
                     iface
-                ))
+                ));
             }
         };
 
@@ -845,6 +858,7 @@ impl MayastorEnvironment {
         type FutureResult = Result<(), ()>;
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
+        let api_versions = self.api_versions.clone();
         let persistent_store_endpoint = self.persistent_store_endpoint.clone();
         let ms = self.init();
 
@@ -861,6 +875,7 @@ impl MayastorEnvironment {
                 futures.push(Box::pin(grpc::MayastorGrpcServer::run(
                     grpc_endpoint,
                     rpc_addr,
+                    api_versions,
                 )));
             }
             futures.push(Box::pin(subsys::Registration::run()));
