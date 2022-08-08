@@ -94,7 +94,7 @@ impl CreateDestroy for NVMe {
                 context.count,
                 Some(nvme_create_cb),
                 cb_arg(sender),
-                std::ptr::null_mut(), // context.prchk_flags,
+                std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 false,
             )
@@ -156,7 +156,6 @@ const MAX_NAMESPACES: usize = 1;
 struct NvmeCreateContext {
     trid: spdk_nvme_transport_id,
     names: [*const c_char; MAX_NAMESPACES],
-    // prchk_flags: u32,
     count: u32,
 }
 
@@ -178,7 +177,6 @@ impl NvmeCreateContext {
         NvmeCreateContext {
             trid,
             names: [std::ptr::null_mut() as *mut c_char; MAX_NAMESPACES],
-            // prchk_flags: 0,
             count: MAX_NAMESPACES as u32,
         }
     }
