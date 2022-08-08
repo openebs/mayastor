@@ -10,7 +10,7 @@ use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
-use super::{nexus_iter_mut, nexus_lookup_mut, DrEvent};
+use super::{nexus_lookup_mut, DrEvent};
 
 use crate::{
     bdev::{device_create, device_destroy, device_lookup},
@@ -817,14 +817,4 @@ impl<'c> NexusChild<'c> {
             }
         }
     }
-}
-
-/// Looks up a child based on the underlying block device name.
-pub fn lookup_nexus_child(bdev_name: &str) -> Option<&mut NexusChild> {
-    for nexus in nexus_iter_mut() {
-        if let Some(c) = nexus.lookup_child_device_mut(bdev_name) {
-            return Some(c);
-        }
-    }
-    None
 }

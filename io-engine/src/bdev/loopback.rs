@@ -1,4 +1,8 @@
-use std::{collections::HashMap, convert::TryFrom};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    fmt::{Debug, Formatter},
+};
 
 use async_trait::async_trait;
 use snafu::ResultExt;
@@ -7,7 +11,7 @@ use url::Url;
 use crate::{
     bdev::{
         dev::reject_unknown_parameters,
-        nexus::lookup_nexus_child,
+        device::dispatch_loopback_removed,
         util::uri,
         CreateDestroy,
         GetName,
@@ -16,11 +20,16 @@ use crate::{
     core::UntypedBdev,
 };
 
-#[derive(Debug)]
 pub(super) struct Loopback {
     name: String,
     alias: String,
     uuid: Option<uuid::Uuid>,
+}
+
+impl Debug for Loopback {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Loopback '{}'", self.name)
+    }
 }
 
 impl TryFrom<&Url> for Loopback {
@@ -66,6 +75,8 @@ impl CreateDestroy for Loopback {
     type Error = BdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
+        debug!("{:?}: creating loopback", self);
+
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             if self.uuid.is_some() && Some(bdev.uuid()) != self.uuid {
                 return Err(BdevError::BdevWrongUuid {
@@ -91,12 +102,14 @@ impl CreateDestroy for Loopback {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(child) = lookup_nexus_child(&self.name) {
-            child.unplug();
-        }
+        debug!("{:?}: deleting", self);
+
+        dispatch_loopback_removed(&self.name);
+
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);
         }
+
         Ok(())
     }
 }
