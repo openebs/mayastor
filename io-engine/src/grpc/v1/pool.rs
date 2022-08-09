@@ -2,7 +2,7 @@ use crate::{
     core::Share,
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvs},
-    pool::{PoolArgs, PoolBackend},
+    pool_backend::{PoolArgs, PoolBackend},
 };
 use futures::FutureExt;
 use nix::errno::Errno;

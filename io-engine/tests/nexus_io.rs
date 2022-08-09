@@ -11,7 +11,7 @@ use io_engine::{
     constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
-    pool::PoolArgs,
+    pool_backend::PoolArgs,
 };
 
 use common::compose::rpc::v0::{

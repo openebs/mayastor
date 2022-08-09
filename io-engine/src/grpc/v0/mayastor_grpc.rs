@@ -38,7 +38,7 @@ use crate::{
     },
     host::{blk_device, resource},
     lvs::{Error as LvsError, Lvol, Lvs},
-    pool::PoolArgs,
+    pool_backend::PoolArgs,
     rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
 };

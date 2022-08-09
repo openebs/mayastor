@@ -3,7 +3,7 @@ use io_engine::{
     bdev_api::bdev_create,
     core::{MayastorCliArgs, Protocol, Share, UntypedBdev},
     lvs::{Lvs, PropName, PropValue},
-    pool::PoolArgs,
+    pool_backend::PoolArgs,
     subsys::NvmfSubsystem,
 };
 use std::pin::Pin;

@@ -42,7 +42,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
-    pool::PoolArgs,
+    pool_backend::PoolArgs,
 };
 
 /// iterator over all lvol stores
