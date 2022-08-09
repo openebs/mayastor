@@ -28,6 +28,7 @@ const NEXUS: &str = "nexus-e1e27668-fbe1-4c8a-9108-513f6e44d342";
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();
+    let api_versions = args.api_versions.clone();
 
     Mthread::spawn_unaffinitized(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -38,9 +39,12 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             .build()
             .unwrap();
 
-        let futures =
-            vec![grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address)
-                .boxed_local()];
+        let futures = vec![grpc::MayastorGrpcServer::run(
+            grpc_endpoint,
+            rpc_address,
+            api_versions,
+        )
+        .boxed_local()];
 
         rt.block_on(futures::future::try_join_all(futures))
             .expect_err("reactor exit in abnormal state");

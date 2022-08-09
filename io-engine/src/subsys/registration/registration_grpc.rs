@@ -3,12 +3,12 @@
 use futures::{select, FutureExt, StreamExt};
 use http::Uri;
 use once_cell::sync::OnceCell;
-use rpc::registration::{
+use rpc::mayastor::v1::registration::{
     registration_client,
     DeregisterRequest,
     RegisterRequest,
 };
-use std::{env, time::Duration};
+use std::{env, str::FromStr, time::Duration};
 
 /// Mayastor sends registration messages in this interval (kind of heart-beat)
 const HB_INTERVAL_SEC: Duration = Duration::from_secs(5);
@@ -18,6 +18,27 @@ const HB_TIMEOUT_SEC: Duration = Duration::from_secs(5);
 const HTTP_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 /// The http2 keep alive TIMEOUT.
 const HTTP_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
+
+#[derive(Clone, Debug, PartialEq)]
+/// ApiVersion to be supported
+pub enum ApiVersion {
+    /// V0 Version of api
+    V0,
+    /// V1 version of api
+    V1,
+}
+
+impl FromStr for ApiVersion {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "v0" => Ok(Self::V0),
+            "v1" => Ok(Self::V1),
+            _ => Err(format!("The version : {} entered is not supported", s)),
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Configuration {
@@ -29,6 +50,8 @@ struct Configuration {
     hb_interval_sec: Duration,
     /// how long we wait to send a registration message before timing out
     hb_timeout_sec: Duration,
+    /// ApiVersion to be supported by the instance
+    api_versions: Vec<ApiVersion>,
 }
 
 /// Registration component for registering dataplane to controlplane
@@ -47,9 +70,19 @@ pub struct Registration {
 static GRPC_REGISTRATION: OnceCell<Registration> = OnceCell::new();
 impl Registration {
     /// Initialise the global registration instance
-    pub fn init(node: &str, grpc_endpoint: &str, registration_addr: Uri) {
+    pub fn init(
+        node: &str,
+        grpc_endpoint: &str,
+        registration_addr: Uri,
+        api_versions: Vec<ApiVersion>,
+    ) {
         GRPC_REGISTRATION.get_or_init(|| {
-            Registration::new(node, grpc_endpoint, registration_addr)
+            Registration::new(
+                node,
+                grpc_endpoint,
+                registration_addr,
+                api_versions,
+            )
         });
     }
 
@@ -58,9 +91,11 @@ impl Registration {
         node: &str,
         grpc_endpoint: &str,
         registration_addr: Uri,
+        api_versions: Vec<ApiVersion>,
     ) -> Self {
         let (msg_sender, msg_receiver) = async_channel::unbounded::<()>();
         let config = Configuration {
+            api_versions,
             node: node.to_owned(),
             grpc_endpoint: grpc_endpoint.to_owned(),
             hb_interval_sec: match env::var("MAYASTOR_HB_INTERVAL_SEC")
@@ -102,12 +137,24 @@ impl Registration {
 
     /// Register a new node over rpc
     pub async fn register(&mut self) -> Result<(), tonic::Status> {
+        let api_versions = self
+            .config
+            .api_versions
+            .clone()
+            .into_iter()
+            .map(|v| {
+                let api_version: rpc::mayastor::v1::registration::ApiVersion =
+                    v.into();
+                api_version as i32
+            })
+            .collect();
         match self
             .client
             .register(tonic::Request::new(RegisterRequest {
                 id: self.config.node.to_string(),
                 grpc_endpoint: self.config.grpc_endpoint.clone(),
                 instance_uuid: None,
+                api_version: api_versions,
             }))
             .await
         {
@@ -188,5 +235,14 @@ impl Registration {
         if let Err(err) = self.deregister().await {
             error!("Deregistration failed: {:?}", err);
         };
+    }
+}
+
+impl From<ApiVersion> for rpc::mayastor::v1::registration::ApiVersion {
+    fn from(api_version: ApiVersion) -> Self {
+        match api_version {
+            ApiVersion::V0 => Self::V0,
+            ApiVersion::V1 => Self::V1,
+        }
     }
 }

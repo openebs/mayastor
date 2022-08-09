@@ -19,6 +19,7 @@ use rpc::mayastor::{
     v1,
 };
 
+use crate::subsys::registration::registration_grpc::ApiVersion;
 use std::{borrow::Cow, time::Duration};
 use tonic::transport::Server;
 use tracing::trace;
@@ -29,25 +30,53 @@ impl MayastorGrpcServer {
     pub async fn run(
         endpoint: std::net::SocketAddr,
         rpc_addr: String,
+        api_versions: Vec<ApiVersion>,
     ) -> Result<(), ()> {
-        info!("gRPC server configured at address {}", endpoint);
         let address = Cow::from(rpc_addr);
+
+        let enable_v0 = api_versions.contains(&ApiVersion::V0).then(|| true);
+        let enable_v1 = api_versions.contains(&ApiVersion::V1).then(|| true);
+        info!(
+            "{:?} gRPC server configured at address {}",
+            api_versions, endpoint
+        );
         let svc = Server::builder()
-            .add_service(MayastorRpcServer::new(MayastorSvc::new(
-                Duration::from_millis(4),
-            )))
-            .add_service(BdevRpcServer::new(BdevSvc::new()))
-            .add_service(v1::bdev::BdevRpcServer::new(BdevService::new()))
-            .add_service(JsonRpcServer::new(JsonRpcSvc::new(address.clone())))
-            .add_service(v1::json::JsonRpcServer::new(JsonService::new(
-                address.clone(),
-            )))
-            .add_service(v1::pool::PoolRpcServer::new(PoolService::new()))
-            .add_service(v1::replica::ReplicaRpcServer::new(
-                ReplicaService::new(),
-            ))
-            .add_service(v1::host::HostRpcServer::new(HostService::new()))
-            .add_service(v1::nexus::NexusRpcServer::new(NexusService::new()))
+            .add_optional_service(
+                enable_v1
+                    .map(|_| v1::bdev::BdevRpcServer::new(BdevService::new())),
+            )
+            .add_optional_service(enable_v1.map(|_| {
+                v1::json::JsonRpcServer::new(JsonService::new(address.clone()))
+            }))
+            .add_optional_service(
+                enable_v1
+                    .map(|_| v1::pool::PoolRpcServer::new(PoolService::new())),
+            )
+            .add_optional_service(enable_v1.map(|_| {
+                v1::replica::ReplicaRpcServer::new(ReplicaService::new())
+            }))
+            .add_optional_service(
+                enable_v1
+                    .map(|_| v1::host::HostRpcServer::new(HostService::new())),
+            )
+            .add_optional_service(
+                enable_v1.map(|_| {
+                    v1::nexus::NexusRpcServer::new(NexusService::new())
+                }),
+            )
+            .add_optional_service(enable_v0.map(|_| {
+                MayastorRpcServer::new(MayastorSvc::new(Duration::from_millis(
+                    4,
+                )))
+            }))
+            .add_optional_service(
+                enable_v0.map(|_| {
+                    JsonRpcServer::new(JsonRpcSvc::new(address.clone()))
+                }),
+            )
+            .add_optional_service(
+                enable_v0.map(|_| BdevRpcServer::new(BdevSvc::new())),
+            )
             .serve(endpoint);
 
         match svc.await {

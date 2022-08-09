@@ -1,6 +1,6 @@
 use crate::{
     bdev::{nexus, NvmeControllerState},
-    core::{BlockDeviceIoStats, CoreError, MayastorFeatures},
+    core::{BlockDeviceIoStats, CoreError, MayastorCliArgs, MayastorFeatures},
     grpc::{
         controller_grpc::{
             controller_stats,
@@ -14,13 +14,13 @@ use crate::{
     },
     host::{blk_device, resource},
 };
+use ::function_name::named;
 use futures::FutureExt;
-use rpc::mayastor::v1::host as rpc;
+use rpc::mayastor::v1::{host as host_rpc, registration::RegisterRequest};
 use std::panic::AssertUnwindSafe;
+use structopt::StructOpt;
 use tonic::{Request, Response, Status};
 use version_info::raw_version_string;
-
-use ::function_name::named;
 
 /// RPC service for generic host machine and mayastor instance related
 /// operations
@@ -87,7 +87,7 @@ impl HostService {
     }
 }
 
-impl From<MayastorFeatures> for rpc::MayastorFeatures {
+impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
@@ -95,7 +95,7 @@ impl From<MayastorFeatures> for rpc::MayastorFeatures {
     }
 }
 
-impl From<blk_device::BlockDevice> for rpc::BlockDevice {
+impl From<blk_device::BlockDevice> for host_rpc::BlockDevice {
     fn from(b: blk_device::BlockDevice) -> Self {
         Self {
             devname: b.devname,
@@ -106,14 +106,14 @@ impl From<blk_device::BlockDevice> for rpc::BlockDevice {
             devpath: b.devpath,
             devlinks: b.devlinks,
             size: b.size,
-            partition: b.partition.map(rpc::Partition::from),
-            filesystem: b.filesystem.map(rpc::Filesystem::from),
+            partition: b.partition.map(host_rpc::Partition::from),
+            filesystem: b.filesystem.map(host_rpc::Filesystem::from),
             available: b.available,
         }
     }
 }
 
-impl From<blk_device::FileSystem> for rpc::Filesystem {
+impl From<blk_device::FileSystem> for host_rpc::Filesystem {
     fn from(fs: blk_device::FileSystem) -> Self {
         Self {
             fstype: fs.fstype,
@@ -124,7 +124,7 @@ impl From<blk_device::FileSystem> for rpc::Filesystem {
     }
 }
 
-impl From<blk_device::Partition> for rpc::Partition {
+impl From<blk_device::Partition> for host_rpc::Partition {
     fn from(p: blk_device::Partition) -> Self {
         Self {
             parent: p.parent,
@@ -137,7 +137,7 @@ impl From<blk_device::Partition> for rpc::Partition {
     }
 }
 
-impl From<resource::Usage> for rpc::ResourceUsage {
+impl From<resource::Usage> for host_rpc::ResourceUsage {
     fn from(usage: resource::Usage) -> Self {
         let rusage = usage.0;
         Self {
@@ -155,39 +155,41 @@ impl From<resource::Usage> for rpc::ResourceUsage {
     }
 }
 
-impl From<NvmeControllerInfo> for rpc::NvmeController {
+impl From<NvmeControllerInfo> for host_rpc::NvmeController {
     fn from(n: NvmeControllerInfo) -> Self {
         Self {
             name: n.name,
-            state: rpc::NvmeControllerState::from(n.state) as i32,
+            state: host_rpc::NvmeControllerState::from(n.state) as i32,
             size: n.size,
             blk_size: n.blk_size,
         }
     }
 }
 
-impl From<NvmeControllerState> for rpc::NvmeControllerState {
+impl From<NvmeControllerState> for host_rpc::NvmeControllerState {
     fn from(state: NvmeControllerState) -> Self {
         match state {
-            NvmeControllerState::New => rpc::NvmeControllerState::New,
+            NvmeControllerState::New => host_rpc::NvmeControllerState::New,
             NvmeControllerState::Initializing => {
-                rpc::NvmeControllerState::Initializing
+                host_rpc::NvmeControllerState::Initializing
             }
-            NvmeControllerState::Running => rpc::NvmeControllerState::Running,
+            NvmeControllerState::Running => {
+                host_rpc::NvmeControllerState::Running
+            }
             NvmeControllerState::Faulted(_) => {
-                rpc::NvmeControllerState::Faulted
+                host_rpc::NvmeControllerState::Faulted
             }
             NvmeControllerState::Unconfiguring => {
-                rpc::NvmeControllerState::Unconfiguring
+                host_rpc::NvmeControllerState::Unconfiguring
             }
             NvmeControllerState::Unconfigured => {
-                rpc::NvmeControllerState::Unconfigured
+                host_rpc::NvmeControllerState::Unconfigured
             }
         }
     }
 }
 
-impl From<BlockDeviceIoStats> for rpc::NvmeControllerIoStats {
+impl From<BlockDeviceIoStats> for host_rpc::NvmeControllerIoStats {
     fn from(b: BlockDeviceIoStats) -> Self {
         Self {
             num_read_ops: b.num_read_ops,
@@ -201,16 +203,35 @@ impl From<BlockDeviceIoStats> for rpc::NvmeControllerIoStats {
 }
 
 #[tonic::async_trait]
-impl rpc::HostRpc for HostService {
+impl host_rpc::HostRpc for HostService {
     async fn get_mayastor_info(
         &self,
         _request: Request<()>,
-    ) -> GrpcResult<rpc::MayastorInfoResponse> {
+    ) -> GrpcResult<host_rpc::MayastorInfoResponse> {
         let features = MayastorFeatures::get_features().into();
+        let args = MayastorCliArgs::from_args();
+        let api_versions = args
+            .api_versions
+            .into_iter()
+            .map(|v| {
+                let api_version: rpc::mayastor::v1::registration::ApiVersion =
+                    v.into();
+                api_version as i32
+            })
+            .collect();
 
-        let response = rpc::MayastorInfoResponse {
+        let response = host_rpc::MayastorInfoResponse {
             version: raw_version_string(),
             supported_features: Some(features),
+            registration_info: Some(RegisterRequest {
+                id: args
+                    .node_name
+                    .clone()
+                    .unwrap_or_else(|| "mayastor-node".into()),
+                grpc_endpoint: args.grpc_endpoint,
+                instance_uuid: None,
+                api_version: api_versions,
+            }),
         };
 
         Ok(Response::new(response))
@@ -218,15 +239,15 @@ impl rpc::HostRpc for HostService {
 
     async fn list_block_devices(
         &self,
-        request: Request<rpc::ListBlockDevicesRequest>,
-    ) -> GrpcResult<rpc::ListBlockDevicesResponse> {
+        request: Request<host_rpc::ListBlockDevicesRequest>,
+    ) -> GrpcResult<host_rpc::ListBlockDevicesResponse> {
         let args = request.into_inner();
         let block_devices = blk_device::list_block_devices(args.all).await?;
 
-        let response = rpc::ListBlockDevicesResponse {
+        let response = host_rpc::ListBlockDevicesResponse {
             devices: block_devices
                 .into_iter()
-                .map(rpc::BlockDevice::from)
+                .map(host_rpc::BlockDevice::from)
                 .collect(),
         };
         trace!("{:?}", response);
@@ -236,9 +257,9 @@ impl rpc::HostRpc for HostService {
     async fn get_mayastor_resource_usage(
         &self,
         _request: Request<()>,
-    ) -> GrpcResult<rpc::GetMayastorResourceUsageResponse> {
+    ) -> GrpcResult<host_rpc::GetMayastorResourceUsageResponse> {
         let usage = resource::get_resource_usage().await?;
-        let response = rpc::GetMayastorResourceUsageResponse {
+        let response = host_rpc::GetMayastorResourceUsageResponse {
             usage: Some(usage.into()),
         };
         trace!("{:?}", response);
@@ -249,7 +270,7 @@ impl rpc::HostRpc for HostService {
     async fn list_nvme_controllers(
         &self,
         request: Request<()>,
-    ) -> GrpcResult<rpc::ListNvmeControllersResponse> {
+    ) -> GrpcResult<host_rpc::ListNvmeControllersResponse> {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
@@ -257,9 +278,9 @@ impl rpc::HostRpc for HostService {
                     let controllers = list_controllers()
                         .await
                         .into_iter()
-                        .map(rpc::NvmeController::from)
+                        .map(host_rpc::NvmeController::from)
                         .collect();
-                    Ok(rpc::ListNvmeControllersResponse {
+                    Ok(host_rpc::ListNvmeControllersResponse {
                         controllers,
                     })
                 })?;
@@ -276,8 +297,8 @@ impl rpc::HostRpc for HostService {
     #[named]
     async fn stat_nvme_controller(
         &self,
-        request: Request<rpc::StatNvmeControllerRequest>,
-    ) -> GrpcResult<rpc::StatNvmeControllerResponse> {
+        request: Request<host_rpc::StatNvmeControllerRequest>,
+    ) -> GrpcResult<host_rpc::StatNvmeControllerResponse> {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
@@ -286,9 +307,11 @@ impl rpc::HostRpc for HostService {
                     controller_stats(&args.name)
                         .await
                         .map(|blk_stat| {
-                            Some(rpc::NvmeControllerIoStats::from(blk_stat))
+                            Some(host_rpc::NvmeControllerIoStats::from(
+                                blk_stat,
+                            ))
                         })
-                        .map(|ctrl_stat| rpc::StatNvmeControllerResponse {
+                        .map(|ctrl_stat| host_rpc::StatNvmeControllerResponse {
                             stats: ctrl_stat,
                         })
                 })?;
