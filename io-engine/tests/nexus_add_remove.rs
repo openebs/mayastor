@@ -1,11 +1,11 @@
 use common::compose::{Builder, ComposeTest, MayastorTest};
+use composer::rpc::mayastor::{BdevShareRequest, BdevUri};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     bdev_api::bdev_destroy,
     core::{MayastorCliArgs, Share},
 };
 use once_cell::sync::OnceCell;
-use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
 
@@ -212,13 +212,16 @@ async fn create_targets() {
 
 #[tokio::test]
 async fn nexus_add_remove() {
+    common::composer_init();
+
     // create the docker containers
     let compose = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
-        .add_container("ms2")
-        .add_container("ms3")
+        .unwrap()
+        .add_container_dbg("ms1")
+        .add_container_dbg("ms2")
+        .add_container_dbg("ms3")
         .with_clean(true)
         .with_prune(true)
         .build()

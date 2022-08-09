@@ -5,6 +5,7 @@ use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
 use common::compose::{Builder, MayastorTest};
+use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use io_engine::{
     bdev::{device_create, device_destroy, device_open},
     core::{
@@ -16,7 +17,6 @@ use io_engine::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
@@ -50,12 +50,15 @@ fn get_config() -> &'static Config {
 }
 
 async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
+    common::composer_init();
+
     get_config().apply();
 
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
@@ -233,12 +236,15 @@ async fn io_timeout_reset() {
 
 #[tokio::test]
 async fn io_timeout_ignore() {
+    common::composer_init();
+
     get_config().apply();
 
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await

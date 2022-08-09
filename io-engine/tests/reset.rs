@@ -1,18 +1,22 @@
+use composer::rpc::mayastor::{BdevShareRequest, BdevUri};
 use io_engine::{
     bdev::nexus::nexus_create,
     core::{MayastorCliArgs, UntypedBdevHandle},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
 use common::compose;
+
 #[tokio::test]
 async fn nexus_reset_mirror() {
+    common::composer_init();
+
     let test = compose::Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms2")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms2")
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await

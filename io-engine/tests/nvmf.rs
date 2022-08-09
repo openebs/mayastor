@@ -12,9 +12,12 @@ use io_engine::{
 
 pub mod common;
 use common::compose::Builder;
-use composer::{Binary, ComposeTest};
+use composer::{
+    rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply},
+    Binary,
+    ComposeTest,
+};
 use regex::Regex;
-use rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply};
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -89,9 +92,12 @@ fn nvmf_target() {
 #[tokio::test]
 async fn nvmf_set_target_interface() {
     async fn start_ms(network: &str, args: Vec<&str>) -> ComposeTest {
+        common::composer_init();
+
         let test = Builder::new()
             .name("cargo-test")
             .network(network)
+            .unwrap()
             .add_container_bin(
                 "ms1",
                 Binary::from_dbg("io-engine").with_args(args),

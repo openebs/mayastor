@@ -1,13 +1,15 @@
-use composer::RpcHandle;
-use rpc::mayastor::{
-    Bdev,
-    CreateNexusRequest,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    Null,
-    Replica,
-    ShareProtocolReplica,
-    ShareReplicaRequest,
+use composer::{
+    rpc::mayastor::{
+        Bdev,
+        CreateNexusRequest,
+        CreatePoolRequest,
+        CreateReplicaRequest,
+        Null,
+        Replica,
+        ShareProtocolReplica,
+        ShareReplicaRequest,
+    },
+    RpcHandle,
 };
 use std::str::FromStr;
 use tracing::info;
@@ -31,13 +33,15 @@ fn pool_name(handle_index: usize) -> String {
 // by MOAC as a unique volume identifier
 #[tokio::test]
 async fn replica_uri() {
+    common::composer_init();
+
     let test = Builder::new()
         .name("replica_uri")
         .network("10.1.0.0/16")
-        .add_container("ms1")
-        .add_container("ms2")
+        .unwrap()
+        .add_container_dbg("ms1")
+        .add_container_dbg("ms2")
         .with_clean(true)
-        .with_default_tracing()
         .build()
         .await
         .unwrap();

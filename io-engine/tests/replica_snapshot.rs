@@ -1,15 +1,15 @@
 use common::bdev_io;
+use composer::rpc::mayastor::{
+    CreatePoolRequest,
+    CreateReplicaRequest,
+    ShareProtocolReplica,
+    ShareReplicaRequest,
+};
 use io_engine::{
     bdev::nexus::nexus_create,
     core::{CoreError, MayastorCliArgs, UntypedBdevHandle},
     lvs::{Lvol, Lvs},
     pool::PoolArgs,
-};
-use rpc::mayastor::{
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    ShareProtocolReplica,
-    ShareReplicaRequest,
 };
 use tracing::info;
 
@@ -30,6 +30,8 @@ static NXNAME_SNAP: &str = "replica_snapshot_test-snap";
 #[tokio::test]
 #[ignore]
 async fn replica_snapshot() {
+    common::composer_init();
+
     // Start with fresh pools
     common::delete_file(&[DISKNAME1.to_string()]);
     common::truncate_file(DISKNAME1, DISKSIZE_KB);
@@ -37,7 +39,8 @@ async fn replica_snapshot() {
     let test = Builder::new()
         .name("replica_snapshot_test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await

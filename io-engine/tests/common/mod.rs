@@ -489,3 +489,9 @@ pub fn reactor_run_millis(milliseconds: u64) {
     });
     reactor_poll!(r);
 }
+
+pub fn composer_init() {
+    let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
+    let srcdir = path.parent().unwrap();
+    composer::initialize(srcdir);
+}

@@ -1,18 +1,23 @@
 pub mod common;
 use common::compose::Builder;
 
-use composer::RpcHandle;
-use rpc::mayastor::{CreateNexusRequest, DestroyNexusRequest, Nexus};
+use composer::{
+    rpc::mayastor::{CreateNexusRequest, DestroyNexusRequest, Nexus},
+    RpcHandle,
+};
 
 const NEXUS_COUNT: usize = 10;
 
 /// Create and Destroy multiple Nexuses, one at a time
 #[tokio::test]
 async fn nexus_create_destroy() {
+    common::composer_init();
+
     let compose = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .build()
         .await
         .unwrap();
@@ -42,10 +47,13 @@ async fn nexus_create_destroy() {
 /// Repeat, but destroy them in reverse order
 #[tokio::test]
 async fn nexus_create_multiple_then_destroy() {
+    common::composer_init();
+
     let compose = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .build()
         .await
         .unwrap();

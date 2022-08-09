@@ -1,11 +1,11 @@
 use common::{compose::Builder, MayastorTest};
+use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
     bdev_api::bdev_get_name,
     core::{MayastorCliArgs, Protocol, UntypedBdev},
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use std::process::{Command, Stdio};
 use tokio::time::Duration;
 
@@ -15,6 +15,8 @@ static NXNAME: &str = "nexus";
 #[tokio::test]
 #[ignore]
 async fn replica_stop_cont() {
+    common::composer_init();
+
     // Use shorter timeouts than the defaults to reduce test runtime
     Config::get_or_init(|| Config {
         nvme_bdev_opts: NvmeBdevOpts {
@@ -29,7 +31,8 @@ async fn replica_stop_cont() {
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await

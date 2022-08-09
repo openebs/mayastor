@@ -14,8 +14,7 @@ use io_engine::{
     pool::PoolArgs,
 };
 
-use once_cell::sync::OnceCell;
-use rpc::mayastor::{
+use composer::rpc::mayastor::{
     CreateNexusRequest,
     CreateNexusV2Request,
     CreatePoolRequest,
@@ -24,6 +23,7 @@ use rpc::mayastor::{
     Null,
     PublishNexusRequest,
 };
+use once_cell::sync::OnceCell;
 use std::process::{Command, ExitStatus};
 
 pub mod common;
@@ -129,13 +129,16 @@ fn nvme_disconnect_nqn(nqn: &str) {
 #[ignore]
 /// Create the same nexus on both nodes with a replica on 1 node as their child.
 async fn nexus_io_multipath() {
+    common::composer_init();
+
     std::env::set_var("NEXUS_NVMF_ANA_ENABLE", "1");
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
     // create a new composeTest
     let test = Builder::new()
         .name("nexus_shared_replica_test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
@@ -336,11 +339,15 @@ async fn nexus_io_multipath() {
 /// that the write exclusive, all registrants reservation has also been
 /// registered by the new nexus.
 async fn nexus_io_resv_acquire() {
+    common::composer_init();
+
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
     std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
+
     let test = Builder::new()
         .name("nexus_resv_acquire_test")
         .network("10.1.0.0/16")
+        .unwrap()
         .add_container_bin(
             "ms2",
             composer::Binary::from_dbg("io-engine")
@@ -519,6 +526,8 @@ async fn nexus_io_resv_acquire() {
 /// Create a nexus with a local and a remote replica.
 /// Verify that write-zeroes does actually write zeroes.
 async fn nexus_io_write_zeroes() {
+    common::composer_init();
+
     common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
@@ -526,6 +535,7 @@ async fn nexus_io_write_zeroes() {
     let test = Builder::new()
         .name("nexus_io_write_zeroes_test")
         .network("10.1.0.0/16")
+        .unwrap()
         .add_container_bin(
             "ms1",
             composer::Binary::from_dbg("io-engine")

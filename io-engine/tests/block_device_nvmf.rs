@@ -1,8 +1,11 @@
-use composer::ComposeTest;
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
 use common::compose::{Builder, MayastorTest};
+use composer::{
+    rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null},
+    ComposeTest,
+};
 use io_engine::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
     core::{
@@ -14,7 +17,6 @@ use io_engine::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null};
 
 use std::{
     alloc::Layout,
@@ -62,6 +64,8 @@ fn get_ms() -> &'static MayastorTest<'static> {
 }
 
 async fn launch_instance() -> (ComposeTest, String) {
+    common::composer_init();
+
     Config::get_or_init(|| Config {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 2_000_000,
@@ -76,7 +80,8 @@ async fn launch_instance() -> (ComposeTest, String) {
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await

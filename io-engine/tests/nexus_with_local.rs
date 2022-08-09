@@ -1,15 +1,17 @@
 pub mod common;
 use common::compose::Builder;
-use composer::{Binary, RpcHandle};
-
-use rpc::mayastor::{
-    AddChildNexusRequest,
-    BdevUri,
-    CreateNexusRequest,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    Null,
-    RemoveChildNexusRequest,
+use composer::{
+    rpc::mayastor::{
+        AddChildNexusRequest,
+        BdevUri,
+        CreateNexusRequest,
+        CreatePoolRequest,
+        CreateReplicaRequest,
+        Null,
+        RemoveChildNexusRequest,
+    },
+    Binary,
+    RpcHandle,
 };
 
 fn uuid() -> String {
@@ -65,10 +67,12 @@ async fn create_nexus(h: &mut RpcHandle, children: Vec<String>) {
 
 #[tokio::test]
 async fn nexus_with_local() {
+    common::composer_init();
+
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .with_default_tracing()
+        .unwrap()
         .add_container_bin(
             "ms1",
             Binary::from_dbg("io-engine").with_args(vec!["-l", "1"]),

@@ -1,3 +1,4 @@
+use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use io_engine::{
     bdev::{
         device_lookup,
@@ -6,19 +7,21 @@ use io_engine::{
     bdev_api::bdev_create,
     core::{MayastorCliArgs, UntypedBdev},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 
 pub mod common;
 use common::{compose::Builder, MayastorTest};
 
 #[tokio::test]
 async fn compose_up_down() {
+    common::composer_init();
+
     // create a new composeTest and run a basic example
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms2")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms2")
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await

@@ -4,13 +4,20 @@ use io_engine::{
     core::MayastorCliArgs,
     grpc::v1::nexus::nexus_destroy,
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use std::sync::Arc;
 
 #[allow(unused)]
 mod common;
 use common::compose::MayastorTest;
-use composer::{Binary, Builder, ComposeTest};
+use composer::{
+    rpc::{
+        mayastor,
+        mayastor::{BdevShareRequest, BdevUri, CreateNexusRequest, Null},
+    },
+    Binary,
+    Builder,
+    ComposeTest,
+};
 
 /// Infer the build type from the `OUT_DIR` and `SRCDIR`.
 fn build_type() -> String {
@@ -26,11 +33,14 @@ fn build_type() -> String {
 
 /// Create a new compose test cluster.
 async fn new_compose() -> Arc<ComposeTest> {
-    let binary = Binary::from_target(&build_type(), "io-engine");
+    common::composer_init();
+
+    let binary = Binary::from_build_type(&build_type(), "io-engine");
 
     let builder = Builder::new()
         .name("cargo-bench")
         .network("10.1.0.0/16")
+        .unwrap()
         .add_container_bin("io-engine-1", binary.clone())
         .add_container_bin("io-engine-2", binary.clone())
         .add_container_bin("io-engine-3", binary.clone())
@@ -143,7 +153,7 @@ async fn nexus_create_direct(
 }
 
 /// Created Grpc Nexus that is destroyed on drop.
-struct GrpcNexus(Arc<ComposeTest>, rpc::mayastor::Nexus);
+struct GrpcNexus(Arc<ComposeTest>, mayastor::Nexus);
 impl Drop for GrpcNexus {
     fn drop(&mut self) {
         let uuid = self.1.uuid.clone();
@@ -156,7 +166,7 @@ impl Drop for GrpcNexus {
                     let nexus_hdl = &mut hdls.last_mut().unwrap();
                     nexus_hdl
                         .mayastor
-                        .destroy_nexus(rpc::mayastor::DestroyNexusRequest {
+                        .destroy_nexus(mayastor::DestroyNexusRequest {
                             uuid,
                         })
                         .await
@@ -182,7 +192,7 @@ async fn nexus_create_grpc(
     let nexus_hdl = &mut hdls.last_mut().unwrap();
     let nexus = nexus_hdl
         .mayastor
-        .create_nexus(rpc::mayastor::CreateNexusRequest {
+        .create_nexus(CreateNexusRequest {
             uuid: uuid::Uuid::new_v4().to_string(),
             size: 10 * 1024 * 1024,
             children: children.collect::<Vec<_>>(),

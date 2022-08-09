@@ -1,8 +1,8 @@
+use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::MayastorCliArgs,
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 
 pub mod common;
 use common::{compose::Builder, MayastorTest};
@@ -11,11 +11,14 @@ static NEXUS_NAME: &str = "child_location_nexus";
 
 #[tokio::test]
 async fn child_location() {
+    common::composer_init();
+
     // create a new composeTest
     let test = Builder::new()
         .name("child_location_test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
