@@ -604,14 +604,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             match Pin::new(&mut lvol).share_nvmf(None).await {
                                 Ok(s) => {
                                     debug!(
-                                        "created and shared {:?} as {}",
+                                        "Created and shared {:?} as {}",
                                         lvol, s
                                     );
                                     Ok(ReplicaV2::from(lvol))
                                 }
                                 Err(e) => {
                                     debug!(
-                                "failed to share created {:?}: {} (destroying)",
+                                "Failed to share created {:?}: {} (destroying)",
                                 lvol,
                                 e.to_string()
                             );
@@ -621,7 +621,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             }
                         }
                         Ok(lvol) => {
-                            debug!("created {:?}", lvol);
+                            debug!("Created {:?}", lvol);
                             Ok(ReplicaV2::from(lvol))
                         }
                         Err(e) => Err(e),

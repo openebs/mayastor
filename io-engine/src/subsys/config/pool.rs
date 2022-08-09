@@ -8,7 +8,7 @@ use tonic::Status;
 use crate::{
     core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
-    lvs::{Error as LvsError, Lvs, LvsBdev, LvsBdevIter},
+    lvs::{Error as LvsError, Lvs, LvsBdev},
     pool_backend::PoolArgs,
 };
 
@@ -114,7 +114,7 @@ impl PoolConfig {
 
     /// Capture current pool configuration
     pub fn capture() -> PoolConfig {
-        let pools = LvsBdevIter::new().map(Pool::from).collect();
+        let pools = LvsBdev::iter().map(Pool::from).collect();
         PoolConfig {
             pools: Some(pools),
         }
@@ -181,9 +181,9 @@ impl From<&Pool> for PoolArgs {
 /// Convert an LvsBdev into a Pool
 impl From<LvsBdev> for Pool {
     fn from(lvs_bdev: LvsBdev) -> Self {
-        let base = lvs_bdev.get_base_bdev();
+        let base = lvs_bdev.base_bdev();
         Self {
-            name: lvs_bdev.get_name().to_string(),
+            name: lvs_bdev.name(),
             disks: vec![base
                 .bdev_uri()
                 .unwrap_or_else(|| base.name().to_string())],

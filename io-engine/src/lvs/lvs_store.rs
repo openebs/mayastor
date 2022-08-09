@@ -6,11 +6,11 @@ use std::{
     ptr::NonNull,
 };
 
+use byte_unit::Byte;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 use spdk_rs::libspdk::{
-    lvol_store_bdev,
     spdk_blob_store,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -22,8 +22,6 @@ use spdk_rs::libspdk::{
     vbdev_get_lvs_bdev_by_lvs,
     vbdev_lvol_create,
     vbdev_lvol_create_with_uuid,
-    vbdev_lvol_store_first,
-    vbdev_lvol_store_next,
     vbdev_lvs_create,
     vbdev_lvs_create_with_uuid,
     vbdev_lvs_destruct,
@@ -35,7 +33,7 @@ use spdk_rs::libspdk::{
 };
 use url::Url;
 
-use super::{Error, Lvol, PropName, PropValue};
+use super::{Error, Lvol, LvsIter, PropName, PropValue};
 
 use crate::{
     bdev::uri,
@@ -45,55 +43,15 @@ use crate::{
     pool_backend::PoolArgs,
 };
 
-/// iterator over all lvol stores
-pub struct LvsIterator(*mut lvol_store_bdev);
-
-/// returns a new lvs iterator
-impl LvsIterator {
-    fn new() -> Self {
-        LvsIterator(unsafe { vbdev_lvol_store_first() })
-    }
-}
-
-impl Default for LvsIterator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Iterator for LvsIterator {
-    type Item = Lvs;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.0.is_null() {
-            None
-        } else {
-            unsafe {
-                let current = self.0;
-                self.0 = vbdev_lvol_store_next(current);
-                Some(Lvs::from_inner_ptr((*current).lvs))
-            }
-        }
-    }
-}
-
-impl IntoIterator for Lvs {
-    type Item = Lvs;
-    type IntoIter = LvsIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        LvsIterator(unsafe { vbdev_lvol_store_first() })
-    }
-}
-
 impl Debug for Lvs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Lvs '{}' [{}] / {}",
+            "Lvs '{}' [{}] ({}/{})",
             self.name(),
-            self.uuid(),
-            self.base_bdev().name()
+            self.base_bdev().name(),
+            Byte::from(self.available()).get_appropriate_unit(true),
+            Byte::from(self.capacity()).get_appropriate_unit(true)
         )
     }
 }
@@ -158,8 +116,8 @@ impl Lvs {
     }
 
     /// returns a new iterator over all lvols
-    pub fn iter() -> LvsIterator {
-        LvsIterator::default()
+    pub fn iter() -> LvsIter {
+        LvsIter::new()
     }
 
     /// export all LVS instances
@@ -261,7 +219,7 @@ impl Lvs {
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
-        debug!("Trying to import pool '{}' on '{}'", name, bdev);
+        debug!("Trying to import lvs '{}' from '{}'...", name, bdev);
 
         let mut bdev =
             UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
@@ -303,9 +261,11 @@ impl Lvs {
 
         if name != lvs.name() {
             warn!(
-                "no pool with name '{}' found on this device: \
-                unloading the pool",
-                name
+                "No lvs with name '{}' found on this device: '{}'; \
+                found lvs: '{}'",
+                name,
+                bdev,
+                lvs.name()
             );
             let pool_name = lvs.name().to_string();
             lvs.export().await.unwrap();
@@ -315,7 +275,7 @@ impl Lvs {
             })
         } else {
             lvs.share_all().await;
-            info!("The pool '{}' has been imported", name);
+            info!("{:?}: existing lvs imported successfully", lvs);
             Ok(lvs)
         }
     }
@@ -438,7 +398,7 @@ impl Lvs {
 
         match Self::lookup(name) {
             Some(pool) => {
-                info!("The pool '{}' has been created on '{}'", name, bdev);
+                info!("{:?}: new lvs created successfully", pool);
                 Ok(pool)
             }
             None => Err(Error::PoolCreate {
@@ -452,6 +412,11 @@ impl Lvs {
     #[tracing::instrument(level = "debug", err)]
     pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, Error> {
         let disk = Self::parse_disk(args.disks.clone())?;
+
+        info!(
+            "Creating or importing lvs '{}' from '{}'...",
+            args.name, disk
+        );
 
         let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
             source: e,
@@ -526,6 +491,10 @@ impl Lvs {
     /// export the given lvs
     #[tracing::instrument(level = "debug", err)]
     pub async fn export(self) -> Result<(), Error> {
+        let self_str = format!("{:?}", self);
+
+        info!("{}: exporting lvs...", self_str);
+
         let pool = self.name().to_string();
         let base_bdev = self.base_bdev();
         let (s, r) = pair::<i32>();
@@ -547,13 +516,15 @@ impl Lvs {
                 name: pool.clone(),
             })?;
 
-        info!("pool {} exported successfully", pool);
+        info!("{}: lvs exported successfully", self_str);
+
         bdev_destroy(&base_bdev.bdev_uri_original().unwrap())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
+
         Ok(())
     }
 
@@ -601,6 +572,9 @@ impl Lvs {
     /// un share all targets
     #[tracing::instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<(), Error> {
+        let self_str = format!("{:?}", self);
+        info!("{}: destroying lvs...", self_str);
+
         let pool = self.name().to_string();
         let (s, r) = pair::<i32>();
 
@@ -624,7 +598,7 @@ impl Lvs {
                 name: pool.clone(),
             })?;
 
-        info!("pool {} destroyed successfully", pool);
+        info!("{}: lvs destroyed successfully", self_str);
 
         bdev_destroy(&base_bdev.bdev_uri_original().unwrap())
             .await

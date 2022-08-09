@@ -8,6 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use byte_unit::Byte;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
@@ -107,11 +108,11 @@ impl Debug for Lvol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Lvol '{}/{}' [{} {}Mb]",
+            "Lvol '{}/{}' [{}{}]",
             self.pool_name(),
             self.name(),
             if self.is_thin() { "thin " } else { "" },
-            self.size() / (1024 * 1024)
+            Byte::from(self.size()).get_appropriate_unit(true)
         )
     }
 }
