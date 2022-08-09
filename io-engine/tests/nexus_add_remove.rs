@@ -1,5 +1,12 @@
-use common::compose::{Builder, ComposeTest, MayastorTest};
-use composer::rpc::mayastor::{BdevShareRequest, BdevUri};
+use common::compose::{
+    rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri},
+        GrpcConnect,
+    },
+    Builder,
+    ComposeTest,
+    MayastorTest,
+};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     bdev_api::bdev_destroy,
@@ -13,7 +20,9 @@ static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 static DOCKER_COMPOSE: OnceCell<ComposeTest> = OnceCell::new();
 
 async fn nexus_3_way_create() {
-    let hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let test = DOCKER_COMPOSE.get().unwrap();
+    let grpc = GrpcConnect::new(test);
+    let hdls = grpc.grpc_handles().await.unwrap();
 
     MAYASTOR
         .get()
@@ -62,7 +71,9 @@ async fn nexus_share() {
 }
 
 async fn nexus_create_2_way_add_one() {
-    let hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let test = DOCKER_COMPOSE.get().unwrap();
+    let grpc = GrpcConnect::new(test);
+    let hdls = grpc.grpc_handles().await.unwrap();
     MAYASTOR
         .get()
         .unwrap()
@@ -93,7 +104,7 @@ async fn nexus_create_2_way_add_one() {
     //     .spawn(async move { nexus_share().await })
     //     .await;
 
-    let hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let hdls = grpc.grpc_handles().await.unwrap();
     MAYASTOR
         .get()
         .unwrap()
@@ -123,7 +134,9 @@ async fn nexus_create_2_way_add_one() {
 }
 
 async fn nexus_2_way_destroy_destroy_child() {
-    let hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let test = DOCKER_COMPOSE.get().unwrap();
+    let grpc = GrpcConnect::new(test);
+    let hdls = grpc.grpc_handles().await.unwrap();
     MAYASTOR
         .get()
         .unwrap()
@@ -150,7 +163,7 @@ async fn nexus_2_way_destroy_destroy_child() {
         })
         .await;
 
-    let hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let hdls = grpc.grpc_handles().await.unwrap();
     MAYASTOR
         .get()
         .unwrap()
@@ -172,7 +185,7 @@ async fn nexus_2_way_destroy_destroy_child() {
         })
         .await;
 
-    let hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let hdls = grpc.grpc_handles().await.unwrap();
     MAYASTOR
         .get()
         .unwrap()
@@ -188,7 +201,9 @@ async fn nexus_2_way_destroy_destroy_child() {
 }
 
 async fn create_targets() {
-    let mut hdls = DOCKER_COMPOSE.get().unwrap().grpc_handles().await.unwrap();
+    let test = DOCKER_COMPOSE.get().unwrap();
+    let grpc = GrpcConnect::new(test);
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // for each grpc client, invoke these methods.
     for h in &mut hdls {

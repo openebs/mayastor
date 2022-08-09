@@ -14,14 +14,17 @@ use io_engine::{
     pool::PoolArgs,
 };
 
-use composer::rpc::mayastor::{
-    CreateNexusRequest,
-    CreateNexusV2Request,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    DestroyNexusRequest,
-    Null,
-    PublishNexusRequest,
+use common::compose::rpc::v0::{
+    mayastor::{
+        CreateNexusRequest,
+        CreateNexusV2Request,
+        CreatePoolRequest,
+        CreateReplicaRequest,
+        DestroyNexusRequest,
+        Null,
+        PublishNexusRequest,
+    },
+    GrpcConnect,
 };
 use once_cell::sync::OnceCell;
 use std::process::{Command, ExitStatus};
@@ -144,7 +147,9 @@ async fn nexus_io_multipath() {
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create a pool on remote node
     hdls[0]
@@ -365,7 +370,9 @@ async fn nexus_io_resv_acquire() {
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create a pool on remote node 1
     // grpc handles can be returned in any order, we simply define the first
@@ -546,7 +553,9 @@ async fn nexus_io_write_zeroes() {
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create a pool on remote node
     hdls[0]

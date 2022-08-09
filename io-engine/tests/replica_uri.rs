@@ -1,21 +1,24 @@
-use composer::{
-    rpc::mayastor::{
-        Bdev,
-        CreateNexusRequest,
-        CreatePoolRequest,
-        CreateReplicaRequest,
-        Null,
-        Replica,
-        ShareProtocolReplica,
-        ShareReplicaRequest,
+use common::compose::{
+    rpc::v0::{
+        mayastor::{
+            Bdev,
+            CreateNexusRequest,
+            CreatePoolRequest,
+            CreateReplicaRequest,
+            Null,
+            Replica,
+            ShareProtocolReplica,
+            ShareReplicaRequest,
+        },
+        GrpcConnect,
+        RpcHandle,
     },
-    RpcHandle,
+    Builder,
 };
 use std::str::FromStr;
 use tracing::info;
 
 pub mod common;
-use common::compose::Builder;
 
 const DISKSIZE_KB: u64 = 96 * 1024;
 const VOLUME_SIZE_MB: u64 = (DISKSIZE_KB / 1024) / 2;
@@ -46,7 +49,9 @@ async fn replica_uri() {
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     for (i, hdl) in hdls.iter_mut().enumerate() {
         // create a pool on each node

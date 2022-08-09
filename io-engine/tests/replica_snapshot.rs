@@ -1,10 +1,3 @@
-use common::bdev_io;
-use composer::rpc::mayastor::{
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    ShareProtocolReplica,
-    ShareReplicaRequest,
-};
 use io_engine::{
     bdev::nexus::nexus_create,
     core::{CoreError, MayastorCliArgs, UntypedBdevHandle},
@@ -14,7 +7,22 @@ use io_engine::{
 use tracing::info;
 
 pub mod common;
-use common::{compose::Builder, MayastorTest};
+use common::{
+    bdev_io,
+    compose::{
+        rpc::v0::{
+            mayastor::{
+                CreatePoolRequest,
+                CreateReplicaRequest,
+                ShareProtocolReplica,
+                ShareReplicaRequest,
+            },
+            GrpcConnect,
+        },
+        Builder,
+    },
+    MayastorTest,
+};
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static POOL1_NAME: &str = "pool1";
@@ -46,7 +54,9 @@ async fn replica_snapshot() {
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create a pool on remote node
     hdls[0]

@@ -4,8 +4,14 @@ use crossbeam::atomic::AtomicCell;
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
-use common::compose::{Builder, MayastorTest};
-use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
+use common::compose::{
+    rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri, Null},
+        GrpcConnect,
+    },
+    Builder,
+    MayastorTest,
+};
 use io_engine::{
     bdev::{device_create, device_destroy, device_open},
     core::{
@@ -64,8 +70,10 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
         .await
         .unwrap();
 
+    let gprc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = gprc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {
@@ -250,8 +258,10 @@ async fn io_timeout_ignore() {
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {

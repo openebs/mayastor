@@ -11,7 +11,7 @@ use futures::FutureExt;
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, pin::Pin};
 use tonic::{Request, Response, Status};
 
-use rpc::mayastor::v1::nexus::*;
+use mayastor_api::v1::nexus::*;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);

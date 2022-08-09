@@ -6,9 +6,9 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use ::rpc::mayastor as rpc;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
+use mayastor_api::v0 as rpc;
 use snafu::ResultExt;
 use tonic::Status;
 

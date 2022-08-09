@@ -5,10 +5,10 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
 use clap::{value_t, App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
+use mayastor_api::v0 as rpc;
 use snafu::ResultExt;
 use tonic::{Code, Status};
 

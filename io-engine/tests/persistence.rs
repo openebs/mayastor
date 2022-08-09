@@ -1,27 +1,30 @@
 use crate::common::fio_run_verify;
-use common::compose::Builder;
-use composer::{
-    rpc::mayastor::{
-        AddChildNexusRequest,
-        BdevShareRequest,
-        BdevUri,
-        Child,
-        ChildState,
-        CreateNexusRequest,
-        CreateReply,
-        DestroyNexusRequest,
-        Nexus,
-        NexusState,
-        Null,
-        PublishNexusRequest,
-        RebuildStateRequest,
-        RemoveChildNexusRequest,
-        ShareProtocolNexus,
+use common::compose::{
+    rpc::v0::{
+        mayastor::{
+            AddChildNexusRequest,
+            BdevShareRequest,
+            BdevUri,
+            Child,
+            ChildState,
+            CreateNexusRequest,
+            CreateReply,
+            DestroyNexusRequest,
+            Nexus,
+            NexusState,
+            Null,
+            PublishNexusRequest,
+            RebuildStateRequest,
+            RemoveChildNexusRequest,
+            ShareProtocolNexus,
+        },
+        GrpcConnect,
+        RpcHandle,
     },
     Binary,
+    Builder,
     ComposeTest,
     ContainerSpec,
-    RpcHandle,
 };
 use etcd_client::Client;
 
@@ -42,9 +45,10 @@ static CHILD3_UUID: &str = "ae09c08f-8909-4024-a9ae-c21a2a0596b9";
 #[tokio::test]
 async fn persist_unexpected_restart() {
     let test = start_infrastructure("persist_unexpected_restart").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -96,9 +100,10 @@ async fn persist_unexpected_restart() {
 #[tokio::test]
 async fn persist_clean_shutdown() {
     let test = start_infrastructure("persist_clean_shutdown").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -153,10 +158,11 @@ async fn persist_clean_shutdown() {
 #[tokio::test]
 async fn persist_io_failure() {
     let test = start_infrastructure("persist_io_failure").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
-    let ms4 = &mut test.grpc_handle("ms4").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
+    let ms4 = &mut grpc.grpc_handle("ms4").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -302,9 +308,10 @@ async fn persist_io_failure() {
 #[tokio::test]
 async fn persistent_store_connection() {
     let test = start_infrastructure("persistent_store_connection").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
 
     // Pause the etcd container.
     test.pause("etcd")

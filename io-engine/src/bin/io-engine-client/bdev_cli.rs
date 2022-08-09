@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::prelude::*;
-use rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply, Null};
+use mayastor_api::v0::{BdevShareRequest, BdevUri, CreateReply, Null};
 use snafu::ResultExt;
 use tonic::Status;
 

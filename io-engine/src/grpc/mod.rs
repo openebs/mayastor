@@ -36,12 +36,14 @@ impl From<CoreError> for tonic::Status {
     }
 }
 
-mod bdev_grpc;
-mod controller_grpc;
-mod json_grpc;
-mod mayastor_grpc;
-mod nexus_grpc;
+pub mod controller_grpc;
 mod server;
+pub mod v0 {
+    pub mod bdev_grpc;
+    pub mod json_grpc;
+    pub mod mayastor_grpc;
+    pub mod nexus_grpc;
+}
 pub mod v1 {
     pub mod bdev;
     pub mod host;

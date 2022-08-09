@@ -3,9 +3,9 @@
 
 use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
-use ::rpc::mayastor as rpc;
 use clap::{App, AppSettings, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
+use mayastor_api::v0 as rpc;
 use snafu::ResultExt;
 use tonic::Status;
 

@@ -336,8 +336,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tokio",
- "tonic",
- "tonic-build",
  "tracing",
 ]
 
@@ -1158,6 +1156,7 @@ dependencies = [
  "libc",
  "libnvme-rs",
  "log",
+ "mayastor-api",
  "md5",
  "merge",
  "nix",
@@ -1170,7 +1169,6 @@ dependencies = [
  "prost-types",
  "rand",
  "regex",
- "rpc",
  "run_script",
  "serde",
  "serde_json",
@@ -1206,8 +1204,8 @@ dependencies = [
  "env_logger",
  "futures",
  "io-engine",
+ "mayastor-api",
  "once_cell",
- "rpc",
  "run_script",
  "spdk-rs",
  "tokio",
@@ -1378,6 +1376,22 @@ name = "matches"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
+
+[[package]]
+name = "mayastor-api"
+version = "1.0.0"
+dependencies = [
+ "bytes",
+ "prost",
+ "prost-build",
+ "prost-derive",
+ "prost-types",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tonic",
+ "tonic-build",
+]
 
 [[package]]
 name = "md5"
@@ -1941,22 +1955,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
 dependencies = [
  "winapi",
-]
-
-[[package]]
-name = "rpc"
-version = "1.0.0"
-dependencies = [
- "bytes",
- "prost",
- "prost-build",
- "prost-derive",
- "prost-types",
- "serde",
- "serde_derive",
- "serde_json",
- "tonic",
- "tonic-build",
 ]
 
 [[package]]

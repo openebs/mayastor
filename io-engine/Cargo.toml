@@ -96,8 +96,8 @@ etcd-client = "0.7.1"
 parking_lot = "0.11.1"
 version-info = { path = "../utils/io-engine-dependencies/version-info" }
 
-[dependencies.rpc]
-path = "../rpc"
+[dependencies.mayastor-api]
+path = "../rpc/mayastor-api"
 
 [dependencies.serde]
 features = ["derive"]

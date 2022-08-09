@@ -11,10 +11,13 @@ use io_engine::{
 };
 
 pub mod common;
-use common::compose::Builder;
-use composer::{
-    rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply},
+use common::compose::{
+    rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri, CreateReply},
+        GrpcConnect,
+    },
     Binary,
+    Builder,
     ComposeTest,
 };
 use regex::Regex;
@@ -112,7 +115,8 @@ async fn nvmf_set_target_interface() {
 
     async fn test_ok(network: &str, args: Vec<&str>, tgt_ip: Option<&str>) {
         let test = start_ms(network, args).await;
-        let hdl = &mut test.grpc_handle("ms1").await.unwrap();
+        let grpc = GrpcConnect::new(&test);
+        let hdl = &mut grpc.grpc_handle("ms1").await.unwrap();
 
         let tgt_ip = match tgt_ip {
             Some(s) => s.to_string(),

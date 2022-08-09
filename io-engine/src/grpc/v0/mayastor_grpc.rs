@@ -25,13 +25,13 @@ use crate::{
             list_controllers,
             NvmeControllerInfo,
         },
-        nexus_grpc::{
+        rpc_submit,
+        v0::nexus_grpc::{
             nexus_add_child,
             nexus_destroy,
             nexus_lookup,
             uuid_to_name,
         },
-        rpc_submit,
         GrpcClientContext,
         GrpcResult,
         Serializer,
@@ -44,8 +44,8 @@ use crate::{
 };
 
 use futures::FutureExt;
+use mayastor_api::v0::*;
 use nix::errno::Errno;
-use rpc::mayastor::*;
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, time::Duration};
 use tonic::{Request, Response, Status};
 
@@ -260,7 +260,7 @@ impl From<RebuildStats> for RebuildStatsReply {
     }
 }
 
-impl From<MayastorFeatures> for rpc::mayastor::MayastorFeatures {
+impl From<MayastorFeatures> for mayastor_api::v0::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,

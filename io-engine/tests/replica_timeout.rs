@@ -1,5 +1,3 @@
-use common::{compose::Builder, MayastorTest};
-use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
     bdev_api::bdev_get_name,
@@ -10,6 +8,18 @@ use std::process::{Command, Stdio};
 use tokio::time::Duration;
 
 pub mod common;
+
+use common::{
+    compose::{
+        rpc::v0::{
+            mayastor::{BdevShareRequest, BdevUri, Null},
+            GrpcConnect,
+        },
+        Builder,
+    },
+    MayastorTest,
+};
+
 static NXNAME: &str = "nexus";
 
 #[tokio::test]
@@ -38,8 +48,10 @@ async fn replica_stop_cont() {
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {

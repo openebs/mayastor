@@ -1,4 +1,3 @@
-use composer::rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use io_engine::{
     bdev::{
         device_lookup,
@@ -9,7 +8,16 @@ use io_engine::{
 };
 
 pub mod common;
-use common::{compose::Builder, MayastorTest};
+use common::{
+    compose::{
+        rpc::v0::{
+            mayastor::{BdevShareRequest, BdevUri, Null},
+            GrpcConnect,
+        },
+        Builder,
+    },
+    MayastorTest,
+};
 
 #[tokio::test]
 async fn compose_up_down() {
@@ -27,8 +35,10 @@ async fn compose_up_down() {
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {

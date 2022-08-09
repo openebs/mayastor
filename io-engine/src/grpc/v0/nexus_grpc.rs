@@ -1,5 +1,5 @@
 ///! Helpers related to nexus grpc methods.
-use rpc::mayastor as rpc;
+use mayastor_api::v0 as rpc;
 use std::{convert::From, pin::Pin};
 use uuid::Uuid;
 

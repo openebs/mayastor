@@ -1,11 +1,16 @@
-use composer::rpc::mayastor::{BdevShareRequest, BdevUri};
 use io_engine::{
     bdev::nexus::nexus_create,
     core::{MayastorCliArgs, UntypedBdevHandle},
 };
 
 pub mod common;
-use common::compose;
+use common::{
+    compose,
+    compose::rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri},
+        GrpcConnect,
+    },
+};
 
 #[tokio::test]
 async fn nexus_reset_mirror() {
@@ -22,7 +27,9 @@ async fn nexus_reset_mirror() {
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     let mut children: Vec<String> = Vec::new();
     for h in &mut hdls {

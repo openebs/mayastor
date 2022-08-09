@@ -1,11 +1,14 @@
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
-use common::compose::{Builder, MayastorTest};
-use composer::{
-    rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null},
-    ComposeTest,
+use common::{
+    compose::{Builder, ComposeTest, MayastorTest},
+    rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null},
+        GrpcConnect,
+    },
 };
+
 use io_engine::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
     core::{
@@ -87,8 +90,10 @@ async fn launch_instance() -> (ComposeTest, String) {
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {
@@ -1806,7 +1811,8 @@ async fn nvmf_device_hot_remove() {
     let ms = get_ms();
     let (test, url) = launch_instance().await;
     let url2 = url.to_string();
-    let mut grpc_hdl = test.grpc_handle("ms1").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let mut grpc_hdl = grpc.grpc_handle("ms1").await.unwrap();
 
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 

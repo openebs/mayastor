@@ -10,7 +10,7 @@ use std::{
     os::raw::c_char,
 };
 
-use ::rpc::mayastor as rpc;
+use mayastor_api::v0 as rpc;
 use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,

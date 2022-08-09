@@ -6,8 +6,8 @@ use crate::{
 };
 use ::function_name::named;
 use futures::FutureExt;
+use mayastor_api::v1::replica::*;
 use nix::errno::Errno;
-use rpc::mayastor::v1::replica::*;
 use std::{convert::TryFrom, panic::AssertUnwindSafe, pin::Pin};
 use tonic::{Request, Response, Status};
 

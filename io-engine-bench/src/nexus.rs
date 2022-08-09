@@ -8,15 +8,16 @@ use std::sync::Arc;
 
 #[allow(unused)]
 mod common;
-use common::compose::MayastorTest;
-use composer::{
-    rpc::{
+use common::compose::{
+    rpc::v0::{
         mayastor,
         mayastor::{BdevShareRequest, BdevUri, CreateNexusRequest, Null},
+        GrpcConnect,
     },
     Binary,
     Builder,
     ComposeTest,
+    MayastorTest,
 };
 
 /// Infer the build type from the `OUT_DIR` and `SRCDIR`.
@@ -64,7 +65,8 @@ async fn get_children(compose: Arc<ComposeTest>) -> &'static Vec<String> {
     STATIC_TARGETS
         .get_or_init(|| async move {
             // get the handles if needed, to invoke methods to the containers
-            let mut hdls = compose.grpc_handles().await.unwrap();
+            let grpc = GrpcConnect::new(&compose);
+            let mut hdls = grpc.grpc_handles().await.unwrap();
             let mut children = Vec::with_capacity(hdls.len());
 
             let disk_index = 0;
@@ -162,7 +164,8 @@ impl Drop for GrpcNexus {
             tokio::runtime::Runtime::new()
                 .unwrap()
                 .block_on(async move {
-                    let mut hdls = compose.grpc_handles().await.unwrap();
+                    let grpc = GrpcConnect::new(&compose);
+                    let mut hdls = grpc.grpc_handles().await.unwrap();
                     let nexus_hdl = &mut hdls.last_mut().unwrap();
                     nexus_hdl
                         .mayastor
@@ -187,7 +190,10 @@ async fn nexus_create_grpc(
         .iter()
         .take(nr_children)
         .cloned();
-    let mut hdls = compose.grpc_handles().await.unwrap();
+
+    let grpc = GrpcConnect::new(compose);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     let nexus_hdl = &mut hdls.last_mut().unwrap();
     let nexus = nexus_hdl

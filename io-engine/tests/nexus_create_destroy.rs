@@ -1,9 +1,11 @@
 pub mod common;
-use common::compose::Builder;
-
-use composer::{
-    rpc::mayastor::{CreateNexusRequest, DestroyNexusRequest, Nexus},
-    RpcHandle,
+use common::compose::{
+    rpc::v0::{
+        mayastor::{CreateNexusRequest, DestroyNexusRequest, Nexus},
+        GrpcConnect,
+        RpcHandle,
+    },
+    Builder,
 };
 
 const NEXUS_COUNT: usize = 10;
@@ -22,7 +24,9 @@ async fn nexus_create_destroy() {
         .await
         .unwrap();
 
-    let mut hdl = compose.grpc_handle("ms1").await.unwrap();
+    let grpc = GrpcConnect::new(&compose);
+
+    let mut hdl = grpc.grpc_handle("ms1").await.unwrap();
 
     for i in 0 .. NEXUS_COUNT {
         let nexus = hdl
@@ -58,7 +62,9 @@ async fn nexus_create_multiple_then_destroy() {
         .await
         .unwrap();
 
-    let mut hdl = compose.grpc_handle("ms1").await.unwrap();
+    let grpc = GrpcConnect::new(&compose);
+
+    let mut hdl = grpc.grpc_handle("ms1").await.unwrap();
 
     let nexuses = create_nexuses(&mut hdl, NEXUS_COUNT).await;
     for (_, nexus) in nexuses.iter().enumerate() {
