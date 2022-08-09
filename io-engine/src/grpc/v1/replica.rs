@@ -121,17 +121,17 @@ impl ReplicaRpc for ReplicaService {
                 };
                 // if pooltype is not Lvs, the provided replica uuid need to be added as
                 // a metadata on the volume.
-                match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), false).await {
+                match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), args.thin).await {
                     Ok(mut lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf => {
                         match Pin::new(&mut lvol).share_nvmf(None).await {
                             Ok(s) => {
-                                debug!("created and shared {} as {}", lvol, s);
+                                debug!("created and shared {:?} as {}", lvol, s);
                                 Ok(Replica::from(lvol))
                             }
                             Err(e) => {
                                 debug!(
-                                    "failed to share created lvol {}: {} (destroying)",
+                                    "failed to share created lvol {:?}: {} (destroying)",
                                     lvol,
                                     e.to_string()
                                 );
@@ -141,7 +141,7 @@ impl ReplicaRpc for ReplicaService {
                         }
                     }
                     Ok(lvol) => {
-                        debug!("created lvol {}", lvol);
+                        debug!("created lvol {:?}", lvol);
                         Ok(Replica::from(lvol))
                     }
                     Err(e) => Err(e),
@@ -211,7 +211,7 @@ impl ReplicaRpc for ReplicaService {
                 if let Some(pool_name) = args.poolname {
                     lvols = lvols
                         .into_iter()
-                        .filter(|l| l.pool() == pool_name)
+                        .filter(|l| l.pool_name() == pool_name)
                         .collect();
                 }
 

@@ -1,7 +1,7 @@
 use std::{
     convert::TryFrom,
     ffi::{c_void, CStr},
-    fmt::Display,
+    fmt::{Debug, Display},
     os::raw::c_char,
     pin::Pin,
     ptr::NonNull,
@@ -15,6 +15,7 @@ use pin_utils::core_reexport::fmt::Formatter;
 use spdk_rs::libspdk::{
     spdk_bdev_io,
     spdk_bdev_io_get_thread,
+    spdk_blob,
     spdk_blob_get_xattr_value,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
@@ -76,9 +77,10 @@ impl Display for PropName {
     }
 }
 
-#[derive(Debug)]
 /// struct representing an lvol
-pub struct Lvol(pub(crate) NonNull<spdk_lvol>);
+pub struct Lvol {
+    inner: NonNull<spdk_lvol>,
+}
 
 impl TryFrom<UntypedBdev> for Lvol {
     type Error = Error;
@@ -86,9 +88,11 @@ impl TryFrom<UntypedBdev> for Lvol {
     fn try_from(mut b: UntypedBdev) -> Result<Self, Self::Error> {
         if b.driver() == "lvol" {
             unsafe {
-                Ok(Lvol(NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
-                    b.unsafe_inner_mut_ptr(),
-                ))))
+                Ok(Lvol {
+                    inner: NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
+                        b.unsafe_inner_mut_ptr(),
+                    )),
+                })
             }
         } else {
             Err(Error::NotALvol {
@@ -99,15 +103,16 @@ impl TryFrom<UntypedBdev> for Lvol {
     }
 }
 
-impl From<Lvol> for UntypedBdev {
-    fn from(l: Lvol) -> Self {
-        unsafe { Bdev::checked_from_ptr(l.0.as_ref().bdev).unwrap() }
-    }
-}
-
-impl Display for Lvol {
+impl Debug for Lvol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.pool(), self.name())
+        write!(
+            f,
+            "Lvol '{}/{}' [{} {}Mb]",
+            self.pool_name(),
+            self.name(),
+            if self.is_thin() { "thin " } else { "" },
+            self.size() / (1024 * 1024)
+        )
     }
 }
 
@@ -130,7 +135,7 @@ impl Share for Lvol {
             })?;
 
         self.as_mut().set(PropValue::Shared(true)).await?;
-        info!("shared {}", self);
+        info!("{:?}: shared as NVMF", self);
         Ok(share)
     }
 
@@ -147,7 +152,7 @@ impl Share for Lvol {
             })?;
 
         self.as_mut().set(PropValue::Shared(false)).await?;
-        info!("unshared {}", self);
+        info!("{:?}: unshared ", self);
         Ok(share)
     }
 
@@ -178,6 +183,33 @@ impl Share for Lvol {
 }
 
 impl Lvol {
+    /// TODO
+    pub(super) fn from_inner_ptr(p: *mut spdk_lvol) -> Self {
+        Self {
+            inner: NonNull::new(p).unwrap(),
+        }
+    }
+
+    /// TODO
+    #[inline(always)]
+    unsafe fn as_inner_ptr(&self) -> *mut spdk_lvol {
+        self.inner.as_ptr()
+    }
+
+    /// TODO
+    #[inline(always)]
+    fn as_inner_ref(&self) -> &spdk_lvol {
+        unsafe { self.inner.as_ref() }
+    }
+
+    /// TODO
+    #[inline(always)]
+    fn blob_checked(&self) -> *mut spdk_blob {
+        let blob = self.as_inner_ref().blob;
+        assert!(!blob.is_null());
+        blob
+    }
+
     /// generic callback for lvol operations
     pub(crate) extern "C" fn lvol_cb(
         sender_ptr: *mut c_void,
@@ -196,8 +228,9 @@ impl Lvol {
 
     /// returns the underlying bdev of the lvol
     pub(crate) fn as_bdev(&self) -> UntypedBdev {
-        unsafe { Bdev::checked_from_ptr(self.0.as_ref().bdev).unwrap() }
+        Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
     }
+
     /// return the size of the lvol in bytes
     pub fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
@@ -213,26 +246,25 @@ impl Lvol {
         self.as_bdev().uuid_as_string()
     }
 
+    /// TODO
+    pub fn lvs(&self) -> Lvs {
+        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
+    }
+
     /// returns the pool name of the lvol
-    pub fn pool(&self) -> String {
-        unsafe {
-            Lvs(NonNull::new_unchecked(self.0.as_ref().lvol_store))
-                .name()
-                .to_string()
-        }
+    pub fn pool_name(&self) -> String {
+        self.lvs().name().to_string()
     }
 
     /// returns the pool uuid of the lvol
     pub fn pool_uuid(&self) -> String {
-        unsafe {
-            Lvs(NonNull::new_unchecked(self.0.as_ref().lvol_store)).uuid()
-        }
+        self.lvs().uuid()
     }
 
     // wipe the first 8MB if unmap is not supported on failure the operation
     // needs to be repeated
     pub async fn wipe_super(&self) -> Result<(), Error> {
-        if !unsafe { self.0.as_ref().clear_method == LVS_CLEAR_WITH_UNMAP } {
+        if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
             let hdl = Bdev::open(&self.as_bdev(), true)
                 .and_then(|desc| desc.into_handle())
                 .map_err(|e| {
@@ -275,17 +307,17 @@ impl Lvol {
 
     /// returns a boolean indicating if the lvol is thin provisioned
     pub fn is_thin(&self) -> bool {
-        unsafe { self.0.as_ref().thin_provision }
+        self.as_inner_ref().thin_provision
     }
 
     /// returns a boolean indicating if the lvol is read-only
     pub fn is_read_only(&self) -> bool {
-        unsafe { spdk_blob_is_read_only(self.0.as_ref().blob) }
+        unsafe { spdk_blob_is_read_only(self.blob_checked()) }
     }
 
     /// returns a boolean indicating if the lvol is a snapshot
     pub fn is_snapshot(&self) -> bool {
-        unsafe { spdk_blob_is_snapshot(self.0.as_ref().blob) }
+        unsafe { spdk_blob_is_snapshot(self.blob_checked()) }
     }
 
     /// destroy the lvol
@@ -303,7 +335,7 @@ impl Lvol {
 
         let (s, r) = pair::<i32>();
         unsafe {
-            vbdev_lvol_destroy(self.0.as_ptr(), Some(destroy_cb), cb_arg(s))
+            vbdev_lvol_destroy(self.as_inner_ptr(), Some(destroy_cb), cb_arg(s))
         };
 
         r.await
@@ -332,8 +364,7 @@ impl Lvol {
         self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), Error> {
-        let blob = unsafe { self.0.as_ref().blob };
-        assert!(!blob.is_null());
+        let blob = self.blob_checked();
 
         if self.is_snapshot() {
             warn!("ignoring set property on snapshot {}", self.name());
@@ -379,8 +410,7 @@ impl Lvol {
 
     /// get/read a property from this lvol from disk
     pub async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
-        let blob = unsafe { self.0.as_ref().blob };
-        assert!(!blob.is_null());
+        let blob = self.blob_checked();
 
         match prop {
             PropName::Shared => {
@@ -452,14 +482,14 @@ impl Lvol {
         let c_snapshot_name = snapshot_name.into_cstring();
         unsafe {
             vbdev_lvol_create_snapshot(
-                self.0.as_ptr(),
+                self.as_inner_ptr(),
                 c_snapshot_name.as_ptr(),
                 Some(snapshot_done_cb),
                 nvmf_req.0.as_ptr().cast(),
             )
         };
 
-        info!("Creating snapshot {} on {}", snapshot_name, &self);
+        info!("{:?}: creating snapshot '{}'", self, snapshot_name);
     }
 
     /// Create snapshot for local replica
@@ -486,13 +516,13 @@ impl Lvol {
         let c_snapshot_name = snapshot_name.into_cstring();
         unsafe {
             vbdev_lvol_create_snapshot(
-                self.0.as_ptr(),
+                self.as_inner_ptr(),
                 c_snapshot_name.as_ptr(),
                 Some(snapshot_done_cb),
                 io.cast(),
             )
         };
 
-        info!("Creating snapshot {} on {}", snapshot_name, &self);
+        info!("{:?}: creating snapshot '{}'", self, snapshot_name);
     }
 }

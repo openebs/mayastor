@@ -74,13 +74,13 @@ where
     }
 
     /// Constructs a Bdev from a raw SPDK pointer.
-    pub(crate) unsafe fn checked_from_ptr(
-        bdev: *mut spdk_bdev,
-    ) -> Option<Self> {
+    pub(crate) fn checked_from_ptr(bdev: *mut spdk_bdev) -> Option<Self> {
         if bdev.is_null() {
             None
         } else {
-            Some(Self::new(spdk_rs::Bdev::unsafe_from_inner_ptr(bdev)))
+            unsafe {
+                Some(Self::new(spdk_rs::Bdev::unsafe_from_inner_ptr(bdev)))
+            }
         }
     }
 

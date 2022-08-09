@@ -11,6 +11,7 @@ use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 use spdk_rs::libspdk::{
     lvol_store_bdev,
+    spdk_blob_store,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
     spdk_bs_total_data_cluster_count,
@@ -44,12 +45,6 @@ use crate::{
     pool::PoolArgs,
 };
 
-impl From<*mut spdk_lvol_store> for Lvs {
-    fn from(p: *mut spdk_lvol_store) -> Self {
-        Lvs(NonNull::new(p).expect("lvol pointer is null"))
-    }
-}
-
 /// iterator over all lvol stores
 pub struct LvsIterator(*mut lvol_store_bdev);
 
@@ -73,9 +68,11 @@ impl Iterator for LvsIterator {
         if self.0.is_null() {
             None
         } else {
-            let current = self.0;
-            self.0 = unsafe { vbdev_lvol_store_next(current) };
-            Some(Lvs::from(unsafe { (*current).lvs }))
+            unsafe {
+                let current = self.0;
+                self.0 = vbdev_lvol_store_next(current);
+                Some(Lvs::from_inner_ptr((*current).lvs))
+            }
         }
     }
 }
@@ -93,7 +90,7 @@ impl Debug for Lvs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "name: {}, uuid: {}, base_bdev: {}",
+            "Lvs '{}' [{}] / {}",
             self.name(),
             self.uuid(),
             self.base_bdev().name()
@@ -102,9 +99,36 @@ impl Debug for Lvs {
 }
 
 /// Logical Volume Store (LVS) stores the lvols
-pub struct Lvs(pub(crate) NonNull<spdk_lvol_store>);
+pub struct Lvs {
+    inner: NonNull<spdk_lvol_store>,
+}
 
 impl Lvs {
+    /// TODO
+    pub(super) fn from_inner_ptr(ptr: *mut spdk_lvol_store) -> Self {
+        Self {
+            inner: NonNull::new(ptr).unwrap(),
+        }
+    }
+
+    /// TODO
+    #[inline(always)]
+    unsafe fn as_inner_ptr(&self) -> *mut spdk_lvol_store {
+        self.inner.as_ptr()
+    }
+
+    /// TODO
+    #[inline(always)]
+    fn as_inner_ref(&self) -> &spdk_lvol_store {
+        unsafe { self.inner.as_ref() }
+    }
+
+    /// TODO
+    #[inline(always)]
+    fn blob_store(&self) -> *mut spdk_blob_store {
+        self.as_inner_ref().blobstore
+    }
+
     /// generic lvol store callback
     extern "C" fn lvs_cb(
         sender_ptr: *mut c_void,
@@ -116,7 +140,9 @@ impl Lvs {
         };
 
         if errno == 0 {
-            sender.send(Ok(Lvs::from(lvs))).expect("receiver gone");
+            sender
+                .send(Ok(Lvs::from_inner_ptr(lvs)))
+                .expect("receiver gone");
         } else {
             sender
                 .send(Err(Errno::from_i32(errno.abs())))
@@ -151,7 +177,7 @@ impl Lvs {
         if lvs.is_null() {
             None
         } else {
-            Some(Lvs::from(lvs))
+            Some(Lvs::from_inner_ptr(lvs))
         }
     }
 
@@ -163,18 +189,18 @@ impl Lvs {
         if lvs.is_null() {
             None
         } else {
-            Some(Lvs::from(lvs))
+            Some(Lvs::from_inner_ptr(lvs))
         }
     }
 
     /// return the name of the current store
     pub fn name(&self) -> &str {
-        unsafe { self.0.as_ref().name.as_str() }
+        self.as_inner_ref().name.as_str()
     }
 
     /// returns the total capacity of the store
     pub fn capacity(&self) -> u64 {
-        let blobs = unsafe { self.0.as_ref().blobstore };
+        let blobs = self.blob_store();
         unsafe {
             spdk_bs_get_cluster_size(blobs)
                 * spdk_bs_total_data_cluster_count(blobs)
@@ -183,7 +209,7 @@ impl Lvs {
 
     /// returns the available capacity
     pub fn available(&self) -> u64 {
-        let blobs = unsafe { self.0.as_ref().blobstore };
+        let blobs = self.blob_store();
         unsafe {
             spdk_bs_get_cluster_size(blobs) * spdk_bs_free_cluster_count(blobs)
         }
@@ -196,17 +222,14 @@ impl Lvs {
 
     /// returns the base bdev of this lvs
     pub fn base_bdev(&self) -> UntypedBdev {
-        unsafe {
-            Bdev::checked_from_ptr(
-                (*vbdev_get_lvs_bdev_by_lvs(self.0.as_ptr())).bdev,
-            )
-            .unwrap()
-        }
+        let p =
+            unsafe { (*vbdev_get_lvs_bdev_by_lvs(self.as_inner_ptr())).bdev };
+        Bdev::checked_from_ptr(p).unwrap()
     }
 
     /// returns the UUID of the lvs
     pub fn uuid(&self) -> String {
-        let t = unsafe { self.0.as_ref().uuid.u.raw };
+        let t = unsafe { self.as_inner_ref().uuid.u.raw };
         uuid::Uuid::from_bytes(t).to_string()
     }
 
@@ -238,7 +261,7 @@ impl Lvs {
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
-        debug!("Trying to import pool {} on {}", name, bdev);
+        debug!("Trying to import pool '{}' on '{}'", name, bdev);
 
         let mut bdev =
             UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
@@ -279,7 +302,11 @@ impl Lvs {
             })?;
 
         if name != lvs.name() {
-            warn!("no pool with name {} found on this device -- unloading the pool", name);
+            warn!(
+                "no pool with name '{}' found on this device: \
+                unloading the pool",
+                name
+            );
             let pool_name = lvs.name().to_string();
             lvs.export().await.unwrap();
             Err(Error::Import {
@@ -411,7 +438,7 @@ impl Lvs {
 
         match Self::lookup(name) {
             Some(pool) => {
-                info!("The pool '{}' has been created on {}", name, bdev);
+                info!("The pool '{}' has been created on '{}'", name, bdev);
                 Ok(pool)
             }
             None => Err(Error::PoolCreate {
@@ -506,7 +533,11 @@ impl Lvs {
         self.unshare_all().await;
 
         unsafe {
-            vbdev_lvs_unload(self.0.as_ptr(), Some(Self::lvs_op_cb), cb_arg(s))
+            vbdev_lvs_unload(
+                self.as_inner_ptr(),
+                Some(Self::lvs_op_cb),
+                cb_arg(s),
+            )
         };
 
         r.await
@@ -533,7 +564,7 @@ impl Lvs {
             // here. we do this to avoid the on disk persistence
             let mut bdev = l.as_bdev();
             if let Err(e) = Pin::new(&mut bdev).unshare().await {
-                error!("failed to unshare lvol {} error {}", l, e.to_string())
+                error!("{:?}: failed to unshare: {}", l, e.to_string())
             }
         }
     }
@@ -580,7 +611,7 @@ impl Lvs {
 
         unsafe {
             vbdev_lvs_destruct(
-                self.0.as_ptr(),
+                self.as_inner_ptr(),
                 Some(Self::lvs_op_cb),
                 cb_arg(s),
             )
@@ -664,7 +695,7 @@ impl Lvs {
                     let cuuid = u.into_cstring();
 
                     vbdev_lvol_create_with_uuid(
-                        self.0.as_ptr(),
+                        self.as_inner_ptr(),
                         cname.as_ptr(),
                         size,
                         thin,
@@ -675,7 +706,7 @@ impl Lvs {
                     )
                 }
                 None => vbdev_lvol_create(
-                    self.0.as_ptr(),
+                    self.as_inner_ptr(),
                     cname.as_ptr(),
                     size,
                     thin,
@@ -697,11 +728,11 @@ impl Lvs {
                 source: e,
                 name: name.to_string(),
             })
-            .map(|lvol| Lvol(NonNull::new(lvol).unwrap()))?;
+            .map(Lvol::from_inner_ptr)?;
 
         lvol.wipe_super().await?;
 
-        info!("created {}", lvol);
+        info!("{:?}: created", lvol);
         Ok(lvol)
     }
 }
