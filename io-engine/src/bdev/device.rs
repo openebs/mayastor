@@ -596,6 +596,14 @@ extern "C" fn bdev_io_completion(
     }
 }
 
+/// Forwards event to the high-level handler.
+fn dispatch_bdev_event(event: DeviceEventType, name: &str) {
+    let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
+    if let Some(disp) = map.get_mut(name) {
+        disp.dispatch_event(event, name);
+    }
+}
+
 /// Called by spdk when there is an asynchronous bdev event i.e. removal.
 pub fn bdev_event_callback<T: BdevOps>(
     event: spdk_rs::BdevEvent,
@@ -622,10 +630,10 @@ pub fn bdev_event_callback<T: BdevOps>(
         }
     };
 
-    // Forward event to the high-level handler.
-    let mut map = BDEV_EVENT_DISPATCHER.lock().expect("lock poisoned");
-    let name = dev.name();
-    if let Some(disp) = map.get_mut(name) {
-        disp.dispatch_event(event, name);
-    }
+    dispatch_bdev_event(event, dev.name());
+}
+
+/// Dispatches a special event for loopback device removal.
+pub fn dispatch_loopback_removed(name: &str) {
+    dispatch_bdev_event(DeviceEventType::LoopbackRemoved, name);
 }

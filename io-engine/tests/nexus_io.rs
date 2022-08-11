@@ -36,7 +36,8 @@ extern crate libnvme_rs;
 
 static POOL_NAME: &str = "tpool";
 static NXNAME: &str = "nexus0";
-static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
+static NEXUS_UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
+static REPL_UUID: &str = "65acdaac-14c4-41d8-a55e-d03bfd7185a4";
 static HOSTNQN: &str = NVME_NQN_PREFIX;
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
@@ -165,7 +166,7 @@ async fn nexus_io_multipath() {
     hdls[0]
         .mayastor
         .create_replica(CreateReplicaRequest {
-            uuid: UUID.to_string(),
+            uuid: REPL_UUID.to_string(),
             pool: POOL_NAME.to_string(),
             size: 32 * 1024 * 1024,
             thin: false,
@@ -178,16 +179,16 @@ async fn nexus_io_multipath() {
     hdls[0]
         .mayastor
         .create_nexus(CreateNexusRequest {
-            uuid: UUID.to_string(),
+            uuid: NEXUS_UUID.to_string(),
             size: 32 * 1024 * 1024,
-            children: [format!("loopback:///{}", UUID)].to_vec(),
+            children: [format!("loopback:///{}", REPL_UUID)].to_vec(),
         })
         .await
         .unwrap();
 
     let mayastor = get_ms();
     let ip0 = hdls[0].endpoint.ip();
-    let nexus_name = format!("nexus-{}", UUID);
+    let nexus_name = format!("nexus-{}", NEXUS_UUID);
     let name = nexus_name.clone();
     mayastor
         .spawn(async move {
@@ -195,8 +196,8 @@ async fn nexus_io_multipath() {
             nexus_create(
                 &name,
                 32 * 1024 * 1024,
-                Some(UUID),
-                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
+                Some(NEXUS_UUID),
+                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID)],
             )
             .await
             .unwrap();
@@ -213,14 +214,14 @@ async fn nexus_io_multipath() {
     hdls[0]
         .mayastor
         .publish_nexus(PublishNexusRequest {
-            uuid: UUID.to_string(),
+            uuid: NEXUS_UUID.to_string(),
             key: "".to_string(),
             share: Protocol::Nvmf as i32,
         })
         .await
         .unwrap();
 
-    let nqn = format!("{}:nexus-{}", HOSTNQN, UUID);
+    let nqn = format!("{}:nexus-{}", HOSTNQN, NEXUS_UUID);
     nvme_connect("127.0.0.1", &nqn, true);
 
     // The first attempt will fail with "Duplicate cntlid x with y" error from
@@ -290,7 +291,7 @@ async fn nexus_io_multipath() {
     assert_eq!(v[2], "2", "mismatched number of controllers disconnected");
 
     // Connect to remote replica to check key registered
-    let rep_nqn = format!("{}:{}", HOSTNQN, UUID);
+    let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
     nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
     let rep_dev = get_mayastor_nvme_device();
@@ -321,7 +322,7 @@ async fn nexus_io_multipath() {
     hdls[0]
         .mayastor
         .destroy_nexus(DestroyNexusRequest {
-            uuid: UUID.to_string(),
+            uuid: NEXUS_UUID.to_string(),
         })
         .await
         .unwrap();
@@ -390,7 +391,7 @@ async fn nexus_io_resv_acquire() {
     hdls[0]
         .mayastor
         .create_replica(CreateReplicaRequest {
-            uuid: UUID.to_string(),
+            uuid: REPL_UUID.to_string(),
             pool: POOL_NAME.to_string(),
             size: 32 * 1024 * 1024,
             thin: false,
@@ -410,9 +411,9 @@ async fn nexus_io_resv_acquire() {
             nexus_create_v2(
                 &NXNAME.to_string(),
                 32 * 1024 * 1024,
-                UUID,
+                NEXUS_UUID,
                 nvme_params,
-                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
+                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID)],
                 None,
             )
             .await
@@ -427,7 +428,7 @@ async fn nexus_io_resv_acquire() {
         .await;
 
     // Connect to remote replica to check key registered
-    let rep_nqn = format!("{}:{}", HOSTNQN, UUID);
+    let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
     nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
     let rep_dev = get_mayastor_nvme_device();
@@ -466,14 +467,17 @@ async fn nexus_io_resv_acquire() {
         .mayastor
         .create_nexus_v2(CreateNexusV2Request {
             name: NXNAME.to_string(),
-            uuid: UUID.to_string(),
+            uuid: NEXUS_UUID.to_string(),
             size: 32 * 1024 * 1024,
             min_cntl_id: 1,
             max_cntl_id: 0xffef,
             resv_key: resv_key2,
             preempt_key: 0,
-            children: [format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)]
-                .to_vec(),
+            children: [format!(
+                "nvmf://{}:8420/{}:{}",
+                ip0, HOSTNQN, REPL_UUID
+            )]
+            .to_vec(),
             nexus_info_key: "".to_string(),
         })
         .await
@@ -571,7 +575,7 @@ async fn nexus_io_write_zeroes() {
     hdls[0]
         .mayastor
         .create_replica(CreateReplicaRequest {
-            uuid: UUID.to_string(),
+            uuid: REPL_UUID.to_string(),
             pool: POOL_NAME.to_string(),
             size: 32 * 1024 * 1024,
             thin: false,
@@ -582,7 +586,7 @@ async fn nexus_io_write_zeroes() {
 
     let mayastor = get_ms();
     let ip0 = hdls[0].endpoint.ip();
-    let nexus_name = format!("nexus-{}", UUID);
+    let nexus_name = format!("nexus-{}", NEXUS_UUID);
     let name = nexus_name.clone();
     mayastor
         .spawn(async move {
@@ -596,18 +600,23 @@ async fn nexus_io_write_zeroes() {
             .unwrap();
 
             let pool = Lvs::lookup(POOL_NAME).unwrap();
-            pool.create_lvol(&UUID.to_string(), 32 * 1024 * 1024, None, true)
-                .await
-                .unwrap();
+            pool.create_lvol(
+                &REPL_UUID.to_string(),
+                32 * 1024 * 1024,
+                None,
+                true,
+            )
+            .await
+            .unwrap();
 
             // create nexus on local node with 2 children, local and remote
             nexus_create(
                 &name,
                 32 * 1024 * 1024,
-                Some(UUID),
+                Some(NEXUS_UUID),
                 &[
-                    format!("loopback:///{}", UUID),
-                    format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID),
+                    format!("loopback:///{}", REPL_UUID),
+                    format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID),
                 ],
             )
             .await

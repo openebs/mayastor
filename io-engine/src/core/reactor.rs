@@ -57,6 +57,7 @@ use spdk_rs::libspdk::{
     spdk_thread_lib_init_ext,
     spdk_thread_op,
     spdk_thread_send_msg,
+    SPDK_DEFAULT_MSG_MEMPOOL_SIZE,
     SPDK_THREAD_OP_NEW,
 };
 
@@ -133,6 +134,7 @@ impl Reactors {
                     Some(Self::do_op),
                     Some(Self::can_op),
                     0,
+                    SPDK_DEFAULT_MSG_MEMPOOL_SIZE as u64,
                 )
             };
             assert_eq!(rc, 0);

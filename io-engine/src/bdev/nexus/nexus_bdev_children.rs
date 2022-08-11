@@ -717,7 +717,8 @@ impl<'n> DeviceEventListener for Nexus<'n> {
         dev_name: &str,
     ) {
         match evt {
-            DeviceEventType::DeviceRemoved => {
+            DeviceEventType::DeviceRemoved
+            | DeviceEventType::LoopbackRemoved => {
                 match self.as_mut().lookup_child_device_mut(dev_name) {
                     Some(child) => {
                         info!(

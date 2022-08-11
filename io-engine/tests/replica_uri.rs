@@ -24,6 +24,7 @@ const DISKSIZE_KB: u64 = 96 * 1024;
 const VOLUME_SIZE_MB: u64 = (DISKSIZE_KB / 1024) / 2;
 const VOLUME_SIZE_B: u64 = VOLUME_SIZE_MB * 1024 * 1024;
 const VOLUME_UUID: &str = "cb9e1a5c-7af8-44a7-b3ae-05390be75d83";
+const NEXUS_UUID: &str = "65acdaac-14c4-41d8-a55e-d03bfd7185a4";
 
 // pool name for mayastor from handle_index
 fn pool_name(handle_index: usize) -> String {
@@ -126,7 +127,7 @@ async fn replica_uri() {
     hdls[0]
         .mayastor
         .create_nexus(CreateNexusRequest {
-            uuid: VOLUME_UUID.to_string(),
+            uuid: NEXUS_UUID.to_string(),
             size: VOLUME_SIZE_B,
             children: [replica_loopback.uri, replica_nvmf.uri].to_vec(),
         })

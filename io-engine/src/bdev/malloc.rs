@@ -213,7 +213,7 @@ impl CreateDestroy for Malloc {
 
             unsafe {
                 delete_malloc_disk(
-                    bdev.unsafe_inner_mut_ptr(),
+                    (*bdev.unsafe_inner_ptr()).name,
                     Some(done_errno_cb),
                     cb_arg(s),
                 );

@@ -32,13 +32,7 @@ pub use nexus_bdev::{
 };
 pub(crate) use nexus_bdev_error::{nexus_err, Error};
 pub(crate) use nexus_channel::{DrEvent, NexusChannel};
-pub use nexus_child::{
-    lookup_nexus_child,
-    ChildError,
-    ChildState,
-    NexusChild,
-    Reason,
-};
+pub use nexus_child::{ChildError, ChildState, NexusChild, Reason};
 use nexus_io::{NexusBio, NioCtx};
 use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};
 pub use nexus_iter::{

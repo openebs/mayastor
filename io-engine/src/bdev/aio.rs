@@ -142,7 +142,7 @@ impl CreateDestroy for Aio {
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     bdev_aio_delete(
-                        bdev.unsafe_inner_mut_ptr(),
+                        (*bdev.unsafe_inner_ptr()).name,
                         Some(done_errno_cb),
                         cb_arg(sender),
                     );

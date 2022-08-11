@@ -7,15 +7,16 @@ use std::{
 /// TODO
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DeviceEventType {
-    /// TODO
+    /// Device has been removed.
     DeviceRemoved,
-
-    /// TODO
+    /// Special case for loopback device removal: loopback devices are not
+    /// real SPDK bdevs but bdev aliases. Deleting an alias won't make
+    /// SPDK send a proper bdev remove event.
+    LoopbackRemoved,
+    /// Device has been resized.
     DeviceResized,
-
     /// TODO
     MediaManagement,
-
     /// TODO
     AdminCommandCompletionFailed,
 }
