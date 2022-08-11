@@ -1,3 +1,4 @@
+#[derive(Clone, Debug)]
 pub struct NvmeDevice {
     /// Namespace index
     pub namespace: i32,

@@ -11,7 +11,7 @@ use io_engine::{
 };
 
 pub mod common;
-use common::{compose::MayastorTest, wait_for_rebuild};
+use common::{compose::MayastorTest, reactor_poll, wait_for_rebuild};
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving

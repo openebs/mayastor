@@ -45,6 +45,7 @@ use crate::{
     core::{Bdev, Reactors, UntypedBdev},
     ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::{
+        make_subsystem_serial,
         nvmf::{transport::TransportId, Error, NVMF_TGT},
         Config,
     },
@@ -142,15 +143,8 @@ impl NvmfSubsystem {
     }
 }
 
-/// Makes a subsystem serial number from a subsystem UUID or name.
 fn make_sn<T: AsRef<[u8]>>(uuid: T) -> CString {
-    use sha2::{Digest, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(uuid);
-    let s = hasher.finalize().to_vec();
-    // SPDK requires serial number string to be no more than 20 chars.
-    let s = format!("DCS{:.17}", hex::encode_upper(&s));
+    let s = make_subsystem_serial(uuid);
     CString::new(s).unwrap()
 }
 

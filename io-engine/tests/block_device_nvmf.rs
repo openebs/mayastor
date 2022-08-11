@@ -1,12 +1,14 @@
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
-use common::{
-    compose::{Builder, ComposeTest, MayastorTest},
+use common::compose::{
     rpc::v0::{
         mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null},
         GrpcConnect,
     },
+    Builder,
+    ComposeTest,
+    MayastorTest,
 };
 
 use io_engine::{

@@ -15,7 +15,9 @@ use io_engine::{
     },
 };
 use spdk_rs::{BdevDescError, DmaBuf, LbaRange, LbaRangeLock};
+
 pub mod common;
+use common::{reactor_poll, test_init};
 
 const NEXUS_NAME: &str = "lba_range_nexus";
 const NEXUS_SIZE: u64 = 10 * 1024 * 1024;
