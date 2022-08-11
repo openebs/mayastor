@@ -38,7 +38,7 @@ use crate::{
     },
     host::{blk_device, resource},
     lvs::{Error as LvsError, Lvol, Lvs},
-    pool::PoolArgs,
+    pool_backend::PoolArgs,
     rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
 };
@@ -215,7 +215,7 @@ impl From<Lvol> for Replica {
     fn from(l: Lvol) -> Self {
         Self {
             uuid: l.name(),
-            pool: l.pool(),
+            pool: l.pool_name(),
             thin: l.is_thin(),
             size: l.size(),
             share: l.shared().unwrap().into(),
@@ -229,7 +229,7 @@ impl From<Lvol> for ReplicaV2 {
         Self {
             name: l.name(),
             uuid: l.uuid(),
-            pool: l.pool(),
+            pool: l.pool_name(),
             thin: l.is_thin(),
             size: l.size(),
             share: l.shared().unwrap().into(),
@@ -481,65 +481,76 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.locked(GrpcClientContext::new(&request, function_name!()), async move {
-        let rx = rpc_submit(async move {
-            let args = request.into_inner();
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let rx = rpc_submit(async move {
+                    let args = request.into_inner();
 
-            if Lvs::lookup(&args.pool).is_none() {
-                return Err(LvsError::Invalid {
-                    source: Errno::ENOSYS,
-                    msg: format!("Pool {} not found", args.pool),
-                });
-            }
+                    if Lvs::lookup(&args.pool).is_none() {
+                        return Err(LvsError::Invalid {
+                            source: Errno::ENOSYS,
+                            msg: format!("Pool {} not found", args.pool),
+                        });
+                    }
 
-            if let Some(b) = UntypedBdev::lookup_by_name(&args.uuid) {
-                let lvol = Lvol::try_from(b)?;
-                return Ok(Replica::from(lvol));
-            }
+                    if let Some(b) = UntypedBdev::lookup_by_name(&args.uuid) {
+                        let lvol = Lvol::try_from(b)?;
+                        return Ok(Replica::from(lvol));
+                    }
 
-            if !matches!(
-                Protocol::try_from(args.share)?,
-                Protocol::Off | Protocol::Nvmf
-            ) {
-                return Err(LvsError::ReplicaShareProtocol {
-                    value: args.share,
-                });
-            }
+                    if !matches!(
+                        Protocol::try_from(args.share)?,
+                        Protocol::Off | Protocol::Nvmf
+                    ) {
+                        return Err(LvsError::ReplicaShareProtocol {
+                            value: args.share,
+                        });
+                    }
 
-            let p = Lvs::lookup(&args.pool).unwrap();
-            match p.create_lvol(&args.uuid, args.size, None, false).await {
-                Ok(mut lvol)
-                    if Protocol::try_from(args.share)? == Protocol::Nvmf =>
-                {
-                    match Pin::new(&mut lvol).share_nvmf(None).await {
-                        Ok(s) => {
-                            debug!("created and shared {} as {}", lvol, s);
-                            Ok(Replica::from(lvol))
-                        }
-                        Err(e) => {
-                            debug!(
-                                "failed to share created lvol {}: {} (destroying)",
+                    let p = Lvs::lookup(&args.pool).unwrap();
+                    match p
+                        .create_lvol(&args.uuid, args.size, None, args.thin)
+                        .await
+                    {
+                        Ok(mut lvol)
+                            if Protocol::try_from(args.share)?
+                                == Protocol::Nvmf =>
+                        {
+                            match Pin::new(&mut lvol).share_nvmf(None).await {
+                                Ok(s) => {
+                                    debug!(
+                                        "Created and shared {:?} as {}",
+                                        lvol, s
+                                    );
+                                    Ok(Replica::from(lvol))
+                                }
+                                Err(e) => {
+                                    debug!(
+                                "Failed to share created {:?}: {} (destroying)",
                                 lvol,
                                 e.to_string()
                             );
-                            let _ = lvol.destroy().await;
-                            Err(e)
+                                    let _ = lvol.destroy().await;
+                                    Err(e)
+                                }
+                            }
                         }
+                        Ok(lvol) => {
+                            debug!("Created {:?}", lvol);
+                            Ok(Replica::from(lvol))
+                        }
+                        Err(e) => Err(e),
                     }
-                }
-                Ok(lvol) => {
-                    debug!("created lvol {}", lvol);
-                    Ok(Replica::from(lvol))
-                }
-                Err(e) => Err(e),
-            }
-        })?;
+                })?;
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
-        }).await
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 
     #[named]
@@ -547,67 +558,83 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateReplicaRequestV2>,
     ) -> GrpcResult<ReplicaV2> {
-        self.locked(GrpcClientContext::new(&request, function_name!()), async move {
-        let rx = rpc_submit(async move {
-            let args = request.into_inner();
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let rx = rpc_submit(async move {
+                    let args = request.into_inner();
 
-            let lvs = match Lvs::lookup(&args.pool) {
-                Some(lvs) => lvs,
-                None => {
-                    return Err(LvsError::Invalid {
-                        source: Errno::ENOSYS,
-                        msg: format!("Pool {} not found", args.pool),
-                    })
-                }
-            };
-
-            if let Some(b) = UntypedBdev::lookup_by_name(&args.name) {
-                let lvol = Lvol::try_from(b)?;
-                return Ok(ReplicaV2::from(lvol));
-            }
-
-            if !matches!(
-                Protocol::try_from(args.share)?,
-                Protocol::Off | Protocol::Nvmf
-            ) {
-                return Err(LvsError::ReplicaShareProtocol {
-                    value: args.share,
-                });
-            }
-
-            match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), false).await {
-                Ok(mut lvol)
-                    if Protocol::try_from(args.share)? == Protocol::Nvmf =>
-                {
-                    match Pin::new(&mut lvol).share_nvmf(None).await {
-                        Ok(s) => {
-                            debug!("created and shared {} as {}", lvol, s);
-                            Ok(ReplicaV2::from(lvol))
+                    let lvs = match Lvs::lookup(&args.pool) {
+                        Some(lvs) => lvs,
+                        None => {
+                            return Err(LvsError::Invalid {
+                                source: Errno::ENOSYS,
+                                msg: format!("Pool {} not found", args.pool),
+                            })
                         }
-                        Err(e) => {
-                            debug!(
-                                "failed to share created lvol {}: {} (destroying)",
+                    };
+
+                    if let Some(b) = UntypedBdev::lookup_by_name(&args.name) {
+                        let lvol = Lvol::try_from(b)?;
+                        return Ok(ReplicaV2::from(lvol));
+                    }
+
+                    if !matches!(
+                        Protocol::try_from(args.share)?,
+                        Protocol::Off | Protocol::Nvmf
+                    ) {
+                        return Err(LvsError::ReplicaShareProtocol {
+                            value: args.share,
+                        });
+                    }
+
+                    match lvs
+                        .create_lvol(
+                            &args.name,
+                            args.size,
+                            Some(&args.uuid),
+                            args.thin,
+                        )
+                        .await
+                    {
+                        Ok(mut lvol)
+                            if Protocol::try_from(args.share)?
+                                == Protocol::Nvmf =>
+                        {
+                            match Pin::new(&mut lvol).share_nvmf(None).await {
+                                Ok(s) => {
+                                    debug!(
+                                        "Created and shared {:?} as {}",
+                                        lvol, s
+                                    );
+                                    Ok(ReplicaV2::from(lvol))
+                                }
+                                Err(e) => {
+                                    debug!(
+                                "Failed to share created {:?}: {} (destroying)",
                                 lvol,
                                 e.to_string()
                             );
-                            let _ = lvol.destroy().await;
-                            Err(e)
+                                    let _ = lvol.destroy().await;
+                                    Err(e)
+                                }
+                            }
                         }
+                        Ok(lvol) => {
+                            debug!("Created {:?}", lvol);
+                            Ok(ReplicaV2::from(lvol))
+                        }
+                        Err(e) => Err(e),
                     }
-                }
-                Ok(lvol) => {
-                    debug!("created lvol {}", lvol);
-                    Ok(ReplicaV2::from(lvol))
-                }
-                Err(e) => Err(e),
-            }
-        })?;
+                })?;
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
-        }).await
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 
     #[named]
@@ -708,12 +735,12 @@ impl mayastor_server::Mayastor for MayastorSvc {
             for l in lvols {
                 let stats = l.as_bdev().stats_async().await;
                 if stats.is_err() {
-                    error!("failed to get stats for lvol: {}", l);
+                    error!("failed to get stats for {:?}", l);
                 }
 
                 replicas.push(ReplicaStats {
                     uuid: l.name(),
-                    pool: l.pool(),
+                    pool: l.pool_name(),
                     stats: stats.ok().map(Stats::from),
                 });
             }

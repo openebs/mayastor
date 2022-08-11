@@ -8,9 +8,8 @@ use tonic::Status;
 use crate::{
     core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
-    lvs::{Error as LvsError, Lvs},
-    pool::{Pool as SpdkPool, PoolArgs, PoolsIter},
-    replica::ShareType,
+    lvs::{Error as LvsError, Lvs, LvsBdev},
+    pool_backend::PoolArgs,
 };
 
 static CONFIG_FILE: OnceCell<String> = OnceCell::new();
@@ -115,7 +114,7 @@ impl PoolConfig {
 
     /// Capture current pool configuration
     pub fn capture() -> PoolConfig {
-        let pools = PoolsIter::new().map(Pool::from).collect();
+        let pools = LvsBdev::iter().map(Pool::from).collect();
         PoolConfig {
             pools: Some(pools),
         }
@@ -179,18 +178,24 @@ impl From<&Pool> for PoolArgs {
     }
 }
 
-/// Convert an SpdkPool into a Pool
-impl From<SpdkPool> for Pool {
-    fn from(pool: SpdkPool) -> Self {
-        let base = pool.get_base_bdev();
+/// Convert an LvsBdev into a Pool
+impl From<LvsBdev> for Pool {
+    fn from(lvs_bdev: LvsBdev) -> Self {
+        let base = lvs_bdev.base_bdev();
         Self {
-            name: pool.get_name().to_string(),
+            name: lvs_bdev.name(),
             disks: vec![base
                 .bdev_uri()
                 .unwrap_or_else(|| base.name().to_string())],
             replicas: None,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
+/// Types of remote access storage protocols and IDs for sharing replicas.
+pub enum ShareType {
+    Nvmf,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]

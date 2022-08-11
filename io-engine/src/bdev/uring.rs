@@ -87,13 +87,9 @@ impl CreateDestroy for Uring {
 
         let cname = CString::new(self.get_name()).unwrap();
 
-        if let Some(mut bdev) = unsafe {
-            UntypedBdev::checked_from_ptr(create_uring_bdev(
-                cname.as_ptr(),
-                cname.as_ptr(),
-                self.blk_size,
-            ))
-        } {
+        if let Some(mut bdev) = UntypedBdev::checked_from_ptr(unsafe {
+            create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
+        }) {
             if let Some(uuid) = self.uuid {
                 unsafe { bdev.set_raw_uuid(uuid.into()) };
             }

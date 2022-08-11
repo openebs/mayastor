@@ -273,7 +273,7 @@ describe('replica', function () {
       assert.lengthOf(res, 1);
       res = res[0];
       assert.equal(res.pool, POOL);
-      assert.equal(res.thin, false);
+      assert.equal(res.thin, true);
       assert.equal(res.size, 8 * 1024 * 1024);
       assert.equal(res.share, 'REPLICA_NONE');
       assert.match(res.uri, /^bdev:\/\/\//);
