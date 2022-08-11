@@ -44,10 +44,8 @@ use spdk_rs::{
 #[derive(Debug, Snafu)]
 #[snafu(context(suffix(false)))]
 pub enum ChildError {
-    #[snafu(display("Child is not offline"))]
-    ChildNotOffline {},
-    #[snafu(display("Child is not closed"))]
-    ChildNotClosed {},
+    #[snafu(display("Child is permanently faulted"))]
+    PermanemtlyFaulted {},
     #[snafu(display("Child is faulted, it cannot be reopened"))]
     ChildFaulted {},
     #[snafu(display("Child is being destroyed"))]
@@ -66,8 +64,6 @@ pub enum ChildError {
     ChildInaccessible {},
     #[snafu(display("Invalid state of child"))]
     ChildInvalid {},
-    #[snafu(display("Opening child bdev without bdev pointer"))]
-    OpenWithoutBdev {},
     #[snafu(display("Failed to create a BlockDeviceHandle for child"))]
     HandleCreate { source: CoreError },
     #[snafu(display("Failed to open a BlockDeviceHandle for child"))]
@@ -112,8 +108,8 @@ pub enum Reason {
     RebuildFailed,
     /// The child has been faulted due to I/O error(s).
     IoError,
-    /// The child has been explicitly faulted due to am RPC call.
-    Rpc,
+    /// The child has been explicitly faulted due to an RPC call.
+    ByClient,
     /// Admin command failure.
     AdminCommandFailed,
 }
@@ -128,7 +124,7 @@ impl Display for Reason {
             Self::CantOpen => write!(f, "cannot open"),
             Self::RebuildFailed => write!(f, "rebuild failed"),
             Self::IoError => write!(f, "io error"),
-            Self::Rpc => write!(f, "client"),
+            Self::ByClient => write!(f, "by client"),
             Self::AdminCommandFailed => write!(f, "admin command failed"),
         }
     }
@@ -539,33 +535,44 @@ impl<'c> NexusChild<'c> {
     ) -> Result<String, ChildError> {
         info!("{:?}: bringing child online", self);
 
-        // Only online a child if it was previously set offline. Check for a
-        // "Closed" state as that is what offlining a child will set it to.
-        match self.state.load() {
-            ChildState::Closed => {
-                // Re-create the block device as it will have been previously
-                // destroyed.
-                let name = device_create(&self.name).await.context(
-                    ChildBdevCreate {
-                        child: self.name.clone(),
-                    },
-                )?;
-
-                self.device = device_lookup(&name);
-                if self.device.is_none() {
-                    warn!(
-                        "{:?}: failed to lookup device after successful creation",
-                        self,
-                    );
-                }
-            }
-            _ => {
-                warn!("{:?}: child must be in closed state for online", self);
-                return Err(ChildError::ChildNotClosed {});
-            }
+        // Only online a child if it was previously set offline.
+        if !self.can_online() {
+            warn!(
+                "{:?}: child is permanently faulted and cannot \
+                    be brought online",
+                self
+            );
+            return Err(ChildError::PermanemtlyFaulted {});
         }
 
+        // Re-create the block device as it will have been previously
+        // destroyed.
+        let name =
+            device_create(&self.name).await.context(ChildBdevCreate {
+                child: self.name.clone(),
+            })?;
+
+        self.device = device_lookup(&name);
+        if self.device.is_none() {
+            error!(
+                "{:?}: failed to find device after successful creation",
+                self,
+            );
+            return Err(ChildError::ChildInaccessible {});
+        }
+
+        self.set_state(ChildState::Closed);
         self.open(parent_size, ChildState::Faulted(Reason::OutOfSync))
+    }
+
+    /// Determines if the child can be onlined.
+    /// Check for a "Closed" state as that is what offlining a child
+    /// will set it to.
+    fn can_online(&self) -> bool {
+        matches!(
+            self.state.load(),
+            ChildState::Faulted(Reason::NoSpace) | ChildState::Closed
+        )
     }
 
     /// Extract a UUID from a URI.

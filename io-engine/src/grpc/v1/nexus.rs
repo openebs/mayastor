@@ -93,36 +93,42 @@ impl From<NexusStatus> for NexusState {
     }
 }
 
-/// Map the internal child states into rpc child states (i.e. the states that
-/// the control plane sees)
-impl From<nexus::ChildState> for ChildState {
-    fn from(child: nexus::ChildState) -> Self {
-        match child {
-            nexus::ChildState::Init => ChildState::ChildDegraded,
-            nexus::ChildState::ConfigInvalid => ChildState::ChildFaulted,
-            nexus::ChildState::Open => ChildState::ChildOnline,
-            nexus::ChildState::Destroying => ChildState::ChildDegraded,
-            nexus::ChildState::Closed => ChildState::ChildDegraded,
-            nexus::ChildState::Faulted(reason) => match reason {
-                Reason::OutOfSync => ChildState::ChildDegraded,
-                Reason::NoSpace => ChildState::ChildDegraded,
-                Reason::TimedOut => ChildState::ChildDegraded,
-                Reason::Unknown => ChildState::ChildFaulted,
-                Reason::CantOpen => ChildState::ChildFaulted,
-                Reason::RebuildFailed => ChildState::ChildFaulted,
-                Reason::IoError => ChildState::ChildFaulted,
-                Reason::Rpc => ChildState::ChildFaulted,
-                Reason::AdminCommandFailed => ChildState::ChildFaulted,
-            },
+fn map_child_state(s: nexus::ChildState) -> (ChildState, ChildStateReason) {
+    use ChildState::*;
+    use ChildStateReason::*;
+
+    match s {
+        nexus::ChildState::Init => (Degraded, Init),
+
+        nexus::ChildState::ConfigInvalid => (Faulted, ConfigInvalid),
+
+        nexus::ChildState::Open => (Online, None),
+
+        nexus::ChildState::Closed | nexus::ChildState::Destroying => {
+            (Degraded, Closed)
         }
+
+        nexus::ChildState::Faulted(reason) => match reason {
+            Reason::OutOfSync => (Degraded, OutOfSync),
+            Reason::NoSpace => (Degraded, NoSpace),
+            Reason::TimedOut => (Degraded, TimedOut),
+            Reason::Unknown => (Faulted, None),
+            Reason::CantOpen => (Faulted, CannotOpen),
+            Reason::RebuildFailed => (Faulted, RebuildFailed),
+            Reason::IoError => (Faulted, IoFailure),
+            Reason::ByClient => (Faulted, ByClient),
+            Reason::AdminCommandFailed => (Faulted, AdminFailed),
+        },
     }
 }
 
 impl<'c> From<&NexusChild<'c>> for Child {
     fn from(ch: &NexusChild) -> Self {
+        let (s, r) = map_child_state(ch.state());
         Child {
             uri: ch.uri().to_string(),
-            state: ChildState::from(ch.state()) as i32,
+            state: s as i32,
+            state_reason: r as i32,
             rebuild_progress: ch.get_rebuild_progress(),
         }
     }
@@ -400,7 +406,7 @@ impl NexusRpc for NexusService {
             let uri = args.uri.clone();
             debug!("Faulting child {} on nexus {}", uri, uuid);
             nexus_lookup(&args.uuid)?
-                .fault_child(&args.uri, nexus::Reason::Rpc)
+                .fault_child(&args.uri, nexus::Reason::ByClient)
                 .await?;
             info!("Faulted child {} on nexus {}", uri, uuid);
             Ok(())

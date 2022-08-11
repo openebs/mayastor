@@ -1019,7 +1019,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let uri = args.uri.clone();
             debug!("Faulting child {} on nexus {}", uri, uuid);
             nexus_lookup(&args.uuid)?
-                .fault_child(&args.uri, nexus::Reason::Rpc)
+                .fault_child(&args.uri, nexus::Reason::ByClient)
                 .await?;
             info!("Faulted child {} on nexus {}", uri, uuid);
             Ok(Null {})

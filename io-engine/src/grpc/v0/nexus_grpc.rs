@@ -39,12 +39,13 @@ impl From<ChildState> for rpc::ChildState {
                 Reason::CantOpen => rpc::ChildState::ChildFaulted,
                 Reason::RebuildFailed => rpc::ChildState::ChildFaulted,
                 Reason::IoError => rpc::ChildState::ChildFaulted,
-                Reason::Rpc => rpc::ChildState::ChildFaulted,
+                Reason::ByClient => rpc::ChildState::ChildFaulted,
                 Reason::AdminCommandFailed => rpc::ChildState::ChildFaulted,
             },
         }
     }
 }
+
 impl From<NexusStatus> for rpc::NexusState {
     fn from(nexus: NexusStatus) -> Self {
         match nexus {
