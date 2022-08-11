@@ -2,7 +2,10 @@
 //! This test is roughly the same as the tests in nexus_add_remove. However,
 //! this test does not use nvmf targets rather uring bdevs
 
-use io_engine::bdev::nexus::{nexus_create, nexus_lookup_mut};
+use io_engine::{
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
+    core::{MayastorCliArgs, Share},
+};
 use once_cell::sync::OnceCell;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -10,7 +13,6 @@ static DISKNAME2: &str = "/tmp/disk2.img";
 static DISKNAME3: &str = "/tmp/disk3.img";
 
 use crate::common::MayastorTest;
-use io_engine::core::{MayastorCliArgs, Share};
 
 pub mod common;
 

@@ -1,20 +1,32 @@
-use common::{compose::Builder, MayastorTest};
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
     bdev_api::bdev_get_name,
     core::{MayastorCliArgs, Protocol, UntypedBdev},
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use std::process::{Command, Stdio};
 use tokio::time::Duration;
 
 pub mod common;
+
+use common::{
+    compose::{
+        rpc::v0::{
+            mayastor::{BdevShareRequest, BdevUri, Null},
+            GrpcConnect,
+        },
+        Builder,
+    },
+    MayastorTest,
+};
+
 static NXNAME: &str = "nexus";
 
 #[tokio::test]
 #[ignore]
 async fn replica_stop_cont() {
+    common::composer_init();
+
     // Use shorter timeouts than the defaults to reduce test runtime
     Config::get_or_init(|| Config {
         nvme_bdev_opts: NvmeBdevOpts {
@@ -29,14 +41,17 @@ async fn replica_stop_cont() {
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {

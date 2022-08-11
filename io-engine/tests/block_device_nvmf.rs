@@ -1,8 +1,14 @@
-use composer::ComposeTest;
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
-use common::compose::{Builder, MayastorTest};
+use common::{
+    compose::{Builder, ComposeTest, MayastorTest},
+    rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null},
+        GrpcConnect,
+    },
+};
+
 use io_engine::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
     core::{
@@ -14,7 +20,6 @@ use io_engine::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null};
 
 use std::{
     alloc::Layout,
@@ -62,6 +67,8 @@ fn get_ms() -> &'static MayastorTest<'static> {
 }
 
 async fn launch_instance() -> (ComposeTest, String) {
+    common::composer_init();
+
     Config::get_or_init(|| Config {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 2_000_000,
@@ -76,14 +83,17 @@ async fn launch_instance() -> (ComposeTest, String) {
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {
@@ -1801,7 +1811,8 @@ async fn nvmf_device_hot_remove() {
     let ms = get_ms();
     let (test, url) = launch_instance().await;
     let url2 = url.to_string();
-    let mut grpc_hdl = test.grpc_handle("ms1").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let mut grpc_hdl = grpc.grpc_handle("ms1").await.unwrap();
 
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 

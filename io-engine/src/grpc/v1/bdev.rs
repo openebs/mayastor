@@ -4,7 +4,7 @@ use crate::{
     core::{CoreError, Protocol, Share},
     grpc::{rpc_submit, GrpcResult},
 };
-use rpc::mayastor::v1::bdev::{
+use mayastor_api::v1::bdev::{
     Bdev,
     BdevRpc,
     BdevShareRequest,

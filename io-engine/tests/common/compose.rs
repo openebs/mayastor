@@ -15,6 +15,8 @@ use io_engine::core::{
 };
 use std::time::Duration;
 
+pub use super::rpc;
+
 /// Mayastor test structure that simplifies sending futures. Mayastor has
 /// its own reactor, which is not tokio based, so we need to handle properly
 #[derive(Debug)]

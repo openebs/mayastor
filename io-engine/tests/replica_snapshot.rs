@@ -1,20 +1,28 @@
-use common::bdev_io;
 use io_engine::{
     bdev::nexus::nexus_create,
     core::{CoreError, MayastorCliArgs, UntypedBdevHandle},
     lvs::{Lvol, Lvs},
     pool::PoolArgs,
 };
-use rpc::mayastor::{
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    ShareProtocolReplica,
-    ShareReplicaRequest,
-};
 use tracing::info;
 
 pub mod common;
-use common::{compose::Builder, MayastorTest};
+use common::{
+    bdev_io,
+    compose::{
+        rpc::v0::{
+            mayastor::{
+                CreatePoolRequest,
+                CreateReplicaRequest,
+                ShareProtocolReplica,
+                ShareReplicaRequest,
+            },
+            GrpcConnect,
+        },
+        Builder,
+    },
+    MayastorTest,
+};
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static POOL1_NAME: &str = "pool1";
@@ -30,6 +38,8 @@ static NXNAME_SNAP: &str = "replica_snapshot_test-snap";
 #[tokio::test]
 #[ignore]
 async fn replica_snapshot() {
+    common::composer_init();
+
     // Start with fresh pools
     common::delete_file(&[DISKNAME1.to_string()]);
     common::truncate_file(DISKNAME1, DISKSIZE_KB);
@@ -37,13 +47,16 @@ async fn replica_snapshot() {
     let test = Builder::new()
         .name("replica_snapshot_test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create a pool on remote node
     hdls[0]

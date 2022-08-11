@@ -4,7 +4,7 @@ use snafu::{Backtrace, ResultExt, Snafu};
 use tonic::transport::Channel;
 
 use crate::context::Context;
-use ::rpc::mayastor::{
+use mayastor_api::v0::{
     bdev_rpc_client::BdevRpcClient,
     json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,

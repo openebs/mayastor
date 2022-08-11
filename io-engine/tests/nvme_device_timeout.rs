@@ -4,7 +4,14 @@ use crossbeam::atomic::AtomicCell;
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
-use common::compose::{Builder, MayastorTest};
+use common::compose::{
+    rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri, Null},
+        GrpcConnect,
+    },
+    Builder,
+    MayastorTest,
+};
 use io_engine::{
     bdev::{device_create, device_destroy, device_open},
     core::{
@@ -16,7 +23,6 @@ use io_engine::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use spdk_rs::{DmaBuf, IoVec};
 
 pub mod common;
@@ -50,19 +56,24 @@ fn get_config() -> &'static Config {
 }
 
 async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
+    common::composer_init();
+
     get_config().apply();
 
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
+    let gprc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = gprc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {
@@ -233,19 +244,24 @@ async fn io_timeout_reset() {
 
 #[tokio::test]
 async fn io_timeout_ignore() {
+    common::composer_init();
+
     get_config().apply();
 
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // create and share a bdev on each container
     for h in &mut hdls {

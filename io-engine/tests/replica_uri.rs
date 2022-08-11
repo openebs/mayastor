@@ -1,19 +1,24 @@
-use composer::RpcHandle;
-use rpc::mayastor::{
-    Bdev,
-    CreateNexusRequest,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    Null,
-    Replica,
-    ShareProtocolReplica,
-    ShareReplicaRequest,
+use common::compose::{
+    rpc::v0::{
+        mayastor::{
+            Bdev,
+            CreateNexusRequest,
+            CreatePoolRequest,
+            CreateReplicaRequest,
+            Null,
+            Replica,
+            ShareProtocolReplica,
+            ShareReplicaRequest,
+        },
+        GrpcConnect,
+        RpcHandle,
+    },
+    Builder,
 };
 use std::str::FromStr;
 use tracing::info;
 
 pub mod common;
-use common::compose::Builder;
 
 const DISKSIZE_KB: u64 = 96 * 1024;
 const VOLUME_SIZE_MB: u64 = (DISKSIZE_KB / 1024) / 2;
@@ -31,18 +36,22 @@ fn pool_name(handle_index: usize) -> String {
 // by MOAC as a unique volume identifier
 #[tokio::test]
 async fn replica_uri() {
+    common::composer_init();
+
     let test = Builder::new()
         .name("replica_uri")
         .network("10.1.0.0/16")
-        .add_container("ms1")
-        .add_container("ms2")
+        .unwrap()
+        .add_container_dbg("ms1")
+        .add_container_dbg("ms2")
         .with_clean(true)
-        .with_default_tracing()
         .build()
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     for (i, hdl) in hdls.iter_mut().enumerate() {
         // create a pool on each node

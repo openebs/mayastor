@@ -7,11 +7,11 @@ members = [
 	"libnvme-rs",
 	"io-engine",
     "io-engine-bench",
-	"rpc",
+	"rpc/mayastor-api",
 	"sysfs",
-	"composer",
 	"spdk-rs",
 	"utils/io-engine-dependencies/version-info",
+	"utils/io-engine-dependencies/composer",
 	"utils/io-engine-dependencies/devinfo",
 	"utils/io-engine-dependencies/nvmeadm",
 ]

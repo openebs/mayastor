@@ -22,6 +22,7 @@ use io_engine::{
 pub mod bdev_io;
 pub mod compose;
 pub mod error_bdev;
+pub mod rpc;
 
 pub use compose::MayastorTest;
 
@@ -488,4 +489,10 @@ pub fn reactor_run_millis(milliseconds: u64) {
         s.send(())
     });
     reactor_poll!(r);
+}
+
+pub fn composer_init() {
+    let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
+    let srcdir = path.parent().unwrap();
+    composer::initialize(srcdir);
 }

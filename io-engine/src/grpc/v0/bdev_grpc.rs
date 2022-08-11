@@ -4,7 +4,7 @@ use tracing::instrument;
 use std::{convert::TryFrom, pin::Pin};
 use url::Url;
 
-use rpc::mayastor::{
+use mayastor_api::v0::{
     bdev_rpc_server::BdevRpc,
     Bdev as RpcBdev,
     BdevShareReply,

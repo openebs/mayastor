@@ -2,27 +2,40 @@ use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::MayastorCliArgs,
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 
 pub mod common;
-use common::{compose::Builder, MayastorTest};
+use common::{
+    compose::{
+        rpc::v0::{
+            mayastor::{BdevShareRequest, BdevUri, Null},
+            GrpcConnect,
+        },
+        Builder,
+    },
+    MayastorTest,
+};
 
 static NEXUS_NAME: &str = "child_location_nexus";
 
 #[tokio::test]
 async fn child_location() {
+    common::composer_init();
+
     // create a new composeTest
     let test = Builder::new()
         .name("child_location_test")
         .network("10.1.0.0/16")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
+    let grpc = GrpcConnect::new(&test);
+
     // Use GRPC handles to invoke methods on containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     // Create and share a bdev over nvmf
     hdls[0].bdev.list(Null {}).await.unwrap();

@@ -1,7 +1,9 @@
-use crate::grpc::{
-    bdev_grpc::BdevSvc,
-    json_grpc::JsonRpcSvc,
-    mayastor_grpc::MayastorSvc,
+use super::{
+    v0::{
+        bdev_grpc::BdevSvc,
+        json_grpc::JsonRpcSvc,
+        mayastor_grpc::MayastorSvc,
+    },
     v1::{
         bdev::BdevService,
         host::HostService,
@@ -12,10 +14,12 @@ use crate::grpc::{
     },
 };
 
-use rpc::mayastor::{
-    bdev_rpc_server::BdevRpcServer,
-    json_rpc_server::JsonRpcServer,
-    mayastor_server::MayastorServer as MayastorRpcServer,
+use mayastor_api::{
+    v0::{
+        bdev_rpc_server::BdevRpcServer,
+        json_rpc_server::JsonRpcServer,
+        mayastor_server::MayastorServer as MayastorRpcServer,
+    },
     v1,
 };
 

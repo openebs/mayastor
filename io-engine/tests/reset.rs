@@ -2,23 +2,34 @@ use io_engine::{
     bdev::nexus::nexus_create,
     core::{MayastorCliArgs, UntypedBdevHandle},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
-use common::compose;
+use common::{
+    compose,
+    compose::rpc::v0::{
+        mayastor::{BdevShareRequest, BdevUri},
+        GrpcConnect,
+    },
+};
+
 #[tokio::test]
 async fn nexus_reset_mirror() {
+    common::composer_init();
+
     let test = compose::Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms2")
-        .add_container("ms1")
+        .unwrap()
+        .add_container_dbg("ms2")
+        .add_container_dbg("ms1")
         .with_clean(true)
         .build()
         .await
         .unwrap();
 
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
 
     let mut children: Vec<String> = Vec::new();
     for h in &mut hdls {

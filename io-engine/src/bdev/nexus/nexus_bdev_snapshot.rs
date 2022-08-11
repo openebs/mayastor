@@ -1,6 +1,6 @@
 //! Implements snapshot operations on a nexus.
 
-use rpc::mayastor::CreateSnapshotReply;
+use mayastor_api::v0::CreateSnapshotReply;
 
 use super::{Error, Nexus};
 use crate::lvs::Lvol;

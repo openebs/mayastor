@@ -1,24 +1,32 @@
 use crate::common::fio_run_verify;
-use common::compose::Builder;
-use composer::{Binary, ComposeTest, ContainerSpec, RpcHandle};
-use etcd_client::Client;
-use rpc::mayastor::{
-    AddChildNexusRequest,
-    BdevShareRequest,
-    BdevUri,
-    Child,
-    ChildState,
-    CreateNexusRequest,
-    CreateReply,
-    DestroyNexusRequest,
-    Nexus,
-    NexusState,
-    Null,
-    PublishNexusRequest,
-    RebuildStateRequest,
-    RemoveChildNexusRequest,
-    ShareProtocolNexus,
+use common::compose::{
+    rpc::v0::{
+        mayastor::{
+            AddChildNexusRequest,
+            BdevShareRequest,
+            BdevUri,
+            Child,
+            ChildState,
+            CreateNexusRequest,
+            CreateReply,
+            DestroyNexusRequest,
+            Nexus,
+            NexusState,
+            Null,
+            PublishNexusRequest,
+            RebuildStateRequest,
+            RemoveChildNexusRequest,
+            ShareProtocolNexus,
+        },
+        GrpcConnect,
+        RpcHandle,
+    },
+    Binary,
+    Builder,
+    ComposeTest,
+    ContainerSpec,
 };
+use etcd_client::Client;
 
 use io_engine::bdev::nexus::{ChildInfo, NexusInfo};
 
@@ -37,9 +45,10 @@ static CHILD3_UUID: &str = "ae09c08f-8909-4024-a9ae-c21a2a0596b9";
 #[tokio::test]
 async fn persist_unexpected_restart() {
     let test = start_infrastructure("persist_unexpected_restart").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -91,9 +100,10 @@ async fn persist_unexpected_restart() {
 #[tokio::test]
 async fn persist_clean_shutdown() {
     let test = start_infrastructure("persist_clean_shutdown").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -148,10 +158,11 @@ async fn persist_clean_shutdown() {
 #[tokio::test]
 async fn persist_io_failure() {
     let test = start_infrastructure("persist_io_failure").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
-    let ms4 = &mut test.grpc_handle("ms4").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
+    let ms4 = &mut grpc.grpc_handle("ms4").await.unwrap();
 
     // Create bdevs and share over nvmf.
     let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
@@ -297,9 +308,10 @@ async fn persist_io_failure() {
 #[tokio::test]
 async fn persistent_store_connection() {
     let test = start_infrastructure("persistent_store_connection").await;
-    let ms1 = &mut test.grpc_handle("ms1").await.unwrap();
-    let ms2 = &mut test.grpc_handle("ms2").await.unwrap();
-    let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
+    let grpc = GrpcConnect::new(&test);
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    let ms2 = &mut grpc.grpc_handle("ms2").await.unwrap();
+    let ms3 = &mut grpc.grpc_handle("ms3").await.unwrap();
 
     // Pause the etcd container.
     test.pause("etcd")
@@ -336,13 +348,15 @@ async fn persistent_store_connection() {
 
 /// Start the containers for the tests.
 async fn start_infrastructure(test_name: &str) -> ComposeTest {
+    common::composer_init();
+
     let etcd_endpoint = format!("http://etcd.{}:2379", test_name);
     let test = Builder::new()
         .name(test_name)
         .add_container_spec(
             ContainerSpec::from_binary(
                 "etcd",
-                Binary::from_nix(env!("ETCD_BIN")).with_args(vec![
+                Binary::from_path(env!("ETCD_BIN")).with_args(vec![
                     "--data-dir",
                     "/tmp/etcd-data",
                     "--advertise-client-urls",

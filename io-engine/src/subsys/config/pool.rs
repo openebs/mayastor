@@ -203,7 +203,7 @@ struct Replica {
     share: Option<ShareType>,
 }
 
-async fn create_pool(args: PoolArgs) -> Result<rpc::mayastor::Pool, Status> {
+async fn create_pool(args: PoolArgs) -> Result<mayastor_api::v0::Pool, Status> {
     if args.disks.is_empty() {
         return Err(Status::invalid_argument("Missing devices"));
     }
