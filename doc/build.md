@@ -3,12 +3,12 @@
 > You will not need to always build Mayastor. We will provide official x86_64
 > & aarch64 binaries and images in future releases.
 
-Mayastor is a multi-component [Rust][rust-lang] project that makes heavy use use of
+Mayastor is a multi-component [Rust][rust-lang] project that makes heavy use of
 [Nix][nix-explore] for our development and build process.
 
 If you're coming from a non-Rust (or non-Nix) background, **building Mayastor may be a bit
 different than you're used to.** There is no `Makefile`, you won't need a build toolchain,
-you won't need to worry about cross compiler toolchains, and all builds are reproducable.
+you won't need to worry about cross compiler toolchains, and all builds are reproducible.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ you won't need to worry about cross compiler toolchains, and all builds are repr
 Mayastor **only** builds on modern Linuxes. We'd adore contributions to add support for
 Windows, FreeBSD, OpenWRT, or other server platforms.
 
-If you do not have Linux system:
+If you do not have a Linux system:
 
 - **Windows:** We recommend using [WSL2][windows-wsl2] if you only need to
   build Mayastor. You'll need a [Hyper-V VM][windows-hyperv] if you want to use it.
@@ -131,7 +131,7 @@ use [`nix build`][nix-build] or [`nix bundle`][nix-bundle] depending on your nee
 
 > **Why is the build process this way?**
 >
-> Mayastor creates [_reproducable builds_][reproducable-builds], it won't use any of your
+> Mayastor creates [_reproducible builds_][reproducible-builds], it won't use any of your
 > local system dependencies (other than `nix`). This is a component of the best practices of the
 > [Core Infrastructure Initiative][cii-best-practices]. More on how Nix works can be found in the
 > [Nix paper][nix-paper].
@@ -190,7 +190,7 @@ do
 done
 ```
 
-**Optionally,** the generated Docker images will **not** tag to `latest`. You may wish to do that if
+**Optionally,** the generated Docker images will **not** tag to the `latest`. You may wish to do that if
 you want to run them locally:
 
 ```bash
@@ -250,6 +250,6 @@ done
 [windows-wsl2]: https://wiki.ubuntu.com/WSL#Ubuntu_on_WSL
 [windows-hyperv]: https://wiki.ubuntu.com/Hyper-V
 [docker-install]: https://docs.docker.com/get-docker/
-[reproducable-builds]: https://reproducible-builds.org/
+[reproducible-builds]: https://reproducible-builds.org/
 [cii-best-practices]: https://www.coreinfrastructure.org/programs/best-practices-program/
 [direnv]: https://direnv.net/
