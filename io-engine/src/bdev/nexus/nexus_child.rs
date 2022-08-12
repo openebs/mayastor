@@ -187,14 +187,10 @@ impl Debug for NexusChild<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Child '{} @ {}' [{}: {}]",
+            "Child '{} @ {}' [{}]",
             self.name,
             self.parent,
             self.state(),
-            match &self.device {
-                Some(d) => d.device_name(),
-                None => "no dev".to_owned(),
-            },
         )
     }
 }
