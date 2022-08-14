@@ -105,7 +105,14 @@ impl From<nexus::ChildState> for ChildState {
             nexus::ChildState::Closed => ChildState::ChildDegraded,
             nexus::ChildState::Faulted(reason) => match reason {
                 Reason::OutOfSync => ChildState::ChildDegraded,
-                _ => ChildState::ChildFaulted,
+                Reason::NoSpace => ChildState::ChildDegraded,
+                Reason::TimedOut => ChildState::ChildDegraded,
+                Reason::Unknown => ChildState::ChildFaulted,
+                Reason::CantOpen => ChildState::ChildFaulted,
+                Reason::RebuildFailed => ChildState::ChildFaulted,
+                Reason::IoError => ChildState::ChildFaulted,
+                Reason::Rpc => ChildState::ChildFaulted,
+                Reason::AdminCommandFailed => ChildState::ChildFaulted,
             },
         }
     }

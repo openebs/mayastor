@@ -33,7 +33,14 @@ impl From<ChildState> for rpc::ChildState {
             ChildState::Closed => rpc::ChildState::ChildDegraded,
             ChildState::Faulted(reason) => match reason {
                 Reason::OutOfSync => rpc::ChildState::ChildDegraded,
-                _ => rpc::ChildState::ChildFaulted,
+                Reason::NoSpace => rpc::ChildState::ChildDegraded,
+                Reason::TimedOut => rpc::ChildState::ChildDegraded,
+                Reason::Unknown => rpc::ChildState::ChildFaulted,
+                Reason::CantOpen => rpc::ChildState::ChildFaulted,
+                Reason::RebuildFailed => rpc::ChildState::ChildFaulted,
+                Reason::IoError => rpc::ChildState::ChildFaulted,
+                Reason::Rpc => rpc::ChildState::ChildFaulted,
+                Reason::AdminCommandFailed => rpc::ChildState::ChildFaulted,
             },
         }
     }

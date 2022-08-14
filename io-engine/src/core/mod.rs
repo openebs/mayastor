@@ -238,12 +238,28 @@ pub enum CoreError {
     NoDevicesAvailable {},
 }
 
+/// Logical volume layer failure.
+#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+pub enum LvolFailure {
+    NoSpace,
+}
+
+/// I/O submission failure.
+#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+pub enum IoSubmissionFailure {
+    Read,
+    Write,
+}
+
 // Generic I/O completion status for block devices, which supports per-protocol
 // error domains.
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum IoCompletionStatus {
     Success,
     NvmeError(NvmeCommandStatus),
+    LvolError(LvolFailure),
+    IoSubmissionError(IoSubmissionFailure),
+    AdminCommandError,
 }
 
 // TODO move this elsewhere ASAP

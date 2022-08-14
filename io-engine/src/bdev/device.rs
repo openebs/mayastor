@@ -17,6 +17,7 @@ use spdk_rs::{
         iovec,
         spdk_bdev_free_io,
         spdk_bdev_io,
+        spdk_bdev_io_get_bs_status,
         spdk_bdev_readv_blocks,
         spdk_bdev_reset,
         spdk_bdev_unmap_blocks,
@@ -46,6 +47,7 @@ use crate::core::{
     IoCompletionCallback,
     IoCompletionCallbackArg,
     IoCompletionStatus,
+    LvolFailure,
     NvmeCommandStatus,
     NvmeStatus,
     UntypedBdev,
@@ -577,12 +579,21 @@ extern "C" fn bdev_io_completion(
     let status = if success {
         IoCompletionStatus::Success
     } else {
-        let nvme_status = NvmeStatus::from(child_bio);
-        let nvme_cmd_status = NvmeCommandStatus::from_command_status(
-            nvme_status.status_type(),
-            nvme_status.status_code(),
-        );
-        IoCompletionStatus::NvmeError(nvme_cmd_status)
+        let mut bs_status: i32 = 0;
+        unsafe { spdk_bdev_io_get_bs_status(child_bio, &mut bs_status) };
+        match Errno::from_i32(-bs_status) {
+            Errno::ENOSPC => {
+                IoCompletionStatus::LvolError(LvolFailure::NoSpace)
+            }
+            _ => {
+                let nvme_status = NvmeStatus::from(child_bio);
+                let nvme_cmd_status = NvmeCommandStatus::from_command_status(
+                    nvme_status.status_type(),
+                    nvme_status.status_code(),
+                );
+                IoCompletionStatus::NvmeError(nvme_cmd_status)
+            }
+        }
     };
 
     (bio.cb)(&bio.device, status, bio.cb_arg);
