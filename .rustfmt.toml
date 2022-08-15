@@ -13,3 +13,7 @@ imports_granularity="Crate"
 spaces_around_ranges = true
 # was 2015
 edition = "2018"
+
+ignore = [
+    "rpc/mayastor-api"
+]
