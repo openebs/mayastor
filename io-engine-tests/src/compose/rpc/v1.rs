@@ -7,6 +7,8 @@ use std::{
 };
 use tonic::transport::Channel;
 
+pub use tonic::Status;
+
 pub use mayastor_api::v1::*;
 
 #[derive(Clone)]

@@ -9,8 +9,9 @@ mod bindings {
 pub use bindings::*;
 
 pub mod error;
-mod nvme_device;
+pub mod nvme_device;
 mod nvme_tree;
 mod nvme_uri;
 
+pub use nvme_device::NvmeDevice;
 pub use nvme_uri::NvmeTarget;

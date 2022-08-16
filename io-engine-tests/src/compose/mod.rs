@@ -4,7 +4,7 @@ use crossbeam::channel::bounded;
 use std::future::Future;
 use tokio::sync::oneshot::channel;
 
-use crate::common::mayastor_test_init;
+use crate::mayastor_test_init;
 use io_engine::core::{
     mayastor_env_stop,
     MayastorCliArgs,
@@ -15,7 +15,7 @@ use io_engine::core::{
 };
 use std::time::Duration;
 
-pub use super::rpc;
+pub mod rpc;
 
 /// Mayastor test structure that simplifies sending futures. Mayastor has
 /// its own reactor, which is not tokio based, so we need to handle properly

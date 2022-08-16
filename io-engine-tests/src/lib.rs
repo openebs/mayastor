@@ -19,10 +19,16 @@ use io_engine::{
     rebuild::{RebuildJob, RebuildState},
 };
 
+pub mod bdev;
 pub mod bdev_io;
+pub mod cli_tools;
 pub mod compose;
 pub mod error_bdev;
-pub mod rpc;
+pub mod file_io;
+pub mod nexus;
+pub mod nvme;
+pub mod pool;
+pub mod replica;
 
 pub use compose::MayastorTest;
 
@@ -495,4 +501,16 @@ pub fn composer_init() {
     let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
     let srcdir = path.parent().unwrap();
     composer::initialize(srcdir);
+}
+
+#[allow(dead_code)]
+pub fn nice_json<T>(obj: &T) -> String
+where
+    T: ?Sized + serde::Serialize,
+{
+    use colored_json::ToColoredJson;
+    serde_json::to_string_pretty(obj)
+        .unwrap()
+        .to_colored_json_auto()
+        .unwrap()
 }

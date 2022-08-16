@@ -47,3 +47,15 @@ pub(crate) fn register_subsystem() {
     }
     RegistrationSubsystem::register();
 }
+
+/// Makes a subsystem serial number from a subsystem UUID or name.
+pub fn make_subsystem_serial<T: AsRef<[u8]>>(uuid: T) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(uuid);
+    let s = hasher.finalize().to_vec();
+
+    // SPDK requires serial number string to be no more than 20 chars.
+    format!("DCS{:.17}", hex::encode_upper(&s))
+}

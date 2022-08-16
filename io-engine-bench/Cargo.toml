@@ -24,6 +24,8 @@ mayastor-api = { path = "../rpc/mayastor-api" }
 io-engine = { path = "../io-engine" }
 composer = { path = "../utils/io-engine-dependencies/composer" }
 spdk-rs = { path = "../spdk-rs" }
+io-engine-tests = { path = "../io-engine-tests" }
+libnvme-rs = { path = "../libnvme-rs", version = "0.1.0" }
 criterion = { version = "0.3.5", features = [ "async_tokio" ] }
 
 [[bench]]

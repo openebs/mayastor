@@ -8,29 +8,42 @@ use io_engine::{
         NexusNvmeParams,
         NvmeAnaState,
     },
-    constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
+    constants::NVME_NQN_PREFIX,
     core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
     pool_backend::PoolArgs,
 };
 
-use common::compose::rpc::v0::{
-    mayastor::{
-        CreateNexusRequest,
-        CreateNexusV2Request,
-        CreatePoolRequest,
-        CreateReplicaRequest,
-        DestroyNexusRequest,
-        Null,
-        PublishNexusRequest,
-    },
-    GrpcConnect,
-};
 use once_cell::sync::OnceCell;
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 
 pub mod common;
-use common::{compose::Builder, MayastorTest};
+
+use common::{
+    compose::{
+        rpc::v0::{
+            mayastor::{
+                CreateNexusRequest,
+                CreateNexusV2Request,
+                CreatePoolRequest,
+                CreateReplicaRequest,
+                DestroyNexusRequest,
+                Null,
+                PublishNexusRequest,
+            },
+            GrpcConnect,
+        },
+        Binary,
+        Builder,
+    },
+    nvme::{
+        get_nvme_resv_report,
+        list_mayastor_nvme_devices,
+        nvme_connect,
+        nvme_disconnect_nqn,
+    },
+    MayastorTest,
+};
 
 extern crate libnvme_rs;
 
@@ -53,80 +66,10 @@ fn get_ms() -> &'static MayastorTest<'static> {
     MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
 }
 
-fn nvme_connect(
-    target_addr: &str,
-    nqn: &str,
-    must_succeed: bool,
-) -> ExitStatus {
-    let status = Command::new("nvme")
-        .args(&["connect"])
-        .args(&["-t", "tcp"])
-        .args(&["-a", target_addr])
-        .args(&["-s", "8420"])
-        .args(&["-n", nqn])
-        .status()
-        .unwrap();
-
-    if !status.success() {
-        let msg = format!(
-            "failed to connect to {}, nqn {}: {}",
-            target_addr, nqn, status,
-        );
-        if must_succeed {
-            panic!("{}", msg);
-        } else {
-            eprintln!("{}", msg);
-        }
-    } else {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
-
-    status
-}
-
 fn get_mayastor_nvme_device() -> String {
-    let nvme_devices = libnvme_rs::NvmeTarget::list();
-    let nvme_ms: Vec<&String> = nvme_devices
-        .iter()
-        .filter(|dev| dev.model.contains(NVME_CONTROLLER_MODEL_ID))
-        .map(|dev| &dev.device)
-        .collect();
+    let nvme_ms = list_mayastor_nvme_devices();
     assert_eq!(nvme_ms.len(), 1);
-    format!("/dev/{}", nvme_ms[0])
-}
-
-fn get_nvme_resv_report(nvme_dev: &str) -> serde_json::Value {
-    let output_resv = Command::new("nvme")
-        .args(&["resv-report"])
-        .args(&[nvme_dev])
-        .args(&["-c", "1"])
-        .args(&["-o", "json"])
-        .output()
-        .unwrap();
-    assert!(
-        output_resv.status.success(),
-        "failed to get reservation report from {}: {}",
-        nvme_dev,
-        output_resv.status
-    );
-    let resv_rep = String::from_utf8(output_resv.stdout).unwrap();
-    let v: serde_json::Value =
-        serde_json::from_str(&resv_rep).expect("JSON was not well-formatted");
-    v
-}
-
-fn nvme_disconnect_nqn(nqn: &str) {
-    let output_dis = Command::new("nvme")
-        .args(&["disconnect"])
-        .args(&["-n", nqn])
-        .output()
-        .unwrap();
-    assert!(
-        output_dis.status.success(),
-        "failed to disconnect from {}: {}",
-        nqn,
-        output_dis.status
-    );
+    format!("/dev/{}", nvme_ms[0].device)
 }
 
 #[tokio::test]
@@ -356,13 +299,13 @@ async fn nexus_io_resv_acquire() {
         .unwrap()
         .add_container_bin(
             "ms2",
-            composer::Binary::from_dbg("io-engine")
+            Binary::from_dbg("io-engine")
                 .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
                 .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
         )
         .add_container_bin(
             "ms1",
-            composer::Binary::from_dbg("io-engine")
+            Binary::from_dbg("io-engine")
                 .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
                 .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
         )
@@ -549,8 +492,7 @@ async fn nexus_io_write_zeroes() {
         .unwrap()
         .add_container_bin(
             "ms1",
-            composer::Binary::from_dbg("io-engine")
-                .with_bind("/tmp", "/host/tmp"),
+            Binary::from_dbg("io-engine").with_bind("/tmp", "/host/tmp"),
         )
         .with_clean(true)
         .build()
