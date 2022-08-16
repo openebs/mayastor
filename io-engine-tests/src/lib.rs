@@ -27,6 +27,7 @@ pub mod error_bdev;
 pub mod file_io;
 pub mod nexus;
 pub mod nvme;
+pub mod nvmf;
 pub mod pool;
 pub mod replica;
 
@@ -503,6 +504,7 @@ pub fn composer_init() {
     composer::initialize(srcdir);
 }
 
+/// Formats a serializable object as a JSON text.
 #[allow(dead_code)]
 pub fn nice_json<T>(obj: &T) -> String
 where
@@ -513,4 +515,9 @@ where
         .unwrap()
         .to_colored_json_auto()
         .unwrap()
+}
+
+/// Generates a UUID and returns its string representation.
+pub fn generate_uuid() -> String {
+    spdk_rs::Uuid::generate().to_string()
 }

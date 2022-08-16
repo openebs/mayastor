@@ -1,37 +1,45 @@
 use super::{
     compose::rpc::v1::{
         nexus::{
+            AddChildNexusRequest,
             ChildAction,
             ChildOperationRequest,
+            ChildState,
             CreateNexusRequest,
             ListNexusOptions,
             Nexus,
             PublishNexusRequest,
         },
-        RpcHandle,
+        SharedRpcHandle,
         Status,
     },
+    generate_uuid,
+    nvmf::{test_write_to_nvmf, NvmfLocation},
     replica::ReplicaBuilder,
 };
 use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
+use std::time::{Duration, Instant};
+use tonic::Code;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct NexusBuilder {
-    pub name: Option<String>,
-    pub uuid: Option<String>,
-    pub size: Option<u64>,
-    pub min_cntl_id: u32,
-    pub max_cntl_id: u32,
-    pub resv_key: u64,
-    pub preempt_key: u64,
-    pub children: Option<Vec<String>>,
-    pub nexus_info_key: Option<String>,
-    pub serial: Option<String>,
+    rpc: SharedRpcHandle,
+    name: Option<String>,
+    uuid: Option<String>,
+    size: Option<u64>,
+    min_cntl_id: u32,
+    max_cntl_id: u32,
+    resv_key: u64,
+    preempt_key: u64,
+    children: Option<Vec<String>>,
+    nexus_info_key: Option<String>,
+    serial: Option<String>,
 }
 
-impl Default for NexusBuilder {
-    fn default() -> Self {
+impl NexusBuilder {
+    pub fn new(rpc: SharedRpcHandle) -> Self {
         Self {
+            rpc,
             name: None,
             uuid: None,
             size: None,
@@ -43,12 +51,6 @@ impl Default for NexusBuilder {
             nexus_info_key: None,
             serial: None,
         }
-    }
-}
-
-impl NexusBuilder {
-    pub fn new() -> Self {
-        Default::default()
     }
 
     pub fn with_name(mut self, name: &str) -> Self {
@@ -62,6 +64,10 @@ impl NexusBuilder {
         let u = uuid::Uuid::parse_str(uuid).unwrap();
         self.serial = Some(make_subsystem_serial(u.as_bytes()));
         self
+    }
+
+    pub fn with_new_uuid(self) -> Self {
+        self.with_uuid(&generate_uuid())
     }
 
     pub fn with_size_mb(mut self, size_mb: u64) -> Self {
@@ -83,7 +89,20 @@ impl NexusBuilder {
     }
 
     pub fn with_replica(self, r: &ReplicaBuilder) -> Self {
-        self.with_bdev(&r.shared_uri())
+        let bdev = self.replica_uri(r);
+        self.with_bdev(&bdev)
+    }
+
+    fn replica_uri(&self, r: &ReplicaBuilder) -> String {
+        if r.rpc() == self.rpc() {
+            r.bdev()
+        } else {
+            r.shared_uri()
+        }
+    }
+
+    pub fn rpc(&self) -> SharedRpcHandle {
+        self.rpc.clone()
     }
 
     pub fn name(&self) -> String {
@@ -104,8 +123,18 @@ impl NexusBuilder {
         self.serial.as_ref().unwrap().clone()
     }
 
-    pub async fn create(&self, rpc: &mut RpcHandle) -> Result<Nexus, Status> {
-        rpc.nexus
+    pub fn nvmf_location(&self) -> NvmfLocation {
+        NvmfLocation {
+            addr: self.rpc().borrow().endpoint,
+            nqn: self.nqn(),
+            serial: self.serial(),
+        }
+    }
+
+    pub async fn create(&mut self) -> Result<Nexus, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
             .create_nexus(CreateNexusRequest {
                 name: self.name(),
                 uuid: self.uuid(),
@@ -113,7 +142,7 @@ impl NexusBuilder {
                 min_cntl_id: self.min_cntl_id,
                 max_cntl_id: self.max_cntl_id,
                 resv_key: self.resv_key,
-                preempt_key: self.resv_key,
+                preempt_key: self.preempt_key,
                 children: self.children.as_ref().unwrap().clone(),
                 nexus_info_key: self.nexus_info_key.as_ref().unwrap().clone(),
             })
@@ -121,8 +150,10 @@ impl NexusBuilder {
             .map(|r| r.into_inner().nexus.unwrap())
     }
 
-    pub async fn publish(&self, rpc: &mut RpcHandle) -> Result<Nexus, Status> {
-        rpc.nexus
+    pub async fn publish(&self) -> Result<Nexus, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
             .publish_nexus(PublishNexusRequest {
                 uuid: self.uuid(),
                 key: String::new(),
@@ -132,12 +163,35 @@ impl NexusBuilder {
             .map(|r| r.into_inner().nexus.unwrap())
     }
 
-    pub async fn online_child(
+    pub async fn add_child(
         &self,
-        rpc: &mut RpcHandle,
         bdev: &str,
+        norebuild: bool,
     ) -> Result<Nexus, Status> {
-        rpc.nexus
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .add_child_nexus(AddChildNexusRequest {
+                uuid: self.uuid(),
+                uri: bdev.to_owned(),
+                norebuild,
+            })
+            .await
+            .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn add_replica(
+        &self,
+        r: &ReplicaBuilder,
+        norebuild: bool,
+    ) -> Result<Nexus, Status> {
+        self.add_child(&self.replica_uri(r), norebuild).await
+    }
+
+    pub async fn online_child_bdev(&self, bdev: &str) -> Result<Nexus, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
             .child_operation(ChildOperationRequest {
                 nexus_uuid: self.uuid(),
                 uri: bdev.to_owned(),
@@ -146,10 +200,44 @@ impl NexusBuilder {
             .await
             .map(|r| r.into_inner().nexus.unwrap())
     }
+
+    pub async fn online_child_replica(
+        &self,
+        r: &ReplicaBuilder,
+    ) -> Result<Nexus, Status> {
+        self.online_child_bdev(&self.replica_uri(r)).await
+    }
+
+    pub async fn wait_children_online(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), Status> {
+        let start = Instant::now();
+
+        loop {
+            let n = find_nexus_by_uuid(self.rpc(), &self.uuid()).await?;
+            if n.children
+                .iter()
+                .all(|c| c.state == ChildState::Online as i32)
+            {
+                return Ok(());
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            if Instant::now() - start > timeout {
+                return Err(Status::new(
+                    Code::Cancelled,
+                    "Waiting for children to get online timed out",
+                ));
+            }
+        }
+    }
 }
 
-pub async fn list_nexuses(rpc: &mut RpcHandle) -> Result<Vec<Nexus>, Status> {
-    rpc.nexus
+pub async fn list_nexuses(rpc: SharedRpcHandle) -> Result<Vec<Nexus>, Status> {
+    rpc.borrow_mut()
+        .nexus
         .list_nexus(ListNexusOptions {
             name: None,
         })
@@ -158,12 +246,22 @@ pub async fn list_nexuses(rpc: &mut RpcHandle) -> Result<Vec<Nexus>, Status> {
 }
 
 pub async fn find_nexus_by_uuid(
-    rpc: &mut RpcHandle,
+    rpc: SharedRpcHandle,
     uuid: &str,
-) -> Option<Nexus> {
+) -> Result<Nexus, Status> {
     list_nexuses(rpc)
-        .await
-        .unwrap()
+        .await?
         .into_iter()
         .find(|n| n.uuid == uuid)
+        .ok_or_else(|| {
+            Status::new(Code::NotFound, format!("Nexus '{}' not found", uuid))
+        })
+}
+
+pub async fn test_write_to_nexus(
+    nex: &NexusBuilder,
+    count: usize,
+    buf_size_mb: usize,
+) -> std::io::Result<()> {
+    test_write_to_nvmf(&nex.nvmf_location(), count, buf_size_mb).await
 }

@@ -1,7 +1,9 @@
 use composer::ComposeTest;
 
 use std::{
+    cell::RefCell,
     net::{SocketAddr, TcpStream},
+    sync::Arc,
     thread,
     time::Duration,
 };
@@ -22,6 +24,14 @@ pub struct RpcHandle {
     pub host: host::HostRpcClient<Channel>,
     pub nexus: nexus::NexusRpcClient<Channel>,
 }
+
+impl PartialEq for RpcHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.endpoint == other.endpoint
+    }
+}
+
+pub type SharedRpcHandle = Arc<RefCell<RpcHandle>>;
 
 impl RpcHandle {
     /// connect to the containers and construct a handle
@@ -128,5 +138,14 @@ impl<'a> GrpcConnect<'a> {
             .await?),
             None => Err(format!("Container {} not found!", name)),
         }
+    }
+
+    pub async fn grpc_handle_shared(
+        &self,
+        name: &str,
+    ) -> Result<SharedRpcHandle, String> {
+        self.grpc_handle(name)
+            .await
+            .map(|rpc| Arc::new(RefCell::new(rpc)))
     }
 }

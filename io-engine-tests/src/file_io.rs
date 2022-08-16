@@ -1,19 +1,26 @@
+use once_cell::sync::OnceCell;
+use rand::{distributions::Uniform, Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use std::{io::SeekFrom, path::Path};
 use tokio::{
     fs::OpenOptions,
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
 };
 
-use super::{
-    compose::rpc::v1::RpcHandle,
-    nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
-};
+static RNG_SEED: OnceCell<ChaCha8Rng> = OnceCell::new();
+
+pub fn set_test_buf_rng_seed(seed: u64) {
+    RNG_SEED.set(ChaCha8Rng::seed_from_u64(seed)).unwrap();
+}
 
 fn create_test_buf(size_mb: usize) -> Vec<u8> {
-    assert!(size_mb > 0);
+    let rng = RNG_SEED.get_or_init(ChaCha8Rng::from_entropy).clone();
 
-    let sz = size_mb * 1024 * 1024;
-    std::iter::repeat(5).take(sz).collect()
+    let range = Uniform::new_inclusive(0, u8::MAX);
+
+    rng.sample_iter(&range)
+        .take(size_mb * 1024 * 1024)
+        .collect()
 }
 
 pub async fn test_write_to_file(
@@ -62,16 +69,27 @@ pub async fn test_write_to_file(
     Ok(())
 }
 
-pub async fn test_write_to_nvme(
-    rpc: &mut RpcHandle,
-    nqn: &str,
-    nvme_serial: &str,
-    count: usize,
-    buf_size_mb: usize,
-) -> std::io::Result<()> {
-    let _cg = NmveConnectGuard::connect_addr(&rpc.endpoint, nqn);
+pub async fn compute_file_checksum(
+    path: impl AsRef<Path>,
+) -> std::io::Result<String> {
+    let mut f = OpenOptions::new()
+        .write(false)
+        .read(true)
+        .create(false)
+        .truncate(false)
+        .open(&path)
+        .await?;
 
-    let dev = find_mayastor_nvme_device_path(nvme_serial).unwrap();
+    let mut buf = [0; 16384];
+    let mut hasher = md5::Context::new();
 
-    test_write_to_file(dev, count, buf_size_mb).await
+    loop {
+        let n = f.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.consume(&buf[.. n]);
+    }
+
+    Ok(hex::encode(hasher.compute().0))
 }
