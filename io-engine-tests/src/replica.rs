@@ -5,6 +5,7 @@ use super::{
             DestroyReplicaRequest,
             ListReplicaOptions,
             Replica,
+            ShareReplicaRequest,
         },
         RpcHandle,
         Status,
@@ -21,6 +22,7 @@ pub struct ReplicaBuilder {
     pub size: Option<u64>,
     pub thin: bool,
     pub share: i32,
+    pub shared_uri: Option<String>,
 }
 
 impl ReplicaBuilder {
@@ -71,8 +73,19 @@ impl ReplicaBuilder {
         format!("bdev:///{}?uuid={}", self.name(), self.uuid())
     }
 
-    pub async fn create(&self, rpc: &mut RpcHandle) -> Result<Replica, Status> {
-        rpc.replica
+    pub fn shared_uri(&self) -> String {
+        match &self.shared_uri {
+            Some(uri) => uri.clone(),
+            None => self.bdev(),
+        }
+    }
+
+    pub async fn create(
+        &mut self,
+        rpc: &mut RpcHandle,
+    ) -> Result<Replica, Status> {
+        let r = rpc
+            .replica
             .create_replica(CreateReplicaRequest {
                 name: self.name(),
                 uuid: self.uuid(),
@@ -82,7 +95,9 @@ impl ReplicaBuilder {
                 share: self.share,
             })
             .await
-            .map(|r| r.into_inner())
+            .map(|r| r.into_inner())?;
+        self.shared_uri = Some(r.uri.clone());
+        Ok(r)
     }
 
     pub async fn destroy(&self, rpc: &mut RpcHandle) -> Result<(), Status> {
@@ -92,6 +107,22 @@ impl ReplicaBuilder {
             })
             .await
             .map(|r| r.into_inner())
+    }
+
+    pub async fn share(
+        &mut self,
+        rpc: &mut RpcHandle,
+    ) -> Result<Replica, Status> {
+        let r = rpc
+            .replica
+            .share_replica(ShareReplicaRequest {
+                uuid: self.uuid(),
+                share: 1,
+            })
+            .await
+            .map(|r| r.into_inner())?;
+        self.shared_uri = Some(r.uri.clone());
+        Ok(r)
     }
 }
 

@@ -54,10 +54,53 @@ impl FromStr for OutputFormat {
     }
 }
 
+mod v1 {
+    use super::Error;
+    use mayastor_api::v1::*;
+    use tonic::transport::{Channel, Endpoint};
+
+    pub type BdevRpcClient = bdev::BdevRpcClient<Channel>;
+    pub type JsonRpcClient = json::JsonRpcClient<Channel>;
+    pub type PoolRpcClient = pool::PoolRpcClient<Channel>;
+    pub type ReplicaRpcClient = replica::ReplicaRpcClient<Channel>;
+    pub type HostRpcClient = host::HostRpcClient<Channel>;
+    pub type NexusRpcClient = nexus::NexusRpcClient<Channel>;
+
+    pub struct Context {
+        pub bdev: BdevRpcClient,
+        pub json: JsonRpcClient,
+        pub pool: PoolRpcClient,
+        pub replica: ReplicaRpcClient,
+        pub host: HostRpcClient,
+        pub nexus: NexusRpcClient,
+    }
+
+    impl Context {
+        pub async fn new(h: Endpoint) -> Result<Self, Error> {
+            let bdev = BdevRpcClient::connect(h.clone()).await.unwrap();
+            let json = JsonRpcClient::connect(h.clone()).await.unwrap();
+            let pool = PoolRpcClient::connect(h.clone()).await.unwrap();
+            let replica = ReplicaRpcClient::connect(h.clone()).await.unwrap();
+            let host = HostRpcClient::connect(h.clone()).await.unwrap();
+            let nexus = NexusRpcClient::connect(h.clone()).await.unwrap();
+
+            Ok(Self {
+                bdev,
+                json,
+                pool,
+                replica,
+                host,
+                nexus,
+            })
+        }
+    }
+}
+
 pub struct Context {
     pub(crate) client: MayaClient,
     pub(crate) bdev: BdevClient,
     pub(crate) json: JsonClient,
+    pub(crate) v1: v1::Context,
     verbosity: u64,
     units: char,
     pub(crate) output: OutputFormat,
@@ -111,12 +154,14 @@ impl Context {
 
         let client = MayaClient::connect(host.clone()).await.unwrap();
         let bdev = BdevClient::connect(host.clone()).await.unwrap();
-        let json = JsonClient::connect(host).await.unwrap();
+        let json = JsonClient::connect(host.clone()).await.unwrap();
+        let v1 = v1::Context::new(host).await.unwrap();
 
         Ok(Context {
             client,
             bdev,
             json,
+            v1,
             verbosity,
             units,
             output,

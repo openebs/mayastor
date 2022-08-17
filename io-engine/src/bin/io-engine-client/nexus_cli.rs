@@ -8,7 +8,7 @@ use crate::{
 use byte_unit::Byte;
 use clap::{value_t, App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
-use mayastor_api::v0 as rpc;
+use mayastor_api::{v0, v1};
 use snafu::ResultExt;
 use tonic::{Code, Status};
 
@@ -195,6 +195,15 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uuid of nexus"),
         );
 
+    let children_2 = SubCommand::with_name("children2")
+        .about("list nexus children")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid of nexus"),
+        );
+
     let inject = SubCommand::with_name("inject")
         .about("manage injected faults")
         .arg(
@@ -242,6 +251,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(list)
         .subcommand(list2)
         .subcommand(children)
+        .subcommand(children_2)
         .subcommand(inject)
         .subcommand(nexus_child_cli::subcommands())
 }
@@ -257,6 +267,7 @@ pub async fn handler(
         ("list", Some(args)) => nexus_list(ctx, args).await,
         ("list2", Some(args)) => nexus_list_v2(ctx, args).await,
         ("children", Some(args)) => nexus_children(ctx, args).await,
+        ("children2", Some(args)) => nexus_children_2(ctx, args).await,
         ("publish", Some(args)) => nexus_publish(ctx, args).await,
         ("unpublish", Some(args)) => nexus_unpublish(ctx, args).await,
         ("ana_state", Some(args)) => nexus_nvme_ana_state(ctx, args).await,
@@ -305,7 +316,7 @@ async fn nexus_create(
 
     let response = ctx
         .client
-        .create_nexus(rpc::CreateNexusRequest {
+        .create_nexus(v0::CreateNexusRequest {
             uuid: uuid.clone(),
             size,
             children,
@@ -352,7 +363,7 @@ async fn nexus_create_v2(
 
     let response = ctx
         .client
-        .create_nexus_v2(rpc::CreateNexusV2Request {
+        .create_nexus_v2(v0::CreateNexusV2Request {
             name: name.clone(),
             uuid: uuid.clone(),
             size,
@@ -392,7 +403,7 @@ async fn nexus_destroy(
 
     let response = ctx
         .client
-        .destroy_nexus(rpc::DestroyNexusRequest {
+        .destroy_nexus(v0::DestroyNexusRequest {
             uuid: uuid.clone(),
         })
         .await
@@ -422,7 +433,7 @@ async fn nexus_list(
 ) -> crate::Result<()> {
     let response = ctx
         .client
-        .list_nexus(rpc::Null {})
+        .list_nexus(v0::Null {})
         .await
         .context(GrpcStatus)?;
 
@@ -487,7 +498,7 @@ async fn nexus_list_v2(
 ) -> crate::Result<()> {
     let response = ctx
         .client
-        .list_nexus_v2(rpc::Null {})
+        .list_nexus_v2(v0::Null {})
         .await
         .context(GrpcStatus)?;
 
@@ -561,7 +572,7 @@ async fn nexus_children(
 
     let response = ctx
         .client
-        .list_nexus(rpc::Null {})
+        .list_nexus(v0::Null {})
         .await
         .context(GrpcStatus)?;
 
@@ -593,11 +604,78 @@ async fn nexus_children(
                 .children
                 .iter()
                 .map(|c| {
-                    let state = child_state_to_str(c.state);
+                    let state = child_state_to_str_v0(
+                        v0::ChildState::from_i32(c.state).unwrap(),
+                    );
                     vec![c.uri.clone(), state.to_string()]
                 })
                 .collect();
             ctx.print_list(vec!["NAME", "STATE"], table);
+        }
+    };
+
+    Ok(())
+}
+
+async fn nexus_children_2(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+
+    let response = ctx
+        .v1
+        .nexus
+        .list_nexus(v1::nexus::ListNexusOptions {
+            name: None,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    let nexus = response
+        .get_ref()
+        .nexus_list
+        .iter()
+        .find(|n| n.uuid == uuid || n.name == uuid)
+        .ok_or_else(|| {
+            Status::new(
+                Code::InvalidArgument,
+                "Specified nexus not found".to_owned(),
+            )
+        })
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&nexus.children)
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let table = nexus
+                .children
+                .iter()
+                .map(|c| {
+                    let state = child_state_to_str_v1(
+                        v1::nexus::ChildState::from_i32(c.state).unwrap(),
+                    );
+                    let reason = child_reason_to_str_v1(
+                        v1::nexus::ChildStateReason::from_i32(c.state_reason)
+                            .unwrap(),
+                    );
+                    vec![c.uri.clone(), state.to_string(), reason.to_string()]
+                })
+                .collect();
+            ctx.print_list(vec!["NAME", "STATE", "REASON"], table);
         }
     };
 
@@ -616,8 +694,8 @@ async fn nexus_publish(
         .to_string();
     let key = matches.value_of("key").unwrap_or("").to_string();
     let protocol = match matches.value_of("protocol") {
-        None => rpc::ShareProtocolNexus::NexusNbd,
-        Some("nvmf") => rpc::ShareProtocolNexus::NexusNvmf,
+        None => v0::ShareProtocolNexus::NexusNbd,
+        Some("nvmf") => v0::ShareProtocolNexus::NexusNvmf,
         Some(_) => {
             return Err(Status::new(
                 Code::Internal,
@@ -629,7 +707,7 @@ async fn nexus_publish(
 
     let response = ctx
         .client
-        .publish_nexus(rpc::PublishNexusRequest {
+        .publish_nexus(v0::PublishNexusRequest {
             uuid,
             key,
             share: protocol.into(),
@@ -668,7 +746,7 @@ async fn nexus_unpublish(
 
     let response = ctx
         .client
-        .unpublish_nexus(rpc::UnpublishNexusRequest {
+        .unpublish_nexus(v0::UnpublishNexusRequest {
             uuid: uuid.clone(),
         })
         .await
@@ -711,7 +789,7 @@ async fn nexus_get_nvme_ana_state(
 ) -> crate::Result<()> {
     let resp = ctx
         .client
-        .get_nvme_ana_state(rpc::GetNvmeAnaStateRequest {
+        .get_nvme_ana_state(v0::GetNvmeAnaStateRequest {
             uuid: uuid.clone(),
         })
         .await
@@ -725,7 +803,7 @@ async fn nexus_set_nvme_ana_state(
     uuid: String,
     ana_state_str: String,
 ) -> crate::Result<()> {
-    let ana_state: rpc::NvmeAnaState = match ana_state_str.parse() {
+    let ana_state: v0::NvmeAnaState = match ana_state_str.parse() {
         Ok(a) => a,
         _ => {
             return Err(Status::new(
@@ -737,7 +815,7 @@ async fn nexus_set_nvme_ana_state(
     };
 
     ctx.client
-        .set_nvme_ana_state(rpc::SetNvmeAnaStateRequest {
+        .set_nvme_ana_state(v0::SetNvmeAnaStateRequest {
             uuid: uuid.clone(),
             ana_state: ana_state.into(),
         })
@@ -771,7 +849,7 @@ async fn nexus_add(
 
     let response = ctx
         .client
-        .add_child_nexus(rpc::AddChildNexusRequest {
+        .add_child_nexus(v0::AddChildNexusRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
             norebuild,
@@ -816,7 +894,7 @@ async fn nexus_remove(
 
     let response = ctx
         .client
-        .remove_child_nexus(rpc::RemoveChildNexusRequest {
+        .remove_child_nexus(v0::RemoveChildNexusRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
@@ -863,7 +941,7 @@ async fn injections(
         for uri in uris {
             println!("Injecting fault: {}", uri);
             ctx.client
-                .inject_nexus_fault(rpc::InjectNexusFaultRequest {
+                .inject_nexus_fault(v0::InjectNexusFaultRequest {
                     uuid: uuid.clone(),
                     uri: uri.to_owned(),
                 })
@@ -877,7 +955,7 @@ async fn injections(
             println!("Removing injected fault: {}", uri);
             ctx.client
                 .remove_injected_nexus_fault(
-                    rpc::RemoveInjectedNexusFaultRequest {
+                    v0::RemoveInjectedNexusFaultRequest {
                         uuid: uuid.clone(),
                         uri: uri.to_owned(),
                     },
@@ -896,7 +974,7 @@ async fn list_nexus_injections(
 ) -> crate::Result<()> {
     let response = ctx
         .client
-        .list_injected_nexus_faults(rpc::ListInjectedNexusFaultsRequest {
+        .list_injected_nexus_faults(v0::ListInjectedNexusFaultsRequest {
             uuid: uuid.to_owned(),
         })
         .await
@@ -914,30 +992,56 @@ async fn list_nexus_injections(
 }
 
 fn ana_state_idx_to_str(idx: i32) -> &'static str {
-    match rpc::NvmeAnaState::from_i32(idx).unwrap() {
-        rpc::NvmeAnaState::NvmeAnaInvalidState => "invalid",
-        rpc::NvmeAnaState::NvmeAnaOptimizedState => "optimized",
-        rpc::NvmeAnaState::NvmeAnaNonOptimizedState => "non_optimized",
-        rpc::NvmeAnaState::NvmeAnaInaccessibleState => "inaccessible",
-        rpc::NvmeAnaState::NvmeAnaPersistentLossState => "persistent_loss",
-        rpc::NvmeAnaState::NvmeAnaChangeState => "change",
+    match v0::NvmeAnaState::from_i32(idx).unwrap() {
+        v0::NvmeAnaState::NvmeAnaInvalidState => "invalid",
+        v0::NvmeAnaState::NvmeAnaOptimizedState => "optimized",
+        v0::NvmeAnaState::NvmeAnaNonOptimizedState => "non_optimized",
+        v0::NvmeAnaState::NvmeAnaInaccessibleState => "inaccessible",
+        v0::NvmeAnaState::NvmeAnaPersistentLossState => "persistent_loss",
+        v0::NvmeAnaState::NvmeAnaChangeState => "change",
     }
 }
 
 fn nexus_state_to_str(idx: i32) -> &'static str {
-    match rpc::NexusState::from_i32(idx).unwrap() {
-        rpc::NexusState::NexusUnknown => "unknown",
-        rpc::NexusState::NexusOnline => "online",
-        rpc::NexusState::NexusDegraded => "degraded",
-        rpc::NexusState::NexusFaulted => "faulted",
+    match v0::NexusState::from_i32(idx).unwrap() {
+        v0::NexusState::NexusUnknown => "unknown",
+        v0::NexusState::NexusOnline => "online",
+        v0::NexusState::NexusDegraded => "degraded",
+        v0::NexusState::NexusFaulted => "faulted",
     }
 }
 
-fn child_state_to_str(idx: i32) -> &'static str {
-    match rpc::ChildState::from_i32(idx).unwrap() {
-        rpc::ChildState::ChildUnknown => "unknown",
-        rpc::ChildState::ChildOnline => "online",
-        rpc::ChildState::ChildDegraded => "degraded",
-        rpc::ChildState::ChildFaulted => "faulted",
+fn child_state_to_str_v0(s: v0::ChildState) -> &'static str {
+    match s {
+        v0::ChildState::ChildUnknown => "unknown",
+        v0::ChildState::ChildOnline => "online",
+        v0::ChildState::ChildDegraded => "degraded",
+        v0::ChildState::ChildFaulted => "faulted",
+    }
+}
+
+fn child_state_to_str_v1(s: v1::nexus::ChildState) -> &'static str {
+    match s {
+        v1::nexus::ChildState::Unknown => "unknown",
+        v1::nexus::ChildState::Online => "online",
+        v1::nexus::ChildState::Degraded => "degraded",
+        v1::nexus::ChildState::Faulted => "faulted",
+    }
+}
+
+fn child_reason_to_str_v1(r: v1::nexus::ChildStateReason) -> &'static str {
+    match r {
+        v1::nexus::ChildStateReason::None => "-",
+        v1::nexus::ChildStateReason::Init => "init",
+        v1::nexus::ChildStateReason::Closed => "closed",
+        v1::nexus::ChildStateReason::CannotOpen => "cannot open",
+        v1::nexus::ChildStateReason::ConfigInvalid => "config invalid",
+        v1::nexus::ChildStateReason::RebuildFailed => "rebuild failed",
+        v1::nexus::ChildStateReason::IoFailure => "I/O failure",
+        v1::nexus::ChildStateReason::ByClient => "by client",
+        v1::nexus::ChildStateReason::OutOfSync => "out of sync",
+        v1::nexus::ChildStateReason::NoSpace => "no space",
+        v1::nexus::ChildStateReason::TimedOut => "timed out",
+        v1::nexus::ChildStateReason::AdminFailed => "admin failed",
     }
 }

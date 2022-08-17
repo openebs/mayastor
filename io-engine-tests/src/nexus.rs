@@ -1,6 +1,8 @@
 use super::{
     compose::rpc::v1::{
         nexus::{
+            ChildAction,
+            ChildOperationRequest,
             CreateNexusRequest,
             ListNexusOptions,
             Nexus,
@@ -81,7 +83,7 @@ impl NexusBuilder {
     }
 
     pub fn with_replica(self, r: &ReplicaBuilder) -> Self {
-        self.with_bdev(&r.bdev())
+        self.with_bdev(&r.shared_uri())
     }
 
     pub fn name(&self) -> String {
@@ -125,6 +127,21 @@ impl NexusBuilder {
                 uuid: self.uuid(),
                 key: String::new(),
                 share: 1,
+            })
+            .await
+            .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn online_child(
+        &self,
+        rpc: &mut RpcHandle,
+        bdev: &str,
+    ) -> Result<Nexus, Status> {
+        rpc.nexus
+            .child_operation(ChildOperationRequest {
+                nexus_uuid: self.uuid(),
+                uri: bdev.to_owned(),
+                action: ChildAction::Online as i32,
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())

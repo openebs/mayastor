@@ -27,6 +27,7 @@ use spdk_rs::{
     nvme_nvm_opcode,
     DmaBuf,
     DmaError,
+    NvmeStatus,
 };
 
 use crate::{
@@ -34,11 +35,7 @@ use crate::{
         channel::NvmeControllerIoChannel,
         controller_inner::SpdkNvmeController,
         utils,
-        utils::{
-            nvme_command_status,
-            nvme_cpl_is_pi_error,
-            nvme_cpl_succeeded,
-        },
+        utils::{nvme_cpl_is_pi_error, nvme_cpl_succeeded},
         NvmeBlockDevice,
         NvmeIoChannel,
         NvmeNamespace,
@@ -54,7 +51,6 @@ use crate::{
         IoCompletionCallbackArg,
         IoCompletionStatus,
         IoType,
-        NvmeCommandStatus,
     },
     ffihelper::{cb_arg, done_cb, FfiResult},
     subsys,
@@ -251,7 +247,7 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
     let status = if op_succeeded {
         IoCompletionStatus::Success
     } else {
-        IoCompletionStatus::NvmeError(nvme_command_status(cpl))
+        IoCompletionStatus::from(NvmeStatus::from(cpl))
     };
 
     (io_ctx.cb)(&*inner.device, status, io_ctx.cb_arg);
@@ -433,7 +429,7 @@ fn reset_callback(success: bool, arg: *mut c_void) {
     let status = if success {
         IoCompletionStatus::Success
     } else {
-        IoCompletionStatus::NvmeError(NvmeCommandStatus::GenericCommandStatus(
+        IoCompletionStatus::NvmeError(NvmeStatus::Generic(
             GenericStatusCode::InternalDeviceError,
         ))
     };

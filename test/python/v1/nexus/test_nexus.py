@@ -287,7 +287,7 @@ async def test_nexus_2_remote_mirror_kill_one(
         nexus = next(n for n in list if n.uuid == NEXUS_UUID)
 
         assert nexus.state == nexus_pb.NEXUS_DEGRADED
-        assert nexus.children[1].state == nexus_pb.CHILD_FAULTED
+        assert nexus.children[1].state == nexus_pb.CHILD_STATE_FAULTED
 
     finally:
         # disconnect target before we shutdown
@@ -316,7 +316,7 @@ async def test_nexus_2_remote_mirror_kill_one_spdk(
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)
 
     assert nexus.state == nexus_pb.NEXUS_DEGRADED
-    assert nexus.children[1].state == nexus_pb.CHILD_FAULTED
+    assert nexus.children[1].state == nexus_pb.CHILD_STATE_FAULTED
 
 
 @pytest.mark.asyncio
@@ -392,8 +392,8 @@ def test_nexus_preempt_key(
     assert nexus.uuid == NEXUS_UUID
     child_uri = nexus.children[0].uri
     assert nexus.state == nexus_pb.NEXUS_ONLINE
-    assert nexus.children[0].state == nexus_pb.CHILD_ONLINE
-    assert nexus.children[1].state == nexus_pb.CHILD_ONLINE
+    assert nexus.children[0].state == nexus_pb.CHILD_STATE_ONLINE
+    assert nexus.children[1].state == nexus_pb.CHILD_STATE_ONLINE
 
     dev = nvme_connect(child_uri)
     try:
@@ -430,8 +430,8 @@ def test_nexus_preempt_key(
     list = mayastors.get("ms0").nexus_list(None)
     nexus = next(n for n in list if n.name == nexus_name)
     assert nexus.state == nexus_pb.NEXUS_ONLINE
-    assert nexus.children[0].state == nexus_pb.CHILD_ONLINE
-    assert nexus.children[1].state == nexus_pb.CHILD_ONLINE
+    assert nexus.children[0].state == nexus_pb.CHILD_STATE_ONLINE
+    assert nexus.children[1].state == nexus_pb.CHILD_STATE_ONLINE
 
     # verify write error with nexus on ms3
     uri = create_nexus
@@ -447,8 +447,8 @@ def test_nexus_preempt_key(
     list = mayastors.get("ms3").nexus_list(None)
     nexus = next(n for n in list if n.name == nexus_name)
     assert nexus.state == nexus_pb.NEXUS_FAULTED
-    assert nexus.children[0].state == nexus_pb.CHILD_FAULTED
-    assert nexus.children[1].state == nexus_pb.CHILD_FAULTED
+    assert nexus.children[0].state == nexus_pb.CHILD_STATE_FAULTED
+    assert nexus.children[1].state == nexus_pb.CHILD_STATE_FAULTED
 
 
 @pytest.mark.asyncio
@@ -478,8 +478,8 @@ async def test_nexus_2_remote_mirror_kill_1(
 
         assert nexus.state == nexus_pb.NEXUS_DEGRADED
 
-        assert nexus.children[0].state == nexus_pb.CHILD_ONLINE
-        assert nexus.children[1].state == nexus_pb.CHILD_FAULTED
+        assert nexus.children[0].state == nexus_pb.CHILD_STATE_ONLINE
+        assert nexus.children[1].state == nexus_pb.CHILD_STATE_FAULTED
 
 
 @pytest.mark.asyncio
@@ -514,5 +514,5 @@ async def test_nexus_2_remote_mirror_kill_all_fio(
 
         assert nexus.state == nexus_pb.NEXUS_FAULTED
 
-        assert nexus.children[0].state == nexus_pb.CHILD_FAULTED
-        assert nexus.children[1].state == nexus_pb.CHILD_FAULTED
+        assert nexus.children[0].state == nexus_pb.CHILD_STATE_FAULTED
+        assert nexus.children[1].state == nexus_pb.CHILD_STATE_FAULTED
