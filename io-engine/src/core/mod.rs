@@ -44,14 +44,7 @@ pub use io_device::IoDevice;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
-pub use spdk_rs::{
-    cpu_cores,
-    GenericStatusCode,
-    IoStatus,
-    IoType,
-    NvmeCommandStatus,
-    NvmeStatus,
-};
+pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
@@ -256,10 +249,20 @@ pub enum IoSubmissionFailure {
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum IoCompletionStatus {
     Success,
-    NvmeError(NvmeCommandStatus),
+    NvmeError(NvmeStatus),
     LvolError(LvolFailure),
     IoSubmissionError(IoSubmissionFailure),
     AdminCommandError,
+}
+
+impl From<NvmeStatus> for IoCompletionStatus {
+    fn from(s: NvmeStatus) -> Self {
+        if s == NvmeStatus::VendorSpecific(libc::ENOSPC as i32) {
+            IoCompletionStatus::LvolError(LvolFailure::NoSpace)
+        } else {
+            IoCompletionStatus::NvmeError(s)
+        }
+    }
 }
 
 // TODO move this elsewhere ASAP

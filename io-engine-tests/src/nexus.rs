@@ -83,7 +83,7 @@ impl NexusBuilder {
     }
 
     pub fn with_replica(self, r: &ReplicaBuilder) -> Self {
-        self.with_bdev(&r.bdev())
+        self.with_bdev(&r.shared_uri())
     }
 
     pub fn name(&self) -> String {

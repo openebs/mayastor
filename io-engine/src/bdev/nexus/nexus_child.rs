@@ -45,7 +45,7 @@ use spdk_rs::{
 #[snafu(context(suffix(false)))]
 pub enum ChildError {
     #[snafu(display("Child is permanently faulted"))]
-    PermanemtlyFaulted {},
+    PermanentlyFaulted {},
     #[snafu(display("Child is faulted, it cannot be reopened"))]
     ChildFaulted {},
     #[snafu(display("Child is being destroyed"))]
@@ -542,7 +542,7 @@ impl<'c> NexusChild<'c> {
                     be brought online",
                 self
             );
-            return Err(ChildError::PermanemtlyFaulted {});
+            return Err(ChildError::PermanentlyFaulted {});
         }
 
         // Re-create the block device as it will have been previously

@@ -25,7 +25,7 @@ use crate::core::{
     IoType,
     LvolFailure,
     Mthread,
-    NvmeCommandStatus,
+    NvmeStatus,
 };
 
 /// TODO
@@ -501,11 +501,9 @@ impl<'n> NexusBio<'n> {
 
         if matches!(
             status,
-            IoCompletionStatus::NvmeError(
-                NvmeCommandStatus::GenericCommandStatus(
-                    GenericStatusCode::InvalidOpcode
-                )
-            )
+            IoCompletionStatus::NvmeError(NvmeStatus::Generic(
+                GenericStatusCode::InvalidOpcode
+            ))
         ) {
             debug!(
                 "Device '{}' experienced invalid opcode error: \
@@ -517,11 +515,9 @@ impl<'n> NexusBio<'n> {
 
         let retry = matches!(
             status,
-            IoCompletionStatus::NvmeError(
-                NvmeCommandStatus::GenericCommandStatus(
-                    GenericStatusCode::AbortedSubmissionQueueDeleted
-                )
-            )
+            IoCompletionStatus::NvmeError(NvmeStatus::Generic(
+                GenericStatusCode::AbortedSubmissionQueueDeleted
+            ))
         );
 
         self.retire_device(&child.device_name(), status);

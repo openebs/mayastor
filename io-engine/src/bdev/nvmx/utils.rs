@@ -1,22 +1,23 @@
 use spdk_rs::libspdk::spdk_nvme_cpl;
 
-use crate::core::NvmeCommandStatus;
-
 #[derive(Debug, PartialEq)]
 enum NvmeStatusCodeType {
     Generic = 0x0,
     MediaError = 0x2,
 }
+
 #[derive(Debug, PartialEq)]
 pub enum NvmeMediaErrorStatusCode {
     Guard = 0x82,
     ApplicationTag = 0x83,
     ReferenceTag = 0x84,
 }
+
 #[derive(Debug, PartialEq)]
 enum NvmeGenericCommandStatusCode {
     Success = 0x0,
 }
+
 #[derive(Debug, PartialEq)]
 #[allow(dead_code)]
 pub enum NvmeAerType {
@@ -77,22 +78,6 @@ pub(crate) fn nvme_cpl_succeeded(cpl: *const spdk_nvme_cpl) -> bool {
 
     sct == NvmeStatusCodeType::Generic as u16
         && sc == NvmeGenericCommandStatusCode::Success as u16
-}
-
-/// Translates NVMe completion status into NvmeCommandStatus.
-pub(crate) fn nvme_command_status(
-    cpl: *const spdk_nvme_cpl,
-) -> NvmeCommandStatus {
-    let (sct, sc) = unsafe {
-        let cplr = &*cpl;
-
-        (
-            cplr.__bindgen_anon_1.status.sct().into(),
-            cplr.__bindgen_anon_1.status.sc().into(),
-        )
-    };
-
-    NvmeCommandStatus::from_command_status_raw(sct, sc)
 }
 
 /* Bit set of attributes for DATASET MANAGEMENT commands. */
