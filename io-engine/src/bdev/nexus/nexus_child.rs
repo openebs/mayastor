@@ -95,7 +95,7 @@ pub enum Reason {
     OutOfSync,
     /// Thin-provisioned child failed a write operate because
     /// the underlying logical volume failed to allocate space.
-    /// This a recoverable state in case when addtional space
+    /// This a recoverable state in case when additional space
     /// can be freed from the logical volume store.
     NoSpace,
     /// The underlying device timed out.
