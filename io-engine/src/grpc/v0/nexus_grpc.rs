@@ -45,6 +45,28 @@ impl From<ChildState> for rpc::ChildState {
         }
     }
 }
+impl From<ChildState> for rpc::ChildStateReason {
+    fn from(child: ChildState) -> Self {
+        match child {
+            ChildState::Init => Self::Init,
+            ChildState::ConfigInvalid => Self::ConfigInvalid,
+            ChildState::Open => Self::None,
+            ChildState::Destroying => Self::Closed,
+            ChildState::Closed => Self::Closed,
+            ChildState::Faulted(reason) => match reason {
+                Reason::OutOfSync => Self::OutOfSync,
+                Reason::NoSpace => Self::NoSpace,
+                Reason::TimedOut => Self::TimedOut,
+                Reason::Unknown => Self::None,
+                Reason::CantOpen => Self::CannotOpen,
+                Reason::RebuildFailed => Self::RebuildFailed,
+                Reason::IoError => Self::IoFailure,
+                Reason::ByClient => Self::ByClient,
+                Reason::AdminCommandFailed => Self::AdminFailed,
+            },
+        }
+    }
+}
 
 impl From<NexusStatus> for rpc::NexusState {
     fn from(nexus: NexusStatus) -> Self {
@@ -89,6 +111,7 @@ impl<'c> NexusChild<'c> {
             uri: self.uri().to_string(),
             state: rpc::ChildState::from(self.state()) as i32,
             rebuild_progress: self.get_rebuild_progress(),
+            reason: rpc::ChildStateReason::from(self.state()) as i32,
         }
     }
 }
