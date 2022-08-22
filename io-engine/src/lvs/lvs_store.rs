@@ -40,6 +40,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
+    lvs::lvs_lvol::WIPE_SUPER_LEN,
     pool_backend::PoolArgs,
 };
 
@@ -660,6 +661,15 @@ impl Lvs {
             });
         };
 
+        if clear_method != spdk_rs::libspdk::LVS_CLEAR_WITH_UNMAP
+            && WIPE_SUPER_LEN > self.available()
+        {
+            return Err(Error::RepCreate {
+                source: Errno::ENOSPC,
+                name: name.to_string(),
+            });
+        }
+
         let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
 
         let cname = name.into_cstring();
@@ -704,7 +714,19 @@ impl Lvs {
             })
             .map(Lvol::from_inner_ptr)?;
 
-        lvol.wipe_super().await?;
+        if let Err(error) = lvol.wipe_super().await {
+            // If we fail to destroy it hopefully the control-plane will clean
+            // it up, though it's possible it may attempt to use it...
+            // todo: address this; with a property?
+            let lvol_uuid = lvol.uuid();
+            if let Err(error) = lvol.destroy().await {
+                warn!(
+                    "uuid/{}: failed to destroy lvol after failing to wipe super: {:?}",
+                    lvol_uuid, error
+                );
+            }
+            return Err(error);
+        }
 
         info!("{:?}: created", lvol);
         Ok(lvol)
