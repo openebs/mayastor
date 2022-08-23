@@ -44,7 +44,7 @@ async fn nexus_thin_nospc_local_single() {
     let pool_0 = PoolBuilder::new()
         .with_name("pool0")
         .with_uuid("6e3c062c-293b-46e6-8ab3-ff13c1643437")
-        .with_bdev("malloc:///mem0?size_mb=30");
+        .with_bdev("malloc:///mem0?size_mb=60");
 
     let mut repl_0 = ReplicaBuilder::new()
         .with_pool(&pool_0)
@@ -114,7 +114,7 @@ async fn nexus_thin_nospc_remote_single() {
     let pool_0 = PoolBuilder::new()
         .with_name("pool0")
         .with_uuid("6e3c062c-293b-46e6-8ab3-ff13c1643437")
-        .with_bdev("malloc:///mem0?size_mb=30");
+        .with_bdev("malloc:///mem0?size_mb=60");
 
     let mut repl_0 = ReplicaBuilder::new()
         .with_pool(&pool_0)

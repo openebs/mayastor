@@ -670,6 +670,15 @@ impl Lvs {
             });
         }
 
+        // As it stands lvs pools can't grow, so limit the max replica size to
+        // the pool capacity.
+        if size > self.capacity() {
+            return Err(Error::RepCreate {
+                source: Errno::EOVERFLOW,
+                name: name.to_string(),
+            });
+        }
+
         let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
 
         let cname = name.into_cstring();

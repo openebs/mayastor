@@ -211,7 +211,7 @@ def test_enospace_on_volume(mayastors, create_replica):
     pools.append(nodes["ms1"].pools_as_uris()[0])
     nexus_node = nodes["ms3"].as_target()
 
-    v = Volume(uuid, nexus_node, pools, 100 * 1024 * 1024)
+    v = Volume(uuid, nexus_node, pools, 80 * 1024 * 1024)
 
     with pytest.raises(grpc.RpcError) as error:
         v.create()
