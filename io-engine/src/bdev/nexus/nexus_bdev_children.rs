@@ -366,8 +366,14 @@ impl<'n> Nexus<'n> {
         let res = match self.as_mut().child_mut(child_uri) {
             Ok(child) => {
                 match child.state() {
-                    ChildState::Faulted(_) => {
-                        warn!("{:?}: already faulted", child);
+                    ChildState::Faulted(current_reason) => {
+                        if current_reason != reason
+                            && reason == Reason::ByClient
+                        {
+                            child.fault(reason).await;
+                        } else {
+                            warn!("{:?}: already faulted", child);
+                        }
                     }
                     _ => {
                         child.fault(reason).await;
@@ -811,7 +817,7 @@ impl<'n> Nexus<'n> {
                     warn!("{:?}: I/O faulted; will retire", c);
                     true
                 } else {
-                    warn!("{:?}: I/O faulted; child was already fauled", c);
+                    warn!("{:?}: I/O faulted; child was already faulted", c);
                     false
                 }
             }
