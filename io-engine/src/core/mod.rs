@@ -42,6 +42,10 @@ pub use env::{
 pub use handle::{BdevHandle, UntypedBdevHandle};
 pub use io_device::IoDevice;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
+
+#[cfg(feature = "diagnostics")]
+pub use reactor::reactor_monitor_loop;
+
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
@@ -54,6 +58,8 @@ mod block_device;
 mod descriptor;
 mod device_events;
 mod device_monitor;
+#[cfg(feature = "diagnostics")]
+pub mod diagnostics;
 mod env;
 mod handle;
 mod io_device;

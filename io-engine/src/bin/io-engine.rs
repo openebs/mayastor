@@ -23,6 +23,12 @@ use io_engine::{
 };
 use version_info::fmt_package_info;
 
+#[cfg(feature = "diagnostics")]
+use io_engine::core::reactor_monitor_loop;
+
+#[cfg(feature = "diagnostics")]
+use io_engine::core::diagnostics::process_diagnostics_cli;
+
 const PAGES_NEEDED: u32 = 1024;
 
 io_engine::CPS_INIT!();
@@ -42,11 +48,18 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
+    #[cfg(feature = "diagnostics")]
+    let reactor_freeze_timeout = args.reactor_freeze_timeout.clone();
+
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
             let mut futures = Vec::new();
             PersistentStore::init(persistent_store_endpoint).await;
             runtime::spawn(device_monitor_loop());
+
+            // Launch reactor health monitor if diagnostics is enabled.
+            #[cfg(feature = "diagnostics")]
+            runtime::spawn(reactor_monitor_loop(reactor_freeze_timeout));
 
             futures.push(
                 grpc::MayastorGrpcServer::run(
@@ -129,7 +142,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // setup our logger first if -L is passed, raise the log level
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
     // passed, we will use it regardless.
-
     if !args.log_components.is_empty() {
         logger::init_ex("TRACE", log_format);
     } else {
@@ -137,6 +149,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("{}", fmt_package_info!());
+
+    // Handle diagnostics-related commands before initializing the agent.
+    // Once diagnostics command is executed (regardless of status), exit the
+    // agent.
+    #[cfg(feature = "diagnostics")]
+    if let Some(res) = process_diagnostics_cli(&args) {
+        return res;
+    }
 
     hugepage_check();
 

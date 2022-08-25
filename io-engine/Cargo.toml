@@ -10,6 +10,8 @@ build = "build.rs"
 [features]
 # Enables fault injection code.
 fault_injection = []
+# Enables diagnostics operations.
+diagnostics = ["async-process", "rstack"]
 
 [[bin]]
 name = "io-engine"
@@ -93,6 +95,9 @@ tracing-log = "0.1.2"
 tracing-subscriber = "0.2.20"
 udev = "0.6.2"
 url = "2.2.2"
+gettid = "0.1.2"
+async-process = { version = "1.5.0", optional = true }
+rstack =  { version = "0.3.2", optional = true }
 
 jsonrpc = { path = "../jsonrpc"}
 mayastor-api = { path = "../rpc/mayastor-api" }
