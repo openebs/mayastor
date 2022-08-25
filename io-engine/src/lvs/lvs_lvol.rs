@@ -47,6 +47,9 @@ use crate::{
     subsys::NvmfReq,
 };
 
+// Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
+pub(crate) const WIPE_SUPER_LEN: u64 = (1 << 20) * 8;
+
 /// properties we allow for being set on the lvol, this information is stored on
 /// disk
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -292,7 +295,7 @@ impl Lvol {
             // write zero to the first 8MB which wipes the metadata and the
             // first 4MB of the data partition
             let range =
-                std::cmp::min(self.as_bdev().size_in_bytes(), (1 << 20) * 8);
+                std::cmp::min(self.as_bdev().size_in_bytes(), WIPE_SUPER_LEN);
             for offset in 0 .. (range / buf_size) {
                 hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
                     error!(?self, ?e);
