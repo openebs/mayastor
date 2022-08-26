@@ -277,7 +277,10 @@ impl<'n> Nexus<'n> {
         let paused = self.as_mut().pause_rebuild_jobs(uri).await;
 
         let idx = match self.children_iter().position(|c| c.uri() == uri) {
-            None => return Ok(()),
+            None => {
+                paused.resume().await;
+                return Ok(());
+            }
             Some(val) => val,
         };
 
