@@ -112,6 +112,14 @@ pub type OpCompletionCallbackArg = *mut c_void;
 /// TODO
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
+/// Read modes.
+pub enum ReadMode {
+    /// Normal read operation.
+    Normal,
+    /// Fail when reading an unwritten block of a thin-provisioned device.
+    UnwrittenFail,
+}
+
 /// Core trait that represents a device I/O handle.
 /// TODO: Add text.
 #[async_trait(?Send)]
@@ -132,6 +140,9 @@ pub trait BlockDeviceHandle {
         offset: u64,
         buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError>;
+
+    /// TODO
+    fn set_read_mode(&mut self, mode: ReadMode);
 
     /// TODO
     async fn write_at(

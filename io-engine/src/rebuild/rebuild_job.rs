@@ -17,8 +17,10 @@ use crate::{
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
+        CoreError,
         DescriptorGuard,
         Reactors,
+        ReadMode,
         VerboseError,
     },
 };
@@ -81,7 +83,8 @@ pub struct RebuildJob<'n> {
     pub(super) range: std::ops::Range<u64>,
     /// TODO
     pub(super) next: u64,
-    /// TODO
+    /// Segment size in blocks (number of segments divided by device block
+    /// size).
     pub(super) segment_size_blks: u64,
     /// TODO
     pub(super) task_pool: RebuildTasks,
@@ -373,7 +376,7 @@ impl<'n> RebuildJob<'n> {
         blk: u64,
     ) -> Result<(), RebuildError> {
         let mut copy_buffer: DmaBuf;
-        let source_hdl = Self::get_io_handle(&*self.src_descriptor)?;
+        let mut source_hdl = Self::get_io_handle(&*self.src_descriptor)?;
         let destination_hdl = Self::get_io_handle(&*self.dst_descriptor)?;
 
         let copy_buffer = if self.get_segment_size_blks(blk)
@@ -395,12 +398,20 @@ impl<'n> RebuildJob<'n> {
             &mut copy_buffer
         };
 
-        source_hdl
-            .read_at(blk * self.block_size, copy_buffer)
-            .await
-            .context(ReadIoFailed {
-                bdev: &self.src_uri,
-            })?;
+        source_hdl.set_read_mode(ReadMode::UnwrittenFail);
+
+        let res = source_hdl.read_at(blk * self.block_size, copy_buffer).await;
+
+        if let Err(CoreError::ReadingUnallocatedBlock {
+            ..
+        }) = res
+        {
+            return Ok(());
+        }
+
+        res.context(ReadIoFailed {
+            bdev: &self.src_uri,
+        })?;
 
         destination_hdl
             .write_at(blk * self.block_size, copy_buffer)
