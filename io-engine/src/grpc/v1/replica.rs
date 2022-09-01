@@ -69,6 +69,7 @@ impl From<Lvol> for Replica {
             size: l.size(),
             share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
+            poolname: l.pool_name(),
         }
     }
 }
