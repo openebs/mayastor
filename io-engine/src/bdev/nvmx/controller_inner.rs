@@ -471,7 +471,7 @@ impl<'a> NvmeController<'a> {
             spdk_nvme_ctrlr_register_timeout_callback(
                 self.ctrlr_as_ptr(),
                 device_defaults.timeout_us,
-                device_defaults.timeout_us,
+                device_defaults.timeout_admin_us,
                 Some(NvmeController::io_timeout_handler),
                 self.timeout_config.as_ptr().cast(),
             );
