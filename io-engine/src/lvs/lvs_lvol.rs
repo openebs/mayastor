@@ -17,11 +17,14 @@ use spdk_rs::libspdk::{
     spdk_bdev_io,
     spdk_bdev_io_get_thread,
     spdk_blob,
+    spdk_blob_calc_used_clusters,
+    spdk_blob_get_num_clusters,
     spdk_blob_get_xattr_value,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
+    spdk_bs_get_cluster_size,
     spdk_lvol,
     spdk_nvmf_request_complete,
     vbdev_lvol_create_snapshot,
@@ -79,6 +82,21 @@ impl Display for PropName {
         };
         write!(f, "{}", name)
     }
+}
+
+/// Lvol space usage.
+#[derive(Default, Copy, Clone, Debug)]
+pub struct LvolSpaceUsage {
+    /// Lvol size in bytes.
+    pub capacity_bytes: u64,
+    /// Amount of actually allocated disk space for this replica in bytes.
+    pub allocated_bytes: u64,
+    /// Cluster size in bytes.
+    pub cluster_size: u64,
+    /// Total number of clusters.
+    pub num_clusters: u64,
+    /// Number of actually allocated clusters.
+    pub num_allocated_clusters: u64,
 }
 
 /// struct representing an lvol
@@ -238,6 +256,25 @@ impl Lvol {
     /// return the size of the lvol in bytes
     pub fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
+    }
+
+    /// Returns Lvol disk space usage.
+    pub fn usage(&self) -> LvolSpaceUsage {
+        let bs = self.lvs().blob_store();
+        let blob = self.blob_checked();
+        unsafe {
+            let cluster_size = spdk_bs_get_cluster_size(bs);
+            let num_clusters = spdk_blob_get_num_clusters(blob);
+            let num_allocated_clusters = spdk_blob_calc_used_clusters(blob);
+
+            LvolSpaceUsage {
+                capacity_bytes: self.size(),
+                allocated_bytes: cluster_size * num_allocated_clusters,
+                cluster_size,
+                num_clusters,
+                num_allocated_clusters,
+            }
+        }
     }
 
     /// returns the name of the bdev

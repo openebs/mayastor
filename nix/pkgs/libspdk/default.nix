@@ -40,6 +40,19 @@ let
   fio-output = if multi-outputs then "fio" else "out";
 
   # Derivation attributes for production version of libspdk
+  #
+  # How to update to new libspdk commit:
+  # 1. Push your SPDK commit to openebs repo.
+  # 2. Copy git commit hash to 'rev' field, and copy first 9 digits of it
+  #    to 'version' field.
+  # 3. Leave old SHA256 intact.
+  # 4. Login to your machine and run 'sudo nix store gc' to get rid of stale
+  #    copies of SPDK package.
+  # 5. Enter your mayastor 'nix-shell'.
+  # 6. Wait until SPDK pkg build fails with
+  #    "hash mismatch in fixed-output derivation" error.
+  # 7. Copy SHA256 from 'got' of the error message to 'sha256' field.
+  # 8. 'nix-shell' build must now succeed.
   drvAttrs = rec {
     version = "22.05-1c23be9f7";
 
