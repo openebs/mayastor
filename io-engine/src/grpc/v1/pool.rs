@@ -207,9 +207,12 @@ impl PoolRpc for PoolService {
                         }
                         pool.destroy().await?;
                     } else {
-                        return Err(LvsError::Invalid {
+                        return Err(LvsError::PoolNotFound {
                             source: Errno::EINVAL,
-                            msg: format!("pool {} not found", args.name,),
+                            msg: format!(
+                                "Destroy failed as pool {} was not found",
+                                args.name,
+                            ),
                         });
                     }
                     Ok(())

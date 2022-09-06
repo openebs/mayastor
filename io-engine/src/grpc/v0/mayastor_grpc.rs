@@ -164,13 +164,26 @@ impl From<LvsError> for Status {
             LvsError::ReplicaShareProtocol {
                 ..
             } => Status::invalid_argument(e.to_string()),
-
             LvsError::Destroy {
                 source, ..
             } => source.into(),
             LvsError::Invalid {
                 ..
             } => Status::invalid_argument(e.to_string()),
+            LvsError::PoolNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            LvsError::PoolCreate {
+                source, ..
+            } => {
+                if source == Errno::EEXIST {
+                    Status::already_exists(e.to_string())
+                } else if source == Errno::EINVAL {
+                    Status::invalid_argument(e.to_string())
+                } else {
+                    Status::internal(e.to_string())
+                }
+            }
             LvsError::InvalidBdev {
                 source, ..
             } => source.into(),

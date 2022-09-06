@@ -28,6 +28,11 @@ pub enum Error {
         source: BdevError,
         name: String,
     },
+    #[snafu(display("{}", msg))]
+    PoolNotFound {
+        source: Errno,
+        msg: String,
+    },
     InvalidBdev {
         source: BdevError,
         name: String,
