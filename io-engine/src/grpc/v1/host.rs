@@ -13,6 +13,7 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
+    subsys::Registration,
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -229,7 +230,8 @@ impl host_rpc::HostRpc for HostService {
                     .clone()
                     .unwrap_or_else(|| "mayastor-node".into()),
                 grpc_endpoint: args.grpc_endpoint,
-                instance_uuid: None,
+                instance_uuid: Registration::get()
+                    .map(|r| r.instance_uuid().to_string()),
                 api_version: api_versions,
             }),
         };
