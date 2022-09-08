@@ -185,7 +185,7 @@ def destroy_pool(v1_mayastor_instance, v0_replica_pools, get_pool_name):
 
 @then("the pool create command should fail")
 def the_pool_create_command_should_fail(create_pool_that_already_exists):
-    assert create_pool_that_already_exists.value.code() == grpc.StatusCode.INTERNAL
+    assert create_pool_that_already_exists.value.code() == grpc.StatusCode.ALREADY_EXISTS
 
 
 @then("the pool should appear in the output list")
