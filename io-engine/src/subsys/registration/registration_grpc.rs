@@ -52,6 +52,9 @@ struct Configuration {
     hb_timeout_sec: Duration,
     /// ApiVersion to be supported by the instance
     api_versions: Vec<ApiVersion>,
+    /// Uuid that is randomly generated on process start.
+    /// It's used to identify process restarts.
+    instance_uuid: uuid::Uuid,
 }
 
 /// Registration component for registering dataplane to controlplane
@@ -110,6 +113,7 @@ impl Registration {
                 Ok(Ok(num)) => Duration::from_secs(num),
                 _ => HB_TIMEOUT_SEC,
             },
+            instance_uuid: uuid::Uuid::new_v4(),
         };
         let endpoint = tonic::transport::Endpoint::from(registration_addr)
             .connect_timeout(config.hb_timeout_sec)
@@ -125,8 +129,13 @@ impl Registration {
         }
     }
 
+    /// Get the instance uuid.
+    pub fn instance_uuid(&self) -> &uuid::Uuid {
+        &self.config.instance_uuid
+    }
+
     /// Get the global registration instance
-    pub(super) fn get() -> Option<&'static Registration> {
+    pub(crate) fn get() -> Option<&'static Registration> {
         GRPC_REGISTRATION.get()
     }
 
@@ -153,7 +162,7 @@ impl Registration {
             .register(tonic::Request::new(RegisterRequest {
                 id: self.config.node.to_string(),
                 grpc_endpoint: self.config.grpc_endpoint.clone(),
-                instance_uuid: None,
+                instance_uuid: Some(self.config.instance_uuid.to_string()),
                 api_version: api_versions,
             }))
             .await
