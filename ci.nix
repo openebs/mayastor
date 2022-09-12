@@ -53,6 +53,7 @@ mkShell {
     utillinux
     xfsprogs
     gnuplot
+    libunwind
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
   ++ pkgs.lib.optional (!norust) channel.stable
   ++ pkgs.lib.optional (!norust) channel.nightly;

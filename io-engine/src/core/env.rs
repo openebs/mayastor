@@ -150,6 +150,20 @@ pub struct MayastorCliArgs {
         env = "API_VERSIONS"
     )]
     pub api_versions: Vec<ApiVersion>,
+    /// Dump stack trace for all threads inside I/O agent process with target
+    /// PID. Available only when diagnostics feature is enabled.
+    #[structopt(long = "diagnose-stack", short = "d", env = "DIAGNOSE_STACK")]
+    #[cfg(feature = "diagnostics")]
+    pub diagnose_stack: Option<u32>,
+    /// Timeout (in seconds) for reactor freeze detection.
+    /// Available only when diagnostics feature is enabled.
+    #[structopt(
+        long = "reactor-freeze-timeout",
+        short = "t",
+        env = "REACTOR_FREEZE_TIMEOUT"
+    )]
+    #[cfg(feature = "diagnostics")]
+    pub reactor_freeze_timeout: Option<u64>,
 }
 
 /// Mayastor features.
@@ -193,6 +207,12 @@ impl Default for MayastorCliArgs {
             registration_endpoint: None,
             nvmf_tgt_interface: None,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
+
+            // CLI arguments available only in diagnostics mode.
+            #[cfg(feature = "diagnostics")]
+            diagnose_stack: None,
+            #[cfg(feature = "diagnostics")]
+            reactor_freeze_timeout: None,
         }
     }
 }
