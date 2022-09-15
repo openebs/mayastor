@@ -32,8 +32,13 @@
 , pkgs
 , gcc
 , zlib
+, with-fio
+, multi-outputs ? false
 }:
 let
+  fio-include = "${fio.dev}/include";
+  fio-output = if multi-outputs then "fio" else "out";
+
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
     version = "22.05-4c2049bea";
@@ -89,6 +94,7 @@ let
       [ ]
     ) ++
     (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else [ ]) ++
+    (if with-fio then [ "--with-fio=${fio-include}" ] else [ ]) ++
     [
       "--without-isal"
       "--with-uring"
@@ -145,7 +151,15 @@ let
         sed -i "s,$build_dir/dpdk/build,$out,g" $i
         sed -i "s,$build_dir/intel-ipsec-mb/lib,$out/lib,g" $i
       done
+    '' + lib.optionalString (with-fio && !multi-outputs) ''
+      mkdir $out/fio
+      cp build/fio/spdk_* $out/fio
+    '' + lib.optionalString (with-fio && multi-outputs) ''
+      mkdir $fio
+      cp build/fio/spdk_* $fio
     '';
+
+    outputs = [ "out" ] ++ lib.optional (fio-output != "out") fio-output;
   };
 in
 {
@@ -157,20 +171,17 @@ in
     pname = "libspdk-dev";
     dontStrip = true;
     nativeBuildInputs = drvAttrs.nativeBuildInputs ++ [ cunit lcov ];
-    buildInputs = drvAttrs.buildInputs ++ [ cunit lcov fio ];
+    buildInputs = drvAttrs.buildInputs ++ [ cunit lcov ];
     configurePhase = ''
       patchShebangs ./. > /dev/null
       ./configure ${builtins.concatStringsSep " " (drvAttrs.configureFlags ++
       [
         "--enable-debug"
-        "--with-fio=${pkgs.fio}/include"
       ])}
     '';
     installPhase = drvAttrs.installPhase + ''
       echo "Copying test files"
       cp -ar test $out/test
-      mkdir $out/fio
-      cp build/fio/spdk_* $out/fio
     '';
   });
 }

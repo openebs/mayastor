@@ -3,7 +3,7 @@ let
   sources = import ./nix/sources.nix;
   pkgs = import sources.nixpkgs {
     overlays =
-      [ (_: _: { inherit sources; }) (import ./nix/io-engine-overlay.nix) ];
+      [ (_: _: { inherit sources; }) (import ./nix/overlay.nix { }) ];
   };
 in
 with pkgs;
