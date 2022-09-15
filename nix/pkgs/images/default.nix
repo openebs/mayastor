@@ -17,10 +17,11 @@
 , utillinux
 , writeScriptBin
 , xfsprogs
+, img_tag ? ""
 }:
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
-  version = builtins.readFile "${versionDrv}";
+  version = if lib.stringLength img_tag == 0 then builtins.readFile "${versionDrv}" else img_tag;
   path = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
 
   # common props for all mayastor images

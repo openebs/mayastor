@@ -1,7 +1,7 @@
+{ img_tag ? "" }:
 self: super: {
-
   fio = super.callPackage ./pkgs/fio { };
-  images = super.callPackage ./pkgs/images { };
+  images = super.callPackage ./pkgs/images { inherit img_tag; };
   libnvme = super.callPackage ./pkgs/libnvme { };
   libspdk = (super.callPackage ./pkgs/libspdk { }).release;
   libspdk-dev = (super.callPackage ./pkgs/libspdk { }).debug;
