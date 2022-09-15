@@ -89,6 +89,8 @@ impl From<NexusStatus> for NexusState {
             NexusStatus::Faulted => NexusState::NexusFaulted,
             NexusStatus::Degraded => NexusState::NexusDegraded,
             NexusStatus::Online => NexusState::NexusOnline,
+            NexusStatus::ShuttingDown => NexusState::NexusShuttingDown,
+            NexusStatus::Shutdown => NexusState::NexusShutdown,
         }
     }
 }
@@ -304,6 +306,30 @@ impl NexusRpc for NexusService {
                     trace!("{:?}", args);
                     nexus_destroy(&args.uuid).await?;
                     Ok(())
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn shutdown_nexus(
+        &self,
+        request: Request<ShutdownNexusRequest>,
+    ) -> GrpcResult<()> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    let args = request.into_inner();
+                    trace!("{:?}", args);
+
+                    nexus_lookup(&args.uuid)?.shutdown().await
                 })?;
 
                 rx.await

@@ -72,6 +72,15 @@ pub enum NexusTarget {
     NexusNvmfTarget,
 }
 
+/// Sensitive nexus operations that might require extra checks against
+/// current nexus state in order to be performed.
+#[derive(Debug)]
+pub enum NexusOperation {
+    ReplicaAdd,
+    ReplicaRemove,
+    ReplicaOnline,
+}
+
 /// TODO
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum NvmeAnaState {
@@ -197,6 +206,10 @@ pub enum NexusStatus {
     Degraded,
     /// Online
     Online,
+    /// Shutdown in progress
+    ShuttingDown,
+    /// Shutdown
+    Shutdown,
 }
 
 impl Display for NexusStatus {
@@ -208,6 +221,8 @@ impl Display for NexusStatus {
                 NexusStatus::Degraded => "degraded",
                 NexusStatus::Online => "online",
                 NexusStatus::Faulted => "faulted",
+                NexusStatus::ShuttingDown => "shutting_down",
+                NexusStatus::Shutdown => "shutdown",
             }
         )
     }
@@ -224,6 +239,10 @@ pub enum NexusState {
     Open,
     /// reconfiguring internal IO channels
     Reconfiguring,
+    /// Shutdown in progress
+    ShuttingDown,
+    /// nexus has been shutdown
+    Shutdown,
 }
 
 impl Display for NexusState {
@@ -236,6 +255,8 @@ impl Display for NexusState {
                 NexusState::Closed => "closed",
                 NexusState::Open => "open",
                 NexusState::Reconfiguring => "reconfiguring",
+                NexusState::ShuttingDown => "shutting_down",
+                NexusState::Shutdown => "shutdown",
             }
         )
     }
@@ -452,6 +473,23 @@ impl<'n> Nexus<'n> {
         self.children.len()
     }
 
+    /// Check whether nexus can perform target operation.
+    pub(crate) fn check_nexus_operation(
+        &self,
+        _op: NexusOperation,
+    ) -> Result<(), Error> {
+        match *self.state.lock() {
+            // When nexus under shutdown or is shutdown, no further nexus
+            // operations allowed.
+            NexusState::ShuttingDown | NexusState::Shutdown => {
+                Err(Error::OperationNotAllowed {
+                    reason: "Nexus is shutdown".to_string(),
+                })
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
         info!(
@@ -602,6 +640,79 @@ impl<'n> Nexus<'n> {
         self.io_subsystem_mut().resume().await
     }
 
+    pub async fn shutdown(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        let prev_state = {
+            let mut s = self.state.lock();
+
+            match *s {
+                // If nexus is already shutdown, operation is idempotent.
+                NexusState::Shutdown => {
+                    info!(
+                        nexus=%self.name,
+                        "Nexus is already shutdown, skipping shutdown operation"
+                    );
+                    return Ok(());
+                }
+                // In case of active shutdown operation, bail out.
+                NexusState::ShuttingDown => {
+                    return Err(Error::OperationNotAllowed {
+                        reason: "Shutdown operation is already in progress"
+                            .to_string(),
+                    });
+                }
+                // Save current state and mark nexus as being under shutdown.
+                t => {
+                    *s = NexusState::ShuttingDown;
+                    t
+                }
+            }
+        };
+
+        // Step 1: pause subsystem.
+        // In case of error, restore previous nexus state.
+        info!(
+            nexus=%self.name,
+            "Shutting down nexus"
+        );
+        self.as_mut().pause().await.map_err(|error| {
+            error!(
+                %error,
+                nexus=%self.name,
+                "Failed to pause I/O subsystem, shutdown failed"
+            );
+
+            // Restore previous nexus state.
+            *self.state.lock() = prev_state;
+            error
+        })?;
+
+        info!(
+            nexus=%self.name,
+            "I/O subsystem paused"
+        );
+
+        // Step 2: cancel all active rebuild jobs.
+        let child_uris = self.children_uris();
+        for child in child_uris {
+            self.as_mut().cancel_rebuild_jobs(&child).await;
+        }
+
+        // Step 3: Close all nexus children.
+        self.as_mut().close_children().await;
+
+        // Step 4: Mark nexus as being properly shutdown in ETCd.
+        self.persist(PersistOp::Shutdown).await;
+
+        // Finally, mark nexus as being fully shutdown.
+        *self.state.lock() = NexusState::Shutdown;
+
+        info!(
+            nexus=%self.name,
+            "Nexus successfully shut down"
+        );
+        Ok(())
+    }
+
     /// Suspend any incoming IO to the bdev pausing the controller allows us to
     /// handle internal events and which is a protocol feature.
     /// In case concurrent pause requests take place, the other callers
@@ -676,6 +787,8 @@ impl<'n> Nexus<'n> {
         match *self.state.lock() {
             NexusState::Init => NexusStatus::Degraded,
             NexusState::Closed => NexusStatus::Faulted,
+            NexusState::ShuttingDown => NexusStatus::ShuttingDown,
+            NexusState::Shutdown => NexusStatus::Shutdown,
             NexusState::Open | NexusState::Reconfiguring => {
                 if self
                     .children

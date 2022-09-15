@@ -74,6 +74,8 @@ impl From<NexusStatus> for rpc::NexusState {
             NexusStatus::Faulted => rpc::NexusState::NexusFaulted,
             NexusStatus::Degraded => rpc::NexusState::NexusDegraded,
             NexusStatus::Online => rpc::NexusState::NexusOnline,
+            NexusStatus::ShuttingDown => rpc::NexusState::NexusShuttingDown,
+            NexusStatus::Shutdown => rpc::NexusState::NexusShutdown,
         }
     }
 }

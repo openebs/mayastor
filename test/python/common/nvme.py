@@ -2,6 +2,7 @@ from urllib.parse import urlparse
 import subprocess
 import time
 import json
+import re
 from common.command import run_cmd_async_at
 
 
@@ -165,3 +166,22 @@ def identify_namespace(device):
         if len(v) == 2 and v[0] in NS_PROPS:
             ns[v[0]] = v[1]
     return ns
+
+
+def nvme_delete_controller(device):
+    """Forcibly deletes NVMe controller"""
+    # Transparently remove optional global device prefix.
+    dev = device.lstrip("/dev/").lstrip()
+
+    # Remove namespace part and leave only controller name.
+    r = re.compile(r"(nvme\d+)(n\d+)?")
+    m = r.search(dev)
+    assert m is not None, "Incorrect NVMe controller name: %s" % device
+    p = "/sys/class/nvme/%s/delete_controller" % m.group(1)
+
+    # Forcibly trigger controller removal. Note that operations must be executed
+    # with root privileges, hence sudo for python interpreter.
+    script = "\"f = open('%s', 'w'); f.write('1'); f.flush()\"" % p
+    # Run privileged Python script.
+    command = "sudo python -c {} ".format(script)
+    subprocess.run(command, check=True, shell=True, capture_output=True)

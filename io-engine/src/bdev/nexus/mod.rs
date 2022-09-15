@@ -25,6 +25,7 @@ pub use nexus_bdev::{
     nexus_create_v2,
     Nexus,
     NexusNvmeParams,
+    NexusOperation,
     NexusState,
     NexusStatus,
     NexusTarget,

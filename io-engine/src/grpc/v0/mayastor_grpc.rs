@@ -944,6 +944,31 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
+    #[named]
+    async fn shutdown_nexus(
+        &self,
+        request: Request<ShutdownNexusRequest>,
+    ) -> GrpcResult<Null> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                    let args = request.into_inner();
+                    trace!("{:?}", args);
+
+                    nexus_lookup(&args.uuid)?.shutdown().await?;
+                    Ok(Null {})
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
     async fn list_nexus(
         &self,
         request: Request<Null>,
