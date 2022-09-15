@@ -297,9 +297,6 @@ describe('rebuild tests', function () {
     });
 
     afterEach(async () => {
-      await client.stopRebuild().sendMessage(rebuildArgs);
-      // TODO: Check for rebuild stop rather than sleeping
-      await sleep(250); // Give time for the rebuild to stop
       await client.removeChildNexus().sendMessage(rebuildArgs);
     });
 
@@ -338,9 +335,6 @@ describe('rebuild tests', function () {
     });
 
     afterEach(async () => {
-      await client.stopRebuild().sendMessage(rebuildArgs);
-      // TODO: Check for rebuild stop rather than sleeping
-      await sleep(250); // Give time for the rebuild to stop
       await client.removeChildNexus().sendMessage(rebuildArgs);
     });
 
@@ -373,7 +367,6 @@ describe('rebuild tests', function () {
     });
 
     afterEach(async () => {
-      await client.stopRebuild().sendMessage(rebuildArgs);
       await client.removeChildNexus().sendMessage(rebuildArgs);
     });
 
@@ -402,6 +395,7 @@ describe('rebuild tests', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
+      await sleep(250); // Give some time for rebuild to start.
       await client.childOperation().sendMessage(childOfflineArgs);
       await sleep(250); // Allow time for the child to go offline
     });
