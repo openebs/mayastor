@@ -876,6 +876,7 @@ impl MayastorEnvironment {
         F: FnOnce() + 'static,
     {
         type FutureResult = Result<(), ()>;
+        let node_name = self.node_name.clone();
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
         let api_versions = self.api_versions.clone();
@@ -893,6 +894,7 @@ impl MayastorEnvironment {
             > = Vec::new();
             if let Some(grpc_endpoint) = grpc_endpoint {
                 futures.push(Box::pin(grpc::MayastorGrpcServer::run(
+                    &node_name,
                     grpc_endpoint,
                     rpc_addr,
                     api_versions,
