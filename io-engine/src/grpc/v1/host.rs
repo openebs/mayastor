@@ -1,6 +1,6 @@
 use crate::{
     bdev::{nexus, NvmeControllerState},
-    core::{BlockDeviceIoStats, CoreError, MayastorCliArgs, MayastorFeatures},
+    core::{BlockDeviceIoStats, CoreError, MayastorFeatures},
     grpc::{
         controller_grpc::{
             controller_stats,
@@ -13,13 +13,12 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    subsys::Registration,
+    subsys::{registration::registration_grpc::ApiVersion, Registration},
 };
 use ::function_name::named;
 use futures::FutureExt;
 use mayastor_api::v1::{host as host_rpc, registration::RegisterRequest};
 use std::panic::AssertUnwindSafe;
-use structopt::StructOpt;
 use tonic::{Request, Response, Status};
 use version_info::raw_version_string;
 
@@ -29,6 +28,9 @@ use version_info::raw_version_string;
 pub struct HostService {
     #[allow(dead_code)]
     name: String,
+    node_name: String,
+    grpc_socket: std::net::SocketAddr,
+    api_versions: Vec<ApiVersion>,
     client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
 }
 
@@ -73,16 +75,18 @@ where
     }
 }
 
-impl Default for HostService {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl HostService {
-    pub fn new() -> Self {
+    /// Return a new `Self` with the given host parameters.
+    pub fn new(
+        node_name: &str,
+        grpc_socket: std::net::SocketAddr,
+        api_versions: Vec<ApiVersion>,
+    ) -> Self {
         Self {
             name: String::from("MayastorService"),
+            node_name: node_name.to_string(),
+            grpc_socket,
+            api_versions,
             client_context: tokio::sync::Mutex::new(None),
         }
     }
@@ -210,13 +214,12 @@ impl host_rpc::HostRpc for HostService {
         _request: Request<()>,
     ) -> GrpcResult<host_rpc::MayastorInfoResponse> {
         let features = MayastorFeatures::get_features().into();
-        let args = MayastorCliArgs::from_args();
-        let api_versions = args
+        let api_versions = self
             .api_versions
-            .into_iter()
+            .iter()
             .map(|v| {
                 let api_version: mayastor_api::v1::registration::ApiVersion =
-                    v.into();
+                    v.clone().into();
                 api_version as i32
             })
             .collect();
@@ -225,11 +228,8 @@ impl host_rpc::HostRpc for HostService {
             version: raw_version_string(),
             supported_features: Some(features),
             registration_info: Some(RegisterRequest {
-                id: args
-                    .node_name
-                    .clone()
-                    .unwrap_or_else(|| "mayastor-node".into()),
-                grpc_endpoint: args.grpc_endpoint,
+                id: self.node_name.clone(),
+                grpc_endpoint: self.grpc_socket.to_string(),
                 instance_uuid: Registration::get()
                     .map(|r| r.instance_uuid().to_string()),
                 api_version: api_versions,

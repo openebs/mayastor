@@ -133,3 +133,14 @@ pub fn endpoint(endpoint: String) -> std::net::SocketAddr {
     .parse()
     .expect("Invalid gRPC endpoint")
 }
+
+/// In case we do not have the node-name provided we would set the node name
+/// as the hostname(env always present), because the csi-controller adds
+/// the hostname in allowed nodes in the topology and in case there is
+/// mismatch, for ex, in case of EKS clusters where hostname and
+/// node name differ volume wont be created, so we set it to hostname.
+pub fn node_name(node_name: &Option<String>) -> String {
+    node_name.clone().unwrap_or_else(|| {
+        std::env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
+    })
+}

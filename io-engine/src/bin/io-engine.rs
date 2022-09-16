@@ -37,14 +37,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let registration_addr = args.registration_endpoint.clone();
     let rpc_address = args.rpc_address.clone();
     let api_versions = args.api_versions.clone();
-    // In case we do not have the node-name provided we would set the node name
-    // as the hostname(env always present), because the csi-controller adds
-    // the hostname in allowed nodes in the topology and in case there is
-    // mismatch, for ex, in case of EKS clusters where hostname and
-    // node name differ volume wont be created, so we set it to hostname.
-    let node_name = args.node_name.clone().unwrap_or_else(|| {
-        env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
-    });
+    let node_name = grpc::node_name(&args.node_name);
 
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
@@ -63,6 +56,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
             futures.push(
                 grpc::MayastorGrpcServer::run(
+                    &node_name,
                     grpc_address,
                     rpc_address,
                     api_versions.clone(),
