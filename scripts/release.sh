@@ -47,6 +47,7 @@ RM="rm"
 SCRIPTDIR=$(dirname "$0")
 TAG=`get_tag`
 BRANCH=`git rev-parse --abbrev-ref HEAD`
+BRANCH=${BRANCH////-}
 IMAGES=
 UPLOAD=
 SKIP_PUBLISH=
