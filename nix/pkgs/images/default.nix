@@ -13,15 +13,19 @@
 , lib
 , io-engine
 , io-engine-dev
+, pkgs
+, libspdk-fio
 , stdenv
 , utillinux
 , writeScriptBin
 , xfsprogs
+, runCommand
+, img_tag ? ""
 }:
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
-  version = builtins.readFile "${versionDrv}";
-  path = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
+  version = if pkgs.lib.stringLength img_tag == 0 then builtins.readFile "${versionDrv}" else img_tag;
+  path = lib.makeBinPath [ "/" busybox utillinux ];
 
   # common props for all io-engine images
   ioEngineImageProps = {
@@ -43,14 +47,28 @@ let
   clientImageProps = {
     tag = version;
     created = "now";
-    config = {
-      Env = [ "PATH=${path}" ];
-    };
+    config = { };
+    contents = [ busybox ];
     extraCommands = ''
       mkdir tmp
       mkdir -p var/tmp
     '';
   };
+  spdk_fio_engine = runCommand "spdk_fio_engine" { } ''
+    mkdir -p $out/lib
+    cp ${pkgs.libspdk-fio.fio}/spdk_nvme $out/lib
+    except=$(${pkgs.glibc.bin}/bin/ldd $out/lib/spdk_nvme | awk '{ print $3 }' | grep .so | xargs -I% echo "-e %" | tr '\n' ' ')
+    # remove all references except the ones in spdk_nvme
+    ${pkgs.nukeReferences}/bin/nuke-refs $except $out/lib/spdk_nvme
+  '';
+
+  fio = runCommand "fio_bin_only" { } ''
+    mkdir -p $out/bin
+    cp ${pkgs.fio}/bin/fio $out/bin/fio
+  '';
+  fio_wrapper = pkgs.writeShellScriptBin "fio" ''
+    LD_PRELOAD=${spdk_fio_engine}/lib/spdk_nvme ${fio}/bin/fio "$@"
+  '';
 
   mctl = writeScriptBin "mctl" ''
     /bin/io-engine-client "$@"
@@ -71,5 +89,10 @@ in
     name = "mayadata/mayastor-io-engine-client";
     contents = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
+  });
+
+  mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
+    name = "mayadata/mayastor-fio-spdk";
+    contents = clientImageProps.contents ++ [ fio_wrapper ];
   });
 }

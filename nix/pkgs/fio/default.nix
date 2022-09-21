@@ -37,14 +37,17 @@ stdenv.mkDerivation rec {
   '';
 
   preInstall = ''
-    mkdir -p $out/include
-    cp -p --parents $(find . -name "*.h") $out/include
+    mkdir -p $dev/include
+    cp -p --parents $(find . -name "*.h") $dev/include
   '';
 
   postInstall = lib.optionalString withGnuplot ''
     wrapProgram $out/bin/fio2gnuplot \
       --prefix PATH : ${lib.makeBinPath [ gnuplot ]}
   '';
+
+  outputs = [ "out" "dev" ];
+  setOutputFlags = false;
 
   meta = with lib; {
     description = "Flexible IO Tester - an IO benchmark tool";

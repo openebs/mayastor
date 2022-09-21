@@ -5,6 +5,8 @@
 # The script assumes that a user is logged on to dockerhub for public images,
 # or has insecure registry access setup for CI.
 
+CI=${CI:false}
+
 set -euo pipefail
 
 # Test if the image already exists in dockerhub
@@ -33,8 +35,8 @@ Options:
   --debug                    Build debug version of images where possible.
   --skip-build               Don't perform nix-build.
   --skip-publish             Don't publish built images.
-  --image                    Specify what image to build.
-  --alias-tag                Explicit alias for short commit hash tag.
+  --image           <image>  Specify what image to build.
+  --alias-tag       <tag>    Explicit alias for short commit hash tag.
 
 Examples:
   $(basename $0) --registry 127.0.0.1:5000
@@ -54,6 +56,7 @@ SKIP_BUILD=
 REGISTRY=
 ALIAS=
 DEBUG=
+OVERRIDE_COMMIT_HASH=
 
 # Check if all needed tools are installed
 curl --version >/dev/null
@@ -119,10 +122,32 @@ cd $SCRIPTDIR/..
 
 if [ -z "$IMAGES" ]; then
   if [ -z "$DEBUG" ]; then
-    IMAGES="mayastor-io-engine mayastor-io-engine-client"
+    IMAGES="mayastor-io-engine mayastor-io-engine-client mayastor-fio-spdk"
   else
-    IMAGES="mayastor-io-engine-dev mayastor-io-engine-client"
+    IMAGES="mayastor-io-engine-dev mayastor-io-engine-client mayastor-fio-spdk"
   fi
+fi
+
+if [ "$CI" != "true" ]; then
+  OVERRIDE_COMMIT_HASH="true"
+fi
+
+# Create alias
+alias_tag=
+if [ -n "$ALIAS" ]; then
+  alias_tag=$ALIAS
+elif [ "$BRANCH" == "develop" ]; then
+  alias_tag="$BRANCH"
+elif [ "${BRANCH#release-}" != "${BRANCH}" ]; then
+  alias_tag="${BRANCH}"
+fi
+
+if [ -n "$OVERRIDE_COMMIT_HASH" ] && [ -n "$alias_tag" ]; then
+  # Set the TAG to the alias and remove the alias
+  NIX_TAG_ARGS="--argstr img_tag $alias_tag"
+  NIX_BUILD="$NIX_BUILD $NIX_TAG_ARGS"
+  TAG="$alias_tag"
+  alias_tag=
 fi
 
 for name in $IMAGES; do
@@ -159,15 +184,6 @@ if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
     $DOCKER push $img:$TAG
   done
 
-  # Create alias
-  alias_tag=
-  if [ -n "$ALIAS" ]; then
-    alias_tag=$ALIAS
-  elif [ "$BRANCH" == "develop" ]; then
-    alias_tag=develop
-  elif [ "${BRANCH#release-}" != "${BRANCH}" ]; then
-    alias_tag="${BRANCH}"
-  fi
   if [ -n "$alias_tag" ]; then
     for img in $UPLOAD; do
       echo "Uploading $img:$alias_tag to registry ..."
@@ -176,3 +192,5 @@ if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
     done
   fi
 fi
+
+$DOCKER image prune -f

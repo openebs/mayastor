@@ -1,10 +1,11 @@
+{ img_tag ? "" }:
 self: super: {
-
   fio = super.callPackage ./pkgs/fio { };
-  images = super.callPackage ./pkgs/images { };
+  images = super.callPackage ./pkgs/images { inherit img_tag; };
   libnvme = super.callPackage ./pkgs/libnvme { };
-  libspdk = (super.callPackage ./pkgs/libspdk { }).release;
-  libspdk-dev = (super.callPackage ./pkgs/libspdk { }).debug;
+  libspdk = (super.callPackage ./pkgs/libspdk { with-fio = false; }).release;
+  libspdk-fio = (super.callPackage ./pkgs/libspdk { with-fio = true; multi-outputs = true; }).release;
+  libspdk-dev = (super.callPackage ./pkgs/libspdk { with-fio = true; }).debug;
   io-engine = (super.callPackage ./pkgs/io-engine { }).release;
   io-engine-adhoc = (super.callPackage ./pkgs/io-engine { }).adhoc;
   io-engine-dev = (super.callPackage ./pkgs/io-engine { }).debug;

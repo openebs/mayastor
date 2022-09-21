@@ -1,4 +1,5 @@
 { crossSystem ? null
+, img_tag ? ""
 }:
 
 let
@@ -6,7 +7,7 @@ let
   pkgs = import sources.nixpkgs {
     overlays = [
       (_: _: { inherit sources; })
-      (import ./nix/io-engine-overlay.nix)
+      (import ./nix/overlay.nix { inherit img_tag; })
     ];
     inherit crossSystem;
   };
