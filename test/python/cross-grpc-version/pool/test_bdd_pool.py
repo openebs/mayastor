@@ -41,6 +41,14 @@ def test_creating_a_v1_version_pool_with_a_v0_version_pool_name_that_already_exi
 
 
 @scenario(
+    "features/pool.feature",
+    "creating a v1 version pool with same name and different disk of existing v0 version pool",
+)
+def test_creating_a_v1_version_pool_with_same_name_and_different_disk_of_existing_v0_version_pool():
+    """creating a v1 version pool with same name and different disk of existing v0 version pool"""
+
+
+@scenario(
     "features/pool.feature", "listing pools created with v0 version using v1 grpc call"
 )
 def test_listing_pools_created_with_v0_version_using_v1_grpc_call():
@@ -148,6 +156,15 @@ def create_pool_that_already_exists(create_v1_pool, get_pool_name):
         create_v1_pool(get_pool_name, ["malloc:///disk0?size_mb=100"], None)
     return error
 
+@when(
+    "the user creates a v1 version pool with the same name and different disk of an existing pool",
+    target_fixture="create_pool_with_same_name_different_disk",
+)
+def create_pool_with_same_name_different_disk(create_v1_pool, get_pool_name):
+    with pytest.raises(grpc.RpcError) as error:
+        create_v1_pool(get_pool_name, ["malloc:///disk4?size_mb=100"], None)
+    return error
+
 
 @when("the user lists the current pools", target_fixture="list_pools")
 def list_pools(v1_mayastor_instance):
@@ -186,6 +203,11 @@ def destroy_pool(v1_mayastor_instance, v0_replica_pools, get_pool_name):
 @then("the pool create command should fail")
 def the_pool_create_command_should_fail(create_pool_that_already_exists):
     assert create_pool_that_already_exists.value.code() == grpc.StatusCode.ALREADY_EXISTS
+
+
+@then("the pool create request should fail")
+def the_pool_create_request_should_fail(create_pool_with_same_name_different_disk):
+    assert create_pool_with_same_name_different_disk.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
 @then("the pool should appear in the output list")
