@@ -263,7 +263,7 @@ pipeline {
             always {
               // in case of abnormal termination of any nvmf test
               sh 'sudo nvme disconnect-all'
-              sh './scripts/check-coredumps.sh --since "${START_DATE}"'
+              sh 'sudo ./scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
         }
@@ -285,7 +285,7 @@ pipeline {
           post {
             always {
               junit '*-xunit-report.xml'
-              sh './scripts/check-coredumps.sh --since "${START_DATE}"'
+              sh 'sudo ./scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
         }
