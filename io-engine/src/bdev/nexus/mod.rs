@@ -123,12 +123,17 @@ pub fn register_module() {
 
 /// called during shutdown so that all nexus children are in Destroying state
 /// so that a possible remove event from SPDK also results in bdev removal
-pub async fn nexus_children_to_destroying_state() {
-    info!("Setting all nexus children to destroying state...");
-    for nexus in nexus_iter() {
-        for child in nexus.children_iter() {
-            child.set_state(nexus_child::ChildState::Destroying);
+pub async fn shutdown_nexuses() {
+    info!("Shutting down nexuses...");
+    for mut nexus in nexus_iter_mut() {
+        // Destroy nexus and persist its state in the ETCd.
+        if let Err(error) = nexus.as_mut().destroy().await {
+            error!(
+                name=nexus.name,
+                %error,
+                "Failed to destroy nexus"
+            );
         }
     }
-    info!("Setting all nexus children to destroying state done");
+    info!("All nexus have been shutdown.");
 }
