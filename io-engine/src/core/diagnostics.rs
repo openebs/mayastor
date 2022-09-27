@@ -95,8 +95,5 @@ fn collect_process_stack(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
 pub fn process_diagnostics_cli(
     cli: &MayastorCliArgs,
 ) -> Option<Result<(), Box<dyn std::error::Error>>> {
-    match cli.diagnose_stack {
-        None => None,
-        Some(pid) => Some(collect_process_stack(pid)),
-    }
+    cli.diagnose_stack.map(collect_process_stack)
 }
