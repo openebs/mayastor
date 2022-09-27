@@ -121,7 +121,7 @@ def notifySlackUponE2EFailure(build) {
 }
 
 def mainBranches() {
-    return BRANCH_NAME == "develop" || BRANCH_NAME.startsWith("release-");
+    return BRANCH_NAME == "develop" || BRANCH_NAME.startsWith("release/");
 }
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
@@ -221,7 +221,7 @@ pipeline {
         not {
           anyOf {
             branch 'master'
-            branch 'release-*'
+            branch 'release/*'
             expression { run_linter == false }
           }
         }
@@ -581,7 +581,7 @@ pipeline {
           expression { do_not_push_images == false }
           anyOf {
             branch 'master'
-            branch 'release-*'
+            branch 'release/*'
             branch 'develop'
           }
         }
