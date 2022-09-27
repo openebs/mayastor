@@ -1,6 +1,7 @@
+pub use super::compose::rpc::v1::pool::Pool;
 use super::{
     compose::rpc::v1::{
-        pool::{CreatePoolRequest, ListPoolOptions, Pool},
+        pool::{CreatePoolRequest, ListPoolOptions},
         SharedRpcHandle,
         Status,
     },

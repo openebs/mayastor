@@ -84,7 +84,7 @@ impl Lvs {
 
     /// TODO
     #[inline(always)]
-    fn blob_store(&self) -> *mut spdk_blob_store {
+    pub(super) fn blob_store(&self) -> *mut spdk_blob_store {
         self.as_inner_ref().blobstore
     }
 

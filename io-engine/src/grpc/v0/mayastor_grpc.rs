@@ -37,7 +37,7 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    lvs::{Error as LvsError, Lvol, Lvs},
+    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
     pool_backend::PoolArgs,
     rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
@@ -237,16 +237,30 @@ impl From<Lvol> for Replica {
     }
 }
 
+impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
+    fn from(u: LvolSpaceUsage) -> Self {
+        Self {
+            capacity_bytes: u.capacity_bytes,
+            allocated_bytes: u.allocated_bytes,
+            cluster_size: u.cluster_size,
+            num_clusters: u.num_clusters,
+            num_allocated_clusters: u.num_allocated_clusters,
+        }
+    }
+}
+
 impl From<Lvol> for ReplicaV2 {
     fn from(l: Lvol) -> Self {
+        let usage = l.usage();
         Self {
             name: l.name(),
             uuid: l.uuid(),
             pool: l.pool_name(),
             thin: l.is_thin(),
-            size: l.size(),
+            size: usage.capacity_bytes,
             share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
+            usage: Some(usage.into()),
         }
     }
 }

@@ -1,10 +1,10 @@
+pub use super::compose::rpc::v1::replica::Replica;
 use super::{
     compose::rpc::v1::{
         replica::{
             CreateReplicaRequest,
             DestroyReplicaRequest,
             ListReplicaOptions,
-            Replica,
             ShareReplicaRequest,
         },
         SharedRpcHandle,
@@ -15,6 +15,7 @@ use super::{
     pool::PoolBuilder,
 };
 use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
+use tonic::Code;
 
 #[derive(Clone)]
 pub struct ReplicaBuilder {
@@ -162,6 +163,20 @@ impl ReplicaBuilder {
             .map(|r| r.into_inner())?;
         self.shared_uri = Some(r.uri.clone());
         Ok(r)
+    }
+
+    pub async fn get_replica(&self) -> Result<Replica, Status> {
+        let uuid = self.uuid();
+        list_replicas(self.rpc())
+            .await?
+            .into_iter()
+            .find(|p| p.uuid == uuid)
+            .ok_or_else(|| {
+                Status::new(
+                    Code::NotFound,
+                    format!("Replica '{}' not found", uuid),
+                )
+            })
     }
 }
 
