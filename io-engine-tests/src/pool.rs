@@ -1,19 +1,29 @@
-use super::compose::rpc::v1::{
-    pool::{CreatePoolRequest, ListPoolOptions, Pool},
-    RpcHandle,
-    Status,
+use super::{
+    compose::rpc::v1::{
+        pool::{CreatePoolRequest, ListPoolOptions, Pool},
+        SharedRpcHandle,
+        Status,
+    },
+    generate_uuid,
 };
+use tonic::Code;
 
-#[derive(Default, Clone, Debug)]
+#[derive(Clone)]
 pub struct PoolBuilder {
-    pub name: Option<String>,
-    pub uuid: Option<String>,
-    pub bdev: Option<String>,
+    rpc: SharedRpcHandle,
+    name: Option<String>,
+    uuid: Option<String>,
+    bdev: Option<String>,
 }
 
 impl PoolBuilder {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(rpc: SharedRpcHandle) -> Self {
+        Self {
+            rpc,
+            name: None,
+            uuid: None,
+            bdev: None,
+        }
     }
 
     pub fn with_name(mut self, name: &str) -> Self {
@@ -26,30 +36,89 @@ impl PoolBuilder {
         self
     }
 
+    pub fn with_new_uuid(self) -> Self {
+        self.with_uuid(&generate_uuid())
+    }
+
     pub fn with_bdev(mut self, bdev: &str) -> Self {
         self.bdev = Some(bdev.to_owned());
         self
     }
 
-    pub async fn create(&self, rpc: &mut RpcHandle) -> Result<Pool, Status> {
-        rpc.pool
+    pub fn with_malloc(self, bdev_name: &str, size_mb: u64) -> Self {
+        let bdev = format!("malloc:///{}?size_mb={}", bdev_name, size_mb);
+        self.with_bdev(&bdev)
+    }
+
+    pub fn rpc(&self) -> SharedRpcHandle {
+        self.rpc.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.name.as_ref().expect("Pool name must be set").clone()
+    }
+
+    pub fn uuid(&self) -> String {
+        self.uuid.as_ref().expect("Pool UUID must be set").clone()
+    }
+
+    pub fn bdev(&self) -> String {
+        self.bdev.as_ref().expect("Pool Bdev must be set").clone()
+    }
+
+    pub async fn create(&mut self) -> Result<Pool, Status> {
+        self.rpc()
+            .borrow_mut()
+            .pool
             .create_pool(CreatePoolRequest {
-                name: self.name.as_ref().unwrap().clone(),
-                uuid: Some(self.uuid.as_ref().unwrap().clone()),
+                name: self.name(),
+                uuid: Some(self.uuid()),
                 pooltype: 0,
                 disks: vec![self.bdev.as_ref().unwrap().clone()],
             })
             .await
             .map(|r| r.into_inner())
     }
+
+    pub async fn get_pool(&self) -> Result<Pool, Status> {
+        let uuid = self.uuid();
+        list_pools(self.rpc())
+            .await?
+            .into_iter()
+            .find(|p| p.uuid == uuid)
+            .ok_or_else(|| {
+                Status::new(
+                    Code::NotFound,
+                    format!("Pool '{}' not found", uuid),
+                )
+            })
+    }
 }
 
-pub async fn list_pools(rpc: &mut RpcHandle) -> Result<Vec<Pool>, Status> {
-    rpc.pool
+pub async fn list_pools(rpc: SharedRpcHandle) -> Result<Vec<Pool>, Status> {
+    rpc.borrow_mut()
+        .pool
         .list_pools(ListPoolOptions {
             name: None,
             pooltype: None,
         })
         .await
         .map(|r| r.into_inner().pools)
+}
+
+/// Tests that all given pools report the same usage statistics.
+pub async fn validate_pools_used_space(pools: &[PoolBuilder]) {
+    let mut used_space: Option<u64> = None;
+    for p in pools {
+        let pool = p.get_pool().await.unwrap();
+        if let Some(first) = &used_space {
+            assert_eq!(
+                *first, pool.used,
+                "Used space of pool '{}' is different",
+                pool.name
+            );
+        } else {
+            used_space = Some(pool.used);
+        }
+    }
 }

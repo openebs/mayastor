@@ -47,6 +47,7 @@ use crate::core::{
     IoCompletionCallbackArg,
     IoCompletionStatus,
     NvmeStatus,
+    ReadMode,
     UntypedBdev,
     UntypedBdevHandle,
     UntypedDescriptorGuard,
@@ -240,6 +241,10 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError> {
         self.handle.read_at(offset, buffer).await
+    }
+
+    fn set_read_mode(&mut self, mode: ReadMode) {
+        self.handle.set_read_mode(mode);
     }
 
     async fn write_at(

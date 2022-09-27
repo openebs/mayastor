@@ -14,22 +14,26 @@ use spdk_rs::{
         spdk_bdev_free_io,
         spdk_bdev_io,
         spdk_bdev_nvme_admin_passthru_ro,
-        spdk_bdev_read,
+        spdk_bdev_read_with_flags,
         spdk_bdev_reset,
         spdk_bdev_write,
         spdk_bdev_write_zeroes,
         spdk_io_channel,
         spdk_nvme_cmd,
+        SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
     },
     nvme_admin_opc,
     BdevOps,
     DmaBuf,
     DmaError,
+    GenericStatusCode,
     IoChannelGuard,
+    MediaErrorStatusCode,
+    NvmeStatus,
 };
 
 use crate::{
-    core::{Bdev, CoreError, DescriptorGuard},
+    core::{Bdev, CoreError, DescriptorGuard, ReadMode},
     ffihelper::cb_arg,
     subsys,
 };
@@ -41,9 +45,10 @@ pub struct BdevHandle<T: BdevOps> {
     /// Rust guarantees proper ordering of dropping. The channel MUST be
     /// dropped before we close the descriptor
     channel: IoChannelGuard<T::ChannelData>,
-
     /// TODO
     desc: Arc<DescriptorGuard<T>>,
+    /// TODO
+    io_flags: u32,
 }
 
 pub type UntypedBdevHandle = BdevHandle<()>;
@@ -109,14 +114,20 @@ impl<T: BdevOps> BdevHandle<T> {
         arg: *mut c_void,
     ) {
         let sender = unsafe {
-            Box::from_raw(arg as *const _ as *mut oneshot::Sender<bool>)
+            Box::from_raw(arg as *const _ as *mut oneshot::Sender<NvmeStatus>)
         };
 
         unsafe {
             spdk_bdev_free_io(io);
         }
 
-        sender.send(success).expect("io completion error");
+        let status = if success {
+            NvmeStatus::Generic(GenericStatusCode::Success)
+        } else {
+            NvmeStatus::from(io)
+        };
+
+        sender.send(status).expect("io completion error");
     }
 
     /// write the ['DmaBuf'] to the given offset. This function is implemented
@@ -126,7 +137,7 @@ impl<T: BdevOps> BdevHandle<T> {
         offset: u64,
         buffer: &DmaBuf,
     ) -> Result<u64, CoreError> {
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
         let errno = unsafe {
             spdk_bdev_write(
                 self.desc.legacy_as_ptr(),
@@ -147,7 +158,9 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting write IO") {
+        if r.await.expect("Failed awaiting write IO")
+            == NvmeStatus::Generic(GenericStatusCode::Success)
+        {
             Ok(buffer.len())
         } else {
             Err(CoreError::WriteFailed {
@@ -163,9 +176,9 @@ impl<T: BdevOps> BdevHandle<T> {
         offset: u64,
         buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError> {
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
         let errno = unsafe {
-            spdk_bdev_read(
+            spdk_bdev_read_with_flags(
                 self.desc.legacy_as_ptr(),
                 self.channel.legacy_as_ptr(),
                 **buffer,
@@ -173,6 +186,7 @@ impl<T: BdevOps> BdevHandle<T> {
                 buffer.len() as u64,
                 Some(Self::io_completion_cb),
                 cb_arg(s),
+                self.io_flags,
             )
         };
 
@@ -184,18 +198,30 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting read IO") {
-            Ok(buffer.len())
-        } else {
-            Err(CoreError::ReadFailed {
+        match r.await.expect("Failed awaiting read IO") {
+            NvmeStatus::Generic(GenericStatusCode::Success) => Ok(buffer.len()),
+            NvmeStatus::MediaError(
+                MediaErrorStatusCode::DeallocatedOrUnwrittenBlock,
+            ) => Err(CoreError::ReadingUnallocatedBlock {
                 offset,
                 len: buffer.len(),
-            })
+            }),
+            _ => Err(CoreError::ReadFailed {
+                offset,
+                len: buffer.len(),
+            }),
         }
     }
 
+    pub fn set_read_mode(&mut self, mode: ReadMode) {
+        self.io_flags = match mode {
+            ReadMode::Normal => 0,
+            ReadMode::UnwrittenFail => SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
+        };
+    }
+
     pub async fn reset(&self) -> Result<(), CoreError> {
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
         let errno = unsafe {
             spdk_bdev_reset(
                 self.desc.legacy_as_ptr(),
@@ -211,7 +237,9 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting reset IO") {
+        if r.await.expect("Failed awaiting reset IO")
+            == NvmeStatus::Generic(GenericStatusCode::Success)
+        {
             Ok(())
         } else {
             Err(CoreError::ResetFailed {})
@@ -223,7 +251,7 @@ impl<T: BdevOps> BdevHandle<T> {
         offset: u64,
         len: u64,
     ) -> Result<(), CoreError> {
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
         let errno = unsafe {
             spdk_bdev_write_zeroes(
                 self.desc.legacy_as_ptr(),
@@ -243,7 +271,9 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting write zeroes IO") {
+        if r.await.expect("Failed awaiting write zeroes IO")
+            == NvmeStatus::Generic(GenericStatusCode::Success)
+        {
             Ok(())
         } else {
             Err(CoreError::WriteZeroesFailed {
@@ -292,7 +322,7 @@ impl<T: BdevOps> BdevHandle<T> {
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError> {
         trace!("Sending nvme_admin {}", nvme_cmd.opc());
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
         // Use the spdk-rs variant spdk_bdev_nvme_admin_passthru that
         // assumes read commands
         let errno = unsafe {
@@ -320,7 +350,9 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting NVMe Admin IO") {
+        if r.await.expect("Failed awaiting NVMe Admin IO")
+            == NvmeStatus::Generic(GenericStatusCode::Success)
+        {
             Ok(())
         } else {
             Err(CoreError::NvmeAdminFailed {
@@ -353,6 +385,7 @@ impl<T: BdevOps> TryFrom<Arc<DescriptorGuard<T>>> for BdevHandle<T> {
             return Ok(Self {
                 channel,
                 desc,
+                io_flags: 0,
             });
         }
 

@@ -18,6 +18,7 @@ pub use block_device::{
     LbaRangeController,
     OpCompletionCallback,
     OpCompletionCallbackArg,
+    ReadMode,
 };
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};
@@ -187,6 +188,15 @@ pub enum CoreError {
     },
     #[snafu(display("Read failed at offset {} length {}", offset, len))]
     ReadFailed {
+        offset: u64,
+        len: u64,
+    },
+    #[snafu(display(
+        "Attempt to read unallocated block failed at offset {} length {}",
+        offset,
+        len
+    ))]
+    ReadingUnallocatedBlock {
         offset: u64,
         len: u64,
     },

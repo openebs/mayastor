@@ -22,11 +22,13 @@ use spdk_rs::{
         spdk_nvme_ns_cmd_write,
         spdk_nvme_ns_cmd_write_zeroes,
         spdk_nvme_ns_cmd_writev,
+        SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
     },
     nvme_admin_opc,
     nvme_nvm_opcode,
     DmaBuf,
     DmaError,
+    MediaErrorStatusCode,
     NvmeStatus,
 };
 
@@ -51,6 +53,7 @@ use crate::{
         IoCompletionCallbackArg,
         IoCompletionStatus,
         IoType,
+        ReadMode,
     },
     ffihelper::{cb_arg, done_cb, FfiResult},
     subsys,
@@ -100,10 +103,11 @@ pub struct NvmeDeviceHandle {
     name: String,
     /// namespaces associated with this controller
     ns: Arc<NvmeNamespace>,
+    /// TODO
     prchk_flags: u32,
-
-    // Private instance of the block device backed by the NVMe namespace.
+    /// Private instance of the block device backed by the NVMe namespace.
     block_device: Box<dyn BlockDevice>,
+    /// TODO
     block_len: u64,
 }
 /// Context for reset operation.
@@ -286,7 +290,7 @@ extern "C" fn nvme_async_io_completion(
     ctx: *mut c_void,
     cpl: *const spdk_nvme_cpl,
 ) {
-    done_cb(ctx, nvme_cpl_succeeded(cpl));
+    done_cb(ctx, NvmeStatus::from(cpl));
 }
 
 extern "C" fn nvme_unmap_completion(
@@ -479,7 +483,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         // Make sure channel allows I/O.
         check_channel_for_io(IoType::Read, inner, offset_blocks, num_blocks)?;
 
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
 
         let rc = unsafe {
             spdk_nvme_ns_cmd_read(
@@ -503,21 +507,36 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         inner.account_io();
-        let ret = if r.await.expect("Failed awaiting at read_at()") {
-            inner.get_io_stats_controller().account_block_io(
-                IoType::Read,
-                1,
-                num_blocks,
-            );
-            Ok(buffer.len())
-        } else {
-            Err(CoreError::ReadFailed {
+        let ret = match r.await.expect("Failed awaiting at read_at()") {
+            NvmeStatus::Generic(GenericStatusCode::Success) => {
+                inner.get_io_stats_controller().account_block_io(
+                    IoType::Read,
+                    1,
+                    num_blocks,
+                );
+                Ok(buffer.len())
+            }
+            NvmeStatus::MediaError(
+                MediaErrorStatusCode::DeallocatedOrUnwrittenBlock,
+            ) => Err(CoreError::ReadingUnallocatedBlock {
                 offset,
                 len: buffer.len(),
-            })
+            }),
+            _ => Err(CoreError::ReadFailed {
+                offset,
+                len: buffer.len(),
+            }),
         };
         inner.discard_io();
         ret
+    }
+
+    /// TODO
+    fn set_read_mode(&mut self, mode: ReadMode) {
+        self.prchk_flags = match mode {
+            ReadMode::Normal => 0,
+            ReadMode::UnwrittenFail => SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
+        };
     }
 
     async fn write_at(
@@ -552,7 +571,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         // Make sure channel allows I/O.
         check_channel_for_io(IoType::Write, inner, offset_blocks, num_blocks)?;
 
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<NvmeStatus>();
 
         let rc = unsafe {
             spdk_nvme_ns_cmd_write(
@@ -576,18 +595,19 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         inner.account_io();
-        let ret = if r.await.expect("Failed awaiting at write_at()") {
-            inner.get_io_stats_controller().account_block_io(
-                IoType::Write,
-                1,
-                num_blocks,
-            );
-            Ok(buffer.len())
-        } else {
-            Err(CoreError::WriteFailed {
+        let ret = match r.await.expect("Failed awaiting at write_at()") {
+            NvmeStatus::Generic(GenericStatusCode::Success) => {
+                inner.get_io_stats_controller().account_block_io(
+                    IoType::Write,
+                    1,
+                    num_blocks,
+                );
+                Ok(buffer.len())
+            }
+            _ => Err(CoreError::WriteFailed {
                 offset,
                 len: buffer.len(),
-            })
+            }),
         };
         inner.discard_io();
         ret
