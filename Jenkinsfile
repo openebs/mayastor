@@ -267,6 +267,15 @@ pipeline {
             }
           }
         }
+        stage('image build test') {
+          when {
+            branch 'staging'
+          }
+          agent { label 'nixos-mayastor' }
+          steps {
+            sh './scripts/release.sh --skip-publish --debug'
+          }
+        }
         stage('grpc tests') {
           when {
             beforeAgent true
