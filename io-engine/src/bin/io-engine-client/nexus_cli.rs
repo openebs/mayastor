@@ -384,6 +384,8 @@ async fn nexus_create_v2(
             preempt_key,
             children,
             nexus_info_key,
+            resv_type: None,
+            preempt_policy: 0,
         })
         .await
         .context(GrpcStatus)?;

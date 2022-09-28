@@ -392,13 +392,6 @@ dependencies = [
  "futures",
  "ipnetwork",
  "once_cell",
- "prost",
- "prost-build",
- "prost-derive",
- "prost-types",
- "serde",
- "serde_derive",
- "serde_json",
  "tokio",
  "tracing",
 ]

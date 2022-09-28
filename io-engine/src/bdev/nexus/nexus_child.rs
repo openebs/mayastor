@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
 };
@@ -29,6 +30,11 @@ use crate::{
     rebuild::RebuildJob,
 };
 
+use crate::bdev::nexus::{
+    nexus_bdev::NexusNvmePreemption,
+    NexusNvmeParams,
+    NvmeReservation,
+};
 use spdk_rs::{
     libspdk::{
         spdk_nvme_registered_ctrlr_extended_data,
@@ -37,7 +43,6 @@ use spdk_rs::{
     nvme_reservation_acquire_action,
     nvme_reservation_register_action,
     nvme_reservation_register_cptpl,
-    nvme_reservation_type,
     DmaError,
 };
 
@@ -74,11 +79,28 @@ pub enum ChildError {
     ResvRegisterKey { source: CoreError },
     #[snafu(display("Failed to acquire reservation for child: {}", source))]
     ResvAcquire { source: CoreError },
+    #[snafu(display("Failed to release reservation for child: {}", source))]
+    ResvRelease { source: CoreError },
     #[snafu(display(
         "Failed to get reservation report for child: {}",
         source
     ))]
     ResvReport { source: CoreError },
+    #[snafu(display("Invalid reservation type for child: {}", resv_type))]
+    ResvType { resv_type: u8 },
+    #[snafu(display("No reservation holder for child: {}", resv_type,))]
+    ResvNoHolder { resv_type: u8 },
+    #[snafu(display(
+        "Unexpected reservation owner for child: {:?}:{}:{}",
+        hostid,
+        resv_type,
+        resv_key
+    ))]
+    Holder {
+        hostid: [u8; 16usize],
+        resv_type: u8,
+        resv_key: u64,
+    },
     #[snafu(display("Failed to get NVMe host ID: {}", source))]
     NvmeHostId { source: CoreError },
     #[snafu(display("Failed to create a BlockDevice for child {}", child))]
@@ -297,7 +319,7 @@ impl<'c> NexusChild<'c> {
         hdl.nvme_resv_register(
             0,
             new_key,
-            nvme_reservation_register_action::REGISTER_KEY,
+            nvme_reservation_register_action::REPLACE_KEY,
             nvme_reservation_register_cptpl::NO_CHANGES,
         )
         .await?;
@@ -310,16 +332,19 @@ impl<'c> NexusChild<'c> {
         &self,
         hdl: &dyn BlockDeviceHandle,
         current_key: u64,
-        preempt_key: u64,
-        acquire_action: u8,
-        resv_type: u8,
+        preempt_key: Option<u64>,
+        resv_type: NvmeReservation,
     ) -> Result<(), ChildError> {
+        let acquire_action = preempt_key
+            .map(|_| nvme_reservation_acquire_action::PREEMPT)
+            .unwrap_or(nvme_reservation_acquire_action::ACQUIRE);
+        let preempt_key = preempt_key.unwrap_or_default();
         if let Err(e) = hdl
             .nvme_resv_acquire(
                 current_key,
                 preempt_key,
                 acquire_action,
-                resv_type,
+                resv_type as u8,
             )
             .await
         {
@@ -331,17 +356,32 @@ impl<'c> NexusChild<'c> {
         info!(
             "{:?}: acquired reservation type {:x}h, action {:x}h, \
             current key {:0x}h, preempt key {:0x}h",
-            self, resv_type, acquire_action, current_key, preempt_key,
+            self, resv_type as u8, acquire_action, current_key, preempt_key,
         );
         Ok(())
     }
 
-    /// Get NVMe reservation report
-    /// Returns: (key, host id) of write exclusive reservation holder
-    async fn resv_report(
+    /// Register an NVMe reservation, specifying a new key
+    async fn resv_release(
         &self,
         hdl: &dyn BlockDeviceHandle,
-    ) -> Result<Option<(u64, [u8; 16])>, ChildError> {
+        current_key: u64,
+        resv_type: NvmeReservation,
+        release_action: u8,
+    ) -> Result<(), CoreError> {
+        let resv_type = resv_type as u8;
+        hdl.nvme_resv_release(current_key, resv_type, release_action)
+            .await?;
+        info!("{:?}: released key type {:0x}h", self, resv_type);
+        Ok(())
+    }
+
+    /// Get NVMe reservation holder.
+    /// Returns: (key, host id) of the reservation holder.
+    async fn resv_holder(
+        &self,
+        hdl: &dyn BlockDeviceHandle,
+    ) -> Result<Option<(u8, u64, [u8; 16])>, ChildError> {
         let mut buffer = hdl.dma_malloc(4096).context(HandleDmaMalloc {})?;
         if let Err(e) = hdl.nvme_resv_report(1, &mut buffer).await {
             return Err(ChildError::ResvReport {
@@ -363,7 +403,7 @@ impl<'c> NexusChild<'c> {
 
         let regctl = resv_status_ext[0].data.regctl;
 
-        trace!(
+        info!(
             "reservation status: rtype {}, regctl {}, ptpls {}",
             resv_status_ext[0].data.rtype,
             regctl,
@@ -390,7 +430,7 @@ impl<'c> NexusChild<'c> {
         for (i, c) in reg_ctrlr_ext.iter().enumerate().take(numctrlr) {
             let cntlid = c.cntlid;
             let rkey = c.rkey;
-            trace!(
+            debug!(
                 "ctrlr {}: cntlid {:0x}h, status {}, hostid {:0x?}, \
                 rkey {:0x}h",
                 i,
@@ -399,64 +439,114 @@ impl<'c> NexusChild<'c> {
                 c.hostid,
                 rkey,
             );
-            if resv_status_ext[0].data.rtype == 1 && c.rcsts.status() == 1 {
-                return Ok(Some((rkey, c.hostid)));
+            if c.rcsts.status() == 1 {
+                return Ok(Some((
+                    resv_status_ext[0].data.rtype,
+                    rkey,
+                    c.hostid,
+                )));
             }
         }
         Ok(None)
     }
 
-    /// Register an NVMe reservation on the child then acquire a write
-    /// exclusive reservation, preempting an existing reservation, if another
-    /// host has it.
-    /// Ignores bdevs without NVMe reservation support.
-    pub(crate) async fn acquire_write_exclusive(
+    /// Check if we're the reservation holder.
+    /// # Warning: Ignores bdevs without NVMe reservation support.
+    async fn resv_check_holder(
         &self,
-        key: u64,
-        preempt_key: Option<std::num::NonZeroU64>,
+        args: &NexusNvmeParams,
     ) -> Result<(), ChildError> {
-        if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
-            return Ok(());
-        }
-
         let hdl = self.get_io_handle().context(HandleOpen {})?;
-        if let Err(e) = self.resv_register(&*hdl, key).await {
-            match e {
-                CoreError::NotSupported {
-                    ..
-                } => return Ok(()),
-                _ => {
-                    return Err(ChildError::ResvRegisterKey {
-                        source: e,
-                    })
-                }
+
+        let mut buffer = hdl.dma_malloc(4096).context(HandleDmaMalloc {})?;
+        match hdl.nvme_resv_report(1, &mut buffer).await {
+            Err(CoreError::NotSupported {
+                ..
+            }) => return Ok(()),
+            Err(error) => Err(ChildError::ResvReport {
+                source: error,
+            }),
+            Ok(_) => Ok(()),
+        }?;
+
+        let (stext, sl) = buffer.as_slice().split_at(std::mem::size_of::<
+            spdk_nvme_reservation_status_extended_data,
+        >());
+        let (pre, resv_status_ext, post) = unsafe {
+            stext.align_to::<spdk_nvme_reservation_status_extended_data>()
+        };
+
+        assert!(pre.is_empty());
+        assert!(post.is_empty());
+
+        let regctl = resv_status_ext[0].data.regctl;
+
+        info!(
+            "{:?}: reservation status: rtype {}, regctl {}, ptpls {}",
+            self,
+            resv_status_ext[0].data.rtype,
+            regctl,
+            resv_status_ext[0].data.ptpls,
+        );
+
+        let shared = |resv_type| {
+            matches!(
+                resv_type,
+                NvmeReservation::ExclusiveAccessAllRegs
+                    | NvmeReservation::WriteExclusiveAllRegs
+            )
+        };
+
+        if args.resv_type as u8 != resv_status_ext[0].data.rtype {
+            let rtype =
+                NvmeReservation::try_from(resv_status_ext[0].data.rtype)
+                    .map_err(|_| ChildError::ResvType {
+                        resv_type: resv_status_ext[0].data.rtype,
+                    })?;
+
+            // If we're shared, then we don't care which type it is since we're
+            // registered...
+            if !shared(args.resv_type) || !shared(rtype) {
+                return Err(ChildError::ResvType {
+                    resv_type: resv_status_ext[0].data.rtype,
+                });
             }
         }
 
-        if let Err(e) = self
-            .resv_acquire(
-                &*hdl,
-                key,
-                match preempt_key {
-                    None => 0,
-                    Some(k) => k.get(),
-                },
-                match preempt_key {
-                    None => nvme_reservation_acquire_action::ACQUIRE,
-                    Some(_) => nvme_reservation_acquire_action::PREEMPT,
-                },
-                nvme_reservation_type::WRITE_EXCLUSIVE_ALL_REGS,
-            )
-            .await
-        {
+        if matches!(
+            args.resv_type,
+            NvmeReservation::ExclusiveAccessAllRegs
+                | NvmeReservation::WriteExclusiveAllRegs
+        ) {
+            // if we're in "shared" mode, we don't need to know more
+            return Ok(());
+        }
+
+        let (pre, reg_ctrlr_ext, _post) = unsafe {
+            sl.align_to::<spdk_nvme_registered_ctrlr_extended_data>()
+        };
+        if !pre.is_empty() {
+            // todo: why did the previous report return no holder in this
+            // scenario?
+            return Err(ChildError::ResvNoHolder {
+                resv_type: resv_status_ext[0].data.rtype,
+            });
+        }
+
+        let mut numctrlr: usize = regctl.into();
+        if numctrlr > reg_ctrlr_ext.len() {
+            numctrlr = reg_ctrlr_ext.len();
             warn!(
-                "{:?}: failed to acquire write exclusive: {}",
-                self,
-                e.verbose()
+                "Expecting data for {} controllers, received {}",
+                regctl, numctrlr
             );
         }
 
-        if let Some((pkey, hostid)) = self.resv_report(&*hdl).await? {
+        if let Some(owner) = reg_ctrlr_ext
+            .iter()
+            .take(numctrlr)
+            .find(|c| c.rcsts.status() == 1)
+        {
             let my_hostid = match hdl.host_id().await {
                 Ok(h) => h,
                 Err(e) => {
@@ -465,27 +555,183 @@ impl<'c> NexusChild<'c> {
                     });
                 }
             };
-            if my_hostid != hostid {
-                info!(
-                    "{:?}: write exclusive reservation held by {:0x?}",
-                    self, hostid
+            if owner.rkey != args.resv_key || owner.hostid != my_hostid {
+                return Err(ChildError::Holder {
+                    hostid: owner.hostid,
+                    resv_type: resv_status_ext[0].data.rtype,
+                    resv_key: owner.rkey,
+                });
+            }
+            Ok(())
+        } else {
+            Err(ChildError::ResvNoHolder {
+                resv_type: resv_status_ext[0].data.rtype,
+            })
+        }
+    }
+
+    /// Register an NVMe reservation on the child then acquire or preempt an
+    /// existing reservation depending on the specified parameters.
+    /// This allows for a "manual" preemption.
+    /// # Warning: Ignores bdevs without NVMe reservation support.
+    pub(crate) async fn reservation_acquire_argkey(
+        &self,
+        params: &NexusNvmeParams,
+    ) -> Result<(), ChildError> {
+        let hdl = self.get_io_handle().context(HandleOpen {})?;
+        let resv_key = params.resv_key;
+        if let Err(e) = self.resv_register(&*hdl, resv_key).await {
+            return match e {
+                CoreError::NotSupported {
+                    ..
+                } => Ok(()),
+                _ => Err(ChildError::ResvRegisterKey {
+                    source: e,
+                }),
+            };
+        }
+
+        let preempt_key = params.preempt_key.map(|k| k.get());
+        self.resv_acquire(&*hdl, resv_key, preempt_key, params.resv_type)
+            .await
+            .map_err(|error| {
+                warn!(
+                    "{:?}: failed to acquire reservation ({:?}): {}",
+                    self,
+                    params.resv_type,
+                    error.verbose()
                 );
-                self.resv_acquire(
-                    &*hdl,
-                    key,
-                    pkey,
-                    nvme_reservation_acquire_action::PREEMPT,
-                    nvme_reservation_type::WRITE_EXCLUSIVE_ALL_REGS,
-                )
+                error
+            })
+    }
+
+    /// Register an NVMe reservation on the child.
+    /// # Warning: Ignores bdevs without NVMe reservation support.
+    pub(crate) async fn reservation_acquire(
+        &self,
+        params: &NexusNvmeParams,
+    ) -> Result<(), ChildError> {
+        if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
+            return Ok(());
+        }
+        match params.preempt_policy {
+            NexusNvmePreemption::ArgKey => {
+                self.reservation_acquire_argkey(params).await?;
+            }
+            NexusNvmePreemption::Holder => {
+                self.reservation_preempt_holder(params).await?;
+            }
+        }
+        self.resv_check_holder(params).await
+    }
+
+    /// Register an NVMe reservation on the child and preempt any existing
+    /// reservation holder automatically if necessary.
+    /// Refer to the NVMe spec for more information:
+    /// https://nvmexpress.org/wp-content/uploads/NVMe-NVM-Express-2.0a-2021.07.26-Ratified.pdf
+    /// # Warning: Ignores bdevs without NVMe reservation support.
+    pub(crate) async fn reservation_preempt_holder(
+        &self,
+        args: &NexusNvmeParams,
+    ) -> Result<(), ChildError> {
+        let hdl = self.get_io_handle().context(HandleOpen {})?;
+
+        // To be able to issue any other commands we must first register.
+        if let Err(e) = self.resv_register(&*hdl, args.resv_key).await {
+            return match e {
+                CoreError::NotSupported {
+                    ..
+                } => Ok(()),
+                _ => Err(ChildError::ResvRegisterKey {
+                    source: e,
+                }),
+            };
+        }
+
+        let (rtype, pkey, hostid) = match self.resv_holder(&*hdl).await? {
+            Some(existing) => existing,
+            None => {
+                info!("{:?}: reservation held by NONE", self);
+                // Currently there is no reservation holder, so rather than
+                // preempt we simply acquire the reservation
+                // with our key and type.
+                return self
+                    .resv_acquire(&*hdl, args.resv_key, None, args.resv_type)
+                    .await;
+            }
+        };
+
+        let my_hostid = match hdl.host_id().await {
+            Ok(h) => h,
+            Err(e) => {
+                return Err(ChildError::NvmeHostId {
+                    source: e,
+                });
+            }
+        };
+        info!(
+            "{:?}::{:?}: reservation held {:0x?} {:?}",
+            self, my_hostid, hostid, pkey
+        );
+
+        let rtype = NvmeReservation::try_from(rtype).map_err(|_| {
+            ChildError::ResvType {
+                resv_type: rtype,
+            }
+        })?;
+        if rtype == args.resv_type
+            && hostid == my_hostid
+            && pkey == args.resv_key
+        {
+            return Ok(());
+        }
+        if !matches!(
+            rtype,
+            NvmeReservation::WriteExclusiveAllRegs
+                | NvmeReservation::ExclusiveAccessAllRegs
+        ) {
+            // This is the most straightforward case where we can simply preempt
+            // the existing holder with our own key and type.
+            self.resv_acquire(&*hdl, args.resv_key, Some(pkey), args.resv_type)
                 .await?;
-                if let Some((_, hostid)) = self.resv_report(&*hdl).await? {
-                    if my_hostid != hostid {
-                        info!(
-                            "{:?}: write exclusive reservation held by {:0x?}",
-                            self, hostid
-                        );
-                    }
-                }
+            if !(rtype != args.resv_type && hostid == my_hostid) {
+                return Ok(());
+            }
+            // if we were the previous owner, we've now cleared the
+            // registration, so we need to start over.
+            self.resv_register(&*hdl, args.resv_key)
+                .await
+                .map_err(|e| ChildError::ResvRegisterKey {
+                    source: e,
+                })?;
+            self.resv_acquire(&*hdl, args.resv_key, None, args.resv_type)
+                .await?;
+            return Ok(());
+        }
+
+        match args.resv_type {
+            NvmeReservation::WriteExclusive
+            | NvmeReservation::ExclusiveAccess
+            | NvmeReservation::WriteExclusiveRegsOnly
+            | NvmeReservation::ExclusiveAccessRegsOnly => {
+                // We want to move from a type where everyone has access to a
+                // more restricted type so we must first remove
+                // all existing registrants.
+                // https://nvmexpress.org/wp-content/uploads/NVMe-NVM-Express-2.0a-2021.07.26-Ratified.pdf
+                // 8.19.7
+                self.resv_release(&*hdl, args.resv_key, rtype, 0)
+                    .await
+                    .map_err(|e| ChildError::ResvRelease {
+                        source: e,
+                    })?;
+                // And now we can acquire the reservation with our own more
+                // restricted reservation type.
+                self.resv_acquire(&*hdl, args.resv_key, None, args.resv_type)
+                    .await?;
+            }
+            _ => {
+                // Registrants have both R&W access so there is nothing
+                // more to do here because we've already registered.
             }
         }
 

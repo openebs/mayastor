@@ -25,11 +25,13 @@ pub use nexus_bdev::{
     nexus_create_v2,
     Nexus,
     NexusNvmeParams,
+    NexusNvmePreemption,
     NexusOperation,
     NexusState,
     NexusStatus,
     NexusTarget,
     NvmeAnaState,
+    NvmeReservation,
 };
 pub(crate) use nexus_bdev_error::{nexus_err, Error};
 pub(crate) use nexus_channel::{DrEvent, NexusChannel};

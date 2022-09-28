@@ -5,6 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
+    convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomPinned,
     os::raw::c_void,
@@ -108,17 +109,64 @@ impl NvmeAnaState {
     }
 }
 
-/// NVMe-specific parameters for the Nexus
+/// NVMe reservation types.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum NvmeReservation {
+    Reserved = 0,
+    WriteExclusive = 1,
+    ExclusiveAccess = 2,
+    WriteExclusiveRegsOnly = 3,
+    ExclusiveAccessRegsOnly = 4,
+    WriteExclusiveAllRegs = 5,
+    ExclusiveAccessAllRegs = 6,
+}
+impl TryFrom<u8> for NvmeReservation {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Reserved,
+            1 => Self::WriteExclusive,
+            2 => Self::ExclusiveAccess,
+            3 => Self::WriteExclusiveRegsOnly,
+            4 => Self::ExclusiveAccessRegsOnly,
+            5 => Self::WriteExclusiveAllRegs,
+            6 => Self::ExclusiveAccessAllRegs,
+            reservation => {
+                return Err(Error::InvalidReservation {
+                    reservation,
+                })
+            }
+        })
+    }
+}
+
+/// Nexus NVMe preemption policy.
+#[derive(Debug, Copy, Clone)]
+pub enum NexusNvmePreemption {
+    /// A "manual" preemption where we explicitly specify the reservation key,
+    /// type and preempt key.
+    ArgKey,
+    /// An "automatic" preemption where we can preempt whatever is current
+    /// holder. Useful when we just want to boot the existing holder out.
+    Holder,
+}
+
+/// NVMe-specific parameters for the Nexus.
 #[derive(Debug)]
 pub struct NexusNvmeParams {
-    /// minimum NVMe controller ID for sharing over NVMf
+    /// The minimum NVMe controller ID for sharing over NVMf.
     pub(crate) min_cntlid: u16,
-    /// maximum NVMe controller ID
+    /// The maximum NVMe controller ID.
     pub(crate) max_cntlid: u16,
-    /// NVMe reservation key for children
+    /// NVMe reservation key for children.
     pub(crate) resv_key: u64,
-    /// NVMe preempt key for children, 0 to not preempt
+    /// NVMe preempt key for children, None to not preempt.
     pub(crate) preempt_key: Option<std::num::NonZeroU64>,
+    /// NVMe reservation type.
+    pub(crate) resv_type: NvmeReservation,
+    /// NVMe Preempting policy.
+    pub(crate) preempt_policy: NexusNvmePreemption,
 }
 
 impl Default for NexusNvmeParams {
@@ -128,25 +176,39 @@ impl Default for NexusNvmeParams {
             max_cntlid: NVME_MAX_CNTLID,
             resv_key: 0x1234_5678,
             preempt_key: None,
+            resv_type: NvmeReservation::WriteExclusiveAllRegs,
+            preempt_policy: NexusNvmePreemption::ArgKey,
         }
     }
 }
 
 impl NexusNvmeParams {
+    /// Set the minimum controller id.
     pub fn set_min_cntlid(&mut self, min_cntlid: u16) {
         self.min_cntlid = min_cntlid;
     }
+    /// Set the maximum controller id.
     pub fn set_max_cntlid(&mut self, max_cntlid: u16) {
         self.max_cntlid = max_cntlid;
     }
+    /// Set the reservation key.
     pub fn set_resv_key(&mut self, resv_key: u64) {
         self.resv_key = resv_key;
     }
+    /// Set the preemption key.
     pub fn set_preempt_key(
         &mut self,
         preempt_key: Option<std::num::NonZeroU64>,
     ) {
         self.preempt_key = preempt_key;
+    }
+    /// Set the reservation type.
+    pub fn set_resv_type(&mut self, resv_type: NvmeReservation) {
+        self.resv_type = resv_type;
+    }
+    /// Set the preemption policy.
+    pub fn set_preempt_policy(&mut self, preempt_policy: NexusNvmePreemption) {
+        self.preempt_policy = preempt_policy;
     }
 }
 

@@ -63,6 +63,12 @@ mkShell {
     echo 'Hint: use rustup tool.'
     echo
 
+    cat <<EOF >rust-toolchain.toml
+    [toolchain]
+    channel = "${lib.strings.concatMapStringsSep "-" (x: x) (lib.lists.drop 1 (lib.strings.splitString "-" channel.nightly.version))}"
+    components = [ "rust-src" ]
+    EOF
+
     # SRCDIR is needed by docker-compose files as it requires absolute paths
     export SRCDIR=`pwd`
     pre-commit install

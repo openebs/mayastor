@@ -228,6 +228,8 @@ pub enum Error {
     },
     #[snafu(display("Operation not allowed: {}", reason))]
     OperationNotAllowed { reason: String },
+    #[snafu(display("Invalid value for nvme reservation: {}", reservation))]
+    InvalidReservation { reservation: u8 },
 }
 
 impl From<NvmfError> for Error {

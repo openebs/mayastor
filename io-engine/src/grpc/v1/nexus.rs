@@ -8,7 +8,12 @@ use crate::{
     rebuild::{RebuildJob, RebuildState, RebuildStats},
 };
 use futures::FutureExt;
-use std::{convert::TryFrom, fmt::Debug, ops::Deref, pin::Pin};
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt::Debug,
+    ops::Deref,
+    pin::Pin,
+};
 use tonic::{Request, Response, Status};
 
 use mayastor_api::v1::nexus::*;
@@ -158,6 +163,62 @@ impl From<RebuildStats> for RebuildStatsResponse {
     }
 }
 
+impl From<NvmeReservation> for nexus::NvmeReservation {
+    fn from(value: NvmeReservation) -> Self {
+        match value {
+            NvmeReservation::Reserved => Self::Reserved,
+            NvmeReservation::WriteExclusive => Self::WriteExclusive,
+            NvmeReservation::ExclusiveAccess => Self::ExclusiveAccess,
+            NvmeReservation::WriteExclusiveRegsOnly => {
+                Self::WriteExclusiveRegsOnly
+            }
+            NvmeReservation::ExclusiveAccessRegsOnly => {
+                Self::ExclusiveAccessRegsOnly
+            }
+            NvmeReservation::WriteExclusiveAllRegs => {
+                Self::WriteExclusiveAllRegs
+            }
+            NvmeReservation::ExclusiveAccessAllRegs => {
+                Self::ExclusiveAccessAllRegs
+            }
+        }
+    }
+}
+struct NvmeReservationConv(Option<i32>);
+impl TryFrom<NvmeReservationConv> for nexus::NvmeReservation {
+    type Error = tonic::Status;
+    fn try_from(value: NvmeReservationConv) -> Result<Self, Self::Error> {
+        match value.0 {
+            Some(v) => match NvmeReservation::from_i32(v) {
+                Some(v) => Ok(v.into()),
+                None => Err(tonic::Status::invalid_argument(format!(
+                    "Invalid reservation type {}",
+                    v
+                ))),
+            },
+            None => Ok(nexus::NvmeReservation::WriteExclusiveAllRegs),
+        }
+    }
+}
+struct NvmePreemptionConv(i32);
+impl TryFrom<NvmePreemptionConv> for nexus::NexusNvmePreemption {
+    type Error = tonic::Status;
+    fn try_from(value: NvmePreemptionConv) -> Result<Self, Self::Error> {
+        match NexusNvmePreemption::from_i32(value.0) {
+            Some(NexusNvmePreemption::ArgKey) => {
+                Ok(nexus::NexusNvmePreemption::ArgKey)
+            }
+            Some(NexusNvmePreemption::Holder) => {
+                Ok(nexus::NexusNvmePreemption::Holder)
+            }
+            None => Err(tonic::Status::invalid_argument(format!(
+                "Invalid reservation preempt policy {}",
+                value.0
+            ))),
+        }
+    }
+}
+
 /// Look up a nexus by uuid
 pub fn nexus_lookup<'n>(
     uuid: &str,
@@ -236,7 +297,10 @@ impl NexusRpc for NexusService {
             async move {
                 let args = request.into_inner();
                 trace!("{:?}", args);
-
+                let resv_type =
+                    NvmeReservationConv(args.resv_type).try_into()?;
+                let preempt_policy =
+                    NvmePreemptionConv(args.preempt_policy).try_into()?;
                 let rx = rpc_submit::<_, _, nexus::Error>(async move {
                     // check for nexus exists, uuid & name
                     if let Some(_n) = nexus::nexus_lookup(&args.name) {
@@ -271,6 +335,8 @@ impl NexusRpc for NexusService {
                                 0 => None,
                                 k => std::num::NonZeroU64::new(k),
                             },
+                            resv_type,
+                            preempt_policy,
                         },
                         &args.children,
                         nexus_info_key,

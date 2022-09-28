@@ -46,7 +46,12 @@ use crate::{
 use futures::FutureExt;
 use mayastor_api::v0::*;
 use nix::errno::Errno;
-use std::{convert::TryFrom, fmt::Debug, ops::Deref, time::Duration};
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt::Debug,
+    ops::Deref,
+    time::Duration,
+};
 use tonic::{Request, Response, Status};
 
 /// TODO
@@ -391,6 +396,62 @@ impl From<BlockDeviceIoStats> for NvmeControllerIoStats {
             bytes_written: b.bytes_written,
             num_unmap_ops: b.num_unmap_ops,
             bytes_unmapped: b.bytes_unmapped,
+        }
+    }
+}
+
+impl From<NvmeReservation> for nexus::NvmeReservation {
+    fn from(value: NvmeReservation) -> Self {
+        match value {
+            NvmeReservation::Reserved => Self::Reserved,
+            NvmeReservation::WriteExclusive => Self::WriteExclusive,
+            NvmeReservation::ExclusiveAccess => Self::ExclusiveAccess,
+            NvmeReservation::WriteExclusiveRegsOnly => {
+                Self::WriteExclusiveRegsOnly
+            }
+            NvmeReservation::ExclusiveAccessRegsOnly => {
+                Self::ExclusiveAccessRegsOnly
+            }
+            NvmeReservation::WriteExclusiveAllRegs => {
+                Self::WriteExclusiveAllRegs
+            }
+            NvmeReservation::ExclusiveAccessAllRegs => {
+                Self::ExclusiveAccessAllRegs
+            }
+        }
+    }
+}
+struct NvmeReservationConv(Option<i32>);
+impl TryFrom<NvmeReservationConv> for nexus::NvmeReservation {
+    type Error = tonic::Status;
+    fn try_from(value: NvmeReservationConv) -> Result<Self, Self::Error> {
+        match value.0 {
+            Some(v) => match NvmeReservation::from_i32(v) {
+                Some(v) => Ok(v.into()),
+                None => Err(tonic::Status::invalid_argument(format!(
+                    "Invalid reservation type {}",
+                    v
+                ))),
+            },
+            None => Ok(nexus::NvmeReservation::WriteExclusiveAllRegs),
+        }
+    }
+}
+struct NvmePreemptionConv(i32);
+impl TryFrom<NvmePreemptionConv> for nexus::NexusNvmePreemption {
+    type Error = tonic::Status;
+    fn try_from(value: NvmePreemptionConv) -> Result<Self, Self::Error> {
+        match NexusNvmePreemption::from_i32(value.0) {
+            Some(NexusNvmePreemption::ArgKey) => {
+                Ok(nexus::NexusNvmePreemption::ArgKey)
+            }
+            Some(NexusNvmePreemption::Holder) => {
+                Ok(nexus::NexusNvmePreemption::Holder)
+            }
+            None => Err(tonic::Status::invalid_argument(format!(
+                "Invalid reservation preempt policy {}",
+                value.0
+            ))),
         }
     }
 }
@@ -880,7 +941,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-
+                let resv_type =
+                    NvmeReservationConv(args.resv_type).try_into()?;
+                let preempt_policy =
+                    NvmePreemptionConv(args.preempt_policy).try_into()?;
                 // If the control plane has supplied a key, use it to store the
                 // NexusInfo.
                 let nexus_info_key = if args.nexus_info_key.is_empty() {
@@ -902,6 +966,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
                                 0 => None,
                                 k => std::num::NonZeroU64::new(k),
                             },
+                            resv_type,
+                            preempt_policy,
                         },
                         &args.children,
                         nexus_info_key,

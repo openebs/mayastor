@@ -36,3 +36,4 @@ ansible-hosts
 /test/python/replica_pb2_grpc.py
 /test/python/venv/*
 /package.json
+/rust-toolchain.toml
