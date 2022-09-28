@@ -10,6 +10,8 @@ use mayastor::{
     bdev::util::uring,
     core::{
         device_monitor,
+        diagnostics::process_diagnostics_cli,
+        reactor_monitor_loop,
         runtime,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -42,6 +44,9 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let endpoint = args.mbus_endpoint.clone();
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
+    let reactor_freeze_detection = args.reactor_freeze_detection;
+    let reactor_freeze_timeout = args.reactor_freeze_timeout;
+
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
             let mut futures = Vec::new();
@@ -54,6 +59,11 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
             PersistentStore::init(persistent_store_endpoint).await;
             runtime::spawn(device_monitor());
+
+            // Launch reactor health monitor if diagnostics is enabled.
+            if reactor_freeze_detection {
+                runtime::spawn(reactor_monitor_loop(reactor_freeze_timeout));
+            }
 
             futures.push(
                 grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
@@ -108,6 +118,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("{}", fmt_package_info!());
+
+    // Handle diagnostics-related commands before initializing the agent.
+    // Once diagnostics command is executed (regardless of status), exit the
+    // agent.
+    if let Some(res) = process_diagnostics_cli(&args) {
+        return res;
+    }
 
     hugepage_check();
 

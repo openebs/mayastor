@@ -137,6 +137,19 @@ pub struct MayastorCliArgs {
     #[structopt(short = "T", long = "tgt-iface", env = "NVMF_TGT_IFACE")]
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
+    /// Dump stack trace for all threads inside I/O agent process with target
+    /// PID.
+    #[structopt(long = "diagnose-stack", short = "d", env = "DIAGNOSE_STACK")]
+    pub diagnose_stack: Option<u32>,
+    /// Enable reactor freeze detection.
+    #[structopt(long)]
+    pub reactor_freeze_detection: bool,
+    /// Timeout (in seconds) for reactor freeze detection.
+    #[structopt(
+        long = "reactor-freeze-timeout",
+        env = "REACTOR_FREEZE_TIMEOUT"
+    )]
+    pub reactor_freeze_timeout: Option<u64>,
 }
 
 /// Mayastor features.
@@ -178,6 +191,9 @@ impl Default for MayastorCliArgs {
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             nvmf_tgt_interface: None,
+            diagnose_stack: None,
+            reactor_freeze_detection: false,
+            reactor_freeze_timeout: None,
         }
     }
 }
