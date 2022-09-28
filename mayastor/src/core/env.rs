@@ -337,7 +337,7 @@ async fn do_shutdown(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
-    nexus::nexus_children_to_destroying_state().await;
+    nexus::shutdown_nexuses().await;
     crate::lvs::Lvs::export_all().await;
     unsafe {
         spdk_rpc_finish();
