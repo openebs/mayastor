@@ -5,22 +5,22 @@
 # The script assumes that a user is logged on to dockerhub for public images,
 # or has insecure registry access setup for CI.
 
-CI=${CI:false}
+CI=${CI-}
 
 set -euo pipefail
 
 # Test if the image already exists in dockerhub
 dockerhub_tag_exists() {
-  curl --silent -f -lSL https://index.docker.io/v1/repositories/$1/tags/$2 1>/dev/null 2>&1
+  curl --silent -f -lSL https://hub.docker.com/v2/repositories/$1/tags/$2 1>/dev/null 2>&1
 }
 
-# Derives tag name from the git repo. That is git tag value or short commit
-# hash if there is no git tag on HEAD.
+# Get the tag at the HEAD
 get_tag() {
   vers=`git tag --points-at HEAD`
-  if [ -z "$vers" ]; then
-    vers=`git rev-parse --short=12 HEAD`
-  fi
+  echo -n $vers
+}
+get_hash() {
+  vers=`git rev-parse --short=12 HEAD`
   echo -n $vers
 }
 
@@ -48,7 +48,9 @@ NIX_BUILD="nix-build"
 RM="rm"
 SCRIPTDIR=$(dirname "$0")
 TAG=`get_tag`
+HASH=`get_hash`
 BRANCH=`git rev-parse --abbrev-ref HEAD`
+BRANCH=${BRANCH////-}
 IMAGES=
 UPLOAD=
 SKIP_PUBLISH=
@@ -122,14 +124,10 @@ cd $SCRIPTDIR/..
 
 if [ -z "$IMAGES" ]; then
   if [ -z "$DEBUG" ]; then
-    IMAGES="mayastor-io-engine mayastor-io-engine-client mayastor-fio-spdk"
+    IMAGES="mayastor-io-engine mayastor-fio-spdk"
   else
-    IMAGES="mayastor-io-engine-dev mayastor-io-engine-client mayastor-fio-spdk"
+    IMAGES="mayastor-io-engine-dev mayastor-fio-spdk"
   fi
-fi
-
-if [ "$CI" != "true" ]; then
-  OVERRIDE_COMMIT_HASH="true"
 fi
 
 # Create alias
@@ -142,7 +140,11 @@ elif [ "${BRANCH#release-}" != "${BRANCH}" ]; then
   alias_tag="${BRANCH}"
 fi
 
-if [ -n "$OVERRIDE_COMMIT_HASH" ] && [ -n "$alias_tag" ]; then
+if [ -z "$CI" ] && [ -z "$TAG" ] && [ -n "$alias_tag" ]; then
+  OVERRIDE_COMMIT_HASH="true"
+fi
+TAG=${TAG:-$HASH}
+if [ -n "$OVERRIDE_COMMIT_HASH" ]; then
   # Set the TAG to the alias and remove the alias
   NIX_TAG_ARGS="--argstr img_tag $alias_tag"
   NIX_BUILD="$NIX_BUILD $NIX_TAG_ARGS"
@@ -160,10 +162,6 @@ for name in $IMAGES; do
   # the images we already have locally.
   if [ -z $SKIP_BUILD ]; then
     archive=${name}
-    if [ -z "$REGISTRY" ] && dockerhub_tag_exists $image $TAG; then
-      echo "Skipping $image:$TAG that already exists"
-      continue
-    fi
     echo "Building $image:$TAG ..."
     $NIX_BUILD --out-link $archive-image -A images.$archive
     $DOCKER load -i $archive-image
@@ -180,6 +178,10 @@ done
 if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
   # Upload them
   for img in $UPLOAD; do
+    if [ -z "$REGISTRY" ] && [ -z "$OVERRIDE_COMMIT_HASH" ] && dockerhub_tag_exists $image $TAG; then
+      echo "Skipping $image:$TAG that already exists"
+      continue
+    fi
     echo "Uploading $img:$TAG to registry ..."
     $DOCKER push $img:$TAG
   done
