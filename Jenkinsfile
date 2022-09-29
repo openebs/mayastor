@@ -38,7 +38,7 @@ def mainBranches() {
     return BRANCH_NAME == "develop" || BRANCH_NAME.startsWith("release/");
 }
 
-// TODO: Use multiple
+// TODO: Use multiple choices
 run_linter = true
 rust_test = true
 grpc_test = true
@@ -306,7 +306,7 @@ pipeline {
                 ]
               ]
             ])
-            if (env.BRANCH_NAME == 'develop') {
+            if (mainBranches()) {
               notifySlackUponStateChange(currentBuild)
             }
           }
