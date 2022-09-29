@@ -37,6 +37,7 @@ use super::{
     Nexus,
     NexusChannel,
     NexusChild,
+    NexusOperation,
     NexusState,
     NexusStatus,
     PersistOp,
@@ -102,6 +103,8 @@ impl<'n> Nexus<'n> {
         uri: &str,
         norebuild: bool,
     ) -> Result<NexusStatus, Error> {
+        self.check_nexus_operation(NexusOperation::ReplicaAdd)?;
+
         let status = self.as_mut().add_child_only(uri).await?;
 
         if !norebuild {
@@ -130,6 +133,8 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         uri: &str,
     ) -> Result<NexusStatus, Error> {
+        self.check_nexus_operation(NexusOperation::ReplicaAdd)?;
+
         let name =
             device_create(uri).await.context(nexus_err::CreateChild {
                 name: self.name.clone(),
@@ -247,6 +252,8 @@ impl<'n> Nexus<'n> {
         uri: &str,
     ) -> Result<(), Error> {
         info!("{:?}: remove child request: '{}'", self, uri);
+
+        self.check_nexus_operation(NexusOperation::ReplicaRemove)?;
 
         if self.child_count() == 1 {
             return Err(Error::DestroyLastChild {
@@ -426,6 +433,8 @@ impl<'n> Nexus<'n> {
     ) -> Result<NexusStatus, Error> {
         let nexus_name = self.name.clone();
         let nexus_size = self.req_size();
+
+        self.check_nexus_operation(NexusOperation::ReplicaOnline)?;
 
         info!("{:?}: online child request: '{}'", self, child_uri);
 

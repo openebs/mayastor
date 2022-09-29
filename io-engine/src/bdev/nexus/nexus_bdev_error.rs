@@ -226,6 +226,8 @@ pub enum Error {
         source: InjectionError,
         name: String,
     },
+    #[snafu(display("Operation not allowed: {}", reason))]
+    OperationNotAllowed { reason: String },
 }
 
 impl From<NvmfError> for Error {
@@ -275,6 +277,9 @@ impl From<Error> for tonic::Status {
             Error::ChildNotFound {
                 ..
             } => Status::not_found(e.to_string()),
+            Error::OperationNotAllowed {
+                ..
+            } => Status::failed_precondition(e.to_string()),
             e => Status::new(Code::Internal, e.to_string()),
         }
     }

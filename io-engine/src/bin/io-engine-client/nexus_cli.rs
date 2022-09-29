@@ -94,6 +94,15 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uuid for the nexus"),
         );
 
+    let shutdown = SubCommand::with_name("shutdown")
+        .about("shutdown the nexus with given name")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid for the nexus"),
+        );
+
     let publish = SubCommand::with_name("publish")
         .about("publish the nexus")
         .arg(Arg::with_name("protocol").short("p").long("protocol").value_name("PROTOCOL")
@@ -243,6 +252,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(create)
         .subcommand(create_v2)
         .subcommand(destroy)
+        .subcommand(shutdown)
         .subcommand(publish)
         .subcommand(add)
         .subcommand(remove)
@@ -264,6 +274,7 @@ pub async fn handler(
         ("create", Some(args)) => nexus_create(ctx, args).await,
         ("create2", Some(args)) => nexus_create_v2(ctx, args).await,
         ("destroy", Some(args)) => nexus_destroy(ctx, args).await,
+        ("shutdown", Some(args)) => nexus_shutdown(ctx, args).await,
         ("list", Some(args)) => nexus_list(ctx, args).await,
         ("list2", Some(args)) => nexus_list_v2(ctx, args).await,
         ("children", Some(args)) => nexus_children(ctx, args).await,
@@ -389,6 +400,38 @@ async fn nexus_create_v2(
         }
         OutputFormat::Default => {
             println!("{}", &response.get_ref().uuid);
+        }
+    };
+
+    Ok(())
+}
+
+async fn nexus_shutdown(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let uuid = matches.value_of("uuid").unwrap().to_string();
+
+    let response = ctx
+        .client
+        .shutdown_nexus(v0::ShutdownNexusRequest {
+            uuid: uuid.clone(),
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uuid,);
         }
     };
 
@@ -1008,6 +1051,8 @@ fn nexus_state_to_str(idx: i32) -> &'static str {
         v0::NexusState::NexusOnline => "online",
         v0::NexusState::NexusDegraded => "degraded",
         v0::NexusState::NexusFaulted => "faulted",
+        v0::NexusState::NexusShuttingDown => "shutting_down",
+        v0::NexusState::NexusShutdown => "shutdown",
     }
 }
 

@@ -159,6 +159,10 @@ class MayastorHandle(object):
         """Destroy the nexus."""
         return self.ms.DestroyNexus(pb.DestroyNexusRequest(uuid=uuid))
 
+    def nexus_shutdown(self, uuid):
+        """Shutdown the nexus."""
+        return self.ms.ShutdownNexus(pb.ShutdownNexusRequest(uuid=uuid))
+
     def nexus_publish(self, uuid, share=1):
         """Publish the nexus. this is the same as bdev_share() but is not used
         by the control plane."""
