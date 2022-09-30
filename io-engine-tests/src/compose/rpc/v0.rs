@@ -96,6 +96,7 @@ impl<'a> GrpcConnect<'a> {
                 .await?,
             );
         }
+        handles.sort_by(|a, b| b.name.cmp(&a.name));
 
         Ok(handles)
     }
