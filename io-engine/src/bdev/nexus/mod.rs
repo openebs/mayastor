@@ -1,5 +1,6 @@
 #![allow(clippy::vec_box)]
 
+use crate::core::VerboseError;
 use futures::{future::Future, FutureExt};
 use std::pin::Pin;
 
@@ -132,8 +133,8 @@ pub async fn shutdown_nexuses() {
         // Destroy nexus and persist its state in the ETCd.
         if let Err(error) = nexus.as_mut().destroy().await {
             error!(
-                name=nexus.name,
-                %error,
+                name = nexus.name,
+                error = error.verbose(),
                 "Failed to destroy nexus"
             );
         }

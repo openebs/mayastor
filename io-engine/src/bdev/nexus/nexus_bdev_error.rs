@@ -279,6 +279,9 @@ impl From<Error> for tonic::Status {
             Error::ChildNotFound {
                 ..
             } => Status::not_found(e.to_string()),
+            Error::RebuildJobNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
             Error::OperationNotAllowed {
                 ..
             } => Status::failed_precondition(e.to_string()),
