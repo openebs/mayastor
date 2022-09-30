@@ -637,12 +637,10 @@ impl Future for &'static Reactor {
 }
 
 /// Heartbeat timeout (in seconds) to classify a reactor as frozen.
-#[cfg(feature = "diagnostics")]
 const REACTOR_HEARTBEAT_TIMEOUT: u64 = 3;
 
 /// Monitor health for all reactors: all available reactors are constantly
 /// monitored for liveness.
-#[cfg(feature = "diagnostics")]
 pub async fn reactor_monitor_loop(freeze_timeout: Option<u64>) {
     use std::sync::atomic::{AtomicU64, Ordering};
 

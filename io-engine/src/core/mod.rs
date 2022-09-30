@@ -43,7 +43,6 @@ pub use handle::{BdevHandle, UntypedBdevHandle};
 pub use io_device::IoDevice;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 
-#[cfg(feature = "diagnostics")]
 pub use reactor::reactor_monitor_loop;
 
 pub use runtime::spawn;
@@ -58,7 +57,6 @@ mod block_device;
 mod descriptor;
 mod device_events;
 mod device_monitor;
-#[cfg(feature = "diagnostics")]
 pub mod diagnostics;
 mod env;
 mod handle;
