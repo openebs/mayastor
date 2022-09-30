@@ -11,7 +11,7 @@ use super::{
 
 use crate::{
     bdev_api::BdevError,
-    core::CoreError,
+    core::{CoreError, VerboseError},
     rebuild::RebuildError,
     subsys::NvmfError,
 };
@@ -275,7 +275,10 @@ impl From<Error> for tonic::Status {
             Error::ChildNotFound {
                 ..
             } => Status::not_found(e.to_string()),
-            e => Status::new(Code::Internal, e.to_string()),
+            Error::RebuildJobNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            e => Status::new(Code::Internal, e.verbose()),
         }
     }
 }
