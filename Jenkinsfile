@@ -167,6 +167,9 @@ pipeline {
           }
           agent { label 'nixos-mayastor' }
           steps {
+            cleanWs()
+            unstash 'source'
+            sh 'printenv'
             sh './scripts/release.sh --skip-publish --debug'
           }
         }
