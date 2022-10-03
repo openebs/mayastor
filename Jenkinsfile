@@ -43,8 +43,10 @@ run_linter = true
 rust_test = true
 grpc_test = true
 pytest_test = true
-run_tests = params.run_tests
-build_images = params.build_images
+// WA https://issues.jenkins.io/browse/JENKINS-41929
+// on the first run of new parameters, they are set to null.
+run_tests = params.run_tests == null ? true : params.run_tests
+build_images = params.build_images == null ? false : params.build_images
 
 if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') && mainBranches()) {
   print "INFO: Branch Indexing, skip tests and push the new images."
