@@ -108,8 +108,38 @@ describe('rebuild tests', function () {
   }
 
   async function checkRebuildState (expected) {
-    const res = await client.getRebuildState().sendMessage(rebuildArgs);
-    assert.equal(res.state, expected);
+    try {
+      const res = await client.getRebuildState().sendMessage(rebuildArgs);
+      assert.equal(res.state, expected);
+    } catch (e) {
+      if (expected === 'stopped' && e.code === grpc.status.NOT_FOUND) {
+        // this is ok, when stopped it gets removed
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  async function untilChildStatus (state, sleepMs = 200, retries = 10) {
+    const promise = () => checkState(ObjectType.DESTINATION_CHILD, state);
+    await retryPromiseFn(promise, sleepMs, retries);
+  }
+
+  async function untilRebuildState (state, sleepMs = 200, retries = 10) {
+    const promise = () => checkRebuildState(state);
+    await retryPromiseFn(promise, sleepMs, retries);
+  }
+
+  async function retryPromiseFn (promiseFn, sleepMs, retries) {
+    try {
+      return await promiseFn();
+    } catch (e) {
+      if (retries > 0) {
+        await sleep(sleepMs);
+        return await retryPromiseFn(promiseFn, sleepMs, retries - 1);
+      }
+      throw e;
+    }
   }
 
   async function checkRebuildStats () {
@@ -247,8 +277,7 @@ describe('rebuild tests', function () {
       await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.stopRebuild().sendMessage(rebuildArgs);
-      // TODO: Check for rebuild stop rather than sleeping
-      await sleep(250); // Give time for the rebuild to stop
+      await untilRebuildState('stopped');
     });
 
     afterEach(async () => {
@@ -293,7 +322,7 @@ describe('rebuild tests', function () {
       await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.pauseRebuild().sendMessage(rebuildArgs);
-      await sleep(250); // Give time for the rebuild to pause
+      await untilRebuildState('paused');
     });
 
     afterEach(async () => {
@@ -330,7 +359,7 @@ describe('rebuild tests', function () {
       await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.pauseRebuild().sendMessage(rebuildArgs);
-      await sleep(250); // Give time for the rebuild to pause
+      await untilRebuildState('paused');
       await client.resumeRebuild().sendMessage(rebuildArgs);
     });
 
@@ -395,9 +424,9 @@ describe('rebuild tests', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
-      await sleep(250); // Give some time for rebuild to start.
+      await untilRebuildState('running');
       await client.childOperation().sendMessage(childOfflineArgs);
-      await sleep(250); // Allow time for the child to go offline
+      await untilChildStatus('CHILD_DEGRADED');
     });
 
     afterEach(async () => {
