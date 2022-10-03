@@ -136,7 +136,7 @@ describe('rebuild tests', function () {
     } catch (e) {
       if (retries > 0) {
         await sleep(sleepMs);
-        return retryPromiseFn(promiseFn, retries - 1);
+        return await retryPromiseFn(promiseFn, sleepMs, retries - 1);
       }
       throw e;
     }
