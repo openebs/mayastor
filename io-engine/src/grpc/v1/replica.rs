@@ -216,7 +216,7 @@ impl ReplicaRpc for ReplicaService {
     ) -> GrpcResult<ListReplicasResponse> {
         self.locked(GrpcClientContext::new(&request, function_name!()), async {
             let args = request.into_inner();
-            info!("{:?}", args);
+            trace!("{:?}", args);
             let rx = rpc_submit::<_, _, LvsError>(async move {
                 let mut lvols = Vec::new();
                 if let Some(bdev) = UntypedBdev::bdev_first() {
