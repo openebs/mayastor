@@ -31,6 +31,7 @@ pub struct NexusBuilder {
     max_cntl_id: u32,
     resv_key: u64,
     preempt_key: u64,
+    resv_type: Option<i32>,
     children: Option<Vec<String>>,
     nexus_info_key: Option<String>,
     serial: Option<String>,
@@ -47,6 +48,7 @@ impl NexusBuilder {
             max_cntl_id: 1,
             resv_key: 1,
             preempt_key: 0,
+            resv_type: None,
             children: None,
             nexus_info_key: None,
             serial: None,
@@ -145,6 +147,8 @@ impl NexusBuilder {
                 preempt_key: self.preempt_key,
                 children: self.children.as_ref().unwrap().clone(),
                 nexus_info_key: self.nexus_info_key.as_ref().unwrap().clone(),
+                resv_type: self.resv_type,
+                preempt_policy: 0,
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())

@@ -95,6 +95,8 @@ async fn create_nexus(h: &mut RpcHandle, children: Vec<String>) {
             preempt_key: 0,
             children,
             nexus_info_key: nexus_name(),
+            resv_type: None,
+            preempt_policy: 0,
         })
         .await
         .unwrap();

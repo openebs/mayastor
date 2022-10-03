@@ -228,6 +228,8 @@ pub enum Error {
     },
     #[snafu(display("Operation not allowed: {}", reason))]
     OperationNotAllowed { reason: String },
+    #[snafu(display("Invalid value for nvme reservation: {}", reservation))]
+    InvalidReservation { reservation: u8 },
 }
 
 impl From<NvmfError> for Error {
@@ -275,6 +277,9 @@ impl From<Error> for tonic::Status {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::ChildNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            Error::RebuildJobNotFound {
                 ..
             } => Status::not_found(e.to_string()),
             Error::OperationNotAllowed {

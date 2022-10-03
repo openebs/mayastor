@@ -26,6 +26,7 @@ use spdk_rs::{
     },
     nvme_admin_opc,
     nvme_nvm_opcode,
+    nvme_reservation_register_action,
     DmaBuf,
     DmaError,
     MediaErrorStatusCode,
@@ -1061,6 +1062,10 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 .cdw10_bits
                 .resv_register
                 .set_cptpl(cptpl.into());
+            if register_action == nvme_reservation_register_action::REPLACE_KEY
+            {
+                cmd.__bindgen_anon_1.cdw10_bits.resv_register.set_iekey(1);
+            }
         }
         let mut buffer = self.dma_malloc(16).unwrap();
         let (ck, nk) = buffer.as_mut_slice().split_at_mut(8);
@@ -1094,6 +1099,32 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let (ck, pk) = buffer.as_mut_slice().split_at_mut(8);
         ck.copy_from_slice(&current_key.to_le_bytes());
         pk.copy_from_slice(&preempt_key.to_le_bytes());
+        self.io_passthru(&cmd, Some(&mut buffer)).await
+    }
+
+    /// NVMe Reservation Release
+    async fn nvme_resv_release(
+        &self,
+        current_key: u64,
+        resv_type: u8,
+        release_action: u8,
+    ) -> Result<(), CoreError> {
+        let mut cmd = spdk_nvme_cmd::default();
+        cmd.set_opc(nvme_nvm_opcode::RESERVATION_RELEASE.into());
+        cmd.nsid = 0x1;
+        unsafe {
+            cmd.__bindgen_anon_1
+                .cdw10_bits
+                .resv_acquire
+                .set_racqa(release_action.into());
+            cmd.__bindgen_anon_1
+                .cdw10_bits
+                .resv_acquire
+                .set_rtype(resv_type.into());
+        }
+        let mut buffer = self.dma_malloc(16).unwrap();
+        let (ck, _pk) = buffer.as_mut_slice().split_at_mut(8);
+        ck.copy_from_slice(&current_key.to_le_bytes());
         self.io_passthru(&cmd, Some(&mut buffer)).await
     }
 

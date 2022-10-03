@@ -197,13 +197,7 @@ impl<'n> Nexus<'n> {
             // data and metadata must be validated. The child
             // will be added and marked as faulted, once the rebuild has
             // completed the device can transition to online
-            if let Err(e) = child
-                .acquire_write_exclusive(
-                    self.nvme_params.resv_key,
-                    self.nvme_params.preempt_key,
-                )
-                .await
-            {
+            if let Err(e) = child.reservation_acquire(&self.nvme_params).await {
                 res = Err(e);
             }
         }
@@ -585,12 +579,8 @@ impl<'n> Nexus<'n> {
         // if any one fails, close all children.
         let mut write_ex_err: Result<(), Error> = Ok(());
         for child in self.children_iter() {
-            if let Err(error) = child
-                .acquire_write_exclusive(
-                    self.nvme_params.resv_key,
-                    self.nvme_params.preempt_key,
-                )
-                .await
+            if let Err(error) =
+                child.reservation_acquire(&self.nvme_params).await
             {
                 write_ex_err = Err(Error::ChildWriteExclusiveResvFailed {
                     source: error,

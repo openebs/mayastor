@@ -20,7 +20,8 @@ let
       "\\n"
       "\\r"
       "\\t"
-    ] str) + ''"'';
+    ]
+      str) + ''"'';
 
   # Like builtins.JSON but to output Nix code
   toNix = value:
@@ -75,7 +76,8 @@ let
       toOut = name: { outPath = drv.${name}.outPath; };
 
       outs = lib.genAttrs outputs toOut;
-    in base // outs;
+    in
+    base // outs;
 
   writeManifest = derivations:
     writeText "env-manifest.nix" (toNix (map genManifest derivations));

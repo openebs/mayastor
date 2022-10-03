@@ -44,6 +44,11 @@ use common::{
     },
     MayastorTest,
 };
+use io_engine::{
+    bdev::nexus::{NexusNvmePreemption, NvmeReservation},
+    grpc::v1::nexus::nexus_destroy,
+};
+use io_engine_tests::compose::rpc::v0::RpcHandle;
 
 extern crate libnvme_rs;
 
@@ -54,6 +59,7 @@ static REPL_UUID: &str = "65acdaac-14c4-41d8-a55e-d03bfd7185a4";
 static HOSTNQN: &str = NVME_NQN_PREFIX;
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
+static HOSTID2: &str = "3f264cc3-1c95-44ca-bc1f-ed7fb68f3894";
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -422,6 +428,8 @@ async fn nexus_io_resv_acquire() {
             )]
             .to_vec(),
             nexus_info_key: "".to_string(),
+            resv_type: None,
+            preempt_policy: 0,
         })
         .await
         .unwrap();
@@ -474,6 +482,434 @@ async fn nexus_io_resv_acquire() {
         .await;
 
     nvme_disconnect_nqn(&rep_nqn);
+}
+
+#[tokio::test]
+/// Create a nexus with a remote replica on 1 node as its child.
+/// Create another nexus with the same remote replica as its child, verifying
+/// that exclusive access prevents the first nexus from accessing the data.
+async fn nexus_io_resv_preempt() {
+    common::composer_init();
+
+    std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
+    std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
+
+    let test = Builder::new()
+        .name("nexus_io_resv_preempt_test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms2",
+            Binary::from_dbg("io-engine")
+                .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
+        )
+        .add_container_bin(
+            "ms1",
+            Binary::from_dbg("io-engine")
+                .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID2),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
+
+    // create a pool on remote node 1
+    // grpc handles can be returned in any order, we simply define the first
+    // as "node 1"
+    hdls[0]
+        .mayastor
+        .create_pool(CreatePoolRequest {
+            name: POOL_NAME.to_string(),
+            disks: vec!["malloc:///disk0?size_mb=64".into()],
+        })
+        .await
+        .unwrap();
+
+    // create replica, shared over nvmf
+    hdls[0]
+        .mayastor
+        .create_replica(CreateReplicaRequest {
+            uuid: REPL_UUID.to_string(),
+            pool: POOL_NAME.to_string(),
+            size: 32 * 1024 * 1024,
+            thin: false,
+            share: 1,
+        })
+        .await
+        .unwrap();
+
+    let mayastor = get_ms();
+    let ip0 = hdls[0].endpoint.ip();
+    let resv_key = 0xabcd_ef00_1234_5678;
+    mayastor
+        .spawn(async move {
+            let mut nvme_params = NexusNvmeParams::default();
+            nvme_params.set_resv_key(resv_key);
+            nvme_params.set_resv_type(NvmeReservation::ExclusiveAccess);
+            nvme_params.set_preempt_policy(NexusNvmePreemption::Holder);
+            // create nexus on local node with remote replica as child
+            nexus_create_v2(
+                &NXNAME.to_string(),
+                32 * 1024 * 1024,
+                NEXUS_UUID,
+                nvme_params,
+                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID)],
+                None,
+            )
+            .await
+            .unwrap();
+            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
+                .await
+                .unwrap();
+            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
+                .await
+                .unwrap();
+        })
+        .await;
+
+    // Connect to remote replica to check key registered
+    let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
+
+    nvme_connect(&ip0.to_string(), &rep_nqn, true);
+
+    let rep_dev = get_mayastor_nvme_device();
+
+    let v = get_nvme_resv_report(&rep_dev);
+    assert_eq!(v["rtype"], 2, "should have exclusive access");
+    assert_eq!(v["regctl"], 1, "should have 1 registered controller");
+    assert_eq!(
+        v["ptpls"], 0,
+        "should have Persist Through Power Loss State as 0"
+    );
+    assert_eq!(
+        v["regctlext"][0]["cntlid"], 0xffff,
+        "should have dynamic controller ID"
+    );
+    assert_eq!(
+        v["regctlext"][0]["rcsts"], 1,
+        "should have reservation status as reserved"
+    );
+    assert_eq!(
+        v["regctlext"][0]["hostid"].as_str().unwrap(),
+        HOSTID0.to_string().replace("-", ""),
+        "should match host ID of NVMe client"
+    );
+    assert_eq!(
+        v["regctlext"][0]["rkey"], resv_key,
+        "should have configured registered key"
+    );
+
+    // create nexus on remote node 2 with replica on node 1 as child
+    let resv_key2 = 0xfeed_f00d_bead_5678;
+    hdls[1]
+        .mayastor
+        .create_nexus_v2(CreateNexusV2Request {
+            name: NXNAME.to_string(),
+            uuid: NEXUS_UUID.to_string(),
+            size: 32 * 1024 * 1024,
+            min_cntl_id: 1,
+            max_cntl_id: 0xffef,
+            resv_key: resv_key2,
+            preempt_key: 0,
+            children: [format!(
+                "nvmf://{}:8420/{}:{}",
+                ip0, HOSTNQN, REPL_UUID
+            )]
+            .to_vec(),
+            nexus_info_key: "".to_string(),
+            resv_type: Some(NvmeReservation::ExclusiveAccess as i32),
+            preempt_policy: NexusNvmePreemption::Holder as i32,
+        })
+        .await
+        .unwrap();
+
+    // Verify that the second nexus has registered
+    let v2 = get_nvme_resv_report(&rep_dev);
+    assert_eq!(v["rtype"], 2, "should have exclusive access");
+    assert_eq!(v2["regctl"], 1, "should have 1 registered controllers");
+    assert_eq!(
+        v2["ptpls"], 0,
+        "should have Persist Through Power Loss State as 0"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["cntlid"], 0xffff,
+        "should have dynamic controller ID"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["rcsts"].as_u64().unwrap() & 0x1,
+        1,
+        "should have reservation status as reserved"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["rkey"], resv_key2,
+        "should have configured registered key"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["hostid"].as_str().unwrap(),
+        HOSTID2.to_string().replace("-", ""),
+        "should match host ID of NVMe client"
+    );
+
+    mayastor
+        .spawn(async move {
+            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
+                .await
+                .expect_err("writes should fail");
+            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
+                .await
+                .expect_err("reads should fail");
+
+            nexus_lookup_mut(&NXNAME.to_string())
+                .unwrap()
+                .destroy()
+                .await
+                .unwrap();
+        })
+        .await;
+
+    nvme_disconnect_nqn(&rep_nqn);
+}
+
+#[tokio::test]
+/// Create a nexus with a remote replica on 1 node as its child.
+/// Create another nexus with the same remote replica as its child, verifying
+/// that exclusive access prevents the first nexus from accessing the data.
+async fn nexus_io_resv_preempt_tabled() {
+    common::composer_init();
+
+    std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
+    std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
+
+    let test = Builder::new()
+        .name("nexus_io_resv_preempt_test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms2",
+            Binary::from_dbg("io-engine")
+                .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
+        )
+        .add_container_bin(
+            "ms1",
+            Binary::from_dbg("io-engine")
+                .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID2),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let grpc = GrpcConnect::new(&test);
+
+    let mut hdls = grpc.grpc_handles().await.unwrap();
+
+    // create a pool on remote node 1
+    // grpc handles can be returned in any order, we simply define the first
+    // as "node 1"
+    hdls[0]
+        .mayastor
+        .create_pool(CreatePoolRequest {
+            name: POOL_NAME.to_string(),
+            disks: vec!["malloc:///disk0?size_mb=64".into()],
+        })
+        .await
+        .unwrap();
+
+    // create replica, shared over nvmf
+    hdls[0]
+        .mayastor
+        .create_replica(CreateReplicaRequest {
+            uuid: REPL_UUID.to_string(),
+            pool: POOL_NAME.to_string(),
+            size: 32 * 1024 * 1024,
+            thin: false,
+            share: 1,
+        })
+        .await
+        .unwrap();
+
+    async fn test_fn(
+        hdls: &mut [RpcHandle],
+        resv: NvmeReservation,
+        resv_key: u64,
+        local: bool,
+    ) {
+        let mayastor = get_ms();
+        let ip0 = hdls[0].endpoint.ip();
+        println!("Using resv {} and key {}", resv as u8, resv_key);
+        if local {
+            mayastor
+                .spawn(async move {
+                    let mut nvme_params = NexusNvmeParams::default();
+                    nvme_params.set_resv_key(resv_key);
+                    nvme_params.set_resv_type(resv);
+                    nvme_params.set_preempt_policy(NexusNvmePreemption::Holder);
+                    // create nexus on local node with remote replica as child
+                    nexus_create_v2(
+                        &NXNAME.to_string(),
+                        32 * 1024 * 1024,
+                        NEXUS_UUID,
+                        nvme_params,
+                        &[format!(
+                            "nvmf://{}:8420/{}:{}",
+                            ip0, HOSTNQN, REPL_UUID
+                        )],
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                    bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
+                        .await
+                        .unwrap();
+                    bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
+                        .await
+                        .unwrap();
+                })
+                .await;
+        } else {
+            hdls[1]
+                .mayastor
+                .create_nexus_v2(CreateNexusV2Request {
+                    name: NXNAME.to_string(),
+                    uuid: NEXUS_UUID.to_string(),
+                    size: 32 * 1024 * 1024,
+                    min_cntl_id: 1,
+                    max_cntl_id: 0xffef,
+                    resv_key,
+                    preempt_key: 0,
+                    children: [format!(
+                        "nvmf://{}:8420/{}:{}",
+                        ip0, HOSTNQN, REPL_UUID
+                    )]
+                    .to_vec(),
+                    nexus_info_key: "".to_string(),
+                    resv_type: Some(resv as i32),
+                    preempt_policy: NexusNvmePreemption::Holder as i32,
+                })
+                .await
+                .unwrap();
+        }
+
+        // Connect to remote replica to check key registered
+        let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
+
+        nvme_connect(&ip0.to_string(), &rep_nqn, true);
+
+        let rep_dev = get_mayastor_nvme_device();
+
+        let v = get_nvme_resv_report(&rep_dev);
+
+        assert_eq!(
+            v["ptpls"], 0,
+            "should have Persist Through Power Loss State as 0"
+        );
+
+        let shared = matches!(
+            resv,
+            NvmeReservation::ExclusiveAccessAllRegs
+                | NvmeReservation::WriteExclusiveAllRegs
+        );
+        if shared {
+            // we don't currently distinguish between
+            assert!(v["rtype"] == 5 || v["rtype"] == 6);
+        } else {
+            assert_eq!(v["rtype"], resv as u8);
+        }
+
+        let mut reserved = false;
+        let registrants = v["regctl"].as_u64().unwrap() as usize;
+        for i in 0 .. registrants {
+            let entry = &v["regctlext"][i];
+            assert_eq!(
+                entry["cntlid"], 0xffff,
+                "should have dynamic controller ID"
+            );
+            if entry["rcsts"] == 1 && !shared {
+                reserved = true;
+
+                let host = if local { HOSTID0 } else { HOSTID2 };
+                assert_eq!(
+                    entry["hostid"].as_str().unwrap(),
+                    host.to_string().replace("-", ""),
+                    "should match host ID of NVMe client"
+                );
+                assert_eq!(
+                    entry["rkey"], resv_key,
+                    "should have configured registered key"
+                );
+            }
+        }
+
+        assert!(
+            reserved || shared,
+            "should have reservation status as reserved"
+        );
+
+        nvme_disconnect_nqn(&rep_nqn);
+
+        if local {
+            mayastor
+                .spawn(async move {
+                    nexus_destroy(NEXUS_UUID).await.unwrap();
+                })
+                .await;
+        } else {
+            hdls[1]
+                .mayastor
+                .destroy_nexus(DestroyNexusRequest {
+                    uuid: NEXUS_UUID.to_string(),
+                })
+                .await
+                .unwrap();
+        }
+    }
+
+    let test_matrix = [
+        NvmeReservation::WriteExclusiveAllRegs,
+        NvmeReservation::ExclusiveAccess,
+        NvmeReservation::ExclusiveAccess,
+        NvmeReservation::WriteExclusive,
+        NvmeReservation::ExclusiveAccess,
+        NvmeReservation::WriteExclusiveAllRegs,
+        NvmeReservation::WriteExclusiveAllRegs,
+        NvmeReservation::ExclusiveAccessAllRegs,
+        NvmeReservation::ExclusiveAccess,
+        NvmeReservation::ExclusiveAccessAllRegs,
+        NvmeReservation::WriteExclusiveRegsOnly,
+        NvmeReservation::ExclusiveAccess,
+        NvmeReservation::WriteExclusiveRegsOnly,
+        NvmeReservation::ExclusiveAccess,
+    ];
+
+    let resv_key = 0x1;
+    for test_resv in test_matrix {
+        test_fn(&mut hdls, test_resv, resv_key, true).await;
+    }
+
+    let mut resv_key = 0x1;
+    for test_resv in test_matrix {
+        test_fn(&mut hdls, test_resv, resv_key, true).await;
+        resv_key += 1;
+    }
+
+    let resv_key = 0x1;
+    for test_resv in test_matrix {
+        test_fn(&mut hdls, test_resv, resv_key, (resv_key % 2) == 1).await;
+    }
+
+    let mut resv_key = 0x1;
+    for test_resv in test_matrix {
+        test_fn(&mut hdls, test_resv, resv_key, (resv_key % 2) == 1).await;
+        resv_key += 1;
+    }
 }
 
 #[tokio::test]

@@ -244,6 +244,18 @@ pub trait BlockDeviceHandle {
         })
     }
 
+    /// NVMe Reservation Release
+    async fn nvme_resv_release(
+        &self,
+        _current_key: u64,
+        _resv_type: u8,
+        _release_action: u8,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::EOPNOTSUPP,
+        })
+    }
+
     /// TODO
     async fn nvme_resv_report(
         &self,
