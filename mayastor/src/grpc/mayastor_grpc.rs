@@ -53,6 +53,7 @@ use tonic::{Request, Response, Status};
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
+use crate::bdev::nexus::VerboseError;
 use ::function_name::named;
 use std::{panic::AssertUnwindSafe, pin::Pin};
 use version_info::raw_version_string;
@@ -174,7 +175,7 @@ impl From<LvsError> for Status {
             LvsError::InvalidBdev {
                 source, ..
             } => source.into(),
-            _ => Status::internal(e.to_string()),
+            _ => Status::internal(e.verbose()),
         }
     }
 }
