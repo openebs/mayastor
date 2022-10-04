@@ -123,9 +123,16 @@ let
 
     hardeningDisable = [ "all" ];
 
-    buildPhase = ''
-      make -j`nproc`
-    '';
+    buildPhase = (if (targetPlatform.config == "aarch64-unknown-linux-gnu") then
+      [
+        "DPDKBUILD_FLAGS=-Dplatform=generic"
+      ]
+    else
+      [ ]
+    ) ++
+    [
+      "make -j`nproc`"
+    ];
 
     installPhase = ''
       echo "installing SPDK to $out"
