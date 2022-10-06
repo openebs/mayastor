@@ -213,10 +213,9 @@ impl Config {
     /// transports are constructed. The target accepts an opt parameter, thus
     /// it does not consult a global (mutable) data structure
     pub fn apply(&self) {
-        info!("Applying Mayastor configuration settings");
+        info!("Applying Mayastor configuration settings:\n{:#?}", self);
+
         assert!(self.nvme_bdev_opts.set());
         assert!(self.bdev_opts.set());
-
-        debug!("{:#?}", self);
     }
 }
