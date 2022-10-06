@@ -348,7 +348,7 @@ impl From<Error> for tonic::Status {
             Error::ChildNotFound {
                 ..
             } => Status::not_found(e.to_string()),
-            e => Status::new(Code::Internal, e.to_string()),
+            e => Status::new(Code::Internal, e.verbose()),
         }
     }
 }

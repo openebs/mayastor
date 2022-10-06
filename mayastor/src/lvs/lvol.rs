@@ -308,9 +308,10 @@ impl Lvol {
         r.await
             .expect("lvol destroy callback is gone")
             .to_result(|e| {
-                warn!("error while destroying lvol {}", name);
+                let errno = Errno::from_i32(e);
+                warn!("error while destroying lvol {}: {}", name, errno);
                 Error::RepDestroy {
-                    source: Errno::from_i32(e),
+                    source: errno,
                     name: name.clone(),
                 }
             })?;
