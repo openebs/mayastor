@@ -58,17 +58,17 @@ let
 in
 {
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
-    name = "mayadata/mayastor-io-engine";
+    name = "openebs/mayastor-io-engine";
     contents = [ busybox io-engine mctl ];
   });
 
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
-    name = "mayadata/mayastor-io-engine-dev";
+    name = "openebs/mayastor-io-engine-dev";
     contents = [ busybox io-engine-dev ];
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
-    name = "mayadata/mayastor-io-engine-client";
+    name = "openebs/mayastor-io-engine-client";
     contents = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });

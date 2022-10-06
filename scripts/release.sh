@@ -153,7 +153,7 @@ if [ -n "$OVERRIDE_COMMIT_HASH" ]; then
 fi
 
 for name in $IMAGES; do
-  image_basename="mayadata/${name}"
+  image_basename="openebs/${name}"
   image=$image_basename
   if [ -n "$REGISTRY" ]; then
     image="${REGISTRY}/${image}"
