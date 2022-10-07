@@ -58,6 +58,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::core::{CoreError, Cores, Mthread};
+use gettid::gettid;
 use nix::errno::Errno;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -110,6 +111,8 @@ pub struct Reactor {
     lcore: u32,
     /// represents the state of the reactor
     flags: Cell<ReactorState>,
+    /// Unique identifier of the thread on which reactor is running.
+    tid: Cell<u64>,
     /// sender and Receiver for sending futures across cores without going
     /// through FFI
     sx: Sender<Pin<Box<dyn Future<Output = ()> + 'static>>>,
@@ -276,14 +279,17 @@ impl Reactor {
             incoming: crossbeam::queue::SegQueue::new(),
             lcore: core,
             flags: Cell::new(ReactorState::Init),
+            tid: Cell::new(0),
             sx,
             rx,
         }
     }
 
     /// this function gets called by DPDK
-    extern "C" fn poll(core: *mut c_void) -> i32 {
-        debug!("Start polling of reactor {}", core as u32);
+    extern "C" fn poll(arg: *mut c_void) -> i32 {
+        let core = arg as u32;
+
+        info!(core, tid = gettid(), "Starting reactor polling loop",);
         let reactor = Reactors::get_by_core(core as u32).unwrap();
         if reactor.get_state() != ReactorState::Init {
             warn!("calling poll on a reactor who is not in the INIT state");
@@ -420,8 +426,16 @@ impl Reactor {
         self.lcore
     }
 
+    /// Returns system identifier of the thread this reactor is running on.
+    pub fn tid(&self) -> u64 {
+        self.tid.get()
+    }
+
     /// poll this reactor to complete any work that is pending
     pub fn poll_reactor(&self) {
+        // Initialize TID for this reactor.
+        self.tid.set(gettid());
+
         loop {
             match self.get_state() {
                 // running is the default mode for all cores. All cores, except
@@ -527,6 +541,96 @@ impl Future for &'static Reactor {
                 }
                 cx.waker().wake_by_ref();
                 Poll::Pending
+            }
+        }
+    }
+}
+
+/// Heartbeat timeout (in seconds) to classify a reactor as frozen.
+const REACTOR_HEARTBEAT_TIMEOUT: u64 = 3;
+
+/// Monitor health for all reactors: all available reactors are constantly
+/// monitored for liveness.
+pub async fn reactor_monitor_loop(freeze_timeout: Option<u64>) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Metadata for every reactor being monitored by the reactor monitor.
+    struct ReactorRecord {
+        frozen: bool,
+        reactor: &'static Reactor,
+        reactor_tick: &'static AtomicU64,
+        core: u32,
+    }
+
+    let timeout = freeze_timeout.unwrap_or(REACTOR_HEARTBEAT_TIMEOUT);
+    let num_cores = Cores::count().id() as usize;
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut tick: u64 = 0;
+    let mut reactor_state: Vec<ReactorRecord> = Vec::with_capacity(num_cores);
+    static REACTOR_TICKS: OnceCell<Vec<AtomicU64>> = OnceCell::new();
+
+    info!(num_cores, timeout, "Starting reactor health monitor loop");
+
+    // Intialize shared counters for heartbeat futures sent to reactors.
+    let heartbeat_ticks = REACTOR_TICKS.get_or_init(|| {
+        std::iter::repeat_with(|| AtomicU64::new(0))
+            .take(num_cores)
+            .collect::<Vec<AtomicU64>>()
+    });
+
+    // Initialize reactor records.
+    for (id, core) in Cores::count().into_iter().enumerate() {
+        let reactor = Reactors::get_by_core(core)
+            .unwrap_or_else(|| panic!("Can't get reactor for core {}", core));
+        let reactor_tick =
+            heartbeat_ticks.get(id).expect("Failed to get tick item");
+
+        reactor_state.push(ReactorRecord {
+            frozen: false,
+            reactor,
+            reactor_tick,
+            core,
+        });
+    }
+
+    loop {
+        // Schedule heartbeat futures on every reactor, ignoring reactors
+        // which are already frozen.
+        for (id, r) in reactor_state.iter().enumerate() {
+            // For frozen reactors there are already N scheduled heartbeat
+            // futures that haven't resolved yet, so maintain exactly this delta
+            // by just adjusting the tick counter.
+            if r.frozen {
+                heartbeat_ticks[id].fetch_add(1, Ordering::Relaxed);
+            } else {
+                // Send heartbeat future to the reactor.
+                r.reactor.send_future(async move {
+                    heartbeat_ticks[id].fetch_add(1, Ordering::Relaxed);
+                });
+            }
+        }
+
+        // Wait till heartbeat check interval elapses and check ticks
+        // reported by every reactor.
+        interval.tick().await;
+        tick += 1;
+
+        for r in &mut reactor_state {
+            if r.frozen {
+                // Check if all pending heartbeat futures have resolved:
+                // in such a case heartbeat counter adds to the correct
+                // value and mark the reactor as alive.
+                if tick - r.reactor_tick.load(Ordering::Relaxed) == 0 {
+                    info!(core = r.core, "Reactor is healthy again");
+                    r.frozen = false;
+                }
+            } else {
+                // Reactor didn't respond within allowed number of intervals,
+                // assume it is frozen.
+                if tick - r.reactor_tick.load(Ordering::Relaxed) >= timeout {
+                    r.frozen = true;
+                    crate::core::diagnostics::diagnose_reactor(r.reactor);
+                }
             }
         }
     }

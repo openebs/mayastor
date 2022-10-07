@@ -37,7 +37,13 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
-pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
+pub use reactor::{
+    reactor_monitor_loop,
+    Reactor,
+    ReactorState,
+    Reactors,
+    REACTOR_LIST,
+};
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
 pub use spdk_rs::{
@@ -57,6 +63,7 @@ mod block_device;
 mod channel;
 mod descriptor;
 mod device_events;
+pub mod diagnostics;
 mod env;
 mod handle;
 mod io_device;
