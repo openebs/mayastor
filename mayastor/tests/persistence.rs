@@ -75,9 +75,8 @@ async fn persist_unexpected_restart() {
     let value = response.kvs().first().unwrap().value();
     let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
 
-    // Check the persisted nexus info remains unchanged.
-
-    assert!(!nexus_info.clean_shutdown);
+    // Check the persisted nexus info changed to reflect clean shutdown.
+    assert!(nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
