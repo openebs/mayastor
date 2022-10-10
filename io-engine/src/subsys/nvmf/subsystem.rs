@@ -133,8 +133,8 @@ impl NvmfSubsystem {
             });
         }
         let ss = NvmfSubsystem::new(bdev.name())?;
-        ss.set_ana_reporting(true)?;
-        ss.allow_any(true);
+        ss.set_ana_reporting(false)?;
+        ss.allow_any(false);
         if let Err(e) = ss.add_namespace(bdev) {
             ss.destroy();
             return Err(e);
@@ -203,8 +203,8 @@ impl NvmfSubsystem {
         bdev: &UntypedBdev,
     ) -> Result<Self, Error> {
         let ss = NvmfSubsystem::new(uuid)?;
-        ss.set_ana_reporting(true)?;
-        ss.allow_any(true);
+        ss.set_ana_reporting(false)?;
+        ss.allow_any(false);
         ss.add_namespace(bdev)?;
         Ok(ss)
     }
@@ -270,8 +270,8 @@ impl NvmfSubsystem {
     /// allow any host to connect to the subsystem
     pub fn allow_any(&self, enable: bool) {
         unsafe {
-            spdk_nvmf_subsystem_set_allow_any_host(self.0.as_ptr(), enable)
-        };
+            spdk_nvmf_subsystem_set_allow_any_host(self.0.as_ptr(), enable);
+        }
     }
 
     /// enable Asymmetric Namespace Access (ANA) reporting
