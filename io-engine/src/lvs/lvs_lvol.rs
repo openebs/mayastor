@@ -38,7 +38,7 @@ use super::{Error, Lvs};
 
 use crate::{
     bdev::nexus::Nexus,
-    core::{Bdev, Mthread, Protocol, Share, UntypedBdev},
+    core::{Bdev, Mthread, Protocol, Share, ShareProps, UntypedBdev},
     ffihelper::{
         cb_arg,
         errno_result_from_i32,
@@ -146,10 +146,10 @@ impl Share for Lvol {
     /// share the lvol as a nvmf target
     async fn share_nvmf(
         mut self: Pin<&mut Self>,
-        cntlid_range: Option<(u16, u16)>,
+        props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         let share = Pin::new(&mut self.as_bdev())
-            .share_nvmf(cntlid_range)
+            .share_nvmf(props)
             .await
             .map_err(|e| Error::LvolShare {
                 source: e,
