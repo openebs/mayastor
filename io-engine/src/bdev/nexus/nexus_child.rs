@@ -670,7 +670,7 @@ impl<'c> NexusChild<'c> {
             }
         };
         info!(
-            "{:?}::{:?}: reservation held {:0x?} {:?}",
+            "{:?}::{:?}: reservation held {:0x?} {:0x}h",
             self, my_hostid, hostid, pkey
         );
 
@@ -695,6 +695,13 @@ impl<'c> NexusChild<'c> {
             self.resv_acquire(&*hdl, args.resv_key, Some(pkey), args.resv_type)
                 .await?;
             if !(rtype != args.resv_type && hostid == my_hostid) {
+                // When registering a new key with Register Action REPLACE and
+                // Ignoring Existing Key, the registration succeeds and the key
+                // is replaced but the registration is not changed in the
+                // namespace. In this case the report contains the wrong key as
+                // the holder so the previous acquire is not sufficient.
+                self.resv_acquire(&*hdl, args.resv_key, None, args.resv_type)
+                    .await?;
                 return Ok(());
             }
             // if we were the previous owner, we've now cleared the
