@@ -40,13 +40,63 @@ impl Display for Protocol {
     }
 }
 
+/// Share properties when sharing a device.
+#[derive(Default)]
+pub struct ShareProps {
+    /// Controller Id range.
+    cntlid_range: Option<(u16, u16)>,
+    /// Enable ANA reporting.
+    ana: bool,
+    /// Hosts allowed to connect.
+    allowed_hosts: Vec<String>,
+}
+impl ShareProps {
+    /// Returns a new `Self`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Modify the controller id range.
+    #[must_use]
+    pub fn with_range(mut self, cntlid_range: Option<(u16, u16)>) -> Self {
+        self.cntlid_range = cntlid_range;
+        self
+    }
+    /// Modify the ana reporting.
+    #[must_use]
+    pub fn with_ana(mut self, ana: bool) -> Self {
+        self.ana = ana;
+        self
+    }
+    /// Get the controller id range.
+    pub fn cntlid_range(&self) -> Option<(u16, u16)> {
+        self.cntlid_range
+    }
+    /// Get the ana reporting.
+    pub fn ana(&self) -> bool {
+        self.ana
+    }
+    /// Any host is allowed to connect.
+    pub fn host_any(&self) -> bool {
+        self.allowed_hosts.is_empty()
+    }
+}
+impl From<Option<ShareProps>> for ShareProps {
+    fn from(opts: Option<ShareProps>) -> Self {
+        match opts {
+            None => Self::new(),
+            Some(props) => props,
+        }
+    }
+}
+
 #[async_trait(? Send)]
 pub trait Share: std::fmt::Debug {
     type Error;
     type Output: std::fmt::Display + std::fmt::Debug;
+
     async fn share_nvmf(
         self: Pin<&mut Self>,
-        cntlid_range: Option<(u16, u16)>,
+        props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error>;
 
     /// TODO

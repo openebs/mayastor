@@ -14,7 +14,7 @@ use crate::{
     bdev::bdev_event_callback,
     bdev_api::bdev_uri_eq,
     core::{
-        share::{Protocol, Share},
+        share::{Protocol, Share, ShareProps},
         BlockDeviceIoStats,
         CoreError,
         DescriptorGuard,
@@ -178,16 +178,22 @@ where
     /// share the bdev over NVMe-OF TCP
     async fn share_nvmf(
         self: Pin<&mut Self>,
-        cntlid_range: Option<(u16, u16)>,
+        props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         let me = unsafe { self.get_unchecked_mut() };
 
         let subsystem = NvmfSubsystem::try_from(me).context(ShareNvmf {})?;
-        if let Some((cntlid_min, cntlid_max)) = cntlid_range {
+        let props = ShareProps::from(props);
+        if let Some((cntlid_min, cntlid_max)) = props.cntlid_range() {
             subsystem
                 .set_cntlid_range(cntlid_min, cntlid_max)
                 .context(ShareNvmf {})?;
         }
+        subsystem
+            .set_ana_reporting(props.ana())
+            .context(ShareNvmf {})?;
+        subsystem.allow_any(props.host_any());
+
         subsystem.start().await.context(ShareNvmf {})
     }
 
