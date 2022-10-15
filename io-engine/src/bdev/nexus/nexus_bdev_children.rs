@@ -933,7 +933,7 @@ impl<'n> Nexus<'n> {
     }
 
     // TODO
-    async fn disconnect_all_channels(
+    pub(crate) async fn disconnect_all_channels(
         &self,
         child_device: String,
     ) -> Result<(), Error> {
