@@ -47,6 +47,13 @@ pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 #[cfg(feature = "diagnostics")]
 pub use reactor::reactor_monitor_loop;
 
+pub use lock::{
+    ProtectedSubsystems,
+    ResourceLockGuard,
+    ResourceLockManager,
+    ResourceLockManagerConfig,
+    ResourceSubsystem,
+};
 pub use runtime::spawn;
 pub use share::{Protocol, Share, ShareProps};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
@@ -65,6 +72,7 @@ mod env;
 mod handle;
 mod io_device;
 pub mod io_driver;
+pub mod lock;
 pub mod mempool;
 mod nic;
 pub mod partition;
