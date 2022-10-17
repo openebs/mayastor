@@ -784,7 +784,7 @@ impl<'n> Nexus<'n> {
     pub async fn destroy(mut self: Pin<&mut Self>) -> Result<(), Error> {
         info!("Destroying nexus {}", self.name);
 
-        self.as_mut().destroy_shares().await;
+        self.as_mut().destroy_shares().await?;
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
