@@ -160,13 +160,15 @@ impl<'n> Nexus<'n> {
     }
 
     /// Shutdowns all shares.
-    pub(crate) async fn destroy_shares(mut self: Pin<&mut Self>) {
+    pub(crate) async fn destroy_shares(
+        mut self: Pin<&mut Self>,
+    ) -> Result<(), Error> {
         let _ = self.as_mut().unshare_nexus().await;
         assert_eq!(self.share_handle, None);
 
         // no-op when not shared and will be removed once the old share bits are
-        // gone
-        self.as_mut().unshare().await.unwrap();
+        // gone. Ignore device name provided in case of successful unsharing.
+        self.as_mut().unshare().await.map(|_| ())
     }
 
     /// TODO
