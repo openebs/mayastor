@@ -730,30 +730,17 @@ impl<'n> Nexus<'n> {
 
 impl<'n> DeviceEventListener for Nexus<'n> {
     fn handle_device_event(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         evt: DeviceEventType,
         dev_name: &str,
     ) {
         match evt {
             DeviceEventType::DeviceRemoved
             | DeviceEventType::LoopbackRemoved => {
-                match self.as_mut().lookup_child_device_mut(dev_name) {
-                    Some(child) => {
-                        info!(
-                            "{:?}: device remove event: unplugging \
-                            child",
-                            child,
-                        );
-                        child.unplug();
-                    }
-                    None => {
-                        warn!(
-                            "{:?}: device remove event: child device '{}' \
-                            not found",
-                            self, dev_name
-                        );
-                    }
-                }
+                Reactors::master().send_future(Nexus::child_remove_routine(
+                    self.name.clone(),
+                    dev_name.to_owned(),
+                ));
             }
             DeviceEventType::AdminCommandCompletionFailed => {
                 info!(
@@ -858,6 +845,32 @@ impl<'n> Nexus<'n> {
                 child_device.to_owned(),
                 retry,
             ));
+        }
+    }
+
+    /// Handle child device removal.
+    async fn child_remove_routine(nexus_name: String, child_device: String) {
+        if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
+            match nexus.as_mut().lookup_child_device_mut(&child_device) {
+                Some(child) => {
+                    info!(
+                        nexus_name,
+                        child_device, "Unplugging nexus child device",
+                    );
+                    child.unplug();
+                }
+                None => {
+                    warn!(
+                        nexus_name,
+                        child_device, "Nexus child device not found",
+                    );
+                }
+            }
+        } else {
+            warn!(
+                nexus_name,
+                child_device, "Removing nexus child: nexus already gone",
+            );
         }
     }
 
