@@ -46,7 +46,7 @@ pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use reactor::reactor_monitor_loop;
 
 pub use runtime::spawn;
-pub use share::{Protocol, Share};
+pub use share::{Protocol, Share, ShareProps};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 

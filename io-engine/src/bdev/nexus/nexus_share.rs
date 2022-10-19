@@ -4,7 +4,7 @@ use std::pin::Pin;
 
 use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
 
-use crate::core::{Protocol, Share};
+use crate::core::{Protocol, Share, ShareProps};
 
 #[async_trait(? Send)]
 ///
@@ -21,14 +21,14 @@ impl<'n> Share for Nexus<'n> {
 
     async fn share_nvmf(
         mut self: Pin<&mut Self>,
-        cntlid_range: Option<(u16, u16)>,
+        props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Off) | None => {
                 let name = self.name.clone();
                 self.as_mut()
                     .pin_bdev_mut()
-                    .share_nvmf(cntlid_range)
+                    .share_nvmf(props)
                     .await
                     .context(nexus_err::ShareNvmfNexus {
                         name,
@@ -122,11 +122,13 @@ impl<'n> Nexus<'n> {
                 Ok(uri)
             }
             Protocol::Nvmf => {
-                let args = Some((
-                    self.nvme_params.min_cntlid,
-                    self.nvme_params.max_cntlid,
-                ));
-                let uri = self.as_mut().share_nvmf(args).await?;
+                let props = ShareProps::new()
+                    .with_range(Some((
+                        self.nvme_params.min_cntlid,
+                        self.nvme_params.max_cntlid,
+                    )))
+                    .with_ana(true);
+                let uri = self.as_mut().share_nvmf(Some(props)).await?;
 
                 unsafe {
                     self.as_mut().get_unchecked_mut().nexus_target =
