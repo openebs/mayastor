@@ -49,7 +49,6 @@ use crate::{
     bdev_api::BdevError,
     core::{
         device_cmd_queue,
-        partition,
         DeviceCommand,
         DeviceEventListener,
         DeviceEventType,
@@ -467,73 +466,6 @@ impl<'n> Nexus<'n> {
 
         let name = self.name.clone();
 
-        if self.children().is_empty() {
-            return Err(Error::NexusIncomplete {
-                name,
-                reason: "No children provided".to_string(),
-            });
-        }
-
-        // Determine Nexus block size and data start and end offsets.
-        let mut start_blk = 0;
-        let mut end_blk = 0;
-        let mut blk_size = 0;
-
-        for child in self.children_iter() {
-            let dev = match child.get_device() {
-                Ok(dev) => dev,
-                Err(error) => {
-                    return Err(Error::NexusIncomplete {
-                        name,
-                        reason: error.to_string(),
-                    })
-                }
-            };
-
-            let nb = dev.num_blocks();
-            let bs = dev.block_len();
-
-            if blk_size == 0 {
-                blk_size = bs;
-            } else if bs != blk_size {
-                return Err(Error::MixedBlockSizes {
-                    name: self.name.clone(),
-                });
-            }
-
-            match partition::calc_data_partition(self.req_size(), nb, bs) {
-                Some((start, end)) => {
-                    if start_blk == 0 {
-                        start_blk = start;
-                        end_blk = end;
-                    } else {
-                        end_blk = min(end_blk, end);
-
-                        if start_blk != start {
-                            return Err(Error::ChildGeometry {
-                                child: child.uri().to_owned(),
-                                name,
-                            });
-                        }
-                    }
-                }
-                None => {
-                    return Err(Error::ChildTooSmall {
-                        child: child.uri().to_owned(),
-                        name,
-                        num_blocks: nb,
-                        block_size: bs,
-                    })
-                }
-            }
-        }
-
-        unsafe {
-            self.as_mut().set_data_ent_offset(start_blk);
-            self.as_mut().set_block_len(blk_size as u32);
-            self.as_mut().set_num_blocks(end_blk - start_blk);
-        }
-
         let size = self.req_size();
 
         // Take the child vec, try open and re-add.
@@ -632,11 +564,11 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        info!(
-            "{:?}: children opened, updated specs: start_blk={}, end_blk={}, \
-                block_len={}, required_alignment={}",
-            self, start_blk, end_blk, blk_size, new_alignment
-        );
+        //info!(
+        //    "{:?}: children opened, updated specs: start_blk={}, end_blk={}, \
+        //        block_len={}, required_alignment={}",
+        //    self, start_blk, end_blk, blk_size, new_alignment
+        //);
 
         Ok(())
     }
