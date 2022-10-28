@@ -10,6 +10,11 @@ use io_engine::{
     bdev::util::uring,
     core::{
         device_monitor_loop,
+        lock::{
+            ProtectedSubsystems,
+            ResourceLockManager,
+            ResourceLockManagerConfig,
+        },
         runtime,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -43,6 +48,11 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     #[cfg(feature = "diagnostics")]
     let reactor_freeze_timeout = args.reactor_freeze_timeout.clone();
+
+    // Initialize Lock manager.
+    let cfg = ResourceLockManagerConfig::default()
+        .with_subsystem(ProtectedSubsystems::NEXUS, 512);
+    ResourceLockManager::initialize(cfg);
 
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
