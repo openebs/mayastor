@@ -132,15 +132,35 @@ pub async fn unstage_fs_volume(
             "Unstaging filesystem volume {}, unmounting device {:?} from {}",
             volume_id, mount.source, fs_staging_path
         );
+        let device = mount.source.to_string_lossy().to_string();
+        let mounts = mount::find_src_mounts(&device, Some(fs_staging_path));
+        if let Some(unkown_mount) = mounts.first().cloned() {
+            for mount in mounts {
+                tracing::error!(
+                    volume.uuid = %volume_id,
+                    "Found unknown bind mount {} for device {:?}",
+                    device,
+                    mount.dest,
+                );
+            }
+
+            return Err(failure!(
+                Code::Internal,
+                "Failed to unstage volume {}: existing unknown bind mount {:?} for device {:?}",
+                volume_id,
+                unkown_mount.dest,
+                unkown_mount.source
+            ));
+        }
         if let Err(error) = mount::filesystem_unmount(fs_staging_path) {
             return Err(failure!(
-                    Code::Internal,
-                    "Failed to unstage volume {}: failed to unmount device {:?} from {}: {}",
-                    volume_id,
-                    mount.source,
-                    fs_staging_path,
-                    error
-                ));
+                Code::Internal,
+                "Failed to unstage volume {}: failed to unmount device {:?} from {}: {}",
+                volume_id,
+                mount.source,
+                fs_staging_path,
+                error
+            ));
         }
     }
 

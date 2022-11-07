@@ -54,6 +54,25 @@ pub fn find_mount(
     found.map(MountInfo::from)
 }
 
+/// Return all mounts for a matching source.
+/// Optionally ignore the given destination path.
+pub(crate) fn find_src_mounts(
+    source: &str,
+    dest_ignore: Option<&str>,
+) -> Vec<MountInfo> {
+    MountIter::new()
+        .unwrap()
+        .flatten()
+        .filter(|mount| {
+            mount.source.to_string_lossy() == source
+                && match dest_ignore {
+                    None => true,
+                    Some(ignore) => ignore != mount.dest.to_string_lossy(),
+                }
+        })
+        .collect()
+}
+
 /// Check if options in "first" are also present in "second",
 /// but exclude values "ro" and "rw" from the comparison.
 pub(super) fn subset(first: &[String], second: &[String]) -> bool {
