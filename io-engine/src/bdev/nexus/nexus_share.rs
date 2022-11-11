@@ -1,3 +1,4 @@
+use crate::bdev::PtplFileOps;
 use async_trait::async_trait;
 use snafu::ResultExt;
 use std::pin::Pin;
@@ -127,7 +128,15 @@ impl<'n> Nexus<'n> {
                         self.nvme_params.min_cntlid,
                         self.nvme_params.max_cntlid,
                     )))
-                    .with_ana(true);
+                    .with_ana(true)
+                    .with_ptpl(self.ptpl().create().map_err(|source| {
+                        Error::ShareNvmfNexus {
+                            source: crate::core::CoreError::Ptpl {
+                                reason: source.to_string(),
+                            },
+                            name: self.name.to_string(),
+                        }
+                    })?);
                 let uri = self.as_mut().share_nvmf(Some(props)).await?;
 
                 unsafe {
@@ -178,5 +187,47 @@ impl<'n> Nexus<'n> {
             Some(NexusTarget::NexusNvmfTarget) => self.share_uri(),
             None => None,
         }
+    }
+
+    /// Get a `PtplFileOps` from `&self`.
+    pub(crate) fn ptpl(&self) -> impl PtplFileOps {
+        NexusPtpl::from(self)
+    }
+}
+
+/// Nexus reservation persistence through power loss implementation.
+pub(crate) struct NexusPtpl {
+    uuid: uuid::Uuid,
+}
+impl NexusPtpl {
+    /// Get a `Self` with the given uuid.
+    pub(crate) fn new(uuid: uuid::Uuid) -> Self {
+        Self {
+            uuid,
+        }
+    }
+    fn uuid(&self) -> &uuid::Uuid {
+        &self.uuid
+    }
+}
+impl<'n> From<&Nexus<'n>> for NexusPtpl {
+    fn from(n: &Nexus<'n>) -> Self {
+        NexusPtpl {
+            uuid: n.uuid(),
+        }
+    }
+}
+impl PtplFileOps for NexusPtpl {
+    fn destroy(&self) -> Result<(), std::io::Error> {
+        if let Some(path) = self.path() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn subpath(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from("nexus/")
+            .join(self.uuid().to_string())
+            .with_extension("json")
     }
 }

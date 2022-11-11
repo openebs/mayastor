@@ -12,10 +12,12 @@ use crate::{
             ChildState,
             Nexus,
             NexusChild,
+            NexusPtpl,
             NexusStatus,
             NvmeAnaState,
             Reason,
         },
+        PtplFileOps,
     },
     core::{Protocol, Share},
     rebuild::RebuildJob,
@@ -228,10 +230,13 @@ pub async fn nexus_destroy(uuid: &str) -> Result<(), nexus::Error> {
     if let Ok(n) = nexus_lookup(uuid) {
         let result = n.destroy().await;
         if result.is_ok() {
-            info!("Destroyed nexus: '{}'", uuid)
+            info!("Destroyed nexus: '{}'", uuid);
         } else {
             return result;
         }
-    };
+    } else if let Ok(uuid) = Uuid::parse_str(uuid) {
+        NexusPtpl::new(uuid).destroy().ok();
+    }
+
     Ok(())
 }

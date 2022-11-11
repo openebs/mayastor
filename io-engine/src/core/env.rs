@@ -117,6 +117,9 @@ pub struct MayastorCliArgs {
     #[structopt(short = "y")]
     /// Path to mayastor config YAML file.
     pub mayastor_config: Option<String>,
+    #[structopt(long)]
+    /// Path to persistence through power loss nvme reservation base directory.
+    pub ptpl_dir: Option<String>,
     #[structopt(short = "P")]
     /// Path to pool config file.
     pub pool_config: Option<String>,
@@ -199,6 +202,7 @@ impl Default for MayastorCliArgs {
             log_components: vec![],
             log_format: None,
             mayastor_config: None,
+            ptpl_dir: None,
             pool_config: None,
             hugedir: None,
             core_list: None,
@@ -267,6 +271,7 @@ pub struct MayastorEnvironment {
     pub registration_endpoint: Option<Uri>,
     persistent_store_endpoint: Option<String>,
     mayastor_config: Option<String>,
+    ptpl_dir: Option<String>,
     pool_config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
@@ -307,6 +312,7 @@ impl Default for MayastorEnvironment {
             registration_endpoint: None,
             persistent_store_endpoint: None,
             mayastor_config: None,
+            ptpl_dir: None,
             pool_config: None,
             delay_subsystem_init: false,
             enable_coredump: true,
@@ -423,6 +429,7 @@ impl MayastorEnvironment {
                 env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
             }),
             mayastor_config: args.mayastor_config,
+            ptpl_dir: args.ptpl_dir,
             pool_config: args.pool_config,
             log_component: args.log_components,
             mem_size: args.mem_size,
@@ -439,6 +446,11 @@ impl MayastorEnvironment {
             ..Default::default()
         }
         .setup_static()
+    }
+
+    /// Get the persistence through power loss directory.
+    pub fn ptpl_dir(&self) -> Option<String> {
+        self.ptpl_dir.clone()
     }
 
     fn setup_static(self) -> Self {
@@ -790,6 +802,12 @@ impl MayastorEnvironment {
         self.init_logger();
 
         self.load_yaml_config();
+
+        if let Some(ptpl) = &self.ptpl_dir {
+            if let Err(error) = std::fs::create_dir_all(ptpl) {
+                tracing::error!(%error, "Failed to create ptpl base path directories");
+            }
+        }
 
         let pool_config = self.load_pool_config();
 

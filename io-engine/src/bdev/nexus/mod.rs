@@ -51,6 +51,7 @@ pub(crate) use nexus_module::{NexusModule, NEXUS_MODULE_NAME};
 pub(crate) use nexus_nbd::{NbdDisk, NbdError};
 pub(crate) use nexus_persistence::PersistOp;
 pub use nexus_persistence::{ChildInfo, NexusInfo};
+pub(crate) use nexus_share::NexusPtpl;
 
 /// TODO
 #[derive(Deserialize)]
@@ -132,7 +133,7 @@ pub async fn shutdown_nexuses() {
     info!("Shutting down nexuses...");
     for mut nexus in nexus_iter_mut() {
         // Destroy nexus and persist its state in the ETCd.
-        if let Err(error) = nexus.as_mut().destroy().await {
+        if let Err(error) = nexus.as_mut().destroy_ext(true).await {
             error!(
                 name = nexus.name,
                 error = error.verbose(),

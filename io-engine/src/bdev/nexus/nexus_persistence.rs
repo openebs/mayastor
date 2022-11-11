@@ -5,10 +5,10 @@ use std::time::Duration;
 
 /// Information associated with the persisted NexusInfo structure.
 pub struct PersistentNexusInfo {
-    // Structure that is written to the persistent store.
+    /// Structure that is written to the persistent store.
     inner: NexusInfo,
-    // Key to use to persist the NexusInfo structure.
-    // If `Some` the key has been supplied by the control plane.
+    /// Key to use to persist the NexusInfo structure.
+    /// If `Some` the key has been supplied by the control plane.
     key: Option<String>,
 }
 

@@ -92,6 +92,7 @@ pub fn nvme_connect(
         .args(&["-t", "tcp"])
         .args(&["-a", target_addr])
         .args(&["-s", "8420"])
+        .args(&["-c", "1"])
         .args(&["-n", nqn])
         .status()
         .unwrap();

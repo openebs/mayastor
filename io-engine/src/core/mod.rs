@@ -55,7 +55,7 @@ pub use lock::{
     ResourceSubsystem,
 };
 pub use runtime::spawn;
-pub use share::{Protocol, Share, ShareProps};
+pub use share::{Protocol, PtplProps, Share, ShareProps};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
@@ -253,6 +253,13 @@ pub enum CoreError {
     },
     #[snafu(display("No devices available for I/O"))]
     NoDevicesAvailable {},
+    #[snafu(display(
+        "NVMe persistence through power-loss failure: {}",
+        reason
+    ))]
+    Ptpl {
+        reason: String,
+    },
 }
 
 /// Logical volume layer failure.

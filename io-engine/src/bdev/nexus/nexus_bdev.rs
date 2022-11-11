@@ -51,6 +51,7 @@ use crate::{
     subsys::NvmfSubsystem,
 };
 
+use crate::bdev::PtplFileOps;
 use spdk_rs::{
     BdevIo,
     BdevOps,
@@ -637,7 +638,18 @@ impl<'n> Nexus<'n> {
     }
 
     /// Destroy the Nexus.
-    pub async fn destroy(mut self: Pin<&mut Self>) -> Result<(), Error> {
+    pub async fn destroy(self: Pin<&mut Self>) -> Result<(), Error> {
+        self.destroy_ext(false).await
+    }
+
+    /// Destroy the Nexus.
+    /// # Arguments
+    /// * `sigterm`: Indicates whether this is as a result of process
+    ///   termination.
+    pub async fn destroy_ext(
+        mut self: Pin<&mut Self>,
+        sigterm: bool,
+    ) -> Result<(), Error> {
         info!("{:?}: destroying nexus...", self);
 
         self.as_mut().destroy_shares().await?;
@@ -666,6 +678,15 @@ impl<'n> Nexus<'n> {
 
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
+        if !sigterm {
+            if let Err(error) = self.ptpl().destroy() {
+                tracing::error!(
+                    "{:?}: Failed to clean up persistence through power loss for nexus: {}",
+                    self,
+                    error
+                );
+            }
+        }
 
         unsafe {
             let name = self.name.clone();

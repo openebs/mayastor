@@ -37,8 +37,16 @@ use spdk_rs::libspdk::{
 use super::{Error, Lvs};
 
 use crate::{
-    bdev::nexus::Nexus,
-    core::{Bdev, Mthread, Protocol, Share, ShareProps, UntypedBdev},
+    bdev::{nexus::Nexus, PtplFileOps},
+    core::{
+        Bdev,
+        Mthread,
+        Protocol,
+        PtplProps,
+        Share,
+        ShareProps,
+        UntypedBdev,
+    },
     ffihelper::{
         cb_arg,
         errno_result_from_i32,
@@ -148,6 +156,17 @@ impl Share for Lvol {
         mut self: Pin<&mut Self>,
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
+        let props = Some(match props {
+            Some(props) => props,
+            None => ShareProps::new().with_ptpl(self.ptpl().create().map_err(
+                |source| Error::LvolShare {
+                    source: crate::core::CoreError::Ptpl {
+                        reason: source.to_string(),
+                    },
+                    name: self.name(),
+                },
+            )?),
+        });
         let share = Pin::new(&mut self.as_bdev())
             .share_nvmf(props)
             .await
@@ -174,6 +193,7 @@ impl Share for Lvol {
             })?;
 
         self.as_mut().set(PropValue::Shared(false)).await?;
+
         info!("{:?}: unshared ", self);
         Ok(share)
     }
@@ -373,6 +393,7 @@ impl Lvol {
         let _ = Pin::new(&mut self).unshare().await;
 
         let name = self.name();
+        let ptpl = self.ptpl();
 
         let (s, r) = pair::<i32>();
         unsafe {
@@ -388,6 +409,13 @@ impl Lvol {
                     name: name.clone(),
                 }
             })?;
+        if let Err(error) = ptpl.destroy() {
+            tracing::error!(
+                "{}: Failed to clean up persistence through power loss for replica: {}",
+                name,
+                error
+            );
+        }
 
         info!("destroyed lvol {}", name);
         Ok(name)
@@ -565,5 +593,58 @@ impl Lvol {
         };
 
         info!("{:?}: creating snapshot '{}'", self, snapshot_name);
+    }
+
+    /// Get a `PtplFileOps` from `&self`.
+    pub(crate) fn ptpl(&self) -> impl PtplFileOps {
+        LvolPtpl::from(self)
+    }
+}
+
+struct LvolPtpl {
+    lvs: super::lvs_store::LvsPtpl,
+    uuid: String,
+}
+impl LvolPtpl {
+    fn lvs(&self) -> &super::lvs_store::LvsPtpl {
+        &self.lvs
+    }
+    fn uuid(&self) -> &str {
+        &self.uuid
+    }
+}
+impl From<&Lvol> for LvolPtpl {
+    fn from(lvol: &Lvol) -> Self {
+        Self {
+            lvs: (&lvol.lvs()).into(),
+            uuid: lvol.uuid(),
+        }
+    }
+}
+impl PtplFileOps for LvolPtpl {
+    fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
+        if let Some(path) = self.path() {
+            self.lvs().create()?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            return Ok(Some(PtplProps::new(path)));
+        }
+        Ok(None)
+    }
+
+    fn destroy(&self) -> Result<(), std::io::Error> {
+        if let Some(path) = self.path() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn subpath(&self) -> std::path::PathBuf {
+        self.lvs()
+            .subpath()
+            .join("replica/")
+            .join(self.uuid())
+            .with_extension("json")
     }
 }

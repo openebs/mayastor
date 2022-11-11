@@ -40,6 +40,24 @@ impl Display for Protocol {
     }
 }
 
+/// Persist Through Power Loss properties
+pub struct PtplProps {
+    /// The path to the json file where the reservations will be stored.
+    file: std::path::PathBuf,
+}
+impl PtplProps {
+    /// Create a new `Self` with the given json file path.
+    pub fn new(file: std::path::PathBuf) -> Self {
+        Self {
+            file,
+        }
+    }
+    /// Get the json file path.
+    pub fn path(&self) -> &std::path::PathBuf {
+        &self.file
+    }
+}
+
 /// Share properties when sharing a device.
 #[derive(Default)]
 pub struct ShareProps {
@@ -49,6 +67,8 @@ pub struct ShareProps {
     ana: bool,
     /// Hosts allowed to connect.
     allowed_hosts: Vec<String>,
+    /// Persistent-Power-Loss settings.
+    ptpl: Option<PtplProps>,
 }
 impl ShareProps {
     /// Returns a new `Self`.
@@ -67,6 +87,12 @@ impl ShareProps {
         self.ana = ana;
         self
     }
+    /// Modify the ptpl properties.
+    #[must_use]
+    pub fn with_ptpl<P: Into<Option<PtplProps>>>(mut self, ptpl: P) -> Self {
+        self.ptpl = ptpl.into();
+        self
+    }
     /// Get the controller id range.
     pub fn cntlid_range(&self) -> Option<(u16, u16)> {
         self.cntlid_range
@@ -78,6 +104,10 @@ impl ShareProps {
     /// Any host is allowed to connect.
     pub fn host_any(&self) -> bool {
         self.allowed_hosts.is_empty()
+    }
+    /// Get the persistence through power loss properties.
+    pub fn ptpl(&self) -> &Option<PtplProps> {
+        &self.ptpl
     }
 }
 impl From<Option<ShareProps>> for ShareProps {
