@@ -12,7 +12,9 @@ pub use nvmx::{
 
 mod aio;
 pub(crate) mod dev;
+use crate::core::{MayastorEnvironment, PtplProps};
 pub(crate) use dev::uri;
+
 pub(crate) mod device;
 mod loopback;
 mod malloc;
@@ -42,4 +44,39 @@ pub trait CreateDestroy {
 /// device type.
 pub trait GetName {
     fn get_name(&self) -> String;
+}
+
+/// Exposes functionality to prepare for persisting reservations in the event
+/// of a power loss.
+/// This can be implemented by each resource that deals with persistent nvme
+/// reservations.
+pub(crate) trait PtplFileOps {
+    /// Create the necessary directory path roots.
+    fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
+        if let Some(path) = self.path() {
+            if let Some(path) = path.parent() {
+                std::fs::create_dir_all(&path)?;
+            }
+            return Ok(Some(PtplProps::new(path)));
+        }
+        Ok(None)
+    }
+    /// Destroy the backing file/directory.
+    fn destroy(&self) -> Result<(), std::io::Error>;
+    /// Get the subpath to the persistent file (within the base_path).
+    fn subpath(&self) -> std::path::PathBuf;
+
+    /// Get the base path where all ptpl files are stored in.
+    /// If this feature is disable, None is returned.
+    fn base_path() -> Option<std::path::PathBuf> {
+        MayastorEnvironment::global_or_default()
+            .ptpl_dir()
+            .map(std::path::PathBuf::from)
+    }
+
+    /// Get the actual path to the ptpl file.
+    /// If this feature is disable, None is returned.
+    fn path(&self) -> Option<std::path::PathBuf> {
+        Self::base_path().map(|base| base.join(self.subpath()))
+    }
 }

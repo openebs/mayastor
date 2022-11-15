@@ -30,10 +30,13 @@ use crate::{
     rebuild::RebuildJob,
 };
 
-use crate::bdev::nexus::{
-    nexus_bdev::NexusNvmePreemption,
-    NexusNvmeParams,
-    NvmeReservation,
+use crate::{
+    bdev::nexus::{
+        nexus_bdev::NexusNvmePreemption,
+        NexusNvmeParams,
+        NvmeReservation,
+    },
+    core::MayastorEnvironment,
 };
 use spdk_rs::{
     libspdk::{
@@ -320,7 +323,10 @@ impl<'c> NexusChild<'c> {
             0,
             new_key,
             nvme_reservation_register_action::REPLACE_KEY,
-            nvme_reservation_register_cptpl::NO_CHANGES,
+            match MayastorEnvironment::global_or_default().ptpl_dir() {
+                Some(_) => nvme_reservation_register_cptpl::PERSIST_POWER_LOSS,
+                None => nvme_reservation_register_cptpl::CLEAR_POWER_ON,
+            },
         )
         .await?;
         info!("{:?}: registered key {:0x}h", self, new_key);

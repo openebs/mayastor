@@ -25,6 +25,7 @@ use mayastor_api::v1::nexus::*;
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
+use crate::bdev::{nexus::NexusPtpl, PtplFileOps};
 use ::function_name::named;
 use std::panic::AssertUnwindSafe;
 
@@ -258,7 +259,12 @@ pub fn nexus_lookup<'n>(
 
 /// Destruction of the nexus. Returns NotFound error for invalid uuid.
 pub async fn nexus_destroy(uuid: &str) -> Result<(), nexus::Error> {
-    let n = nexus_lookup(uuid)?;
+    let n = nexus_lookup(uuid).map_err(|error| {
+        if let Ok(uuid) = uuid::Uuid::parse_str(uuid) {
+            NexusPtpl::new(uuid).destroy().ok();
+        }
+        error
+    })?;
     n.destroy().await
 }
 

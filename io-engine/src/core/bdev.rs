@@ -181,9 +181,12 @@ where
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         let me = unsafe { self.get_unchecked_mut() };
-
-        let subsystem = NvmfSubsystem::try_from(me).context(ShareNvmf {})?;
         let props = ShareProps::from(props);
+
+        let ptpl = props.ptpl().as_ref().map(|ptpl| ptpl.path());
+        let subsystem =
+            NvmfSubsystem::try_from_with(me, ptpl).context(ShareNvmf {})?;
+
         if let Some((cntlid_min, cntlid_max)) = props.cntlid_range() {
             subsystem
                 .set_cntlid_range(cntlid_min, cntlid_max)

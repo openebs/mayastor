@@ -63,8 +63,12 @@ static HOSTID2: &str = "3f264cc3-1c95-44ca-bc1f-ed7fb68f3894";
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
+static BDEVNAME11: &str = "aio:///host/tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///host/tmp/disk2.img?blk_size=512";
+
+static PTPL_HOST_DIR: &str = "/tmp/ptpl/";
+static PTPL_CONTAINER_DIR: &str = "/host/tmp/ptpl/";
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -494,6 +498,9 @@ async fn nexus_io_resv_preempt() {
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
     std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
 
+    common::delete_file(&[DISKNAME1.into(), PTPL_HOST_DIR.into()]);
+    common::truncate_file(DISKNAME1, 64 * 1024);
+
     let test = Builder::new()
         .name("nexus_io_resv_preempt_test")
         .network("10.1.0.0/16")
@@ -502,13 +509,17 @@ async fn nexus_io_resv_preempt() {
             "ms2",
             Binary::from_dbg("io-engine")
                 .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
-                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1)
+                .with_args(vec!["--ptpl-dir", PTPL_CONTAINER_DIR])
+                .with_bind("/tmp", "/host/tmp"),
         )
         .add_container_bin(
             "ms1",
             Binary::from_dbg("io-engine")
                 .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
-                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID2),
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID2)
+                .with_args(vec!["--ptpl-dir", PTPL_CONTAINER_DIR])
+                .with_bind("/tmp", "/host/tmp"),
         )
         .with_clean(true)
         .build()
@@ -526,7 +537,7 @@ async fn nexus_io_resv_preempt() {
         .mayastor
         .create_pool(CreatePoolRequest {
             name: POOL_NAME.to_string(),
-            disks: vec!["malloc:///disk0?size_mb=64".into()],
+            disks: vec![BDEVNAME11.into()],
         })
         .await
         .unwrap();
@@ -634,8 +645,8 @@ async fn nexus_io_resv_preempt() {
     assert_eq!(v["rtype"], 2, "should have exclusive access");
     assert_eq!(v2["regctl"], 1, "should have 1 registered controllers");
     assert_eq!(
-        v2["ptpls"], 0,
-        "should have Persist Through Power Loss State as 0"
+        v2["ptpls"], 1,
+        "should have Persist Through Power Loss State enabled"
     );
     assert_eq!(
         v2["regctlext"][0]["cntlid"], 0xffff,
@@ -672,6 +683,58 @@ async fn nexus_io_resv_preempt() {
                 .unwrap();
         })
         .await;
+    nvme_disconnect_nqn(&rep_nqn);
+
+    test.restart("ms2").await.unwrap();
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(5);
+    loop {
+        if start.elapsed() > timeout {
+            panic!("Timed out waiting for container to restart");
+        }
+        if hdls[0].bdev.list(Null {}).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    hdls[0]
+        .mayastor
+        .create_pool(CreatePoolRequest {
+            name: POOL_NAME.to_string(),
+            disks: vec![BDEVNAME11.into()],
+        })
+        .await
+        .unwrap();
+
+    nvme_connect(&ip0.to_string(), &rep_nqn, true);
+    let rep_dev = get_mayastor_nvme_device();
+
+    // After restart the reservations should still be in place!
+    let v2 = get_nvme_resv_report(&rep_dev);
+    assert_eq!(v["rtype"], 2, "should have exclusive access");
+    assert_eq!(v2["regctl"], 1, "should have 1 registered controllers");
+    assert_eq!(
+        v2["ptpls"], 1,
+        "should have Persist Through Power Loss State enabled"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["cntlid"], 0xffff,
+        "should have dynamic controller ID"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["rcsts"].as_u64().unwrap() & 0x1,
+        1,
+        "should have reservation status as reserved"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["rkey"], resv_key2,
+        "should have configured registered key"
+    );
+    assert_eq!(
+        v2["regctlext"][0]["hostid"].as_str().unwrap(),
+        HOSTID2.to_string().replace("-", ""),
+        "should match host ID of NVMe client"
+    );
 
     nvme_disconnect_nqn(&rep_nqn);
 }

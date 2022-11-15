@@ -123,7 +123,10 @@ impl From<*mut spdk_nvmf_subsystem> for NvmfSubsystem {
 
 impl NvmfSubsystem {
     /// TODO
-    pub fn try_from<T>(bdev: &Bdev<T>) -> Result<Self, Error>
+    pub fn try_from_with<T>(
+        bdev: &Bdev<T>,
+        ptpl: Option<&std::path::PathBuf>,
+    ) -> Result<Self, Error>
     where
         T: spdk_rs::BdevOps,
     {
@@ -135,11 +138,18 @@ impl NvmfSubsystem {
         let ss = NvmfSubsystem::new(bdev.name())?;
         ss.set_ana_reporting(false)?;
         ss.allow_any(false);
-        if let Err(e) = ss.add_namespace(bdev) {
+        if let Err(e) = ss.add_namespace(bdev, ptpl) {
             ss.destroy();
             return Err(e);
         }
         Ok(ss)
+    }
+    /// TODO
+    pub fn try_from<T>(bdev: &Bdev<T>) -> Result<Self, Error>
+    where
+        T: spdk_rs::BdevOps,
+    {
+        Self::try_from_with(bdev, None)
     }
 }
 
@@ -205,12 +215,16 @@ impl NvmfSubsystem {
         let ss = NvmfSubsystem::new(uuid)?;
         ss.set_ana_reporting(false)?;
         ss.allow_any(false);
-        ss.add_namespace(bdev)?;
+        ss.add_namespace(bdev, None)?;
         Ok(ss)
     }
 
     /// add the given bdev to this namespace
-    pub fn add_namespace<T>(&self, bdev: &Bdev<T>) -> Result<(), Error>
+    pub fn add_namespace<T>(
+        &self,
+        bdev: &Bdev<T>,
+        ptpl: Option<&std::path::PathBuf>,
+    ) -> Result<(), Error>
     where
         T: spdk_rs::BdevOps,
     {
@@ -219,13 +233,20 @@ impl NvmfSubsystem {
             ..Default::default()
         };
         let bdev_cname = CString::new(bdev.name()).unwrap();
+        let ptpl = ptpl.map(|ptpl| {
+            CString::new(ptpl.to_string_lossy().to_string()).unwrap()
+        });
+        let ptpl_ptr = match &ptpl {
+            Some(ptpl) => ptpl.as_ptr(),
+            None => ptr::null_mut(),
+        };
         let ns_id = unsafe {
             spdk_nvmf_subsystem_add_ns_ext(
                 self.0.as_ptr(),
                 bdev_cname.as_ptr(),
                 &opts as *const _,
                 size_of::<spdk_bdev_nvme_opts>() as u64,
-                ptr::null_mut(),
+                ptpl_ptr,
             )
         };
 

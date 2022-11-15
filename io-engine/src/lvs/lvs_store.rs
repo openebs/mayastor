@@ -36,7 +36,7 @@ use url::Url;
 use super::{Error, Lvol, LvsIter, PropName, PropValue};
 
 use crate::{
-    bdev::uri,
+    bdev::{uri, PtplFileOps},
     bdev_api::{bdev_destroy, BdevError},
     core::{Bdev, IoType, Share, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -576,6 +576,7 @@ impl Lvs {
         let self_str = format!("{:?}", self);
         info!("{}: destroying lvs...", self_str);
 
+        let ptpl = self.ptpl();
         let pool = self.name().to_string();
         let (s, r) = pair::<i32>();
 
@@ -607,6 +608,14 @@ impl Lvs {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
+
+        if let Err(error) = ptpl.destroy() {
+            tracing::error!(
+                "{}: Failed to clean up persistence through power loss for pool: {}",
+                self_str,
+                error
+            );
+        }
 
         Ok(())
     }
@@ -739,5 +748,39 @@ impl Lvs {
 
         info!("{:?}: created", lvol);
         Ok(lvol)
+    }
+
+    /// Get a `PtplFileOps` from `&self`.
+    pub(crate) fn ptpl(&self) -> impl PtplFileOps {
+        LvsPtpl::from(self)
+    }
+}
+
+/// Persist through power loss implementation for an LvsStore (pool).
+pub(super) struct LvsPtpl {
+    uuid: String,
+}
+impl LvsPtpl {
+    fn uuid(&self) -> &str {
+        &self.uuid
+    }
+}
+impl From<&Lvs> for LvsPtpl {
+    fn from(lvs: &Lvs) -> Self {
+        Self {
+            uuid: lvs.uuid(),
+        }
+    }
+}
+impl PtplFileOps for LvsPtpl {
+    fn destroy(&self) -> Result<(), std::io::Error> {
+        if let Some(path) = self.path() {
+            std::fs::remove_dir_all(path)?;
+        }
+        Ok(())
+    }
+
+    fn subpath(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from("pool/").join(self.uuid())
     }
 }
