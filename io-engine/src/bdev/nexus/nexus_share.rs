@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
 
-use crate::core::{Protocol, Share, ShareProps};
+use crate::core::{Protocol, Share, ShareProps, UpdateProps};
 
 #[async_trait(? Send)]
 ///
@@ -38,6 +38,18 @@ impl<'n> Share for Nexus<'n> {
             Some(Protocol::Nvmf) => {}
         }
         Ok(self.share_uri().unwrap())
+    }
+
+    async fn update_properties<P: Into<Option<UpdateProps>>>(
+        self: Pin<&mut Self>,
+        props: P,
+    ) -> Result<(), Self::Error> {
+        let name = self.name.clone();
+        self.pin_bdev_mut().update_properties(props).await.context(
+            nexus_err::UpdateShareProperties {
+                name,
+            },
+        )
     }
 
     /// TODO

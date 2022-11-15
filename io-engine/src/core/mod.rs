@@ -55,7 +55,7 @@ pub use lock::{
     ResourceSubsystem,
 };
 pub use runtime::spawn;
-pub use share::{Protocol, PtplProps, Share, ShareProps};
+pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 

@@ -16,18 +16,23 @@ use spdk_rs::libspdk::{
     spdk_nvmf_ns_get_bdev,
     spdk_nvmf_ns_opts,
     spdk_nvmf_subsystem,
+    spdk_nvmf_subsystem_add_host,
     spdk_nvmf_subsystem_add_listener,
     spdk_nvmf_subsystem_add_ns_ext,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_destroy,
+    spdk_nvmf_subsystem_disconnect_host,
     spdk_nvmf_subsystem_get_first,
+    spdk_nvmf_subsystem_get_first_host,
     spdk_nvmf_subsystem_get_first_listener,
     spdk_nvmf_subsystem_get_first_ns,
     spdk_nvmf_subsystem_get_next,
+    spdk_nvmf_subsystem_get_next_host,
     spdk_nvmf_subsystem_get_next_listener,
     spdk_nvmf_subsystem_get_nqn,
     spdk_nvmf_subsystem_listener_get_trid,
     spdk_nvmf_subsystem_pause,
+    spdk_nvmf_subsystem_remove_host,
     spdk_nvmf_subsystem_resume,
     spdk_nvmf_subsystem_set_allow_any_host,
     spdk_nvmf_subsystem_set_ana_reporting,
@@ -288,11 +293,133 @@ impl NvmfSubsystem {
         }
     }
 
-    /// allow any host to connect to the subsystem
+    fn cstr(host: &str) -> Result<CString, Error> {
+        CString::new(host).map_err(|_| Error::HostCstrNul {
+            host: host.to_string(),
+        })
+    }
+
+    /// Allow any host to connect to the subsystem.
     pub fn allow_any(&self, enable: bool) {
         unsafe {
             spdk_nvmf_subsystem_set_allow_any_host(self.0.as_ptr(), enable);
         }
+    }
+
+    /// Sets the allowed hosts to connect to the subsystem.
+    /// It also disallows and disconnects any previously registered host.
+    /// # Warning
+    ///
+    /// It does not disconnect non-registered hosts, eg: hosts which
+    /// were connected before the allowed_hosts was configured.
+    pub async fn allowed_hosts<H: AsRef<str>>(
+        &self,
+        hosts: &[H],
+    ) -> Result<(), Error> {
+        if hosts.is_empty() {
+            return Ok(());
+        }
+
+        let hosts = hosts.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+        self.allow_hosts(&hosts)?;
+
+        let mut host =
+            unsafe { spdk_nvmf_subsystem_get_first_host(self.0.as_ptr()) };
+
+        let mut hosts_to_disconnect = vec![];
+        {
+            // must first "clone" the host's nqn as the disallow_host fn will
+            // actually free the spdk_nvmf_host memory as it's not ref counted.
+            // this also means we better not call any async code within this
+            // "clone".
+            while !host.is_null() {
+                let host_str = unsafe { (*host).nqn.as_str() };
+                if !hosts.contains(&host_str) {
+                    hosts_to_disconnect.push(host_str.to_string());
+                }
+                host = unsafe {
+                    spdk_nvmf_subsystem_get_next_host(self.0.as_ptr(), host)
+                };
+            }
+        }
+
+        for host in hosts_to_disconnect {
+            self.disallow_host(&host)?;
+            // note this only disconnects previously registered hosts
+            // todo: disconnect any connected host which is not allowed
+            self.disconnect_host(&host).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Allows the specified hosts to connect to the subsystem.
+    pub fn allow_hosts(&self, hosts: &[&str]) -> Result<(), Error> {
+        for host in hosts {
+            self.allow_host(host)?;
+        }
+        Ok(())
+    }
+
+    /// Allows a host to connect to the subsystem.
+    pub fn allow_host(&self, host: &str) -> Result<(), Error> {
+        let host = Self::cstr(host)?;
+        unsafe { spdk_nvmf_subsystem_add_host(self.0.as_ptr(), host.as_ptr()) }
+            .to_result(|errno| Error::Subsystem {
+                source: Errno::from_i32(errno),
+                nqn: self.get_nqn(),
+                msg: format!("failed to add allowed host: {:?}", host),
+            })?;
+        Ok(())
+    }
+
+    /// Disallow hosts from connecting to the subsystem.
+    pub fn disallow_hosts(&self, hosts: &[String]) -> Result<(), Error> {
+        for host in hosts {
+            self.disallow_host(host)?;
+        }
+        Ok(())
+    }
+
+    /// Disallow a host from connecting to the subsystem.
+    pub fn disallow_host(&self, host: &str) -> Result<(), Error> {
+        let host = Self::cstr(host)?;
+        unsafe {
+            spdk_nvmf_subsystem_remove_host(self.0.as_ptr(), host.as_ptr())
+        }
+        .to_result(|errno| Error::Subsystem {
+            source: Errno::from_i32(errno),
+            nqn: self.get_nqn(),
+            msg: format!("failed to remove allowed host: {:?}", host),
+        })?;
+        Ok(())
+    }
+
+    /// Disconnect host from the subsystem.
+    pub async fn disconnect_host(&self, host: &str) -> Result<(), Error> {
+        extern "C" fn done_cb(arg: *mut c_void, status: i32) {
+            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
+            s.send(status).ok();
+        }
+
+        let host_cstr = Self::cstr(host)?;
+        let (s, r) = oneshot::channel::<i32>();
+        unsafe {
+            spdk_nvmf_subsystem_disconnect_host(
+                self.0.as_ptr(),
+                host_cstr.as_ptr(),
+                Some(done_cb),
+                cb_arg(s),
+            );
+        }
+
+        r.await.expect("done_cb callback gone").to_result(|error| {
+            Error::Subsystem {
+                source: Errno::from_i32(error),
+                msg: "Failed to disconnect host".to_string(),
+                nqn: host.to_owned(),
+            }
+        })
     }
 
     /// enable Asymmetric Namespace Access (ANA) reporting

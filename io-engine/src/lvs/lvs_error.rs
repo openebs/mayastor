@@ -67,6 +67,11 @@ pub enum Error {
         source: CoreError,
         name: String,
     },
+    #[snafu(display("failed to update share properties lvol {}", name))]
+    UpdateShareProperties {
+        source: CoreError,
+        name: String,
+    },
     #[snafu(display("failed to unshare lvol {}", name))]
     LvolUnShare {
         source: CoreError,

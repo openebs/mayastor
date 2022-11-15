@@ -14,7 +14,7 @@ use crate::{
     bdev::bdev_event_callback,
     bdev_api::bdev_uri_eq,
     core::{
-        share::{Protocol, Share, ShareProps},
+        share::{Protocol, Share, ShareProps, UpdateProps},
         BlockDeviceIoStats,
         CoreError,
         DescriptorGuard,
@@ -196,8 +196,34 @@ where
             .set_ana_reporting(props.ana())
             .context(ShareNvmf {})?;
         subsystem.allow_any(props.host_any());
+        subsystem
+            .allowed_hosts(props.allowed_hosts())
+            .await
+            .context(ShareNvmf {})?;
 
         subsystem.start().await.context(ShareNvmf {})
+    }
+
+    async fn update_properties<P: Into<Option<UpdateProps>>>(
+        self: Pin<&mut Self>,
+        props: P,
+    ) -> Result<(), Self::Error> {
+        match self.shared() {
+            Some(Protocol::Nvmf) => {
+                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(self.name())
+                {
+                    let props = UpdateProps::from(props.into());
+                    subsystem.allow_any(props.host_any());
+                    subsystem
+                        .allowed_hosts(props.allowed_hosts())
+                        .await
+                        .context(ShareNvmf {})?;
+                }
+            }
+            Some(Protocol::Off) | None => {}
+        }
+
+        Ok(())
     }
 
     /// unshare the bdev regardless of current active share

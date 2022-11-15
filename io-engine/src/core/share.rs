@@ -105,6 +105,10 @@ impl ShareProps {
     pub fn host_any(&self) -> bool {
         self.allowed_hosts.is_empty()
     }
+    /// Allowed hosts which can connect to the subsystem.
+    pub fn allowed_hosts(&self) -> &Vec<String> {
+        &self.allowed_hosts
+    }
     /// Get the persistence through power loss properties.
     pub fn ptpl(&self) -> &Option<PtplProps> {
         &self.ptpl
@@ -112,6 +116,41 @@ impl ShareProps {
 }
 impl From<Option<ShareProps>> for ShareProps {
     fn from(opts: Option<ShareProps>) -> Self {
+        match opts {
+            None => Self::new(),
+            Some(props) => props,
+        }
+    }
+}
+
+/// Update properties of a shared device.
+#[derive(Default)]
+pub struct UpdateProps {
+    /// Hosts allowed to connect.
+    allowed_hosts: Vec<String>,
+}
+impl UpdateProps {
+    /// Returns a new `Self`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Any host is allowed to connect.
+    pub fn host_any(&self) -> bool {
+        self.allowed_hosts.is_empty()
+    }
+    /// Add allowed hosts (nqn's) which can connect to the subsystem.
+    #[must_use]
+    pub fn with_allowed_hosts(mut self, hosts: Vec<String>) -> Self {
+        self.allowed_hosts = hosts;
+        self
+    }
+    /// Allowed hosts which can connect to the subsystem.
+    pub fn allowed_hosts(&self) -> &Vec<String> {
+        &self.allowed_hosts
+    }
+}
+impl From<Option<UpdateProps>> for UpdateProps {
+    fn from(opts: Option<UpdateProps>) -> Self {
         match opts {
             None => Self::new(),
             Some(props) => props,
@@ -128,6 +167,11 @@ pub trait Share: std::fmt::Debug {
         self: Pin<&mut Self>,
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error>;
+
+    async fn update_properties<P: Into<Option<UpdateProps>>>(
+        self: Pin<&mut Self>,
+        props: P,
+    ) -> Result<(), Self::Error>;
 
     /// TODO
     async fn unshare(self: Pin<&mut Self>)

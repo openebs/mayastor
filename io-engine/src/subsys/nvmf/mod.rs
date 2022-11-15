@@ -76,6 +76,8 @@ pub enum Error {
     Namespace { bdev: String, msg: String },
     #[snafu(display("Failed to find listener for {} {}", nqn, trid))]
     Listener { nqn: String, trid: String },
+    #[snafu(display("Interior nul byte found for host {}", host))]
+    HostCstrNul { host: String },
 }
 
 thread_local! {
