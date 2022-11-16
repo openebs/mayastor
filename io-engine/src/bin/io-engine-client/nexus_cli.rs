@@ -110,7 +110,14 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .arg(Arg::with_name("uuid").required(true).index(1)
             .help("uuid for the nexus"))
         .arg(Arg::with_name("key").required(false).index(2)
-            .help("crypto key to use"));
+            .help("crypto key to use"))
+        .arg(
+            Arg::with_name("allowed-host")
+                .long("allowed-host")
+                .takes_value(true)
+                .multiple(true)
+                .required(false)
+                .help("NQN of hosts which are allowed to connect to the target"));
 
     let unpublish = SubCommand::with_name("unpublish")
         .about("unpublish the nexus")
@@ -749,6 +756,8 @@ async fn nexus_publish(
             .context(GrpcStatus);
         }
     };
+    let allowed_hosts =
+        matches.values_of_lossy("allowed-host").unwrap_or_default();
 
     let response = ctx
         .client
@@ -756,7 +765,7 @@ async fn nexus_publish(
             uuid,
             key,
             share: protocol.into(),
-            ..Default::default()
+            allowed_hosts,
         })
         .await
         .context(GrpcStatus)?;
