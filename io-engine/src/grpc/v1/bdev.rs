@@ -1,7 +1,7 @@
 use crate::{
     bdev_api::{bdev_create, bdev_destroy, BdevError},
     core,
-    core::{CoreError, Protocol, Share},
+    core::{CoreError, Protocol, Share, ShareProps},
     grpc::{rpc_submit, GrpcResult},
 };
 use mayastor_api::v1::bdev::{
@@ -132,22 +132,23 @@ impl BdevRpc for BdevService {
         request: Request<BdevShareRequest>,
     ) -> Result<Response<BdevShareResponse>, Status> {
         let r = request.into_inner();
-        let name = r.name;
+        let bdev_name = r.name.clone();
         let protocol = r.protocol;
 
-        if core::UntypedBdev::lookup_by_name(&name).is_none() {
-            return Err(Status::not_found(name));
+        if core::UntypedBdev::lookup_by_name(&bdev_name).is_none() {
+            return Err(Status::not_found(bdev_name));
         }
 
-        let bdev_name = name.clone();
         let rx = match Protocol::try_from(protocol) {
             Ok(Protocol::Nvmf) => {
                 rpc_submit::<_, Bdev, CoreError>(async move {
                     let mut bdev =
                         core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
-                    Pin::new(&mut bdev).share_nvmf(None).await?;
+                    let props =
+                        ShareProps::new().with_allowed_hosts(r.allowed_hosts);
+                    Pin::new(&mut bdev).share_nvmf(Some(props)).await?;
                     let bdev =
-                        core::UntypedBdev::lookup_by_name(&name).unwrap();
+                        core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
                     Ok(bdev.into())
                 })
             }

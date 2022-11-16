@@ -162,6 +162,7 @@ impl NexusBuilder {
                 uuid: self.uuid(),
                 key: String::new(),
                 share: 1,
+                ..Default::default()
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())

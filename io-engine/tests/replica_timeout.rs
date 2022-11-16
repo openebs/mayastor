@@ -66,6 +66,7 @@ async fn replica_stop_cont() {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap();

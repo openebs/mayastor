@@ -219,6 +219,7 @@ async fn create_targets() {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap();

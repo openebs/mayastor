@@ -1,6 +1,6 @@
 use crate::{
     bdev_api::BdevError,
-    core::{Bdev, Protocol, Share, UntypedBdev},
+    core::{Bdev, Protocol, Share, ShareProps, UntypedBdev, UpdateProps},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
 };
@@ -279,6 +279,13 @@ impl ReplicaRpc for ReplicaService {
                             if lvol.shared()
                                 == Some(Protocol::try_from(args.share)?)
                             {
+                                Pin::new(&mut lvol)
+                                    .update_properties(
+                                        UpdateProps::new().with_allowed_hosts(
+                                            args.allowed_hosts,
+                                        ),
+                                    )
+                                    .await?;
                                 return Ok(Replica::from(lvol));
                             }
 
@@ -291,8 +298,10 @@ impl ReplicaRpc for ReplicaService {
                                     })
                                 }
                                 Protocol::Nvmf => {
+                                    let props = ShareProps::new()
+                                        .with_allowed_hosts(args.allowed_hosts);
                                     Pin::new(&mut lvol)
-                                        .share_nvmf(None)
+                                        .share_nvmf(Some(props))
                                         .await?;
                                 }
                             }

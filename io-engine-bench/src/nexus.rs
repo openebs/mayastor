@@ -83,6 +83,7 @@ async fn get_children(compose: Arc<ComposeTest>) -> &'static Vec<String> {
                     .share(BdevShareRequest {
                         name: format!("disk{}", disk_index),
                         proto: "nvmf".into(),
+                        ..Default::default()
                     })
                     .await
                     .unwrap();

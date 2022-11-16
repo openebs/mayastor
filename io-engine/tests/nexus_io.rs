@@ -170,6 +170,7 @@ async fn nexus_io_multipath() {
             uuid: NEXUS_UUID.to_string(),
             key: "".to_string(),
             share: Protocol::Nvmf as i32,
+            ..Default::default()
         })
         .await
         .unwrap();

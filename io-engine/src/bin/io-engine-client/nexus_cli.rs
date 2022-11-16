@@ -756,6 +756,7 @@ async fn nexus_publish(
             uuid,
             key,
             share: protocol.into(),
+            ..Default::default()
         })
         .await
         .context(GrpcStatus)?;

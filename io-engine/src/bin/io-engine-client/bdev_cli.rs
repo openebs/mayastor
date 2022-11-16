@@ -225,6 +225,7 @@ async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
         .share(BdevShareRequest {
             name,
             proto: protocol,
+            ..Default::default()
         })
         .await
         .context(GrpcStatus)?;

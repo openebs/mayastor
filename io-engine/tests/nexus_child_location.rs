@@ -51,6 +51,7 @@ async fn child_location() {
         .share(BdevShareRequest {
             name: "disk0".into(),
             proto: "nvmf".into(),
+            ..Default::default()
         })
         .await
         .unwrap();

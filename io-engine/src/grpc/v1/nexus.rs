@@ -689,7 +689,7 @@ impl NexusRpc for NexusService {
                 }
 
                 let device_uri = nexus_lookup(&args.uuid)?
-                    .share(share_protocol, key)
+                    .share_ext(share_protocol, key, args.allowed_hosts)
                     .await?;
 
                 info!("Published nexus {} under {}", uuid, device_uri);

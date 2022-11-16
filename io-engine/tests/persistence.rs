@@ -201,6 +201,7 @@ async fn persist_io_failure() {
         .share(BdevShareRequest {
             name: "disk0".to_string(),
             proto: "nvmf".to_string(),
+            ..Default::default()
         })
         .await
         .expect("Failed to share");
@@ -436,6 +437,7 @@ async fn publish_nexus(hdl: &mut RpcHandle, uuid: &str) -> String {
             uuid: uuid.to_string(),
             key: "".to_string(),
             share: ShareProtocolNexus::NexusNvmf as i32,
+            ..Default::default()
         })
         .await
         .expect("Failed to publish nexus")
@@ -456,6 +458,7 @@ async fn create_and_share_bdevs(hdl: &mut RpcHandle, uuid: &str) -> String {
         .share(BdevShareRequest {
             name: "disk0".into(),
             proto: "nvmf".into(),
+            ..Default::default()
         })
         .await
         .unwrap();

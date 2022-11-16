@@ -227,11 +227,11 @@ pub enum CoreError {
     NvmeIoPassthruFailed {
         opcode: u16,
     },
-    #[snafu(display("failed to share {}", source))]
+    #[snafu(display("failed to share"))]
     ShareNvmf {
         source: NvmfError,
     },
-    #[snafu(display("failed to unshare {}", source))]
+    #[snafu(display("failed to unshare"))]
     UnshareNvmf {
         source: NvmfError,
     },

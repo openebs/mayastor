@@ -105,7 +105,13 @@ impl ShareProps {
     pub fn host_any(&self) -> bool {
         self.allowed_hosts.is_empty()
     }
-    /// Allowed hosts which can connect to the subsystem.
+    /// Modify the allowed hosts which can connect to the subsystem.
+    #[must_use]
+    pub fn with_allowed_hosts(mut self, hosts: Vec<String>) -> Self {
+        self.allowed_hosts = hosts;
+        self
+    }
+    /// Get the allowed hosts which can connect to the subsystem.
     pub fn allowed_hosts(&self) -> &Vec<String> {
         &self.allowed_hosts
     }

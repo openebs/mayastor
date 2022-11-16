@@ -413,6 +413,7 @@ async fn replica_share(
         .share_replica(rpc::ShareReplicaRequest {
             uuid: name.clone(),
             share,
+            ..Default::default()
         })
         .await
         .context(GrpcStatus)?;

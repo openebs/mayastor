@@ -59,6 +59,7 @@ use tonic::{Request, Response, Status};
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
+use crate::core::{UpdateProps, VerboseError};
 use ::function_name::named;
 use std::{panic::AssertUnwindSafe, pin::Pin};
 use version_info::raw_version_string;
@@ -241,7 +242,7 @@ impl From<LvsError> for Status {
             LvsError::InvalidBdev {
                 source, ..
             } => source.into(),
-            _ => Status::internal(e.to_string()),
+            _ => Status::internal(e.verbose()),
         }
     }
 }
@@ -911,6 +912,13 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             if lvol.shared()
                                 == Some(Protocol::try_from(args.share)?)
                             {
+                                Pin::new(&mut lvol)
+                                    .update_properties(
+                                        UpdateProps::new().with_allowed_hosts(
+                                            args.allowed_hosts,
+                                        ),
+                                    )
+                                    .await?;
                                 return Ok(ShareReplicaReply {
                                     uri: lvol.share_uri().unwrap(),
                                 });
@@ -1341,7 +1349,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 };
 
                 let device_uri = nexus_lookup(&args.uuid)?
-                    .share(share_protocol, key)
+                    .share_ext(share_protocol, key, args.allowed_hosts)
                     .await?;
 
                 info!("Published nexus {} under {}", uuid, device_uri);
