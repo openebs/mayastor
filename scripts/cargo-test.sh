@@ -19,6 +19,8 @@ echo "running cargo-test..."
 echo "rustc version:"
 rustc --version
 
+$SCRIPTDIR/clean-cargo-tests.sh
+
 set -euxo pipefail
 export PATH=$PATH:${HOME}/.cargo/bin
 ( cd jsonrpc && cargo test )
