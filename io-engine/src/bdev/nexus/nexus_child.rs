@@ -620,6 +620,9 @@ impl<'c> NexusChild<'c> {
         if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
             return Ok(());
         }
+        if !params.reservations_enabled() {
+            return Ok(());
+        }
         match params.preempt_policy {
             NexusNvmePreemption::ArgKey => {
                 self.reservation_acquire_argkey(params).await?;

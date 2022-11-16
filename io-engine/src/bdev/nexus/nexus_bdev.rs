@@ -211,6 +211,18 @@ impl NexusNvmeParams {
     pub fn set_preempt_policy(&mut self, preempt_policy: NexusNvmePreemption) {
         self.preempt_policy = preempt_policy;
     }
+    /// Check if reservations are enabled.
+    pub fn reservations_enabled(&self) -> bool {
+        self.resv_key != 0
+            || self.preempt_key.is_some()
+            || !matches!(self.preempt_policy, NexusNvmePreemption::ArgKey)
+    }
+    /// Check if reservations are valid.
+    pub fn reservations_valid(&self) -> bool {
+        !(self.resv_key == 0
+            || (matches!(self.preempt_policy, NexusNvmePreemption::Holder)
+                && self.preempt_key.is_some()))
+    }
 }
 
 /// The main nexus structure
@@ -1160,8 +1172,13 @@ pub async fn nexus_create_v2(
             args,
         });
     }
-    if nvme_params.resv_key == 0 {
-        let args = "invalid NVMe reservation key";
+    if !nvme_params.reservations_enabled() {
+        warn!(
+            "Not using nvme reservations for nexus {}: {:?}",
+            name, nvme_params
+        );
+    } else if !nvme_params.reservations_valid() {
+        let args = "invalid NVMe reservation parameters";
         error!("failed to create nexus {}: {}", name, args);
         return Err(Error::InvalidArguments {
             name: name.to_owned(),

@@ -792,6 +792,7 @@ describe('nexus', function () {
         minCntlId: 1,
         maxCntlId: 0xffef,
         resvKey: 0,
+        preemptKey: 1,
         children: [
           'malloc:///malloc1?size_mb=64'
         ]
