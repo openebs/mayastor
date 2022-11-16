@@ -103,7 +103,14 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("protocol")
                 .required(true)
                 .index(2)
-                .help("Name of a protocol (nvmf) used for sharing or \"none\" to unshare the replica"));
+                .help("Name of a protocol (nvmf) used for sharing or \"none\" to unshare the replica"))
+        .arg(
+            Arg::with_name("allowed-host")
+                .long("allowed-host")
+                .takes_value(true)
+                .multiple(true)
+                .required(false)
+                .help("NQN of hosts which are allowed to connect to the target"));
 
     SubCommand::with_name("replica")
         .settings(&[
@@ -407,12 +414,15 @@ async fn replica_share(
     let name = matches.value_of("name").unwrap().to_owned();
     let share = parse_replica_protocol(matches.value_of("protocol"))
         .context(GrpcStatus)?;
+    let allowed_hosts =
+        matches.values_of_lossy("allowed-host").unwrap_or_default();
 
     let response = ctx
         .client
         .share_replica(rpc::ShareReplicaRequest {
             uuid: name.clone(),
             share,
+            allowed_hosts,
         })
         .await
         .context(GrpcStatus)?;

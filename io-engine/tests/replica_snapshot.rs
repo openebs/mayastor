@@ -126,6 +126,7 @@ async fn replica_snapshot() {
         .share_replica(ShareReplicaRequest {
             uuid: format!("{}-snap-{}", UUID1, t),
             share: ShareProtocolReplica::ReplicaNvmf as i32,
+            ..Default::default()
         })
         .await
         .unwrap();

@@ -230,6 +230,8 @@ pub enum Error {
     OperationNotAllowed { reason: String },
     #[snafu(display("Invalid value for nvme reservation: {}", reservation))]
     InvalidReservation { reservation: u8 },
+    #[snafu(display("failed to update share properties {}", name))]
+    UpdateShareProperties { source: CoreError, name: String },
 }
 
 impl From<NvmfError> for Error {

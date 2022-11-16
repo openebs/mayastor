@@ -158,6 +158,7 @@ impl ReplicaBuilder {
             .share_replica(ShareReplicaRequest {
                 uuid: self.uuid(),
                 share: 1,
+                ..Default::default()
             })
             .await
             .map(|r| r.into_inner())?;

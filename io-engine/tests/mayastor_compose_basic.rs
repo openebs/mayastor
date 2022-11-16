@@ -53,6 +53,7 @@ async fn compose_up_down() {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap();

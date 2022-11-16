@@ -107,6 +107,7 @@ async fn replica_uri() {
         .share_replica(ShareReplicaRequest {
             uuid: VOLUME_UUID.to_string(),
             share: ShareProtocolReplica::ReplicaNvmf as i32,
+            ..Default::default()
         })
         .await;
     info!("Replica: {:?}", replica_uri);
@@ -118,6 +119,7 @@ async fn replica_uri() {
         .share_replica(ShareReplicaRequest {
             uuid: VOLUME_UUID.to_string(),
             share: ShareProtocolReplica::ReplicaNone as i32,
+            ..Default::default()
         })
         .await;
     info!("Replica: {:?}", replica_uri);

@@ -17,7 +17,7 @@ use mayastor_api::v0::{
 
 use crate::{
     bdev_api::{bdev_create, bdev_destroy, BdevError},
-    core::{CoreError, Share, UntypedBdev},
+    core::{CoreError, Share, ShareProps, UntypedBdev},
     grpc::{rpc_submit, GrpcResult},
 };
 
@@ -111,22 +111,23 @@ impl BdevRpc for BdevSvc {
         request: Request<BdevShareRequest>,
     ) -> Result<Response<BdevShareReply>, Status> {
         let r = request.into_inner();
-        let name = r.name;
-        let proto = r.proto;
+        let bdev_name = r.name.clone();
+        let proto = &r.proto;
 
-        if UntypedBdev::lookup_by_name(&name).is_none() {
-            return Err(Status::not_found(name));
+        if UntypedBdev::lookup_by_name(&bdev_name).is_none() {
+            return Err(Status::not_found(bdev_name));
         }
 
         if proto != "nvmf" {
             return Err(Status::invalid_argument(proto));
         }
-        let bdev_name = name.clone();
         let rx = match proto.as_str() {
             "nvmf" => rpc_submit::<_, String, CoreError>(async move {
                 let mut bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
-                let share = Pin::new(&mut bdev).share_nvmf(None).await?;
-                let bdev = UntypedBdev::lookup_by_name(&name).unwrap();
+                let props =
+                    ShareProps::new().with_allowed_hosts(r.allowed_hosts);
+                let share = Pin::new(&mut bdev).share_nvmf(Some(props)).await?;
+                let bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
                 Ok(bdev.share_uri().unwrap_or(share))
             }),
 

@@ -111,6 +111,7 @@ async fn launch_instance() -> (ComposeTest, String) {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap();

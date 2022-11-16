@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
 
-use crate::core::{Protocol, Share, ShareProps};
+use crate::core::{Protocol, Share, ShareProps, UpdateProps};
 
 #[async_trait(? Send)]
 ///
@@ -38,6 +38,18 @@ impl<'n> Share for Nexus<'n> {
             Some(Protocol::Nvmf) => {}
         }
         Ok(self.share_uri().unwrap())
+    }
+
+    async fn update_properties<P: Into<Option<UpdateProps>>>(
+        self: Pin<&mut Self>,
+        props: P,
+    ) -> Result<(), Self::Error> {
+        let name = self.name.clone();
+        self.pin_bdev_mut().update_properties(props).await.context(
+            nexus_err::UpdateShareProperties {
+                name,
+            },
+        )
     }
 
     /// TODO
@@ -86,9 +98,18 @@ impl From<&NexusTarget> for Protocol {
 impl<'n> Nexus<'n> {
     /// TODO
     pub async fn share(
+        self: Pin<&mut Self>,
+        protocol: Protocol,
+        key: Option<String>,
+    ) -> Result<String, Error> {
+        self.share_ext(protocol, key, vec![]).await
+    }
+    /// TODO
+    pub async fn share_ext(
         mut self: Pin<&mut Self>,
         protocol: Protocol,
         _key: Option<String>,
+        allowed_hosts: Vec<String>,
     ) -> Result<String, Error> {
         // This function should be idempotent as it's possible that
         // we get called more than once for some odd reason.
@@ -97,6 +118,13 @@ impl<'n> Nexus<'n> {
             if Protocol::from(target) == protocol {
                 // Same protocol as that requested, simply return Ok()
                 warn!("{} is already shared", self.name);
+
+                self.as_mut()
+                    .update_properties(
+                        UpdateProps::new().with_allowed_hosts(allowed_hosts),
+                    )
+                    .await?;
+
                 return Ok(self.get_share_uri().unwrap());
             }
 
@@ -129,6 +157,7 @@ impl<'n> Nexus<'n> {
                         self.nvme_params.max_cntlid,
                     )))
                     .with_ana(true)
+                    .with_allowed_hosts(allowed_hosts)
                     .with_ptpl(self.ptpl().create().map_err(|source| {
                         Error::ShareNvmfNexus {
                             source: crate::core::CoreError::Ptpl {

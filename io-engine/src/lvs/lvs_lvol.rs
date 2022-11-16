@@ -46,6 +46,7 @@ use crate::{
         Share,
         ShareProps,
         UntypedBdev,
+        UpdateProps,
     },
     ffihelper::{
         cb_arg,
@@ -178,6 +179,20 @@ impl Share for Lvol {
         self.as_mut().set(PropValue::Shared(true)).await?;
         info!("{:?}: shared as NVMF", self);
         Ok(share)
+    }
+
+    async fn update_properties<P: Into<Option<UpdateProps>>>(
+        self: Pin<&mut Self>,
+        props: P,
+    ) -> Result<(), Self::Error> {
+        Pin::new(&mut self.as_bdev())
+            .update_properties(props)
+            .await
+            .map_err(|e| Error::UpdateShareProperties {
+                source: e,
+                name: self.name(),
+            })?;
+        Ok(())
     }
 
     /// unshare the nvmf target

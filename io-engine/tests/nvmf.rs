@@ -150,6 +150,7 @@ async fn nvmf_set_target_interface() {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap()

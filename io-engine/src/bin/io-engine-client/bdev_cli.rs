@@ -49,6 +49,16 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .required(false)
                 .possible_values(&["nvmf"])
                 .default_value("nvmf"),
+        )
+        .arg(
+            Arg::with_name("allowed-host")
+                .long("allowed-host")
+                .takes_value(true)
+                .multiple(true)
+                .required(false)
+                .help(
+                    "NQN of hosts which are allowed to connect to the target",
+                ),
         );
 
     let unshare = SubCommand::with_name("unshare")
@@ -219,12 +229,15 @@ async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
             field: "protocol".to_string(),
         })?
         .to_owned();
+    let allowed_hosts =
+        args.values_of_lossy("allowed-host").unwrap_or_default();
 
     let response = ctx
         .bdev
         .share(BdevShareRequest {
             name,
             proto: protocol,
+            allowed_hosts,
         })
         .await
         .context(GrpcStatus)?;

@@ -89,6 +89,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -277,6 +278,7 @@ async fn io_timeout_ignore() {
             .share(BdevShareRequest {
                 name: "disk0".into(),
                 proto: "nvmf".into(),
+                ..Default::default()
             })
             .await
             .unwrap();

@@ -55,7 +55,7 @@ pub use lock::{
     ResourceSubsystem,
 };
 pub use runtime::spawn;
-pub use share::{Protocol, PtplProps, Share, ShareProps};
+pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
@@ -227,11 +227,11 @@ pub enum CoreError {
     NvmeIoPassthruFailed {
         opcode: u16,
     },
-    #[snafu(display("failed to share {}", source))]
+    #[snafu(display("failed to share"))]
     ShareNvmf {
         source: NvmfError,
     },
-    #[snafu(display("failed to unshare {}", source))]
+    #[snafu(display("failed to unshare"))]
     UnshareNvmf {
         source: NvmfError,
     },
