@@ -44,7 +44,17 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .short("t")
                 .long("thin")
                 .takes_value(false)
-                .help("Whether replica is thin provisioned (default false)"));
+                .help("Whether replica is thin provisioned (default false)"))
+        .arg(
+            Arg::with_name("allowed-host")
+                .long("allowed-host")
+                .takes_value(true)
+                .multiple(true)
+                .required(false)
+                .help(
+                    "NQN of hosts which are allowed to connect to the target",
+                ),
+        );
 
     let create_v2 = SubCommand::with_name("create2")
                 .about("Create replica on pool")
@@ -82,7 +92,17 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                         .short("t")
                         .long("thin")
                         .takes_value(false)
-                        .help("Whether replica is thin provisioned (default false)"));
+                        .help("Whether replica is thin provisioned (default false)"))
+                .arg(
+                    Arg::with_name("allowed-host")
+                        .long("allowed-host")
+                        .takes_value(true)
+                        .multiple(true)
+                        .required(false)
+                        .help(
+                            "NQN of hosts which are allowed to connect to the target",
+                        ),
+                );
 
     let destroy = SubCommand::with_name("destroy")
         .about("Destroy replica")
@@ -175,6 +195,8 @@ async fn replica_create(
     let thin = matches.is_present("thin");
     let share = parse_replica_protocol(matches.value_of("protocol"))
         .context(GrpcStatus)?;
+    let allowed_hosts =
+        matches.values_of_lossy("allowed-host").unwrap_or_default();
 
     let rq = rpc::CreateReplicaRequest {
         uuid: name.clone(),
@@ -182,6 +204,7 @@ async fn replica_create(
         thin,
         share,
         size: size.get_bytes() as u64,
+        allowed_hosts,
     };
     let response = ctx.client.create_replica(rq).await.context(GrpcStatus)?;
 
@@ -235,6 +258,8 @@ async fn replica_create_v2(
     let thin = matches.is_present("thin");
     let share = parse_replica_protocol(matches.value_of("protocol"))
         .context(GrpcStatus)?;
+    let allowed_hosts =
+        matches.values_of_lossy("allowed-host").unwrap_or_default();
 
     let rq = rpc::CreateReplicaRequestV2 {
         name,
@@ -243,6 +268,7 @@ async fn replica_create_v2(
         thin,
         share,
         size: size.get_bytes() as u64,
+        allowed_hosts,
     };
     let response =
         ctx.client.create_replica_v2(rq).await.context(GrpcStatus)?;

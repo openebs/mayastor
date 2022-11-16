@@ -157,17 +157,6 @@ impl Share for Lvol {
         mut self: Pin<&mut Self>,
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
-        let props = Some(match props {
-            Some(props) => props,
-            None => ShareProps::new().with_ptpl(self.ptpl().create().map_err(
-                |source| Error::LvolShare {
-                    source: crate::core::CoreError::Ptpl {
-                        reason: source.to_string(),
-                    },
-                    name: self.name(),
-                },
-            )?),
-        });
         let share = Pin::new(&mut self.as_bdev())
             .share_nvmf(props)
             .await

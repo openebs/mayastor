@@ -77,6 +77,7 @@ async fn replica_snapshot() {
             size: 64 * 1024 * 1024,
             thin: false,
             share: ShareProtocolReplica::ReplicaNvmf as i32,
+            ..Default::default()
         })
         .await
         .unwrap();

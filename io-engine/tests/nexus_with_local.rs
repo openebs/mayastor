@@ -60,6 +60,7 @@ async fn create_replicas(h: &mut RpcHandle) {
             size: 8 * 1024 * 1024,
             thin: false,
             share: 1,
+            ..Default::default()
         })
         .await
         .unwrap();

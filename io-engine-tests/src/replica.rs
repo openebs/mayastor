@@ -134,6 +134,7 @@ impl ReplicaBuilder {
                 size: self.size.unwrap(),
                 thin: self.thin,
                 share: self.share,
+                ..Default::default()
             })
             .await
             .map(|r| r.into_inner())

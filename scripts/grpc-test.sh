@@ -11,6 +11,8 @@ cargo build --all
 cd "$(dirname "$0")/../test/grpc"
 npm install
 
+sudo pkill io-engine || true
+
 for ts in cli replica nexus rebuild; do
   ./node_modules/mocha/bin/mocha test_${ts}.js \
       --reporter ./multi_reporter.js \

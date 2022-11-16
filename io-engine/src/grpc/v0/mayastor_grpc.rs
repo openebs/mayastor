@@ -9,7 +9,7 @@
 //! without the need for setting up a grpc client.
 
 use crate::{
-    bdev::{nexus, NvmeControllerState as ControllerState},
+    bdev::{nexus, NvmeControllerState as ControllerState, PtplFileOps},
     bdev_api::BdevError,
     core::{
         lock::{ProtectedSubsystems, ResourceLockManager},
@@ -18,6 +18,7 @@ use crate::{
         MayastorFeatures,
         Protocol,
         Share,
+        ShareProps,
         UntypedBdev,
     },
     grpc::{
@@ -655,7 +656,20 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             if Protocol::try_from(args.share)?
                                 == Protocol::Nvmf =>
                         {
-                            match Pin::new(&mut lvol).share_nvmf(None).await {
+                            let props = ShareProps::new()
+                                .with_allowed_hosts(args.allowed_hosts)
+                                .with_ptpl(lvol.ptpl().create().map_err(
+                                    |source| LvsError::LvolShare {
+                                        source: crate::core::CoreError::Ptpl {
+                                            reason: source.to_string(),
+                                        },
+                                        name: lvol.name(),
+                                    },
+                                )?);
+                            match Pin::new(&mut lvol)
+                                .share_nvmf(Some(props))
+                                .await
+                            {
                                 Ok(s) => {
                                     debug!(
                                         "Created and shared {:?} as {}",
@@ -739,7 +753,20 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             if Protocol::try_from(args.share)?
                                 == Protocol::Nvmf =>
                         {
-                            match Pin::new(&mut lvol).share_nvmf(None).await {
+                            let props = ShareProps::new()
+                                .with_allowed_hosts(args.allowed_hosts)
+                                .with_ptpl(lvol.ptpl().create().map_err(
+                                    |source| LvsError::LvolShare {
+                                        source: crate::core::CoreError::Ptpl {
+                                            reason: source.to_string(),
+                                        },
+                                        name: lvol.name(),
+                                    },
+                                )?);
+                            match Pin::new(&mut lvol)
+                                .share_nvmf(Some(props))
+                                .await
+                            {
                                 Ok(s) => {
                                     debug!(
                                         "Created and shared {:?} as {}",
@@ -930,7 +957,17 @@ impl mayastor_server::Mayastor for MayastorSvc {
                                     lvol.as_mut().unshare().await?;
                                 }
                                 Protocol::Nvmf => {
-                                    lvol.as_mut().share_nvmf(None).await?;
+                                    let props = ShareProps::new()
+                                        .with_allowed_hosts(args.allowed_hosts)
+                                        .with_ptpl(lvol.ptpl().create().map_err(
+                                            |source| LvsError::LvolShare {
+                                                source: crate::core::CoreError::Ptpl {
+                                                    reason: source.to_string(),
+                                                },
+                                                name: lvol.name(),
+                                            },
+                                        )?);
+                                    lvol.as_mut().share_nvmf(Some(props)).await?;
                                 }
                             }
 

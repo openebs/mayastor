@@ -1,4 +1,5 @@
 use crate::{
+    bdev::PtplFileOps,
     bdev_api::BdevError,
     core::{Bdev, Protocol, Share, ShareProps, UntypedBdev, UpdateProps},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
@@ -144,7 +145,17 @@ impl ReplicaRpc for ReplicaService {
                 match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), args.thin).await {
                     Ok(mut lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf => {
-                        match Pin::new(&mut lvol).share_nvmf(None).await {
+                        let props = ShareProps::new()
+                            .with_allowed_hosts(args.allowed_hosts)
+                            .with_ptpl(lvol.ptpl().create().map_err(
+                                |source| LvsError::LvolShare {
+                                    source: crate::core::CoreError::Ptpl {
+                                        reason: source.to_string(),
+                                    },
+                                    name: lvol.name(),
+                                },
+                            )?);
+                        match Pin::new(&mut lvol).share_nvmf(Some(props)).await {
                             Ok(s) => {
                                 debug!("created and shared {:?} as {}", lvol, s);
                                 Ok(Replica::from(lvol))
@@ -299,7 +310,15 @@ impl ReplicaRpc for ReplicaService {
                                 }
                                 Protocol::Nvmf => {
                                     let props = ShareProps::new()
-                                        .with_allowed_hosts(args.allowed_hosts);
+                                        .with_allowed_hosts(args.allowed_hosts)
+                                        .with_ptpl(lvol.ptpl().create().map_err(
+                                            |source| LvsError::LvolShare {
+                                                source: crate::core::CoreError::Ptpl {
+                                                    reason: source.to_string(),
+                                                },
+                                                name: lvol.name(),
+                                            },
+                                        )?);
                                     Pin::new(&mut lvol)
                                         .share_nvmf(Some(props))
                                         .await?;

@@ -77,6 +77,7 @@ async fn replica_uri() {
             size: VOLUME_SIZE_B,
             thin: false,
             share: ShareProtocolReplica::ReplicaNvmf as i32,
+            ..Default::default()
         })
         .await
         .unwrap()
@@ -93,6 +94,7 @@ async fn replica_uri() {
             size: VOLUME_SIZE_B,
             thin: false,
             share: ShareProtocolReplica::ReplicaNone as i32,
+            ..Default::default()
         })
         .await
         .unwrap()
