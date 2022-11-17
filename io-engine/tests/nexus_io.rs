@@ -67,8 +67,8 @@ static BDEVNAME11: &str = "aio:///host/tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///host/tmp/disk2.img?blk_size=512";
 
-static PTPL_HOST_DIR: &str = "/tmp/ptpl/";
-static PTPL_CONTAINER_DIR: &str = "/host/tmp/ptpl/";
+static PTPL_HOST_DIR: &str = "/tmp/ptpl";
+static PTPL_CONTAINER_DIR: &str = "/host/tmp/ptpl";
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -124,6 +124,7 @@ async fn nexus_io_multipath() {
             size: 32 * 1024 * 1024,
             thin: false,
             share: 1,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -350,6 +351,7 @@ async fn nexus_io_resv_acquire() {
             size: 32 * 1024 * 1024,
             thin: false,
             share: 1,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -502,6 +504,8 @@ async fn nexus_io_resv_preempt() {
     common::delete_file(&[DISKNAME1.into(), PTPL_HOST_DIR.into()]);
     common::truncate_file(DISKNAME1, 64 * 1024);
 
+    let ptpl_dir = |ms| format!("{}/{}", PTPL_CONTAINER_DIR, ms);
+
     let test = Builder::new()
         .name("nexus_io_resv_preempt_test")
         .network("10.1.0.0/16")
@@ -511,7 +515,7 @@ async fn nexus_io_resv_preempt() {
             Binary::from_dbg("io-engine")
                 .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
                 .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1)
-                .with_args(vec!["--ptpl-dir", PTPL_CONTAINER_DIR])
+                .with_args(vec!["--ptpl-dir", ptpl_dir("ms2").as_str()])
                 .with_bind("/tmp", "/host/tmp"),
         )
         .add_container_bin(
@@ -519,7 +523,7 @@ async fn nexus_io_resv_preempt() {
             Binary::from_dbg("io-engine")
                 .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
                 .with_env("MAYASTOR_NVMF_HOSTID", HOSTID2)
-                .with_args(vec!["--ptpl-dir", PTPL_CONTAINER_DIR])
+                .with_args(vec!["--ptpl-dir", ptpl_dir("ms1").as_str()])
                 .with_bind("/tmp", "/host/tmp"),
         )
         .with_clean(true)
@@ -552,6 +556,7 @@ async fn nexus_io_resv_preempt() {
             size: 32 * 1024 * 1024,
             thin: false,
             share: 1,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -796,6 +801,7 @@ async fn nexus_io_resv_preempt_tabled() {
             size: 32 * 1024 * 1024,
             thin: false,
             share: 1,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -1022,6 +1028,7 @@ async fn nexus_io_write_zeroes() {
             size: 32 * 1024 * 1024,
             thin: false,
             share: 1,
+            ..Default::default()
         })
         .await
         .unwrap();

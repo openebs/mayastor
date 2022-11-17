@@ -64,8 +64,12 @@ pub enum Error {
     RegisterNexus { source: Errno, name: String },
     #[snafu(display("Failed to create child of nexus {}: {}", name, source))]
     CreateChild { source: BdevError, name: String },
-    #[snafu(display("Deferring open because nexus {} is incomplete", name))]
-    NexusIncomplete { name: String },
+    #[snafu(display(
+        "Deferring open because nexus {} is incomplete because {}",
+        name,
+        reason
+    ))]
+    NexusIncomplete { name: String, reason: String },
     #[snafu(display(
         "Child {} of nexus {} is too small: size = {} x {}",
         child,
@@ -195,8 +199,8 @@ pub enum Error {
     InvalidNvmeAnaState { ana_value: i32 },
     #[snafu(display("Invalid arguments for nexus {}: {}", name, args))]
     InvalidArguments { name: String, args: String },
-    #[snafu(display("Failed to create nexus {}", name))]
-    NexusCreate { name: String },
+    #[snafu(display("Failed to create nexus {} because {}", name, reason))]
+    NexusCreate { name: String, reason: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
     NexusDestroy { name: String },
     #[snafu(display(
@@ -277,7 +281,7 @@ impl From<Error> for tonic::Status {
             } => Status::invalid_argument(e.to_string()),
             Error::DestroyLastChild {
                 ..
-            } => Status::invalid_argument(e.to_string()),
+            } => Status::failed_precondition(e.to_string()),
             Error::ChildNotFound {
                 ..
             } => Status::not_found(e.to_string()),
@@ -287,6 +291,9 @@ impl From<Error> for tonic::Status {
             Error::OperationNotAllowed {
                 ..
             } => Status::failed_precondition(e.to_string()),
+            Error::ChildTooSmall {
+                ..
+            } => Status::invalid_argument(e.to_string()),
             e => Status::new(Code::Internal, e.verbose()),
         }
     }
