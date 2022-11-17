@@ -470,6 +470,7 @@ impl<'n> Nexus<'n> {
         if self.children().is_empty() {
             return Err(Error::NexusIncomplete {
                 name,
+                reason: "No children provided".to_string(),
             });
         }
 
@@ -481,9 +482,10 @@ impl<'n> Nexus<'n> {
         for child in self.children_iter() {
             let dev = match child.get_device() {
                 Ok(dev) => dev,
-                Err(_) => {
+                Err(error) => {
                     return Err(Error::NexusIncomplete {
                         name,
+                        reason: error.to_string(),
                     })
                 }
             };
@@ -537,15 +539,18 @@ impl<'n> Nexus<'n> {
         // Take the child vec, try open and re-add.
         // NOTE: self.child_count is not affected by this algorithm!
         // let children = std::mem::take(&mut self.children);
-        let mut failed = false;
+        let mut error = None;
         let evt_listener = self.as_mut().get_event_sink();
 
         unsafe {
             for child in self.as_mut().children_iter_mut() {
-                if child.open(size, ChildState::Open).is_ok() {
-                    child.set_event_listener(evt_listener.clone());
-                } else {
-                    failed = true;
+                match child.open(size, ChildState::Open) {
+                    Ok(_) => {
+                        child.set_event_listener(evt_listener.clone());
+                    }
+                    Err(err) => {
+                        error = Some(err);
+                    }
                 }
             }
         }
@@ -554,7 +559,7 @@ impl<'n> Nexus<'n> {
         // Depending on IO consistency policies, we might be able to go online
         // even if some of the children failed to open. This is work is not
         // completed yet so we fail the registration all together for now.
-        if failed {
+        if let Some(error) = error {
             // Close any children that WERE succesfully opened.
             unsafe {
                 for child in self.as_mut().children_iter_mut() {
@@ -572,6 +577,7 @@ impl<'n> Nexus<'n> {
 
             return Err(Error::NexusIncomplete {
                 name,
+                reason: error.to_string(),
             });
         }
 

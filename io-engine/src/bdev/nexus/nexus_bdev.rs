@@ -1289,6 +1289,8 @@ async fn nexus_create_internal(
 
     match Nexus::register_instance(&mut nexus_bdev).await {
         Err(Error::NexusIncomplete {
+            name,
+            reason,
             ..
         }) => {
             // We still have code that waits for children to come online,
@@ -1302,7 +1304,8 @@ async fn nexus_create_internal(
                 let _ = device_destroy(child.uri()).await;
             }
             Err(Error::NexusCreate {
-                name: String::from(name),
+                name,
+                reason,
             })
         }
 
