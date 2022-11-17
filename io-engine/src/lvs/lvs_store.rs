@@ -38,7 +38,7 @@ use super::{Error, Lvol, LvsIter, PropName, PropValue};
 use crate::{
     bdev::{uri, PtplFileOps},
     bdev_api::{bdev_destroy, BdevError},
-    core::{Bdev, IoType, Share, UntypedBdev},
+    core::{Bdev, IoType, Share, ShareProps, UntypedBdev},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::lvs_lvol::WIPE_SUPER_LEN,
     pool_backend::PoolArgs,
@@ -546,12 +546,22 @@ impl Lvs {
     async fn share_all(&self) {
         if let Some(lvols) = self.lvols() {
             for mut l in lvols {
+                let allowed_hosts = match l.get(PropName::AllowedHosts).await {
+                    Ok(PropValue::AllowedHosts(hosts)) => hosts,
+                    _ => vec![],
+                };
+
                 if let Ok(prop) = l.get(PropName::Shared).await {
                     match prop {
                         PropValue::Shared(true) => {
                             let name = l.name().clone();
+                            let props = ShareProps::new()
+                                .with_allowed_hosts(allowed_hosts)
+                                .with_ptpl(
+                                    l.ptpl().create().unwrap_or_default(),
+                                );
                             if let Err(e) =
-                                Pin::new(&mut l).share_nvmf(None).await
+                                Pin::new(&mut l).share_nvmf(Some(props)).await
                             {
                                 error!(
                                     "failed to share {} {}",
@@ -563,6 +573,7 @@ impl Lvs {
                         PropValue::Shared(false) => {
                             debug!("{} not shared on disk", l.name())
                         }
+                        _ => {}
                     }
                 }
             }

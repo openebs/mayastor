@@ -369,8 +369,7 @@ impl NvmfSubsystem {
                 source: Errno::from_i32(errno),
                 nqn: self.get_nqn(),
                 msg: format!("failed to add allowed host: {:?}", host),
-            })?;
-        Ok(())
+            })
     }
 
     /// Disallow hosts from connecting to the subsystem.

@@ -64,23 +64,31 @@ pub(crate) const WIPE_SUPER_LEN: u64 = (1 << 20) * 8;
 
 /// properties we allow for being set on the lvol, this information is stored on
 /// disk
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum PropValue {
     Shared(bool),
+    AllowedHosts(Vec<String>),
 }
 
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum PropName {
     Shared,
+    AllowedHosts,
 }
 
-impl From<PropValue> for PropName {
-    fn from(v: PropValue) -> Self {
+impl From<&PropValue> for PropName {
+    fn from(v: &PropValue) -> Self {
         match v {
             PropValue::Shared(_) => Self::Shared,
+            PropValue::AllowedHosts(_) => Self::AllowedHosts,
         }
+    }
+}
+impl From<PropValue> for PropName {
+    fn from(v: PropValue) -> Self {
+        Self::from(&v)
     }
 }
 
@@ -88,6 +96,7 @@ impl Display for PropName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = match self {
             PropName::Shared => "shared",
+            PropName::AllowedHosts => "allowed-hosts",
         };
         write!(f, "{}", name)
     }
@@ -157,6 +166,10 @@ impl Share for Lvol {
         mut self: Pin<&mut Self>,
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
+        let allowed_hosts = props
+            .as_ref()
+            .map(|s| s.allowed_hosts().clone())
+            .unwrap_or_default();
         let share = Pin::new(&mut self.as_bdev())
             .share_nvmf(props)
             .await
@@ -165,7 +178,10 @@ impl Share for Lvol {
                 name: self.name(),
             })?;
 
-        self.as_mut().set(PropValue::Shared(true)).await?;
+        self.as_mut().set_no_sync(PropValue::Shared(true)).await?;
+        self.as_mut()
+            .set(PropValue::AllowedHosts(allowed_hosts))
+            .await?;
         info!("{:?}: shared as NVMF", self);
         Ok(share)
     }
@@ -432,8 +448,8 @@ impl Lvol {
         sender.send(errno).expect("blob cb receiver is gone");
     }
 
-    /// write the property prop on to the lvol which is stored on disk
-    pub async fn set(
+    /// write the property prop on to the lvol but do not sync the metadata yet.
+    pub async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), Error> {
@@ -446,9 +462,9 @@ impl Lvol {
         if self.is_read_only() {
             warn!("{} is read-only", self.name());
         }
-        match prop {
+        match prop.clone() {
             PropValue::Shared(val) => {
-                let name = PropName::from(prop).to_string().into_cstring();
+                let name = PropName::from(&prop).to_string().into_cstring();
                 let value = if val { "true" } else { "false" }.into_cstring();
                 unsafe {
                     spdk_blob_set_xattr(
@@ -464,7 +480,46 @@ impl Lvol {
                     name: self.name(),
                 })?;
             }
-        };
+            PropValue::AllowedHosts(hosts) => {
+                let name = PropName::from(&prop).to_string().into_cstring();
+                let value = hosts.join(",").into_cstring();
+                unsafe {
+                    spdk_blob_set_xattr(
+                        blob,
+                        name.as_ptr(),
+                        value.as_bytes_with_nul().as_ptr() as *const _,
+                        value.as_bytes_with_nul().len() as u16,
+                    )
+                }
+                .to_result(|e| Error::SetProperty {
+                    source: Errno::from_i32(e),
+                    prop: prop.into(),
+                    name: self.name(),
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// write the property prop on to the lvol which is stored on disk
+    pub async fn set(
+        mut self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error> {
+        self.as_mut().set_no_sync(prop).await?;
+        self.sync_metadata().await
+    }
+
+    /// write the property prop on to the lvol which is stored on disk
+    pub async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error> {
+        let blob = self.blob_checked();
+
+        if self.is_snapshot() {
+            return Ok(());
+        }
+        if self.is_read_only() {
+            warn!("{} is read-only", self.name());
+        }
 
         let (s, r) = pair::<i32>();
         unsafe {
@@ -507,6 +562,39 @@ impl Lvol {
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok("true") => Ok(PropValue::Shared(true)),
                     Ok("false") => Ok(PropValue::Shared(false)),
+                    _ => Err(Error::Property {
+                        source: Errno::EINVAL,
+                        name: self.name(),
+                    }),
+                }
+            }
+            PropName::AllowedHosts => {
+                let name = prop.to_string().into_cstring();
+                let mut value: *const libc::c_char =
+                    std::ptr::null::<libc::c_char>();
+                let mut value_len: u64 = 0;
+                unsafe {
+                    spdk_blob_get_xattr_value(
+                        blob,
+                        name.as_ptr(),
+                        &mut value as *mut *const c_char as *mut *const c_void,
+                        &mut value_len,
+                    )
+                }
+                .to_result(|e| Error::GetProperty {
+                    source: Errno::from_i32(e),
+                    prop,
+                    name: self.name(),
+                })?;
+                match unsafe { CStr::from_ptr(value).to_str() } {
+                    Ok(list) if list.is_empty() => {
+                        Ok(PropValue::AllowedHosts(vec![]))
+                    }
+                    Ok(list) => Ok(PropValue::AllowedHosts(
+                        list.split(',')
+                            .map(|s| s.to_string())
+                            .collect::<Vec<_>>(),
+                    )),
                     _ => Err(Error::Property {
                         source: Errno::EINVAL,
                         name: self.name(),
