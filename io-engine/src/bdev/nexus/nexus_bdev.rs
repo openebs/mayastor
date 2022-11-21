@@ -1371,12 +1371,26 @@ async fn nexus_create_internal(
             // although this currently only works for config files.
             // We need to explicitly clean up child devices
             // if we get this error.
-            error!("{:?}: not all children are available", nexus_bdev.data());
-            for child in nexus_bdev.data().children_iter() {
+            error!(
+                "*** {:?}: not all children are available",
+                nexus_bdev.data()
+            );
+
+            let uris = nexus_bdev
+                .data()
+                .children_iter()
+                .map(|c| c.uri().to_owned())
+                .collect::<Vec<_>>();
+
+            for u in uris {
                 // TODO: children may already be destroyed
                 // TODO: mutability violation
-                let _ = device_destroy(child.uri()).await;
+                info!("=====> Destroying device {}", &u);
+                let r = device_destroy(&u).await;
+                info!(" <==== Device destroyed: r = {:?}", r);
             }
+
+            info!("*** all children devices are destroyed");
             Err(Error::NexusCreate {
                 name,
                 reason,
