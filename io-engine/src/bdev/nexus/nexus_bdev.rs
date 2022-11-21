@@ -605,6 +605,7 @@ impl<'n> Nexus<'n> {
         if self.children().is_empty() {
             return Err(Error::NexusIncomplete {
                 name,
+                reason: "No child devices".to_string(),
             });
         }
 
@@ -619,6 +620,10 @@ impl<'n> Nexus<'n> {
                 Err(_) => {
                     return Err(Error::NexusIncomplete {
                         name,
+                        reason: format!(
+                            "No block device available for child {}",
+                            child.uri(),
+                        ),
                     })
                 }
             };
