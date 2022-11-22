@@ -5,6 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
+    cmp::min,
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomPinned,
@@ -38,6 +39,7 @@ use crate::{
         nexus::{nexus_persistence::PersistentNexusInfo, NexusIoSubsystem},
     },
     core::{
+        partition,
         Bdev,
         BdevHandle,
         CoreError,
@@ -594,6 +596,88 @@ impl<'n> Nexus<'n> {
         );
     }
 
+    /// Configure nexus's block device to match parameters of the child devices.
+    async fn setup_nexus_bdev(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        let name = self.name.clone();
+
+        if self.children().is_empty() {
+            return Err(Error::NexusIncomplete {
+                name,
+                reason: "No child devices".to_string(),
+            });
+        }
+
+        // Determine Nexus block size and data start and end offsets.
+        let mut start_blk = 0;
+        let mut end_blk = 0;
+        let mut blk_size = 0;
+
+        for child in self.children_iter() {
+            let dev = match child.get_device() {
+                Ok(dev) => dev,
+                Err(_) => {
+                    return Err(Error::NexusIncomplete {
+                        name,
+                        reason: format!(
+                            "No block device available for child {}",
+                            child.uri(),
+                        ),
+                    })
+                }
+            };
+
+            let nb = dev.num_blocks();
+            let bs = dev.block_len();
+
+            if blk_size == 0 {
+                blk_size = bs;
+            } else if bs != blk_size {
+                return Err(Error::MixedBlockSizes {
+                    name: self.name.clone(),
+                });
+            }
+
+            match partition::calc_data_partition(self.req_size(), nb, bs) {
+                Some((start, end)) => {
+                    if start_blk == 0 {
+                        start_blk = start;
+                        end_blk = end;
+                    } else {
+                        end_blk = min(end_blk, end);
+
+                        if start_blk != start {
+                            return Err(Error::ChildGeometry {
+                                child: child.uri().to_owned(),
+                                name,
+                            });
+                        }
+                    }
+                }
+                None => {
+                    return Err(Error::ChildTooSmall {
+                        child: child.uri().to_owned(),
+                        name,
+                        num_blocks: nb,
+                        block_size: bs,
+                    })
+                }
+            }
+        }
+
+        unsafe {
+            self.as_mut().set_data_ent_offset(start_blk);
+            self.as_mut().set_block_len(blk_size as u32);
+            self.as_mut().set_num_blocks(end_blk - start_blk);
+        }
+
+        info!(
+            "{:?}: nexus device initialized: start_blk={}, end_blk={}, block_len={}",
+            self, start_blk, end_blk, blk_size,
+        );
+
+        Ok(())
+    }
+
     /// Opens the Nexus instance for IO.
     /// Once this function is called, the device is visible and can
     /// be used for IO.
@@ -605,7 +689,7 @@ impl<'n> Nexus<'n> {
 
         info!("{:?}: registering nexus bdev...", nex);
 
-        nex.as_mut().try_open_children().await?;
+        nex.as_mut().setup_nexus_bdev().await?;
 
         // Register the bdev with SPDK and set the callbacks for io channel
         // creation.
@@ -613,40 +697,38 @@ impl<'n> Nexus<'n> {
 
         info!("{:?}: IO device registered", nex);
 
-        match bdev.register_bdev() {
+        if let Err(err) = bdev.register_bdev() {
+            error!(
+                "{:?}: nexus bdev registration failed: {}",
+                nex,
+                err.verbose()
+            );
+            return Err(err).context(nexus_err::RegisterNexus {
+                name: nex.name.clone(),
+            });
+        }
+
+        unsafe { nex.as_mut().unpin_mut().has_io_device = true };
+
+        match nex.as_mut().try_open_children().await {
             Ok(_) => {
-                // Persist the fact that the nexus is now successfully open.
-                // We have to do this before setting the nexus to open so that
-                // nexus list does not return this nexus until it is persisted.
-                nex.persist(PersistOp::Create).await;
-                nex.as_mut().set_state(NexusState::Open);
-                unsafe { nex.as_mut().unpin_mut().has_io_device = true };
-                info!("{:?}: nexus bdev registered successfully", nex);
-                Ok(())
+                info!("{:?}: children opened successfully", nex);
             }
             Err(err) => {
-                error!(
-                    "{:?}: nexus bdev registration failed: {}",
-                    nex,
-                    err.verbose()
-                );
-                unsafe {
-                    for child in nex.as_mut().children_iter_mut() {
-                        if let Err(e) = child.close().await {
-                            error!(
-                                "{:?}: child failed to close: {}",
-                                child,
-                                e.verbose()
-                            );
-                        }
-                    }
-                }
-                nex.as_mut().set_state(NexusState::Closed);
-                Err(err).context(nexus_err::RegisterNexus {
-                    name: nex.name.clone(),
-                })
+                error!("{:?} failed to open children: {}", nex, err.verbose());
+                bdev.unregister_bdev();
+                return Err(err);
             }
-        }
+        };
+
+        // Persist the fact that the nexus is now successfully open.
+        // We have to do this before setting the nexus to open so that
+        // nexus list does not return this nexus until it is persisted.
+        nex.persist(PersistOp::Create).await;
+        nex.as_mut().set_state(NexusState::Open);
+        info!("{:?}: nexus bdev registered successfully", nex);
+
+        Ok(())
     }
 
     /// Destroy the Nexus.
@@ -1297,12 +1379,30 @@ async fn nexus_create_internal(
             // although this currently only works for config files.
             // We need to explicitly clean up child devices
             // if we get this error.
-            error!("{:?}: not all children are available", nexus_bdev.data());
-            for child in nexus_bdev.data().children_iter() {
+            error!(
+                "{:?}: not all child devices are available",
+                nexus_bdev.data()
+            );
+
+            let uris = nexus_bdev
+                .data()
+                .children_iter()
+                .map(|c| c.uri().to_owned())
+                .collect::<Vec<_>>();
+
+            for u in uris {
                 // TODO: children may already be destroyed
                 // TODO: mutability violation
-                let _ = device_destroy(child.uri()).await;
+                if let Err(e) = device_destroy(&u).await {
+                    error!(
+                        "{:?}: failed to destroy child device {}: {:?}",
+                        nexus_bdev.data(),
+                        u,
+                        e,
+                    );
+                }
             }
+
             Err(Error::NexusCreate {
                 name,
                 reason,

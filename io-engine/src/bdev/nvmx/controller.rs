@@ -1,13 +1,7 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
-use std::{
-    convert::From,
-    fmt,
-    os::raw::c_void,
-    ptr::NonNull,
-    sync::{Arc, Mutex},
-};
+use std::{convert::From, fmt, os::raw::c_void, ptr::NonNull, sync::Arc};
 
 use futures::channel::oneshot;
 use merge::Merge;
@@ -127,7 +121,7 @@ pub struct NvmeController<'a> {
     prchk_flags: u32,
     inner: Option<NvmeControllerInner<'a>>,
     state_machine: ControllerStateMachine,
-    event_dispatcher: Mutex<DeviceEventDispatcher>,
+    event_dispatcher: DeviceEventDispatcher,
     /// Timeout config is accessed by SPDK-driven timeout callback handlers,
     /// so it needs to be a raw pointer. Mutable members are made atomic to
     /// eliminate lock contention between API path and callback path.
@@ -156,7 +150,7 @@ impl<'a> NvmeController<'a> {
             prchk_flags,
             state_machine: ControllerStateMachine::new(name),
             inner: None,
-            event_dispatcher: Mutex::new(DeviceEventDispatcher::new()),
+            event_dispatcher: DeviceEventDispatcher::new(),
             timeout_config: NonNull::new(Box::into_raw(Box::new(
                 TimeoutConfig::new(name),
             )))
@@ -706,13 +700,7 @@ impl<'a> NvmeController<'a> {
     /// Note: Keep a separate copy of all registered listeners in order to not
     /// invoke them with the lock held.
     fn notify_listeners(&self, event: DeviceEventType) -> usize {
-        let mut disp = self
-            .event_dispatcher
-            .lock()
-            .expect("event dispatcher lock poisoned");
-
-        disp.dispatch_event(event, &self.name);
-        disp.count()
+        self.event_dispatcher.dispatch_event(event, &self.name)
     }
 
     /// Register listener to monitor device events related to this controller.
@@ -720,12 +708,7 @@ impl<'a> NvmeController<'a> {
         &self,
         listener: DeviceEventSink,
     ) -> Result<(), CoreError> {
-        let mut listeners = self
-            .event_dispatcher
-            .lock()
-            .expect("event listeners lock poisoned");
-
-        listeners.add_listener(listener);
+        self.event_dispatcher.add_listener(listener);
         debug!("{} added event listener", self.name);
         Ok(())
     }

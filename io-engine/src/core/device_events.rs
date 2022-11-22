@@ -135,19 +135,38 @@ impl DeviceEventDispatcher {
     /// # Arguments
     ///
     /// * `listener`: Reference to an event listener.
-    pub fn add_listener(&mut self, listener: DeviceEventSink) {
+    pub fn add_listener(&self, listener: DeviceEventSink) {
         self.listeners.lock().unwrap().push(listener.into_weak());
         self.purge();
     }
 
     /// Dispatches an event to all registered listeners.
-    pub fn dispatch_event(&mut self, evt: DeviceEventType, dev_name: &str) {
+    /// Returns the number of listeners notified about target event.
+    pub fn dispatch_event(
+        &self,
+        evt: DeviceEventType,
+        dev_name: &str,
+    ) -> usize {
+        let mut listeners = Vec::new();
+
+        // To avoid potential deadlocks we never call the listeners with the
+        // mutex held, just find all suitable listeners and save them
+        // for further invocation.
         self.listeners.lock().unwrap().iter_mut().for_each(|dst| {
             if let Some(p) = dst.upgrade() {
-                p.dispatch_event(evt, dev_name);
+                listeners.push(Arc::clone(&p));
             }
         });
+
+        // Invoke all listeners once the mutex is dropped.
+        let notified = {
+            for l in &listeners {
+                l.dispatch_event(evt, dev_name);
+            }
+            listeners.len()
+        };
         self.purge();
+        notified
     }
 
     /// Returns the number of registered listeners.
@@ -162,7 +181,7 @@ impl DeviceEventDispatcher {
     }
 
     /// Removes all dropped listeners.
-    fn purge(&mut self) {
+    fn purge(&self) {
         self.listeners
             .lock()
             .unwrap()
