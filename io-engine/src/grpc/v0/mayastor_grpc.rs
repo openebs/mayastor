@@ -1386,10 +1386,13 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 };
 
                 let device_uri = nexus_lookup(&args.uuid)?
-                    .share_ext(share_protocol, key, args.allowed_hosts)
+                    .share_ext(share_protocol, key, args.allowed_hosts.clone())
                     .await?;
 
-                info!("Published nexus {} under {}", uuid, device_uri);
+                info!(
+                    "Published nexus {} under {} for {:?}",
+                    uuid, device_uri, args.allowed_hosts
+                );
                 Ok(PublishNexusReply {
                     device_uri,
                 })
