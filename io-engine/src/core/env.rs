@@ -402,10 +402,12 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
     warn!("Received SIGNO: {}", signo);
     SIG_RECEIVED.store(true, SeqCst);
     unsafe {
-        spdk_thread_send_critical_msg(
-            Mthread::primary().as_ptr(),
-            Some(signal_trampoline),
-        );
+        if let Some(mth) = Mthread::primary_safe() {
+            spdk_thread_send_critical_msg(
+                mth.as_ptr(),
+                Some(signal_trampoline),
+            );
+        }
     };
 }
 
