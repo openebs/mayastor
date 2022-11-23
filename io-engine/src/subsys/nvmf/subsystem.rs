@@ -746,13 +746,13 @@ impl NvmfSubsystem {
 
     /// stop all subsystems
     pub async fn stop_all(tgt: *mut spdk_nvmf_tgt) {
-        let ss = unsafe {
-            NvmfSubsystem(
-                NonNull::new(spdk_nvmf_subsystem_get_first(tgt)).unwrap(),
-            )
+        let subsystem = unsafe {
+            NonNull::new(spdk_nvmf_subsystem_get_first(tgt)).map(NvmfSubsystem)
         };
-        for s in ss.into_iter() {
-            s.stop().await.unwrap();
+        if let Some(subsystem) = subsystem {
+            for s in subsystem.into_iter() {
+                s.stop().await.unwrap();
+            }
         }
     }
 

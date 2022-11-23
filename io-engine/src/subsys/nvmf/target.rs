@@ -167,7 +167,7 @@ impl Target {
                 unsafe { spdk_subsystem_init_next(1) }
             }
 
-            _ => panic!("Invalid target state"),
+            TargetState::ShutdownCompleted => {}
         };
     }
 
