@@ -107,6 +107,8 @@ pub struct NvmfDeviceTemplate {
     prchk_flags: u32,
     /// uuid of the spdk bdev
     uuid: Option<uuid::Uuid>,
+    /// The HostNqn to connect to the nvmf target with.
+    hostnqn: Option<String>,
 }
 
 impl TryFrom<&Url> for NvmfDeviceTemplate {
@@ -170,6 +172,8 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
             },
         )?;
 
+        let hostnqn = parameters.remove("hostnqn");
+
         Ok(NvmfDeviceTemplate {
             name: url[url::Position::BeforeHost .. url::Position::AfterPath]
                 .to_string(),
@@ -179,6 +183,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
             subnqn: segments[0].to_string(),
             prchk_flags,
             uuid,
+            hostnqn,
         })
     }
 }
@@ -220,10 +225,14 @@ impl<'probe> NvmeControllerContext<'probe> {
                 Config::get().nvme_bdev_opts.transport_retry_count as u8,
             );
 
+        let hostnqn = std::env::var("HOSTNQN")
+            .ok()
+            .or_else(|| template.hostnqn.clone());
+
         if let Ok(ext_host_id) = std::env::var("MAYASTOR_NVMF_HOSTID") {
             if let Ok(uuid) = Uuid::parse_str(&ext_host_id) {
                 opts = opts.with_ext_host_id(*uuid.as_bytes());
-                if std::env::var("HOSTNQN").is_err() {
+                if hostnqn.is_none() {
                     opts = opts.with_hostnqn(format!(
                         "{}:uuid:{}",
                         NVME_NQN_PREFIX, uuid
@@ -232,7 +241,7 @@ impl<'probe> NvmeControllerContext<'probe> {
             }
         }
 
-        if let Ok(host_nqn) = std::env::var("HOSTNQN") {
+        if let Some(host_nqn) = hostnqn {
             opts = opts.with_hostnqn(host_nqn);
         }
 
