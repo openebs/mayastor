@@ -109,7 +109,7 @@ macro_rules! test_init {
             })
             .init()
         });
-        io_engine::core::Mthread::primary().enter();
+        io_engine::core::Mthread::primary().set_current();
     };
     ($yaml_config:expr) => {
         common::MSTEST.get_or_init(|| {

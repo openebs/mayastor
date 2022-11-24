@@ -180,10 +180,10 @@ impl Reactors {
             if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {
                 let mt = spdk_rs::Thread::from_ptr(thread);
                 info!(
-                    "scheduled {} {:p} on core:{}",
+                    "Scheduled SPDK thread '{}' ({:p}) on core #{}",
                     mt.name(),
                     thread,
-                    r.lcore
+                    r.lcore,
                 );
                 r.incoming.push(mt);
                 return true;
@@ -192,7 +192,7 @@ impl Reactors {
         });
 
         if !scheduled {
-            error!("failed to find core for thread {:p}!", thread);
+            error!("Failed to find core for thread {:p}!", thread);
             1
         } else {
             0
@@ -231,7 +231,7 @@ impl Reactors {
             return if rc == 0 {
                 Ok(())
             } else {
-                error!("failed to launch core {}", core);
+                error!("Failed to launch core #{}", core);
                 Err(CoreError::ReactorConfigureFailed {
                     source: Errno::from_i32(rc),
                 })
@@ -367,7 +367,7 @@ impl Reactor {
     {
         // hold on to the any potential thread we might be running on right now
         let thread = spdk_rs::Thread::current();
-        spdk_rs::Thread::primary().enter();
+        spdk_rs::Thread::primary().set_current();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
         let (runnable, task) = async_task::spawn_local(future, schedule);
 
@@ -381,9 +381,9 @@ impl Reactor {
         loop {
             match task.as_mut().poll(cx) {
                 Poll::Ready(output) => {
-                    spdk_rs::Thread::primary().exit();
+                    spdk_rs::Thread::primary().unset_current();
                     if let Some(t) = thread {
-                        t.enter()
+                        t.set_current()
                     }
                     return Some(output);
                 }
@@ -462,6 +462,8 @@ impl Reactor {
                 }
                 _ => panic!("invalid reactor state {:?}", self.get_state()),
             }
+
+            self.destroy_exited();
         }
 
         debug!("initiating shutdown for core {}", Cores::current());
@@ -483,9 +485,8 @@ impl Reactor {
         });
 
         drop(threads);
-        while let Some(i) = self.incoming.pop() {
-            self.threads.borrow_mut().push_back(i);
-        }
+
+        self.add_incoming();
     }
 
     /// poll the threads n times but only poll the futures queue once and look
@@ -503,11 +504,41 @@ impl Reactor {
 
         self.receive_futures();
         self.run_futures();
+
         drop(threads);
 
+        self.add_incoming();
+    }
+
+    fn add_incoming(&self) {
         while let Some(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);
         }
+    }
+
+    /// Removes from the reactor and destroys all existed SPDK threads.
+    fn destroy_exited(&self) {
+        let mut removed = Vec::new();
+
+        {
+            self.threads.borrow_mut().retain(|t| {
+                if t.is_exited() {
+                    removed.push(*t);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+
+        removed.into_iter().for_each(|t| {
+            info!(
+                "Core #{}: destroying exited thread '{}'",
+                Cores::current(),
+                t.name()
+            );
+            t.destroy();
+        });
     }
 
     /// TODO
@@ -609,9 +640,17 @@ impl Future for &'static Reactor {
                 Poll::Pending
             }
             ReactorState::Shutdown => {
-                info!("Futures reactor {} shutdown requested", self.lcore);
-                while let Some(t) = self.threads.borrow_mut().pop_front() {
-                    t.destroy();
+                info!(
+                    "Reactor #{} shutdown requested: {} SPDK thread(s) remain",
+                    self.lcore,
+                    self.threads.borrow().len()
+                );
+
+                {
+                    while let Some(t) = self.threads.borrow_mut().pop_front() {
+                        t.wait_exit();
+                        t.destroy();
+                    }
                 }
 
                 unsafe { spdk_env_thread_wait_all() };

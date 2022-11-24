@@ -230,7 +230,7 @@ pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
 pub static SIG_RECEIVED: Lazy<AtomicBool> =
     Lazy::new(|| AtomicBool::new(false));
 
-/// FFI functions that are needed to initialize the environment
+// FFI functions that are needed to initialize the environment
 extern "C" {
     pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
     pub fn spdk_trace_cleanup();
@@ -854,7 +854,7 @@ impl MayastorEnvironment {
         info!("All cores locked and loaded!");
 
         // ensure we are within the context of a spdk thread from here
-        Mthread::primary().enter();
+        Mthread::primary().set_current();
 
         Reactor::block_on(async {
             let (sender, receiver) = oneshot::channel::<bool>();
