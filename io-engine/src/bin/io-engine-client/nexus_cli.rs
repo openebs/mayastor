@@ -11,6 +11,7 @@ use colored_json::ToColoredJson;
 use mayastor_api::{v0, v1};
 use snafu::ResultExt;
 use tonic::{Code, Status};
+use uuid::Uuid;
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
@@ -19,7 +20,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("uuid")
                 .required(true)
                 .index(1)
-                .help("uuid for the nexus"),
+                .help("uuid for the nexus, if uuid is not known please provide \"\" to autogenerate"),
         )
         .arg(
             Arg::with_name("size")
@@ -46,7 +47,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("uuid")
                 .required(true)
-                .help("uuid for the nexus"),
+                .help("uuid for the nexus, if uuid is not known please provide \"\" to autogenerate"),
         )
         .arg(
             Arg::with_name("size")
@@ -307,7 +308,11 @@ fn nexus_create_parse(
     u64,
     ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 )> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
+    let mut uuid = matches.value_of("uuid").unwrap().to_string();
+    //If uuid is not specified then generate new uuid.
+    if uuid.is_empty() {
+        uuid = Uuid::new_v4().to_string()
+    }
     let size = parse_size(matches.value_of("size").ok_or_else(|| {
         ClientError::MissingValue {
             field: "size".to_string(),
