@@ -232,6 +232,10 @@ impl Share for Lvol {
         uri_no_uuid.map(|uri| format!("{}?uuid={}", uri, self.uuid()))
     }
 
+    fn allowed_hosts(&self) -> Vec<String> {
+        self.as_bdev().allowed_hosts()
+    }
+
     /// returns the URI that is used to construct the bdev. This is always None
     /// as lvols can not be created by URIs directly, but only through the
     /// ['Lvs'] interface.

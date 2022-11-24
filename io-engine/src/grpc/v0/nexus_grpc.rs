@@ -136,6 +136,7 @@ impl<'n> Nexus<'n> {
                 .map(|ch| ch.to_grpc())
                 .collect::<Vec<_>>(),
             rebuilds: RebuildJob::count() as u32,
+            allowed_hosts: self.allowed_hosts(),
         }
     }
 
@@ -161,6 +162,7 @@ impl<'n> Nexus<'n> {
                 .collect::<Vec<_>>(),
             rebuilds: RebuildJob::count() as u32,
             ana_state: ana_state as i32,
+            allowed_hosts: self.allowed_hosts(),
         }
     }
 }

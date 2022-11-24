@@ -289,6 +289,7 @@ impl From<Lvol> for Replica {
             size: l.size(),
             share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
+            allowed_hosts: l.allowed_hosts(),
         }
     }
 }
@@ -317,6 +318,7 @@ impl From<Lvol> for ReplicaV2 {
             share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
             usage: Some(usage.into()),
+            allowed_hosts: l.allowed_hosts(),
         }
     }
 }

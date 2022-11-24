@@ -85,6 +85,7 @@ impl From<Lvol> for Replica {
             uri: l.share_uri().unwrap(),
             poolname: l.pool_name(),
             usage: Some(usage.into()),
+            allowed_hosts: l.allowed_hosts(),
         }
     }
 }
