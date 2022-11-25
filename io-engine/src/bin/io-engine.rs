@@ -10,11 +10,13 @@ use io_engine::{
     bdev::util::uring,
     core::{
         device_monitor_loop,
+        diagnostics::process_diagnostics_cli,
         lock::{
             ProtectedSubsystems,
             ResourceLockManager,
             ResourceLockManagerConfig,
         },
+        reactor_monitor_loop,
         runtime,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -28,12 +30,6 @@ use io_engine::{
 };
 use version_info::fmt_package_info;
 
-#[cfg(feature = "diagnostics")]
-use io_engine::core::reactor_monitor_loop;
-
-#[cfg(feature = "diagnostics")]
-use io_engine::core::diagnostics::process_diagnostics_cli;
-
 const PAGES_NEEDED: u32 = 1024;
 
 io_engine::CPS_INIT!();
@@ -46,8 +42,8 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
-    #[cfg(feature = "diagnostics")]
-    let reactor_freeze_timeout = args.reactor_freeze_timeout.clone();
+    let reactor_freeze_detection = args.reactor_freeze_detection;
+    let reactor_freeze_timeout = args.reactor_freeze_timeout;
 
     // Initialize Lock manager.
     let cfg = ResourceLockManagerConfig::default()
@@ -61,8 +57,9 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             runtime::spawn(device_monitor_loop());
 
             // Launch reactor health monitor if diagnostics is enabled.
-            #[cfg(feature = "diagnostics")]
-            runtime::spawn(reactor_monitor_loop(reactor_freeze_timeout));
+            if reactor_freeze_detection {
+                runtime::spawn(reactor_monitor_loop(reactor_freeze_timeout));
+            }
 
             futures.push(
                 grpc::MayastorGrpcServer::run(
@@ -157,7 +154,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle diagnostics-related commands before initializing the agent.
     // Once diagnostics command is executed (regardless of status), exit the
     // agent.
-    #[cfg(feature = "diagnostics")]
     if let Some(res) = process_diagnostics_cli(&args) {
         return res;
     }
