@@ -569,6 +569,13 @@ impl node_server::Node for Node {
         // found.
         unstage_fs_volume(&msg).await?;
 
+        // Sometimes when disconnecting we see page read errors due to ENXIO.
+        // There seems to be some race in the kernel when removing a device with
+        // queued IOs. While this is not strictly an issue, it may
+        // confuse or hide other problems. Sleeping between umount and
+        // disconnect seems to alleviate this.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
         // unmounts (if any) are complete.
         // If the device is attached, detach the device.
         // Device::lookup will return None for nbd devices,
