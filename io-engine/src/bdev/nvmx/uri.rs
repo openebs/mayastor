@@ -225,16 +225,9 @@ impl<'probe> NvmeControllerContext<'probe> {
                 Config::get().nvme_bdev_opts.transport_retry_count as u8,
             );
 
-        let hostnqn = std::env::var("HOSTNQN")
-            .ok()
-            .or_else(|| template.hostnqn.clone())
-            .or_else(|| {
-                Some(format!(
-                    "{}:node-name:{}",
-                    NVME_NQN_PREFIX,
-                    MayastorEnvironment::global_or_default().node_name
-                ))
-            });
+        let hostnqn = template.hostnqn.clone().or_else(|| {
+            MayastorEnvironment::global_or_default().make_hostnqn()
+        });
 
         if let Ok(ext_host_id) = std::env::var("MAYASTOR_NVMF_HOSTID") {
             if let Ok(uuid) = Uuid::parse_str(&ext_host_id) {

@@ -33,6 +33,7 @@ pub struct MayastorGrpcServer;
 impl MayastorGrpcServer {
     pub async fn run(
         node_name: &str,
+        node_nqn: &Option<String>,
         endpoint: std::net::SocketAddr,
         rpc_addr: String,
         api_versions: Vec<ApiVersion>,
@@ -63,6 +64,7 @@ impl MayastorGrpcServer {
             .add_optional_service(enable_v1.map(|_| {
                 v1::host::HostRpcServer::new(HostService::new(
                     node_name,
+                    node_nqn,
                     endpoint,
                     api_versions,
                 ))

@@ -39,6 +39,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let rpc_address = args.rpc_address.clone();
     let api_versions = args.api_versions.clone();
     let node_name = grpc::node_name(&args.node_name);
+    let node_nqn = args.make_hostnqn();
 
     let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
@@ -64,6 +65,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             futures.push(
                 grpc::MayastorGrpcServer::run(
                     &node_name,
+                    &node_nqn,
                     grpc_address,
                     rpc_address,
                     api_versions.clone(),
@@ -74,6 +76,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             if let Some(registration_addr) = registration_addr {
                 Registration::init(
                     &node_name,
+                    &node_nqn,
                     &grpc_address.to_string(),
                     registration_addr,
                     api_versions,
