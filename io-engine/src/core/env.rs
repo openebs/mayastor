@@ -40,6 +40,7 @@ use version_info::{package_description, version_info_str};
 
 use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
+    constants::NVME_NQN_PREFIX,
     core::{
         nic,
         reactor::{Reactor, ReactorState, Reactors},
@@ -217,6 +218,13 @@ impl Default for MayastorCliArgs {
     }
 }
 
+impl MayastorCliArgs {
+    /// Create the hostnqn for this io-engine instance.
+    pub fn make_hostnqn(&self) -> Option<String> {
+        make_hostnqn(self.node_name.as_ref())
+    }
+}
+
 /// Global exit code of the program, initially set to -1 to capture double
 /// shutdown during test cases
 pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
@@ -263,6 +271,7 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 #[allow(dead_code)]
 pub struct MayastorEnvironment {
     pub node_name: String,
+    node_nqn: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
     pub registration_endpoint: Option<Uri>,
     persistent_store_endpoint: Option<String>,
@@ -304,6 +313,7 @@ impl Default for MayastorEnvironment {
     fn default() -> Self {
         Self {
             node_name: "mayastor-node".into(),
+            node_nqn: None,
             grpc_endpoint: None,
             registration_endpoint: None,
             persistent_store_endpoint: None,
@@ -423,9 +433,14 @@ impl MayastorEnvironment {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             registration_endpoint: args.registration_endpoint,
             persistent_store_endpoint: args.persistent_store_endpoint,
-            node_name: args.node_name.unwrap_or_else(|| {
+            node_name: args.node_name.clone().unwrap_or_else(|| {
                 env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
             }),
+            node_nqn: make_hostnqn(
+                args.node_name
+                    .or_else(|| env::var("HOSTNAME").ok())
+                    .as_ref(),
+            ),
             mayastor_config: args.mayastor_config,
             ptpl_dir: args.ptpl_dir,
             pool_config: args.pool_config,
@@ -893,6 +908,8 @@ impl MayastorEnvironment {
     {
         type FutureResult = Result<(), ()>;
         let node_name = self.node_name.clone();
+        let node_nqn = self.node_nqn.clone();
+
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
         let api_versions = self.api_versions.clone();
@@ -911,6 +928,7 @@ impl MayastorEnvironment {
             if let Some(grpc_endpoint) = grpc_endpoint {
                 futures.push(Box::pin(grpc::MayastorGrpcServer::run(
                     &node_name,
+                    &node_nqn,
                     grpc_endpoint,
                     rpc_addr,
                     api_versions,
@@ -925,4 +943,15 @@ impl MayastorEnvironment {
 
         Ok(*GLOBAL_RC.lock().unwrap())
     }
+
+    /// Create the hostnqn for this io-engine instance.
+    pub fn make_hostnqn(&self) -> Option<String> {
+        self.node_nqn.clone()
+    }
+}
+
+fn make_hostnqn(node_name: Option<&String>) -> Option<String> {
+    std::env::var("HOSTNQN").ok().or_else(|| {
+        node_name.map(|n| format!("{}:node-name:{}", NVME_NQN_PREFIX, n))
+    })
 }

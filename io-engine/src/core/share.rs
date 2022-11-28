@@ -189,6 +189,9 @@ pub trait Share: std::fmt::Debug {
     /// TODO
     fn share_uri(&self) -> Option<String>;
 
+    /// Get the currently allowed host nqn's.
+    fn allowed_hosts(&self) -> Vec<String>;
+
     /// TODO
     fn bdev_uri(&self) -> Option<String>;
 

@@ -297,6 +297,7 @@ impl<'n> nexus::Nexus<'n> {
                 .collect::<Vec<_>>(),
             rebuilds: RebuildJob::count() as u32,
             ana_state: ana_state as i32,
+            allowed_hosts: self.allowed_hosts(),
         }
     }
 }

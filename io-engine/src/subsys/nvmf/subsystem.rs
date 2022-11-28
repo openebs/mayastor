@@ -306,13 +306,33 @@ impl NvmfSubsystem {
         }
     }
 
+    /// Get a list with all the host nqn's allowed to connect to this subsystem.
+    pub fn allowed_hosts(&self) -> Vec<String> {
+        let mut hosts = Vec::with_capacity(4);
+
+        let mut host =
+            unsafe { spdk_nvmf_subsystem_get_first_host(self.0.as_ptr()) };
+
+        while !host.is_null() {
+            let host_str = unsafe { (*host).nqn.as_str() };
+
+            hosts.push(host_str.to_string());
+
+            host = unsafe {
+                spdk_nvmf_subsystem_get_next_host(self.0.as_ptr(), host)
+            };
+        }
+
+        hosts
+    }
+
     /// Sets the allowed hosts to connect to the subsystem.
     /// It also disallows and disconnects any previously registered host.
     /// # Warning
     ///
     /// It does not disconnect non-registered hosts, eg: hosts which
     /// were connected before the allowed_hosts was configured.
-    pub async fn allowed_hosts<H: AsRef<str>>(
+    pub async fn set_allowed_hosts<H: AsRef<str>>(
         &self,
         hosts: &[H],
     ) -> Result<(), Error> {

@@ -197,7 +197,7 @@ where
             .context(ShareNvmf {})?;
         subsystem.allow_any(props.host_any());
         subsystem
-            .allowed_hosts(props.allowed_hosts())
+            .set_allowed_hosts(props.allowed_hosts())
             .await
             .context(ShareNvmf {})?;
 
@@ -215,7 +215,7 @@ where
                     let props = UpdateProps::from(props.into());
                     subsystem.allow_any(props.host_any());
                     subsystem
-                        .allowed_hosts(props.allowed_hosts())
+                        .set_allowed_hosts(props.allowed_hosts())
                         .await
                         .context(ShareNvmf {})?;
                 }
@@ -258,6 +258,18 @@ where
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(self.name()),
             _ => Some(format!("bdev:///{}", self.name())),
+        }
+    }
+
+    fn allowed_hosts(&self) -> Vec<String> {
+        match self.shared() {
+            Some(Protocol::Nvmf) => {
+                match NvmfSubsystem::nqn_lookup(self.name()) {
+                    Some(subsystem) => subsystem.allowed_hosts(),
+                    None => vec![],
+                }
+            }
+            _ => vec![],
         }
     }
 

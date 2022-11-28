@@ -27,6 +27,7 @@ const NEXUS: &str = "nexus-e1e27668-fbe1-4c8a-9108-513f6e44d342";
 
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let node_name = grpc::node_name(&args.node_name);
+    let node_nqn = args.make_hostnqn();
     let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();
     let api_versions = args.api_versions.clone();
@@ -42,6 +43,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
         let futures = vec![grpc::MayastorGrpcServer::run(
             &node_name,
+            &node_nqn,
             grpc_endpoint,
             rpc_address,
             api_versions,

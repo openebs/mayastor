@@ -44,6 +44,8 @@ impl FromStr for ApiVersion {
 struct Configuration {
     /// Id of the node that mayastor is running on
     node: String,
+    /// NVMe initiator hostnqn used by mayastor.
+    node_nqn: Option<String>,
     /// gRPC endpoint of the server provided by mayastor
     grpc_endpoint: String,
     /// heartbeat interval (how often the register message is sent)
@@ -75,6 +77,7 @@ impl Registration {
     /// Initialise the global registration instance
     pub fn init(
         node: &str,
+        node_nqn: &Option<String>,
         grpc_endpoint: &str,
         registration_addr: Uri,
         api_versions: Vec<ApiVersion>,
@@ -82,6 +85,7 @@ impl Registration {
         GRPC_REGISTRATION.get_or_init(|| {
             Registration::new(
                 node,
+                node_nqn,
                 grpc_endpoint,
                 registration_addr,
                 api_versions,
@@ -92,6 +96,7 @@ impl Registration {
     /// Create a new registration instance
     pub fn new(
         node: &str,
+        node_nqn: &Option<String>,
         grpc_endpoint: &str,
         registration_addr: Uri,
         api_versions: Vec<ApiVersion>,
@@ -100,6 +105,7 @@ impl Registration {
         let config = Configuration {
             api_versions,
             node: node.to_owned(),
+            node_nqn: node_nqn.to_owned(),
             grpc_endpoint: grpc_endpoint.to_owned(),
             hb_interval_sec: match env::var("MAYASTOR_HB_INTERVAL_SEC")
                 .map(|v| v.parse::<u64>())
@@ -164,6 +170,7 @@ impl Registration {
                 grpc_endpoint: self.config.grpc_endpoint.clone(),
                 instance_uuid: Some(self.config.instance_uuid.to_string()),
                 api_version: api_versions,
+                hostnqn: self.config.node_nqn.clone(),
             }))
             .await
         {

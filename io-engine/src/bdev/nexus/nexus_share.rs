@@ -75,6 +75,10 @@ impl<'n> Share for Nexus<'n> {
         unsafe { self.bdev().share_uri() }
     }
 
+    fn allowed_hosts(&self) -> Vec<String> {
+        unsafe { self.bdev().allowed_hosts() }
+    }
+
     /// TODO
     fn bdev_uri(&self) -> Option<String> {
         unsafe { self.bdev().bdev_uri() }

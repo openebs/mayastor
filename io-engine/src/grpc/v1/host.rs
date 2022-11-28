@@ -29,6 +29,7 @@ pub struct HostService {
     #[allow(dead_code)]
     name: String,
     node_name: String,
+    node_nqn: Option<String>,
     grpc_socket: std::net::SocketAddr,
     api_versions: Vec<ApiVersion>,
     client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
@@ -79,12 +80,14 @@ impl HostService {
     /// Return a new `Self` with the given host parameters.
     pub fn new(
         node_name: &str,
+        node_nqn: &Option<String>,
         grpc_socket: std::net::SocketAddr,
         api_versions: Vec<ApiVersion>,
     ) -> Self {
         Self {
             name: String::from("MayastorService"),
             node_name: node_name.to_string(),
+            node_nqn: node_nqn.clone(),
             grpc_socket,
             api_versions,
             client_context: tokio::sync::Mutex::new(None),
@@ -233,6 +236,7 @@ impl host_rpc::HostRpc for HostService {
                 instance_uuid: Registration::get()
                     .map(|r| r.instance_uuid().to_string()),
                 api_version: api_versions,
+                hostnqn: self.node_nqn.clone(),
             }),
         };
 

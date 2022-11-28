@@ -44,7 +44,7 @@ use crate::{
     },
     bdev_api::{self, BdevError},
     constants::NVME_NQN_PREFIX,
-    core::poller,
+    core::{poller, MayastorEnvironment},
     ffihelper::ErrnoResult,
     subsys::Config,
 };
@@ -225,9 +225,9 @@ impl<'probe> NvmeControllerContext<'probe> {
                 Config::get().nvme_bdev_opts.transport_retry_count as u8,
             );
 
-        let hostnqn = std::env::var("HOSTNQN")
-            .ok()
-            .or_else(|| template.hostnqn.clone());
+        let hostnqn = template.hostnqn.clone().or_else(|| {
+            MayastorEnvironment::global_or_default().make_hostnqn()
+        });
 
         if let Ok(ext_host_id) = std::env::var("MAYASTOR_NVMF_HOSTID") {
             if let Ok(uuid) = Uuid::parse_str(&ext_host_id) {
