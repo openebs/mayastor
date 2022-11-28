@@ -37,6 +37,13 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
+pub use lock::{
+    ProtectedSubsystems,
+    ResourceLockGuard,
+    ResourceLockManager,
+    ResourceLockManagerConfig,
+    ResourceSubsystem,
+};
 pub use reactor::{
     reactor_monitor_loop,
     Reactor,
@@ -68,6 +75,7 @@ mod env;
 mod handle;
 mod io_device;
 pub mod io_driver;
+pub mod lock;
 pub mod mempool;
 mod nic;
 pub mod partition;
