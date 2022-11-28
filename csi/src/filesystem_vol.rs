@@ -17,7 +17,7 @@ use crate::{
 
 pub async fn stage_fs_volume(
     msg: &NodeStageVolumeRequest,
-    device_path: String,
+    device_path: &str,
     mnt: &MountVolume,
     filesystems: &[String],
 ) -> Result<(), Status> {
@@ -56,7 +56,7 @@ pub async fn stage_fs_volume(
     };
 
     if let Some(existing) =
-        mount::find_mount(Some(&device_path), Some(fs_staging_path))
+        mount::find_mount(Some(device_path), Some(fs_staging_path))
     {
         debug!(
             "Device {} is already mounted onto {}",
@@ -77,7 +77,7 @@ pub async fn stage_fs_volume(
     }
 
     // abort if device is mounted somewhere else
-    if mount::find_mount(Some(&device_path), None).is_some() {
+    if mount::find_mount(Some(device_path), None).is_some() {
         return Err(failure!(
             Code::AlreadyExists,
             "Failed to stage volume {}: device {} is already mounted elsewhere",
@@ -96,7 +96,7 @@ pub async fn stage_fs_volume(
                 ));
     }
 
-    if let Err(error) = prepare_device(&device_path, &fstype).await {
+    if let Err(error) = prepare_device(device_path, &fstype).await {
         return Err(failure!(
             Code::Internal,
             "Failed to stage volume {}: error preparing device {}: {}",
@@ -109,7 +109,7 @@ pub async fn stage_fs_volume(
     debug!("Mounting device {} onto {}", device_path, fs_staging_path);
 
     if let Err(error) = mount::filesystem_mount(
-        &device_path,
+        device_path,
         fs_staging_path,
         &fstype,
         &mnt.mount_flags,
