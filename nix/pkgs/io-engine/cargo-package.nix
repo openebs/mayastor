@@ -11,6 +11,7 @@
 , libpcap
 , libudev
 , liburing
+, libunwind
 , makeRustPlatform
 , numactl
 , openssl
@@ -74,6 +75,7 @@ let
       numactl
       openssl
       utillinux
+      libunwind
     ];
     cargoLock = {
       lockFile = ../../../Cargo.lock;
