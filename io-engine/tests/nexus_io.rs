@@ -45,7 +45,13 @@ use common::{
     MayastorTest,
 };
 use io_engine::{
-    bdev::nexus::{NexusNvmePreemption, NvmeReservation},
+    bdev::nexus::{
+        ChildState,
+        NexusNvmePreemption,
+        NexusStatus,
+        NvmeReservation,
+        Reason,
+    },
     grpc::v1::nexus::nexus_destroy,
 };
 use io_engine_tests::compose::rpc::v0::RpcHandle;
@@ -673,6 +679,8 @@ async fn nexus_io_resv_preempt() {
         "should match host ID of NVMe client"
     );
 
+    // Initiate I/O to trigger reservation conflict and initiate nexus self
+    // shutdown.
     mayastor
         .spawn(async move {
             bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
@@ -681,14 +689,43 @@ async fn nexus_io_resv_preempt() {
             bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
                 .await
                 .expect_err("reads should fail");
-
-            nexus_lookup_mut(&NXNAME.to_string())
-                .unwrap()
-                .destroy()
-                .await
-                .unwrap();
         })
         .await;
+
+    // Wait a bit to let nexus complete self-shutdown sequence.
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    mayastor
+        .spawn(async move {
+            let nexus = nexus_lookup_mut(&NXNAME.to_string()).unwrap();
+
+            // Make sure nexus is in Shutdown state.
+            assert_eq!(
+                nexus.status(),
+                NexusStatus::Shutdown,
+                "Nexus must transition into Shutdown state"
+            );
+
+            // Make sure all child devices are in faulted state and don't have any associated
+            // devices and I/O handles.
+            nexus.children().iter().for_each(|c| {
+                assert_eq!(c.state(), ChildState::Faulted(Reason::IoError));
+
+                assert!(
+                    c.get_device().is_err(),
+                    "Child device still has its block device after nexus shutdown"
+                );
+
+                assert!(
+                    c.get_io_handle().is_err(),
+                    "Child device still has I/O handle after nexus shutdown"
+                );
+            });
+
+            nexus.destroy().await.unwrap();
+        })
+        .await;
+
     nvme_disconnect_nqn(&rep_nqn);
 
     test.restart("ms2").await.unwrap();

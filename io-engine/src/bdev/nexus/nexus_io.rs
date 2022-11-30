@@ -11,13 +11,22 @@ use spdk_rs::{
     BdevIo,
 };
 
-use super::{Nexus, NexusChannel, Reason, NEXUS_PRODUCT_ID};
+use super::{
+    nexus_lookup_mut,
+    Nexus,
+    NexusChannel,
+    NexusState,
+    Reason,
+    NEXUS_PRODUCT_ID,
+};
 
 use crate::core::{
+    device_cmd_queue,
     BlockDevice,
     BlockDeviceHandle,
     CoreError,
     Cores,
+    DeviceCommand,
     GenericStatusCode,
     IoCompletionStatus,
     IoStatus,
@@ -26,6 +35,7 @@ use crate::core::{
     LvolFailure,
     Mthread,
     NvmeStatus,
+    Reactors,
 };
 
 /// TODO
@@ -461,6 +471,89 @@ impl<'n> NexusBio<'n> {
         result
     }
 
+    /// Initiate shutdown of the nexus associated with this BIO request.
+    fn try_self_shutdown_nexus(&mut self) {
+        if self
+            .channel_mut()
+            .nexus_mut()
+            .shutdown_requested
+            .compare_exchange(false, true)
+            .is_ok()
+        {
+            let nexus_name =
+                self.channel_mut().nexus_mut().nexus_name().to_owned();
+
+            Reactors::master().send_future(async move {
+                if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
+                    // Check against concurrent graceful nexus shutdown
+                    // initiated by user and mark nexus as being shutdown.
+                    {
+                        let mut s = nexus.state.lock();
+                        match *s {
+                            NexusState::Shutdown |
+                            NexusState::ShuttingDown => {
+                                info!(
+                                    nexus_name,
+                                    "Nexus is under user-triggered shutdown, skipping self shutdown"
+                                );
+                                return;
+                            },
+                            nexus_state => {
+                                info!(
+                                    nexus_name,
+                                    nexus_state=%nexus_state,
+                                    "Initiating self shutdown for nexus"
+                                );
+                            }
+                        };
+                        *s = NexusState::ShuttingDown;
+                    }
+
+                    // 1: Close I/O channels for all children.
+                    let devices = unsafe {
+                        nexus
+                            .as_mut()
+                            .children_iter_mut()
+                            .filter_map(|c| c.get_device_name())
+                            .collect::<Vec<_>>()
+                    };
+
+                    for d in devices {
+                        if let Err(e) =
+                            nexus.disconnect_all_channels(d.clone()).await
+                        {
+                            error!(
+                                "{}: failed to disconnect I/O channels: {:?}",
+                                d, e
+                            );
+                        }
+
+                        device_cmd_queue().enqueue(
+                            DeviceCommand::RemoveDevice {
+                                nexus_name: nexus.name.clone(),
+                                child_device: d.clone(),
+                            },
+                        );
+                    }
+
+                    // Step 2: cancel all active rebuild jobs.
+                    let child_uris = nexus.children_uris();
+                    for child in child_uris {
+                        nexus.as_mut().cancel_rebuild_jobs(&child).await;
+                    }
+
+                    // Step 3: close all children.
+                    nexus.as_mut().close_children().await;
+
+                    // Step 4: Mark nexus as shutdown.
+                    // Note: we don't persist nexus's state in ETCd as nexus
+                    // might be recreated on onother node.
+                    *nexus.state.lock() = NexusState::Shutdown;
+                }
+            });
+        }
+    }
+
     /// TODO
     fn retire_device(
         &mut self,
@@ -481,7 +574,7 @@ impl<'n> NexusBio<'n> {
         );
     }
 
-    /// TODO
+    /// Test handle_failure()
     fn handle_failure(
         &mut self,
         child: &dyn BlockDevice,
@@ -513,18 +606,34 @@ impl<'n> NexusBio<'n> {
             return;
         }
 
-        let retry = matches!(
+        // Reservation conflicts should trigger shutdown of the nexus but
+        // replica should not be retired.
+        if matches!(
             status,
             IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                GenericStatusCode::AbortedSubmissionQueueDeleted
+                GenericStatusCode::ReservationConflict
             ))
-        );
+        ) {
+            warn!(
+                nexus = self.channel_mut().nexus_mut().nexus_name(),
+                replica=child.device_name(),
+                "Reservation conflict on replica device, initiating nexus shutdown"
+            );
+            self.try_self_shutdown_nexus();
+        } else {
+            self.retire_device(&child.device_name(), status);
 
-        self.retire_device(&child.device_name(), status);
+            let retry = matches!(
+                status,
+                IoCompletionStatus::NvmeError(NvmeStatus::Generic(
+                    GenericStatusCode::AbortedSubmissionQueueDeleted
+                ))
+            );
 
-        // if the IO was failed because of retire, resubmit the IO
-        if retry {
-            return self.ok_checked();
+            // if the IO was failed because of retire, resubmit the IO
+            if retry {
+                return self.ok_checked();
+            }
         }
 
         self.fail_checked();
