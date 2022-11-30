@@ -262,6 +262,23 @@ pub fn bind_unmount(target: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Remount existing mount as read only or read write.
+pub(crate) fn remount(target: &str, ro: bool) -> Result<Mount, Error> {
+    let mut flags = MountFlags::empty();
+    flags.insert(MountFlags::REMOUNT);
+
+    if ro {
+        flags.insert(MountFlags::RDONLY);
+    }
+
+    let mount =
+        Mount::new("", target, FilesystemType::Manual("none"), flags, None)?;
+
+    debug!("Target {} remounted with {:?}", target, flags);
+
+    Ok(mount)
+}
+
 /// Mount a block device
 pub fn blockdevice_mount(
     source: &str,
