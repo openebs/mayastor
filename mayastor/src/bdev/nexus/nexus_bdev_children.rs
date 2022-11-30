@@ -31,6 +31,7 @@ use snafu::ResultExt;
 use super::{
     fault_nexus_child,
     nexus_iter_mut,
+    nexus_lookup_mut,
     ChildState,
     CreateChild,
     DrEvent,
@@ -51,7 +52,7 @@ use crate::{
         device_lookup,
         nexus::nexus_persistence::PersistOp,
     },
-    core::{partition, DeviceEventListener, DeviceEventType, Reactors},
+    core::{DeviceEventListener, DeviceEventType, Reactors},
     nexus_uri::NexusBdevError,
 };
 
@@ -482,71 +483,6 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         let name = self.name.clone();
 
-        if self.children.is_empty() {
-            return Err(Error::NexusIncomplete {
-                name,
-            });
-        }
-
-        // Determine Nexus block size and data start and end offsets.
-        let mut start_blk = 0;
-        let mut end_blk = 0;
-        let mut blk_size = 0;
-
-        for child in self.children.iter() {
-            let dev = match child.get_device() {
-                Ok(dev) => dev,
-                Err(_) => {
-                    return Err(Error::NexusIncomplete {
-                        name,
-                    })
-                }
-            };
-
-            let nb = dev.num_blocks();
-            let bs = dev.block_len();
-
-            if blk_size == 0 {
-                blk_size = bs;
-            } else if bs != blk_size {
-                return Err(Error::MixedBlockSizes {
-                    name: self.name.clone(),
-                });
-            }
-
-            match partition::calc_data_partition(self.req_size, nb, bs) {
-                Some((start, end)) => {
-                    if start_blk == 0 {
-                        start_blk = start;
-                        end_blk = end;
-                    } else {
-                        end_blk = min(end_blk, end);
-
-                        if start_blk != start {
-                            return Err(Error::ChildGeometry {
-                                child: child.name.clone(),
-                                name,
-                            });
-                        }
-                    }
-                }
-                None => {
-                    return Err(Error::ChildTooSmall {
-                        child: child.name.clone(),
-                        name,
-                        num_blocks: nb,
-                        block_size: bs,
-                    })
-                }
-            }
-        }
-
-        unsafe {
-            self.as_mut().set_data_ent_offset(start_blk);
-            self.as_mut().set_block_len(blk_size as u32);
-            self.as_mut().set_num_blocks(end_blk - start_blk);
-        }
-
         let size = self.req_size;
 
         // Take the child vec, try open and re-add.
@@ -664,6 +600,11 @@ impl<'n> Nexus<'n> {
             }
         }
 
+        info!(
+            "{:?}: all nexus children successfully opened: required_alignment={}",
+            self, new_alignment,
+        );
+
         Ok(())
     }
 
@@ -728,8 +669,37 @@ impl<'n> Nexus<'n> {
             }),
         }
     }
+
+    /// Handle child device removal.
+    async fn child_remove_routine(nexus_name: String, child_device: String) {
+        if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
+            match nexus.as_mut().lookup_child_mut(&child_device) {
+                Some(child) => {
+                    info!(
+                        "{}: removing child {} in response to device removal event",
+                        child.get_nexus_name(),
+                        child.get_name(),
+                    );
+                    child.remove();
+                }
+                None => {
+                    warn!(
+                        "No nexus child exists for device {}, ignoring device removal event",
+                        child_device
+                    );
+                }
+            }
+        } else {
+            warn!(
+                nexus_name=%nexus_name,
+                child_device=%child_device,
+                "Removing nexus child: nexus already gone",
+            );
+        }
+    }
 }
 
+// child.remove();
 impl<'n> DeviceEventListener for Nexus<'n> {
     fn handle_device_event(
         self: Pin<&mut Self>,
@@ -738,22 +708,10 @@ impl<'n> DeviceEventListener for Nexus<'n> {
     ) {
         match evt {
             DeviceEventType::DeviceRemoved => {
-                match self.lookup_child_mut(dev_name) {
-                    Some(child) => {
-                        info!(
-                            "{}: removing child {} in response to device removal event",
-                            child.get_nexus_name(),
-                            child.get_name(),
-                        );
-                        child.remove();
-                    }
-                    None => {
-                        warn!(
-                            "No nexus child exists for device {}, ignoring device removal event",
-                            dev_name
-                        );
-                    }
-                }
+                Reactors::master().send_future(Nexus::child_remove_routine(
+                    self.name.clone(),
+                    dev_name.to_owned(),
+                ));
             }
             DeviceEventType::AdminCommandCompletionFailed => {
                 let cn = &dev_name;
