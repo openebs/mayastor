@@ -11,6 +11,7 @@
 use crate::{
     bdev::{nexus, NvmeControllerState as ControllerState},
     core::{
+        lock::{ProtectedSubsystems, ResourceLockManager},
         BlockDeviceIoStats,
         CoreError,
         MayastorFeatures,
@@ -57,19 +58,6 @@ use crate::bdev::nexus::VerboseError;
 use ::function_name::named;
 use std::{panic::AssertUnwindSafe, pin::Pin};
 use version_info::raw_version_string;
-
-impl GrpcClientContext {
-    #[track_caller]
-    pub fn new<T>(req: &Request<T>, fid: &str) -> Self
-    where
-        T: Debug,
-    {
-        Self {
-            args: format!("{:?}", req.get_ref()),
-            id: fid.to_string(),
-        }
-    }
-}
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -126,6 +114,67 @@ impl MayastorSvc {
             name: String::from("CSISvc"),
             interval,
             rw_lock: tokio::sync::RwLock::new(None),
+        }
+    }
+
+    async fn serialized<T, F>(
+        &self,
+        ctx: GrpcClientContext,
+        nexus_uuid: String,
+        global_operation: bool,
+        f: F,
+    ) -> Result<T, Status>
+    where
+        T: Send + 'static,
+        F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
+    {
+        let lock_manager = ResourceLockManager::get_instance();
+        let fut = AssertUnwindSafe(f).catch_unwind();
+
+        // Schedule a Tokio task to detach it from the high-level gRPC future
+        // and avoid task cancellation when the top-level gRPC future is
+        // cancelled.
+        match tokio::spawn(async move {
+            // Grab global operation lock, if requested.
+            let _global_guard = if global_operation {
+                match lock_manager.lock(Some(ctx.timeout)).await {
+                    Some(g) => Some(g),
+                    None => return Err(Status::deadline_exceeded(
+                        "Failed to acquire access to object within given timeout"
+                        .to_string()
+                    )),
+                }
+            } else {
+                None
+            };
+
+            // Grab per-object lock before executing the future.
+            let _resource_guard = match lock_manager
+                .get_subsystem(ProtectedSubsystems::NEXUS)
+                .lock_resource(nexus_uuid, Some(ctx.timeout))
+                .await {
+                    Some(g) => g,
+                    None => return Err(Status::deadline_exceeded(
+                        "Failed to acquire access to object within given timeout"
+                        .to_string()
+                    )),
+                };
+            let r = fut.await;
+
+            match r {
+                Ok(r) => r,
+                Err(_e) => {
+                    warn!("{}: gRPC method panicked, args: {}", ctx.id, ctx.args);
+                    Err(Status::cancelled(format!(
+                        "{}: gRPC method panicked",
+                        ctx.id
+                    )))
+                }
+            }
+        })
+        .await {
+            Ok(r) => r,
+            Err(_) => Err(Status::cancelled("gRPC call cancelled"))
         }
     }
 }
@@ -791,30 +840,29 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateNexusRequest>,
     ) -> GrpcResult<Nexus> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    let uuid = args.uuid.clone();
-                    let name = uuid_to_name(&args.uuid)?;
-                    nexus::nexus_create(
-                        &name,
-                        args.size,
-                        Some(&args.uuid),
-                        &args.children,
-                    )
-                    .await?;
-                    let nexus = nexus_lookup(&uuid)?;
-                    info!("Created nexus {}", uuid);
-                    Ok(nexus.to_grpc())
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        self.serialized(ctx, args.uuid.clone(), true, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                let uuid = args.uuid.clone();
+                let name = uuid_to_name(&args.uuid)?;
+                nexus::nexus_create(
+                    &name,
+                    args.size,
+                    Some(&args.uuid),
+                    &args.children,
+                )
+                .await?;
+                let nexus = nexus_lookup(&uuid)?;
+                info!("Created nexus {}", uuid);
+                Ok(nexus.to_grpc())
+            })?;
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -823,47 +871,45 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateNexusV2Request>,
     ) -> GrpcResult<Nexus> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                // If the control plane has supplied a key, use it to store the
-                // NexusInfo.
-                let nexus_info_key = if args.nexus_info_key.is_empty() {
-                    None
-                } else {
-                    Some(args.nexus_info_key.to_string())
-                };
+        self.serialized(ctx, args.uuid.clone(), true, async move {
+            // If the control plane has supplied a key, use it to store the
+            // NexusInfo.
+            let nexus_info_key = if args.nexus_info_key.is_empty() {
+                None
+            } else {
+                Some(args.nexus_info_key.to_string())
+            };
 
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus::nexus_create_v2(
-                        &args.name,
-                        args.size,
-                        &args.uuid,
-                        nexus::NexusNvmeParams {
-                            min_cntlid: args.min_cntl_id as u16,
-                            max_cntlid: args.max_cntl_id as u16,
-                            resv_key: args.resv_key,
-                            preempt_key: match args.preempt_key {
-                                0 => None,
-                                k => std::num::NonZeroU64::new(k),
-                            },
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus::nexus_create_v2(
+                    &args.name,
+                    args.size,
+                    &args.uuid,
+                    nexus::NexusNvmeParams {
+                        min_cntlid: args.min_cntl_id as u16,
+                        max_cntlid: args.max_cntl_id as u16,
+                        resv_key: args.resv_key,
+                        preempt_key: match args.preempt_key {
+                            0 => None,
+                            k => std::num::NonZeroU64::new(k),
                         },
-                        &args.children,
-                        nexus_info_key,
-                    )
-                    .await?;
-                    let nexus = nexus_lookup(&args.name)?;
-                    info!("Created nexus {}", &args.name);
-                    Ok(nexus.to_grpc())
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+                    },
+                    &args.children,
+                    nexus_info_key,
+                )
+                .await?;
+                let nexus = nexus_lookup(&args.name)?;
+                info!("Created nexus {}", &args.name);
+                Ok(nexus.to_grpc())
+            })?;
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -872,22 +918,21 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<DestroyNexusRequest>,
     ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    let args = request.into_inner();
-                    trace!("{:?}", args);
-                    nexus_destroy(&args.uuid).await?;
-                    Ok(Null {})
-                })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        self.serialized(ctx, args.uuid.clone(), true, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                nexus_destroy(&args.uuid).await?;
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -942,175 +987,217 @@ impl mayastor_server::Mayastor for MayastorSvc {
             .map(Response::new)
     }
 
+    #[named]
     async fn add_child_nexus(
         &self,
         request: Request<AddChildNexusRequest>,
     ) -> GrpcResult<Child> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
-        let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Adding child {} to nexus {} ...", args.uri, uuid);
-            let child = nexus_add_child(args).await?;
-            info!("Added child to nexus {}", uuid);
-            Ok(child)
-        })?;
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                let uuid = args.uuid.clone();
+                debug!("Adding child {} to nexus {} ...", args.uri, uuid);
+                let child = nexus_add_child(args).await?;
+                info!("Added child to nexus {}", uuid);
+                Ok(child)
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
+    #[named]
     async fn remove_child_nexus(
         &self,
         request: Request<RemoveChildNexusRequest>,
     ) -> GrpcResult<Null> {
-        let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Removing child {} from nexus {} ...", args.uri, uuid);
-            nexus_lookup(&args.uuid)?.remove_child(&args.uri).await?;
-            info!("Removed child from nexus {}", uuid);
-            Ok(Null {})
-        })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                let uuid = args.uuid.clone();
+                debug!("Removing child {} from nexus {} ...", args.uri, uuid);
+                nexus_lookup(&args.uuid)?.remove_child(&args.uri).await?;
+                info!("Removed child from nexus {}", uuid);
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
+    #[named]
     async fn fault_nexus_child(
         &self,
         request: Request<FaultNexusChildRequest>,
     ) -> GrpcResult<Null> {
-        let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            let uri = args.uri.clone();
-            debug!("Faulting child {} on nexus {}", uri, uuid);
-            nexus_lookup(&args.uuid)?
-                .fault_child(&args.uri, nexus::Reason::Rpc)
-                .await?;
-            info!("Faulted child {} on nexus {}", uri, uuid);
-            Ok(Null {})
-        })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                let uuid = args.uuid.clone();
+                let uri = args.uri.clone();
+                debug!("Faulting child {} on nexus {}", uri, uuid);
+                nexus_lookup(&args.uuid)?
+                    .fault_child(&args.uri, nexus::Reason::Rpc)
+                    .await?;
+                info!("Faulted child {} on nexus {}", uri, uuid);
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
+    #[named]
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,
     ) -> GrpcResult<PublishNexusReply> {
-        let rx = rpc_submit::<_, _, nexus::Error>(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Publishing nexus {} ...", uuid);
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-            if !args.key.is_empty() && args.key.len() != 16 {
-                return Err(nexus::Error::InvalidKey {});
-            }
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                let uuid = args.uuid.clone();
+                debug!("Publishing nexus {} ...", uuid);
 
-            let key: Option<String> = if args.key.is_empty() {
-                None
-            } else {
-                Some(args.key.clone())
-            };
-
-            let share_protocol = match Protocol::try_from(args.share) {
-                Ok(protocol) => protocol,
-                Err(_) => {
-                    return Err(nexus::Error::InvalidShareProtocol {
-                        sp_value: args.share as i32,
-                    });
+                if !args.key.is_empty() && args.key.len() != 16 {
+                    return Err(nexus::Error::InvalidKey {});
                 }
-            };
 
-            let device_uri =
-                nexus_lookup(&args.uuid)?.share(share_protocol, key).await?;
+                let key: Option<String> = if args.key.is_empty() {
+                    None
+                } else {
+                    Some(args.key.clone())
+                };
 
-            info!("Published nexus {} under {}", uuid, device_uri);
-            Ok(PublishNexusReply {
-                device_uri,
-            })
-        })?;
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+                let share_protocol = match Protocol::try_from(args.share) {
+                    Ok(protocol) => protocol,
+                    Err(_) => {
+                        return Err(nexus::Error::InvalidShareProtocol {
+                            sp_value: args.share as i32,
+                        });
+                    }
+                };
+
+                let device_uri = nexus_lookup(&args.uuid)?
+                    .share(share_protocol, key)
+                    .await?;
+
+                info!("Published nexus {} under {}", uuid, device_uri);
+                Ok(PublishNexusReply {
+                    device_uri,
+                })
+            })?;
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
+    #[named]
     async fn unpublish_nexus(
         &self,
         request: Request<UnpublishNexusRequest>,
     ) -> GrpcResult<Null> {
-        let rx = rpc_submit::<_, _, nexus::Error>(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Unpublishing nexus {} ...", uuid);
-            nexus_lookup(&args.uuid)?.unshare_nexus().await?;
-            info!("Unpublished nexus {}", uuid);
-            Ok(Null {})
-        })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                let uuid = args.uuid.clone();
+                debug!("Unpublishing nexus {} ...", uuid);
+                nexus_lookup(&args.uuid)?.unshare_nexus().await?;
+                info!("Unpublished nexus {}", uuid);
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
+    #[named]
     async fn get_nvme_ana_state(
         &self,
         request: Request<GetNvmeAnaStateRequest>,
     ) -> GrpcResult<GetNvmeAnaStateReply> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
-        let uuid = args.uuid.clone();
-        debug!("Getting NVMe ANA state for nexus {} ...", uuid);
 
-        let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            let ana_state = nexus_lookup(&args.uuid)?.get_ana_state().await?;
-            info!("Got nexus {} NVMe ANA state {:?}", uuid, ana_state);
-            Ok(GetNvmeAnaStateReply {
-                ana_state: ana_state as i32,
-            })
-        })?;
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                let uuid = args.uuid.clone();
+                debug!("Getting NVMe ANA state for nexus {} ...", uuid);
+                let ana_state =
+                    nexus_lookup(&args.uuid)?.get_ana_state().await?;
+                info!("Got nexus {} NVMe ANA state {:?}", uuid, ana_state);
+                Ok(GetNvmeAnaStateReply {
+                    ana_state: ana_state as i32,
+                })
+            })?;
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
+    #[named]
     async fn set_nvme_ana_state(
         &self,
         request: Request<SetNvmeAnaStateRequest>,
     ) -> GrpcResult<Null> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
-        let uuid = args.uuid.clone();
-        debug!("Setting NVMe ANA state for nexus {} ...", uuid);
 
-        let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            let ana_state = nexus::NvmeAnaState::from_i32(args.ana_state)?;
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                let uuid = args.uuid.clone();
+                debug!("Setting NVMe ANA state for nexus {} ...", uuid);
+                let ana_state = nexus::NvmeAnaState::from_i32(args.ana_state)?;
 
-            let ana_state =
-                nexus_lookup(&args.uuid)?.set_ana_state(ana_state).await?;
-            info!("Set nexus {} NVMe ANA state {:?}", uuid, ana_state);
-            Ok(Null {})
-        })?;
+                let ana_state =
+                    nexus_lookup(&args.uuid)?.set_ana_state(ana_state).await?;
+                info!("Set nexus {} NVMe ANA state {:?}", uuid, ana_state);
+                Ok(Null {})
+            })?;
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
     #[named]
@@ -1118,35 +1205,34 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<ChildNexusRequest>,
     ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    let args = request.into_inner();
-                    trace!("{:?}", args);
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                    let onl = match args.action {
-                        1 => Ok(true),
-                        0 => Ok(false),
-                        _ => Err(nexus::Error::InvalidKey {}),
-                    }?;
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
 
-                    let nexus = nexus_lookup(&args.uuid)?;
-                    if onl {
-                        nexus.online_child(&args.uri).await?;
-                    } else {
-                        nexus.offline_child(&args.uri).await?;
-                    }
+                let onl = match args.action {
+                    1 => Ok(true),
+                    0 => Ok(false),
+                    _ => Err(nexus::Error::InvalidKey {}),
+                }?;
 
-                    Ok(Null {})
-                })?;
+                let nexus = nexus_lookup(&args.uuid)?;
+                if onl {
+                    nexus.online_child(&args.uri).await?;
+                } else {
+                    nexus.offline_child(&args.uri).await?;
+                }
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1155,25 +1241,24 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<StartRebuildRequest>,
     ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?
-                        .start_rebuild(&args.uri)
-                        .await
-                        .map(|_| {})?;
-                    Ok(Null {})
-                })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            trace!("{:?}", args);
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&args.uuid)?
+                    .start_rebuild(&args.uri)
+                    .await
+                    .map(|_| {})?;
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1182,23 +1267,22 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<StopRebuildRequest>,
     ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?.stop_rebuild(&args.uri).await?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                    Ok(Null {})
-                })?;
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            trace!("{:?}", args);
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&args.uuid)?.stop_rebuild(&args.uri).await?;
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1207,22 +1291,21 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<PauseRebuildRequest>,
     ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let msg = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&msg.uuid)?.pause_rebuild(&msg.uri).await?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let msg = request.into_inner();
 
-                    Ok(Null {})
-                })?;
+        self.serialized(ctx, msg.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&msg.uuid)?.pause_rebuild(&msg.uri).await?;
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1231,21 +1314,20 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<ResumeRebuildRequest>,
     ) -> GrpcResult<Null> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let msg = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&msg.uuid)?.resume_rebuild(&msg.uri).await?;
-                    Ok(Null {})
-                })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let msg = request.into_inner();
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        self.serialized(ctx, msg.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&msg.uuid)?.resume_rebuild(&msg.uri).await?;
+                Ok(Null {})
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1254,24 +1336,23 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<RebuildStateRequest>,
     ) -> GrpcResult<RebuildStateReply> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    trace!("{:?}", args);
-                    nexus_lookup(&args.uuid)?
-                        .get_rebuild_state(&args.uri)
-                        .await
-                        .map(RebuildStateReply::from)
-                })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                trace!("{:?}", args);
+                nexus_lookup(&args.uuid)?
+                    .get_rebuild_state(&args.uri)
+                    .await
+                    .map(RebuildStateReply::from)
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1280,23 +1361,22 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<RebuildStatsRequest>,
     ) -> GrpcResult<RebuildStatsReply> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?
-                        .get_rebuild_stats(&args.uri)
-                        .await
-                        .map(RebuildStatsReply::from)
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            trace!("{:?}", args);
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&args.uuid)?
+                    .get_rebuild_stats(&args.uri)
+                    .await
+                    .map(RebuildStatsReply::from)
+            })?;
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
@@ -1305,46 +1385,51 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<RebuildProgressRequest>,
     ) -> GrpcResult<RebuildProgressReply> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                trace!("{:?}", args);
-                let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                    nexus_lookup(&args.uuid)?
-                        .get_rebuild_progress(&args.uri)
-                        .map(|p| RebuildProgressReply {
-                            progress: p,
-                        })
-                })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            trace!("{:?}", args);
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&args.uuid)?
+                    .get_rebuild_progress(&args.uri)
+                    .map(|p| RebuildProgressReply {
+                        progress: p,
+                    })
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
         .await
     }
 
+    #[named]
     async fn create_snapshot(
         &self,
         request: Request<CreateSnapshotRequest>,
     ) -> GrpcResult<CreateSnapshotReply> {
-        let rx = rpc_submit::<_, _, nexus::Error>(async {
-            let args = request.into_inner();
-            let uuid = args.uuid.clone();
-            debug!("Creating snapshot on nexus {} ...", uuid);
-            let reply = nexus_lookup(&args.uuid)?.create_snapshot().await?;
-            info!("Created snapshot on nexus {}", uuid);
-            trace!("{:?}", reply);
-            Ok(reply)
-        })?;
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                let uuid = args.uuid.clone();
+                debug!("Creating snapshot on nexus {} ...", uuid);
+                let reply = nexus_lookup(&args.uuid)?.create_snapshot().await?;
+                info!("Created snapshot on nexus {}", uuid);
+                trace!("{:?}", reply);
+                Ok(reply)
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
     }
 
     async fn list_block_devices(

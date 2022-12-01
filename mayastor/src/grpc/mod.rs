@@ -1,11 +1,12 @@
 use std::{
     error::Error,
     fmt::{Debug, Display},
+    time::Duration,
 };
 
 use futures::{channel::oneshot::Receiver, Future};
 pub use server::MayastorGrpcServer;
-use tonic::{Response, Status};
+use tonic::{Request, Response, Status};
 
 use crate::{
     core::{CoreError, Mthread, Reactor},
@@ -49,10 +50,32 @@ pub mod v1 {
     pub mod replica;
 }
 
+/// Default timeout for gRPC calls, in seconds. Should be enforced in case
+/// no timeout is explicitly provided by the client upon gRPC method invocation.
+pub const DEFAULT_GRPC_TIMEOUT_SEC: u64 = 15;
+
 #[derive(Debug)]
 pub(crate) struct GrpcClientContext {
+    /// Method arguments.
     pub args: String,
+    /// Method id.
     pub id: String,
+    /// Method timeout.
+    pub timeout: Duration,
+}
+
+impl GrpcClientContext {
+    #[track_caller]
+    pub fn new<T>(req: &Request<T>, fid: &str) -> Self
+    where
+        T: Debug,
+    {
+        Self {
+            timeout: get_request_timeout(req),
+            args: format!("{:?}", req.get_ref()),
+            id: fid.to_string(),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -129,4 +152,65 @@ pub fn endpoint(endpoint: String) -> std::net::SocketAddr {
     })
     .parse()
     .expect("Invalid gRPC endpoint")
+}
+
+const SECONDS_IN_HOUR: u64 = 60 * 60;
+const SECONDS_IN_MINUTE: u64 = 60;
+
+/// Get gRPC timeout from the request and parse it into a Duration instance.
+/// In case there is no timeout explicitly provided by the gRPC client or
+/// the timeout is malformed, the default timeout is applied.
+pub fn get_request_timeout<T>(req: &Request<T>) -> Duration {
+    match req.metadata().get("grpc-timeout") {
+        Some(v) => {
+            match v.to_str() {
+                // Valid string representation of the timeout exists, parse it.
+                Ok(timeout) => {
+                    // At least one digit for the value + 1 character for unit.
+                    if timeout.len() >= 2 {
+                        let (t_value, t_unit) =
+                            timeout.split_at(timeout.len() - 1);
+                        if let Ok(tv) = t_value.parse() {
+                            return match t_unit {
+                                // Hours
+                                "H" => {
+                                    Duration::from_secs(tv * SECONDS_IN_HOUR)
+                                }
+                                // Minutes
+                                "M" => {
+                                    Duration::from_secs(tv * SECONDS_IN_MINUTE)
+                                }
+                                // Seconds
+                                "S" => Duration::from_secs(tv),
+                                // Milliseconds
+                                "m" => Duration::from_millis(tv),
+                                // Microseconds
+                                "u" => Duration::from_micros(tv),
+                                // Nanoseconds
+                                "n" => Duration::from_nanos(tv),
+                                _ => {
+                                    error!(
+                                        timeout,
+                                        "Unsupported time unit in gRPC timeout, applying default gRPC timeout"
+                                    );
+                                    Duration::from_secs(
+                                        DEFAULT_GRPC_TIMEOUT_SEC,
+                                    )
+                                }
+                            };
+                        }
+                    }
+                    Duration::from_secs(DEFAULT_GRPC_TIMEOUT_SEC)
+                }
+                // Timeout value contains non-ASCII characters and can't
+                // be parsed, apply the default timeout.
+                Err(_) => {
+                    error!("Malformed gRPC timeout provided, applying default gRPC timeout");
+                    Duration::from_secs(DEFAULT_GRPC_TIMEOUT_SEC)
+                }
+            }
+        }
+        // No I/O timeout provided by gRPC client, use the default one.
+        None => Duration::from_secs(DEFAULT_GRPC_TIMEOUT_SEC),
+    }
 }
