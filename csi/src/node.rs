@@ -126,6 +126,8 @@ async fn detach(uuid: &Uuid, errheader: String) -> Result<(), Status> {
             ));
         }
 
+        crate::mount::wait_fs_shutdown(&device_path, None).await?;
+
         if let Err(error) = device.detach().await {
             return Err(failure!(
                 Code::Internal,
