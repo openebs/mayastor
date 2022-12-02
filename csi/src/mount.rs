@@ -322,3 +322,59 @@ pub fn blockdevice_unmount(target: &str) -> Result<(), Error> {
     info!("block device at {} has been unmounted", target);
     Ok(())
 }
+
+/// Waits until a device's filesystem is shutdown.
+/// This is useful to know if it's safe to detach a device from a node or not as
+/// it seems that even after a umount completes the filesystem and more
+/// specifically the filesystem's journal might not be completely shutdown.
+/// Specifically, this waits for the filesystem (eg: ext4) shutdown and the
+/// filesystem's journal shutdown: jbd2.
+pub(crate) async fn wait_fs_shutdown(
+    device: &str,
+    fstype: Option<String>,
+) -> Result<(), Error> {
+    let device_trim = device.replace("/dev/", "");
+
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(2);
+
+    if let Some(fstype) = fstype {
+        let proc_fs_str = format!("/proc/fs/{}/{}", fstype, device_trim);
+        let proc_fs = std::path::Path::new(&proc_fs_str);
+        wait_file_removal(proc_fs, start, timeout).await?;
+    }
+
+    let jbd2_pattern = format!("/proc/fs/jbd2/{}-*", device_trim);
+    let proc_jbd2 = glob::glob(&jbd2_pattern)
+        .expect("valid pattern")
+        .next()
+        .and_then(|v| v.ok());
+    if let Some(proc_jbd2) = proc_jbd2 {
+        wait_file_removal(&proc_jbd2, start, timeout).await?;
+    }
+
+    Ok(())
+}
+
+/// Waits until a file is removed, up to a timeout.
+async fn wait_file_removal(
+    proc: &std::path::Path,
+    start: std::time::Instant,
+    timeout: std::time::Duration,
+) -> Result<(), Error> {
+    let check_interval = std::time::Duration::from_millis(200);
+    let proc_str = proc.to_string_lossy().to_string();
+    let mut exists = proc.exists();
+    while start.elapsed() < timeout && exists {
+        tracing::debug!(proc = %proc_str, "proc entry still exists");
+        tokio::time::sleep(check_interval).await;
+        exists = proc.exists();
+    }
+    match exists {
+        false => Ok(()),
+        true => Err(Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("Timed out waiting for '{}' to be removed", proc_str),
+        )),
+    }
+}
