@@ -20,6 +20,7 @@ mod nexus_nbd;
 mod nexus_persistence;
 mod nexus_share;
 
+use crate::bdev::nexus::nexus_iter::NexusIterMut;
 pub(crate) use nexus_bdev::NEXUS_PRODUCT_ID;
 pub use nexus_bdev::{
     nexus_create,
@@ -129,9 +130,20 @@ pub fn register_module() {
 
 /// called during shutdown so that all nexus children are in Destroying state
 /// so that a possible remove event from SPDK also results in bdev removal
+#[allow(clippy::needless_collect)]
 pub async fn shutdown_nexuses() {
     info!("Shutting down nexuses...");
-    for mut nexus in nexus_iter_mut() {
+
+    // TODO: We need to collect list of Nexuses before destroying them,
+    // because during shutdown SPDK may destroy other Bdev (not Nexus)
+    // asynchrounsly in parallel. Nexus iterator is an SPDK Bdev iterator
+    // internally, so it may become invalid if another Bdev is destroyed
+    // in parallel.
+    // Clippy's complains about that, so it is disabled for this function.
+    let nexuses: Vec<<NexusIterMut<'_> as Iterator>::Item> =
+        nexus_iter_mut().collect();
+
+    for mut nexus in nexuses.into_iter() {
         // Destroy nexus and persist its state in the ETCd.
         if let Err(error) = nexus.as_mut().destroy_ext(true).await {
             error!(
@@ -141,5 +153,6 @@ pub async fn shutdown_nexuses() {
             );
         }
     }
+
     info!("All nexus have been shutdown.");
 }

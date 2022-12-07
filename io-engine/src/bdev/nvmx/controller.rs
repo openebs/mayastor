@@ -1000,14 +1000,13 @@ pub(crate) fn connected_attached_cb(
 }
 
 pub(crate) mod options {
-    use std::{mem::size_of, ptr::copy_nonoverlapping};
+    use spdk_rs::ffihelper::copy_str_with_null;
+    use std::mem::size_of;
 
     use spdk_rs::libspdk::{
         spdk_nvme_ctrlr_get_default_ctrlr_opts,
         spdk_nvme_ctrlr_opts,
     };
-
-    use crate::ffihelper::IntoCString;
 
     /// structure that holds the default NVMe controller options. This is
     /// different from ['NvmeBdevOpts'] as it exposes more control over
@@ -1111,13 +1110,7 @@ pub(crate) mod options {
             }
 
             if let Some(host_nqn) = self.host_nqn {
-                unsafe {
-                    copy_nonoverlapping(
-                        host_nqn.into_cstring().as_ptr(),
-                        &mut opts.0.hostnqn[0],
-                        opts.0.hostnqn.len(),
-                    )
-                };
+                copy_str_with_null(&host_nqn, &mut opts.0.hostnqn);
             }
 
             opts
@@ -1143,11 +1136,12 @@ pub(crate) mod options {
 }
 
 pub(crate) mod transport {
-    use std::{ffi::CStr, fmt::Debug, ptr::copy_nonoverlapping};
+    use std::{ffi::CStr, fmt::Debug};
 
-    use libc::c_void;
-
-    use spdk_rs::libspdk::spdk_nvme_transport_id;
+    use spdk_rs::{
+        ffihelper::copy_str_with_null,
+        libspdk::spdk_nvme_transport_id,
+    };
 
     pub struct NvmeTransportId(spdk_nvme_transport_id);
 
@@ -1281,29 +1275,10 @@ pub(crate) mod transport {
                 ..Default::default()
             };
 
-            unsafe {
-                copy_nonoverlapping(
-                    trtype.as_ptr().cast(),
-                    &mut trid.trstring[0] as *const _ as *mut c_void,
-                    trtype.len(),
-                );
-
-                copy_nonoverlapping(
-                    self.traddr.as_ptr().cast(),
-                    &mut trid.traddr[0] as *const _ as *mut c_void,
-                    self.traddr.len(),
-                );
-                copy_nonoverlapping(
-                    self.svcid.as_ptr() as *const c_void,
-                    &mut trid.trsvcid[0] as *const _ as *mut c_void,
-                    self.svcid.len(),
-                );
-                copy_nonoverlapping(
-                    self.subnqn.as_ptr() as *const c_void,
-                    &mut trid.subnqn[0] as *const _ as *mut c_void,
-                    self.subnqn.len(),
-                );
-            };
+            copy_str_with_null(&trtype, &mut trid.trstring);
+            copy_str_with_null(&self.traddr, &mut trid.traddr);
+            copy_str_with_null(&self.svcid, &mut trid.trsvcid);
+            copy_str_with_null(&self.subnqn, &mut trid.subnqn);
 
             NvmeTransportId(trid)
         }

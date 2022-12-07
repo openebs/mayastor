@@ -3,7 +3,6 @@ use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
     os::raw::{c_char, c_int, c_ulong, c_void},
-    ptr::copy_nonoverlapping,
 };
 
 use async_trait::async_trait;
@@ -11,14 +10,17 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_rs::libspdk::{
-    bdev_nvme_create,
-    bdev_nvme_delete,
-    spdk_nvme_transport_id,
-    SPDK_NVME_IO_FLAGS_PRCHK_GUARD,
-    SPDK_NVME_IO_FLAGS_PRCHK_REFTAG,
-    SPDK_NVME_TRANSPORT_TCP,
-    SPDK_NVMF_ADRFAM_IPV4,
+use spdk_rs::{
+    ffihelper::copy_str_with_null,
+    libspdk::{
+        bdev_nvme_create,
+        bdev_nvme_delete,
+        spdk_nvme_transport_id,
+        SPDK_NVME_IO_FLAGS_PRCHK_GUARD,
+        SPDK_NVME_IO_FLAGS_PRCHK_REFTAG,
+        SPDK_NVME_TRANSPORT_TCP,
+        SPDK_NVMF_ADRFAM_IPV4,
+    },
 };
 
 use crate::{
@@ -275,28 +277,10 @@ impl NvmeCreateContext {
 
         let mut trid = spdk_nvme_transport_id::default();
 
-        unsafe {
-            copy_nonoverlapping(
-                protocol.as_ptr() as *const c_void,
-                &mut trid.trstring[0] as *const _ as *mut c_void,
-                protocol.len(),
-            );
-            copy_nonoverlapping(
-                nvmf.host.as_ptr() as *const c_void,
-                &mut trid.traddr[0] as *const _ as *mut c_void,
-                nvmf.host.len(),
-            );
-            copy_nonoverlapping(
-                port.as_ptr() as *const c_void,
-                &mut trid.trsvcid[0] as *const _ as *mut c_void,
-                port.len(),
-            );
-            copy_nonoverlapping(
-                nvmf.subnqn.as_ptr() as *const c_void,
-                &mut trid.subnqn[0] as *const _ as *mut c_void,
-                nvmf.subnqn.len(),
-            );
-        }
+        copy_str_with_null(protocol, &mut trid.trstring);
+        copy_str_with_null(&nvmf.host, &mut trid.traddr);
+        copy_str_with_null(&port, &mut trid.trsvcid);
+        copy_str_with_null(&nvmf.subnqn, &mut trid.subnqn);
 
         trid.trtype = SPDK_NVME_TRANSPORT_TCP;
         trid.adrfam = SPDK_NVMF_ADRFAM_IPV4;

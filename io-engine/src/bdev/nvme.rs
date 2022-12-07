@@ -2,7 +2,6 @@ use std::{
     convert::TryFrom,
     ffi::CStr,
     os::raw::{c_char, c_int, c_ulong, c_void},
-    ptr::copy_nonoverlapping,
 };
 
 use async_trait::async_trait;
@@ -10,10 +9,9 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_rs::libspdk::{
-    bdev_nvme_create,
-    bdev_nvme_delete,
-    spdk_nvme_transport_id,
+use spdk_rs::{
+    ffihelper::copy_str_with_null,
+    libspdk::{bdev_nvme_create, bdev_nvme_delete, spdk_nvme_transport_id},
 };
 
 use crate::{
@@ -164,14 +162,7 @@ unsafe impl Send for NvmeCreateContext {}
 impl NvmeCreateContext {
     pub fn new(nvme: &NVMe) -> NvmeCreateContext {
         let mut trid = spdk_nvme_transport_id::default();
-        unsafe {
-            copy_nonoverlapping(
-                nvme.name.as_ptr() as *const c_void,
-                &mut trid.traddr[0] as *const _ as *mut c_void,
-                nvme.name.len(),
-            );
-        }
-
+        copy_str_with_null(&nvme.name, &mut trid.traddr);
         trid.trtype = spdk_rs::libspdk::SPDK_NVME_TRANSPORT_PCIE;
 
         NvmeCreateContext {
