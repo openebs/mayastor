@@ -1,25 +1,35 @@
 /* I/O channel for NVMe controller, one per core. */
 
-use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
+use std::{
+    cmp::max,
+    mem::size_of,
+    os::raw::c_void,
+    ptr::NonNull,
+    time::Duration,
+};
 
-use spdk_rs::libspdk::{
-    nvme_qpair_abort_all_queued_reqs,
-    nvme_transport_qpair_abort_reqs,
-    spdk_io_channel,
-    spdk_nvme_ctrlr_alloc_io_qpair,
-    spdk_nvme_ctrlr_connect_io_qpair,
-    spdk_nvme_ctrlr_disconnect_io_qpair,
-    spdk_nvme_ctrlr_free_io_qpair,
-    spdk_nvme_ctrlr_get_default_io_qpair_opts,
-    spdk_nvme_io_qpair_opts,
-    spdk_nvme_poll_group,
-    spdk_nvme_poll_group_add,
-    spdk_nvme_poll_group_create,
-    spdk_nvme_poll_group_destroy,
-    spdk_nvme_poll_group_process_completions,
-    spdk_nvme_poll_group_remove,
-    spdk_nvme_qpair,
-    spdk_put_io_channel,
+use spdk_rs::{
+    libspdk::{
+        nvme_qpair_abort_all_queued_reqs,
+        nvme_transport_qpair_abort_reqs,
+        spdk_io_channel,
+        spdk_nvme_ctrlr_alloc_io_qpair,
+        spdk_nvme_ctrlr_connect_io_qpair,
+        spdk_nvme_ctrlr_disconnect_io_qpair,
+        spdk_nvme_ctrlr_free_io_qpair,
+        spdk_nvme_ctrlr_get_default_io_qpair_opts,
+        spdk_nvme_io_qpair_opts,
+        spdk_nvme_poll_group,
+        spdk_nvme_poll_group_add,
+        spdk_nvme_poll_group_create,
+        spdk_nvme_poll_group_destroy,
+        spdk_nvme_poll_group_process_completions,
+        spdk_nvme_poll_group_remove,
+        spdk_nvme_qpair,
+        spdk_put_io_channel,
+    },
+    Poller,
+    PollerBuilder,
 };
 
 use crate::{
@@ -32,7 +42,7 @@ use crate::{
             NVME_CONTROLLERS,
         },
     },
-    core::{poller, BlockDevice, BlockDeviceIoStats, CoreError, IoType},
+    core::{BlockDevice, BlockDeviceIoStats, CoreError, IoType},
 };
 
 #[repr(C)]
@@ -265,7 +275,7 @@ impl std::fmt::Debug for NvmeIoChannelInner<'_> {
 pub struct NvmeIoChannelInner<'a> {
     pub qpair: Option<IoQpair>,
     poll_group: PollGroup,
-    poller: poller::Poller<'a>,
+    poller: Poller<'a>,
     io_stats_controller: IoStatsController,
     pub device: Box<dyn BlockDevice>,
     /// to prevent the controller from being destroyed before the channel
@@ -578,9 +588,11 @@ impl NvmeControllerIoChannel {
         }
 
         // Create poller.
-        let poller = poller::Builder::new()
-            .with_interval(nvme_bdev_running_config().nvme_ioq_poll_period_us)
-            .with_poll_fn(move || nvme_poll(ctx))
+        let poller = PollerBuilder::new()
+            .with_interval(Duration::from_micros(
+                nvme_bdev_running_config().nvme_ioq_poll_period_us,
+            ))
+            .with_poll_fn(move |_| nvme_poll(ctx))
             .build();
 
         // Connect qpair.

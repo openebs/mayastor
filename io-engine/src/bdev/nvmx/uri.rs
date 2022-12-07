@@ -15,19 +15,24 @@ use std::{
     ffi::c_void,
     ptr::NonNull,
     sync::Arc,
+    time::Duration,
 };
 use url::Url;
 use uuid::Uuid;
 
 use controller::options::NvmeControllerOpts;
-use poller::Poller;
-use spdk_rs::libspdk::{
-    spdk_nvme_connect_async,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_opts,
-    spdk_nvme_probe_ctx,
-    spdk_nvme_probe_poll_async,
-    spdk_nvme_transport_id,
+
+use spdk_rs::{
+    libspdk::{
+        spdk_nvme_connect_async,
+        spdk_nvme_ctrlr,
+        spdk_nvme_ctrlr_opts,
+        spdk_nvme_probe_ctx,
+        spdk_nvme_probe_poll_async,
+        spdk_nvme_transport_id,
+    },
+    Poller,
+    PollerBuilder,
 };
 
 use crate::{
@@ -44,7 +49,7 @@ use crate::{
     },
     bdev_api::{self, BdevError},
     constants::NVME_NQN_PREFIX,
-    core::{poller, MayastorEnvironment},
+    core::MayastorEnvironment,
     ffihelper::ErrnoResult,
     subsys::Config,
 };
@@ -329,10 +334,10 @@ impl CreateDestroy for NvmfDeviceTemplate {
             name: self.get_name(),
         };
 
-        let poller = poller::Builder::new()
+        let poller = PollerBuilder::new()
             .with_name("nvme_async_probe_poller")
-            .with_interval(1000) // poll every 1 second
-            .with_poll_fn(move || unsafe {
+            .with_interval(Duration::from_micros(1000)) // poll every 1 ms
+            .with_poll_fn(move |_| unsafe {
                 let context =
                     &mut *(attach_cb_ctx.cb_ctx as *mut NvmeControllerContext);
 

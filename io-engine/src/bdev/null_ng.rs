@@ -1,4 +1,4 @@
-use std::{cell::RefCell, marker::PhantomData, pin::Pin};
+use std::{cell::RefCell, marker::PhantomData, pin::Pin, time::Duration};
 
 use spdk_rs::{
     BdevIo,
@@ -16,10 +16,14 @@ use spdk_rs::{
 const NULL_MODULE_NAME: &str = "NullNg";
 
 /// Poller data for Null Bdev.
+#[derive(Default)]
+#[allow(clippy::non_send_fields_in_send_ty)]
 struct NullIoPollerData<'a> {
     iovs: RefCell<Vec<BdevIo<NullIoDevice<'a>>>>,
     _my_num: f64,
 }
+
+unsafe impl<'a> Send for NullIoPollerData<'a> {}
 
 /// Per-core channel data.
 struct NullIoChannelData<'a> {
@@ -30,7 +34,7 @@ struct NullIoChannelData<'a> {
 impl NullIoChannelData<'_> {
     fn new(some_value: i64) -> Self {
         let poller = PollerBuilder::new()
-            .with_interval(1000)
+            .with_interval(Duration::from_micros(1000))
             .with_data(NullIoPollerData {
                 iovs: RefCell::new(Vec::new()),
                 _my_num: 77.77 + some_value as f64,
