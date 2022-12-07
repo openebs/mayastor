@@ -32,6 +32,8 @@
 , pkgs
 , gcc
 , zlib
+, autoconf
+, automake
 , with-fio
 , multi-outputs ? false
 }:
@@ -54,13 +56,13 @@ let
   # 7. Copy SHA256 from 'got' of the error message to 'sha256' field.
   # 8. 'nix-shell' build must now succeed.
   drvAttrs = rec {
-    version = "22.05-1832390a5";
+    version = "22.09-2324cb662";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "97894667d54e13899ac5f08fe0d113e8e60c6251";
-      sha256 = "sha256:1h6xncdclqmcy3ab7nmx6q1fgw15rflgwysfq6lf1zrmm146khh8";
+      rev = "2324cb66238a1b50dfb3214121e51075c59451a7";
+      sha256 = "sha256-1pTqCmF2syODxzxn/LTNzvQdIC2UmB22V4UiMbItm4g=";
       fetchSubmodules = true;
     };
 
@@ -86,6 +88,9 @@ let
       libtool
       liburing
       libuuid
+      autoconf
+      automake
+      yasm
       nasm
       ncurses
       numactl
@@ -109,14 +114,23 @@ let
     (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else [ ]) ++
     (if with-fio then [ "--with-fio=${fio-include}" ] else [ ]) ++
     [
-      "--without-isal"
+      "--without-shared"
       "--with-uring"
       "--disable-unit-tests"
       "--disable-tests"
     ];
 
+    configureFlagsDebug = builtins.concatStringsSep " " (configureFlags ++
+    [
+      "--enable-debug"
+    ]);
+
     configurePhase = ''
       patchShebangs ./. > /dev/null
+      AS=yasm
+      echo "SPDK ver. ${version}"
+      echo "SPDK configure flags (debug build): "
+      echo ${configureFlags}
       ./configure ${builtins.concatStringsSep " " configureFlags}
     '';
     enableParallelBuilding = true;
@@ -161,6 +175,7 @@ let
       install -v dpdk/build/lib/pkgconfig/*.pc   $out/lib/pkgconfig/
     '' + lib.optionalString targetPlatform.isx86_64 ''
       install -v intel-ipsec-mb/lib/*.a          $out/lib/
+      install -v isa-l/.libs/*.a                 $out/lib/
 
       # fix paths in pkg config files
       build_dir=`pwd`
@@ -170,6 +185,7 @@ let
         sed -i "s,$build_dir/build/lib,$out/lib,g" $i
         sed -i "s,$build_dir/dpdk/build,$out,g" $i
         sed -i "s,$build_dir/intel-ipsec-mb/lib,$out/lib,g" $i
+        sed -i "s,$build_dir/isa-l/.libs,$out/lib,g" $i
       done
     '' + lib.optionalString (with-fio && !multi-outputs) ''
       mkdir $out/fio
@@ -194,10 +210,11 @@ in
     buildInputs = drvAttrs.buildInputs ++ [ cunit lcov ];
     configurePhase = ''
       patchShebangs ./. > /dev/null
-      ./configure ${builtins.concatStringsSep " " (drvAttrs.configureFlags ++
-      [
-        "--enable-debug"
-      ])}
+      AS=yasm
+      echo "SPDK ver. ${drvAttrs.version}"
+      echo "SPDK configure flags (debug build): "
+      echo ${drvAttrs.configureFlagsDebug}
+      ./configure ${drvAttrs.configureFlagsDebug}
     '';
     installPhase = drvAttrs.installPhase + ''
       echo "Copying test files"

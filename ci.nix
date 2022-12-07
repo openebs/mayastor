@@ -54,6 +54,9 @@ mkShell {
     xfsprogs
     gnuplot
     libunwind
+    autoconf
+    automake
+    yasm
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
   ++ pkgs.lib.optional (!norust) channel.stable
   ++ pkgs.lib.optional (!norust) channel.nightly;

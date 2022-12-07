@@ -197,12 +197,14 @@ impl From<NvmfTcpTransportOpts> for spdk_nvmf_transport_opts {
             num_shared_buffers: o.num_shared_buf,
             buf_cache_size: o.buf_cache_size,
             dif_insert_or_strip: o.dif_insert_or_strip,
+            reserved29: Default::default(),
             abort_timeout_sec: o.abort_timeout_sec,
             association_timeout: 120000,
             transport_specific: std::ptr::null(),
             opts_size: std::mem::size_of::<spdk_nvmf_transport_opts>() as u64,
             acceptor_poll_rate: o.acceptor_poll_rate,
             zcopy: o.zcopy,
+            reserved61: Default::default(),
         }
     }
 }
@@ -417,6 +419,7 @@ impl From<&BdevOpts> for spdk_bdev_opts {
             bdev_io_pool_size: o.bdev_io_pool_size,
             bdev_io_cache_size: o.bdev_io_cache_size,
             bdev_auto_examine: false,
+            reserved9: Default::default(),
             opts_size: std::mem::size_of::<spdk_bdev_opts>() as u64,
             small_buf_pool_size: o.small_buf_pool_size,
             large_buf_pool_size: o.large_buf_pool_size,
@@ -501,6 +504,10 @@ impl GetOpts for PosixSocketOpts {
             enable_zerocopy_send_server: self.enable_zerocopy_send_server,
             enable_zerocopy_send_client: self.enable_zerocopy_send_client,
             zerocopy_threshold: self.zerocopy_threshold,
+            tls_version: 0,
+            enable_ktls: false,
+            psk_key: std::ptr::null_mut(),
+            psk_identity: std::ptr::null_mut(),
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;

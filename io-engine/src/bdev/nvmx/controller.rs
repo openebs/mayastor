@@ -1156,8 +1156,13 @@ pub(crate) mod options {
                 .with_transport_retry_count(1)
                 .build();
 
-            assert_eq!(opts.0.admin_timeout_ms, 1);
-            assert_eq!(opts.0.fabrics_connect_timeout_us, 1);
+            // Cannot access these fields directly in assert macro because they
+            // are unaligned.
+            let admin_timeout_ms = opts.0.admin_timeout_ms;
+            let fabrics_connect_timeout_us = opts.0.fabrics_connect_timeout_us;
+
+            assert_eq!(admin_timeout_ms, 1);
+            assert_eq!(fabrics_connect_timeout_us, 1);
             assert_eq!(opts.0.transport_retry_count, 1);
         }
     }

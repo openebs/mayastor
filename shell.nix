@@ -32,6 +32,7 @@ mkShell {
     libpcap
     libudev
     liburing
+    libunwind
     llvmPackages_11.libclang
     meson
     ninja
@@ -46,7 +47,9 @@ mkShell {
     python3
     utillinux
     gnuplot
-    libunwind
+    autoconf
+    automake
+    yasm
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
 
   LIBCLANG_PATH = io-engine.LIBCLANG_PATH;
