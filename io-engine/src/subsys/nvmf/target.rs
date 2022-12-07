@@ -297,7 +297,10 @@ impl Target {
         discovery.allow_any(true);
 
         Reactor::block_on(async {
-            let _ = discovery.start().await.unwrap();
+            let nqn = discovery.get_nqn();
+            if let Err(e) = discovery.start().await {
+                error!("Error starting subsystem '{}': {}", nqn, e.to_string());
+            }
         });
     }
 

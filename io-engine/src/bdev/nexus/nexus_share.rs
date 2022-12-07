@@ -7,7 +7,6 @@ use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
 
 use crate::core::{Protocol, Share, ShareProps, UpdateProps};
 
-#[async_trait(? Send)]
 ///
 /// The sharing of the nexus is different compared to regular bdevs
 /// the Impl of ['Share'] handles this accordingly
@@ -16,6 +15,7 @@ use crate::core::{Protocol, Share, ShareProps, UpdateProps};
 /// endpoints (not targets) however, we want to avoid too many
 /// protocol specifics and for bdevs the need for different endpoints
 /// is not implemented yet as the need for it has not arrived yet.
+#[async_trait(? Send)]
 impl<'n> Share for Nexus<'n> {
     type Error = Error;
     type Output = String;
@@ -24,8 +24,10 @@ impl<'n> Share for Nexus<'n> {
         mut self: Pin<&mut Self>,
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
-        match self.shared() {
+        let uri = match self.shared() {
             Some(Protocol::Off) | None => {
+                info!("{:?}: sharing NVMF target...", self);
+
                 let name = self.name.clone();
                 self.as_mut()
                     .pin_bdev_mut()
@@ -34,10 +36,19 @@ impl<'n> Share for Nexus<'n> {
                     .context(nexus_err::ShareNvmfNexus {
                         name,
                     })?;
+
+                let uri = self.share_uri().unwrap();
+                info!("{:?}: shared NVMF target as '{}'", self, uri);
+                uri
             }
-            Some(Protocol::Nvmf) => {}
-        }
-        Ok(self.share_uri().unwrap())
+            Some(Protocol::Nvmf) => {
+                let uri = self.share_uri().unwrap();
+                info!("{:?}: already shared as '{}'", self, uri);
+                uri
+            }
+        };
+
+        Ok(uri)
     }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(
@@ -53,16 +64,19 @@ impl<'n> Share for Nexus<'n> {
     }
 
     /// TODO
-    async fn unshare(
-        self: Pin<&mut Self>,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
+        info!("{:?}: unsharing nexus bdev...", self);
+
         let name = self.name.clone();
-        self.pin_bdev_mut()
-            .unshare()
-            .await
-            .context(nexus_err::UnshareNexus {
+        self.as_mut().pin_bdev_mut().unshare().await.context(
+            nexus_err::UnshareNexus {
                 name,
-            })
+            },
+        )?;
+
+        info!("{:?}: unshared nexus bdev", self);
+
+        Ok(())
     }
 
     /// TODO
@@ -108,6 +122,7 @@ impl<'n> Nexus<'n> {
     ) -> Result<String, Error> {
         self.share_ext(protocol, key, vec![]).await
     }
+
     /// TODO
     pub async fn share_ext(
         mut self: Pin<&mut Self>,
@@ -183,34 +198,21 @@ impl<'n> Nexus<'n> {
 
     /// TODO
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
-        info!("{:?}: unsharing nexus...", self);
-        unsafe {
-            match self.as_mut().get_unchecked_mut().nexus_target.take() {
-                Some(NexusTarget::NbdDisk(disk)) => {
-                    disk.destroy();
-                }
-                Some(NexusTarget::NexusNvmfTarget) => {
-                    self.as_mut().unshare().await?;
-                }
-                None => {
-                    info!("{:?}: not shared", self);
-                }
+        match unsafe { self.as_mut().get_unchecked_mut().nexus_target.take() } {
+            Some(NexusTarget::NbdDisk(disk)) => {
+                info!("{:?}: destroying NBD device target...", self);
+                disk.destroy();
+            }
+            Some(NexusTarget::NexusNvmfTarget) => {
+                info!("{:?}: unsharing NVMF target...", self);
+            }
+            None => {
+                // Try unshare nexus bdev anyway, just in case it was shared
+                // via bdev API. It is no-op if bdev was not shared.
             }
         }
 
-        Ok(())
-    }
-
-    /// Shutdowns all shares.
-    pub(crate) async fn destroy_shares(
-        mut self: Pin<&mut Self>,
-    ) -> Result<(), Error> {
-        let _ = self.as_mut().unshare_nexus().await;
-        assert_eq!(self.share_handle, None);
-
-        // no-op when not shared and will be removed once the old share bits are
-        // gone. Ignore device name provided in case of successful unsharing.
-        self.as_mut().unshare().await.map(|_| ())
+        self.as_mut().unshare().await
     }
 
     /// TODO

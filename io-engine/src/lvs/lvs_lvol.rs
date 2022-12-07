@@ -201,21 +201,18 @@ impl Share for Lvol {
     }
 
     /// unshare the nvmf target
-    async fn unshare(
-        mut self: Pin<&mut Self>,
-    ) -> Result<Self::Output, Self::Error> {
-        let share =
-            Pin::new(&mut self.as_bdev()).unshare().await.map_err(|e| {
-                Error::LvolUnShare {
-                    source: e,
-                    name: self.name(),
-                }
-            })?;
+    async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
+        Pin::new(&mut self.as_bdev()).unshare().await.map_err(|e| {
+            Error::LvolUnShare {
+                source: e,
+                name: self.name(),
+            }
+        })?;
 
         self.as_mut().set(PropValue::Shared(false)).await?;
 
         info!("{:?}: unshared ", self);
-        Ok(share)
+        Ok(())
     }
 
     /// return the protocol this bdev is shared under
