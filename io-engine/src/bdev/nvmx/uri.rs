@@ -336,7 +336,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
         let poller = PollerBuilder::new()
             .with_name("nvme_async_probe_poller")
-            .with_interval(Duration::from_micros(1000)) // poll every 1 ms
+            .with_interval(Duration::from_micros(1000))
             .with_poll_fn(move |_| unsafe {
                 let context =
                     &mut *(attach_cb_ctx.cb_ctx as *mut NvmeControllerContext);
