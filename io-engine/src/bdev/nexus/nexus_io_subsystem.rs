@@ -120,7 +120,13 @@ impl<'n> NexusIoSubsystem<'n> {
                                 subsystem.get_nqn()
                             );
 
-                            subsystem.pause().await.unwrap();
+                            if let Err(e) = subsystem.pause().await {
+                                panic!(
+                                    "Failed to pause subsystem '{}: {}",
+                                    subsystem.get_nqn(),
+                                    e
+                                );
+                            }
 
                             trace!(
                                 "{:?}: subsystem '{}' paused",
@@ -238,7 +244,13 @@ impl<'n> NexusIoSubsystem<'n> {
                                 subsystem.get_nqn()
                             );
 
-                            subsystem.resume().await.unwrap();
+                            if let Err(e) = subsystem.resume().await {
+                                panic!(
+                                    "Failed to resume subsystem '{}: {}",
+                                    subsystem.get_nqn(),
+                                    e
+                                );
+                            }
 
                             trace!(
                                 "{:?}: subsystem '{}' resumed",

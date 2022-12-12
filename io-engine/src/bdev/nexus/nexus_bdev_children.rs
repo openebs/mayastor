@@ -927,9 +927,9 @@ impl<'n> Nexus<'n> {
         }
 
         debug!("{:?}: resuming...", self);
-        let r = self.as_mut().resume().await;
+        let r = self.as_mut().resume().await?;
         debug!("{:?}: resuming ok", self);
-        r
+        Ok(r)
     }
 
     // TODO
