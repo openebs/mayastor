@@ -2,22 +2,24 @@
 //! types. Naturally this is a good reason, but it means we have to copy things
 //! around. If the structures change, we will know about it because we use the
 //! from trait, and we are not allowed to skip or use different types.
-use std::ptr::copy_nonoverlapping;
 
 use serde::{Deserialize, Serialize};
 
-use spdk_rs::libspdk::{
-    bdev_nvme_get_opts,
-    bdev_nvme_set_opts,
-    spdk_bdev_get_opts,
-    spdk_bdev_nvme_opts,
-    spdk_bdev_opts,
-    spdk_bdev_set_opts,
-    spdk_nvmf_target_opts,
-    spdk_nvmf_transport_opts,
-    spdk_sock_impl_get_opts,
-    spdk_sock_impl_opts,
-    spdk_sock_impl_set_opts,
+use spdk_rs::{
+    ffihelper::copy_str_with_null,
+    libspdk::{
+        bdev_nvme_get_opts,
+        bdev_nvme_set_opts,
+        spdk_bdev_get_opts,
+        spdk_bdev_nvme_opts,
+        spdk_bdev_opts,
+        spdk_bdev_set_opts,
+        spdk_nvmf_target_opts,
+        spdk_nvmf_transport_opts,
+        spdk_sock_impl_get_opts,
+        spdk_sock_impl_opts,
+        spdk_sock_impl_set_opts,
+    },
 };
 
 use std::{
@@ -83,13 +85,7 @@ pub struct NvmfTgtConfig {
 impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
     fn from(o: NvmfTgtConfig) -> Self {
         let mut out = Self::default();
-        unsafe {
-            copy_nonoverlapping(
-                o.name.as_ptr(),
-                &mut out.name[0] as *const _ as *mut _,
-                256,
-            )
-        };
+        copy_str_with_null(&o.name, &mut out.name);
         out.max_subsystems = o.max_namespaces;
         out
     }

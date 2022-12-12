@@ -2,32 +2,27 @@ use std::{
     ffi::CString,
     fmt::{Debug, Display, Formatter},
     ops::{Deref, DerefMut},
-    ptr::copy_nonoverlapping,
 };
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::Lazy;
 
-use spdk_rs::libspdk::{
-    spdk_nvme_transport_id,
-    spdk_nvmf_tgt_add_transport,
-    spdk_nvmf_transport_create,
-    SPDK_NVME_TRANSPORT_TCP,
-    SPDK_NVMF_ADRFAM_IPV4,
-    SPDK_NVMF_TRSVCID_MAX_LEN,
+use spdk_rs::{
+    ffihelper::{copy_cstr_with_null, copy_str_with_null},
+    libspdk::{
+        spdk_nvme_transport_id,
+        spdk_nvmf_tgt_add_transport,
+        spdk_nvmf_transport_create,
+        SPDK_NVME_TRANSPORT_TCP,
+        SPDK_NVMF_ADRFAM_IPV4,
+        SPDK_NVMF_TRSVCID_MAX_LEN,
+    },
 };
 
 use crate::{
     core::MayastorEnvironment,
-    ffihelper::{
-        cb_arg,
-        done_errno_cb,
-        AsStr,
-        ErrnoResult,
-        FfiResult,
-        IntoCString,
-    },
+    ffihelper::{cb_arg, done_errno_cb, AsStr, ErrnoResult, FfiResult},
     subsys::{
         nvmf::{Error, NVMF_TGT},
         Config,
@@ -92,29 +87,13 @@ impl TransportId {
             ..Default::default()
         };
 
-        let c_addr = address.into_cstring();
         let port = format!("{}", port);
-
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
-        let c_port = port.into_cstring();
 
-        unsafe {
-            copy_nonoverlapping(
-                TCP_TRANSPORT.as_ptr(),
-                &mut trid.trstring[0],
-                trid.trstring.len(),
-            );
-            copy_nonoverlapping(
-                c_addr.as_ptr(),
-                &mut trid.traddr[0],
-                c_addr.as_bytes().len(),
-            );
-            copy_nonoverlapping(
-                c_port.as_ptr(),
-                &mut trid.trsvcid[0],
-                c_port.as_bytes().len(),
-            );
-        }
+        copy_cstr_with_null(&TCP_TRANSPORT, &mut trid.trstring);
+        copy_str_with_null(&address, &mut trid.traddr);
+        copy_str_with_null(&port, &mut trid.trsvcid);
+
         Self(trid)
     }
 
