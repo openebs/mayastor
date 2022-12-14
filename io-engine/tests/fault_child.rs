@@ -1,5 +1,5 @@
 use io_engine::{
-    bdev::nexus::{nexus_create, nexus_lookup_mut, Reason},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::MayastorCliArgs,
 };
 
@@ -21,17 +21,9 @@ async fn fault_child() {
         // child will stay in a degraded state because we are not rebuilding
         nexus.as_mut().add_child(CHILD_2, true).await.unwrap();
         // it should not be possible to fault the only healthy child
-        assert!(nexus
-            .as_mut()
-            .fault_child(CHILD_1, Reason::Unknown)
-            .await
-            .is_err());
+        assert!(nexus.as_mut().fault_child_legacy(CHILD_1).await.is_err());
         // it should be possible to fault an unhealthy child
-        assert!(nexus
-            .as_mut()
-            .fault_child(CHILD_2, Reason::Unknown)
-            .await
-            .is_ok());
+        assert!(nexus.as_mut().fault_child_legacy(CHILD_2).await.is_ok());
     })
     .await;
 }

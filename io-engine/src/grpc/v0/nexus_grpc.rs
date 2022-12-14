@@ -1,5 +1,6 @@
 ///! Helpers related to nexus grpc methods.
 use mayastor_api::v0 as rpc;
+use rpc::{ChildState, ChildStateReason};
 use std::{convert::From, pin::Pin};
 use uuid::Uuid;
 
@@ -9,13 +10,13 @@ use crate::{
         nexus::{
             nexus_lookup_mut,
             nexus_lookup_uuid_mut,
-            ChildState,
+            ChildStateClient,
+            FaultReason,
             Nexus,
             NexusChild,
             NexusPtpl,
             NexusStatus,
             NvmeAnaState,
-            Reason,
         },
         PtplFileOps,
     },
@@ -23,56 +24,46 @@ use crate::{
     rebuild::RebuildJob,
 };
 
-/// Map the internal child states into rpc child states (i.e. the states that
-/// the control plane sees)
-impl From<&NexusChild<'_>> for rpc::ChildState {
-    fn from(child: &NexusChild) -> Self {
-        if child.is_opened_unsync() {
-            return rpc::ChildState::ChildDegraded;
-        }
+fn map_fault_reason(r: FaultReason) -> ChildStateReason {
+    use ChildStateReason::*;
 
-        match child.state() {
-            ChildState::Init => rpc::ChildState::ChildDegraded,
-            ChildState::ConfigInvalid => rpc::ChildState::ChildFaulted,
-            ChildState::Open => rpc::ChildState::ChildOnline,
-            ChildState::Destroying => rpc::ChildState::ChildDegraded,
-            ChildState::Closed => rpc::ChildState::ChildDegraded,
-            ChildState::Faulted(reason) => match reason {
-                Reason::NoSpace => rpc::ChildState::ChildDegraded,
-                Reason::TimedOut => rpc::ChildState::ChildDegraded,
-                Reason::Unknown => rpc::ChildState::ChildFaulted,
-                Reason::CantOpen => rpc::ChildState::ChildFaulted,
-                Reason::RebuildFailed => rpc::ChildState::ChildFaulted,
-                Reason::IoError => rpc::ChildState::ChildFaulted,
-                Reason::ByClient => rpc::ChildState::ChildFaulted,
-                Reason::AdminCommandFailed => rpc::ChildState::ChildFaulted,
-            },
-        }
+    match r {
+        FaultReason::Unknown => None,
+        FaultReason::CantOpen => CannotOpen,
+        FaultReason::NoSpace => NoSpace,
+        FaultReason::TimedOut => TimedOut,
+        FaultReason::IoError => IoFailure,
+        FaultReason::Offline => ByClient,
+        FaultReason::RebuildFailed => RebuildFailed,
+        FaultReason::AdminCommandFailed => AdminFailed,
+        FaultReason::OfflinePermanent => ByClient,
     }
 }
-impl From<&NexusChild<'_>> for rpc::ChildStateReason {
-    fn from(child: &NexusChild) -> Self {
-        if child.is_opened_unsync() {
-            return Self::OutOfSync;
-        }
 
-        match child.state() {
-            ChildState::Init => Self::Init,
-            ChildState::ConfigInvalid => Self::ConfigInvalid,
-            ChildState::Open => Self::None,
-            ChildState::Destroying => Self::Closed,
-            ChildState::Closed => Self::Closed,
-            ChildState::Faulted(reason) => match reason {
-                Reason::NoSpace => Self::NoSpace,
-                Reason::TimedOut => Self::TimedOut,
-                Reason::Unknown => Self::None,
-                Reason::CantOpen => Self::CannotOpen,
-                Reason::RebuildFailed => Self::RebuildFailed,
-                Reason::IoError => Self::IoFailure,
-                Reason::ByClient => Self::ByClient,
-                Reason::AdminCommandFailed => Self::AdminFailed,
+fn map_child_state(child: &NexusChild) -> (ChildState, ChildStateReason) {
+    use ChildState::{
+        ChildDegraded as Degraded,
+        ChildFaulted as Faulted,
+        ChildOnline as Online,
+        ChildUnknown as Unknown,
+    };
+    use ChildStateReason::*;
+
+    match child.state_client() {
+        ChildStateClient::Init => (Degraded, Init),
+        ChildStateClient::ConfigInvalid => (Faulted, ConfigInvalid),
+        ChildStateClient::Open => (Online, None),
+        ChildStateClient::Closed => (Degraded, Closed),
+        ChildStateClient::Faulted(r) => (
+            match r {
+                FaultReason::IoError => Faulted,
+                s if s.is_recoverable() => Degraded,
+                _ => Faulted,
             },
-        }
+            map_fault_reason(r),
+        ),
+        ChildStateClient::Faulting(r) => (Unknown, map_fault_reason(r)),
+        ChildStateClient::OutOfSync => (Degraded, OutOfSync),
     }
 }
 
@@ -117,11 +108,12 @@ impl<'c> NexusChild<'c> {
     /// We cannot use From trait because it is not value to value conversion.
     /// All we have is a reference to a child.
     pub async fn to_grpc(&self) -> rpc::Child {
+        let (state, reason) = map_child_state(self);
         rpc::Child {
             uri: self.uri().to_string(),
-            state: rpc::ChildState::from(self) as i32,
+            state: state as i32,
             rebuild_progress: self.get_rebuild_progress().await,
-            reason: rpc::ChildStateReason::from(self) as i32,
+            reason: reason as i32,
             device_name: self.get_device_name(),
         }
     }

@@ -392,6 +392,7 @@ describe('rebuild tests', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(addChildArgs);
       await client.childOperation().sendMessage(childOfflineArgs);
+      await untilChildStatus('CHILD_DEGRADED');
       await client.childOperation().sendMessage(childOnlineArgs);
     });
 
