@@ -405,11 +405,8 @@ impl<'n> Nexus<'n> {
         let ch = self.as_mut().child_mut(child_uri)?;
 
         if let Some(dev_name) = ch.get_device_name() {
-            self.as_mut().retire_child_device(
-                &dev_name,
-                Reason::IoError,
-                false,
-            );
+            self.as_mut()
+                .fault_child_device(&dev_name, Reason::IoError, false);
         } else {
             warn!("{:?}: child is not open, won't retire", ch);
         }
@@ -678,7 +675,7 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                     retiring child '{}'",
                     self, dev_name
                 );
-                self.retire_child_device(
+                self.fault_child_device(
                     dev_name,
                     Reason::AdminCommandFailed,
                     false,
@@ -722,59 +719,47 @@ fn update_failfast_done(
 }
 
 impl<'n> Nexus<'n> {
-    /// Marks a child device as faulted.
-    /// Returns true if the child was in open state, false otherwise.
-    fn child_io_faulted(
+    /// Faults the device by its name, with the given fault reason.
+    /// The faulted device is scheduled to be retired.
+    pub(crate) fn fault_child_device(
         self: Pin<&mut Self>,
-        device_name: &str,
-        reason: Reason,
-    ) -> bool {
-        match self.lookup_child_device(device_name) {
-            Some(c) => {
-                debug!("{:?}: faulting with {}...", c, reason);
-
-                if Ok(ChildState::Open)
-                    == c.state.compare_exchange(
-                        ChildState::Open,
-                        ChildState::Faulted(reason),
-                    )
-                {
-                    warn!("{:?}: I/O faulted; will retire", c);
-                    true
-                } else {
-                    warn!("{:?}: I/O faulted; child was already faulted", c);
-                    false
-                }
-            }
-            None => {
-                error!(
-                    "{:?}: trying to fault a child device which \
-                        cannot be not found '{}'",
-                    self, device_name
-                );
-                false
-            }
-        }
-    }
-
-    /// TODO
-    pub(crate) fn retire_child_device(
-        mut self: Pin<&mut Self>,
         child_device: &str,
         reason: Reason,
         retry: bool,
-    ) {
-        // check if this child needs to be retired
-        let need_retire = self.as_mut().child_io_faulted(child_device, reason);
+    ) -> bool {
+        if let Some(c) = self.lookup_child_device(child_device) {
+            debug!("{:?}: faulting with {}...", c, reason);
 
-        // The child state was not faulted yet, so this is the first I/O
-        // to this child for which we encountered an error.
-        if need_retire {
-            Reactors::master().send_future(Nexus::child_retire_routine(
-                self.name.clone(),
-                child_device.to_owned(),
-                retry,
-            ));
+            // check if this child needs to be retired
+            if Ok(ChildState::Open)
+                == c.state.compare_exchange(
+                    ChildState::Open,
+                    ChildState::Faulted(reason),
+                )
+            {
+                warn!("{:?}: I/O faulted; will retire", c);
+
+                // The child state was not faulted yet, so this is the first
+                // I/O to this child for which we
+                // encountered an error.
+                Reactors::master().send_future(Nexus::child_retire_routine(
+                    self.name.clone(),
+                    child_device.to_owned(),
+                    retry,
+                ));
+            } else {
+                warn!("{:?}: I/O faulted; child was already faulted", c);
+            }
+
+            true
+        } else {
+            error!(
+                "{:?}: trying to fault a child device which \
+                        cannot be not found '{}'",
+                self, child_device
+            );
+
+            false
         }
     }
 

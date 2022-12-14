@@ -227,6 +227,13 @@ impl<'n> NexusChannel<'n> {
         trace!("{:?}: new number of readers/writes", self);
     }
 
+    /// Faults the devives by its name, with the given fault reason.
+    /// The faulted device is scheduled to be retired.
+    pub(super) fn fault_device(&mut self, child_device: &str, reason: Reason) {
+        self.nexus_mut()
+            .fault_child_device(child_device, reason, true);
+    }
+
     /// Returns core on which channel was created.
     pub fn core(&self) -> u32 {
         self.core
