@@ -1,7 +1,13 @@
 use crate::{
     bdev::{
         nexus,
-        nexus::{nexus_lookup_uuid_mut, NexusChild, NexusStatus, Reason},
+        nexus::{
+            nexus_lookup_uuid_mut,
+            ChildStateClient,
+            FaultReason,
+            NexusChild,
+            NexusStatus,
+        },
     },
     core::{
         lock::{ProtectedSubsystems, ResourceLockManager},
@@ -125,35 +131,41 @@ impl From<NexusStatus> for NexusState {
     }
 }
 
-fn map_child_state(ch: &NexusChild) -> (ChildState, ChildStateReason) {
+fn map_fault_reason(r: FaultReason) -> ChildStateReason {
+    use ChildStateReason::*;
+
+    match r {
+        FaultReason::Unknown => None,
+        FaultReason::CantOpen => CannotOpen,
+        FaultReason::NoSpace => NoSpace,
+        FaultReason::TimedOut => TimedOut,
+        FaultReason::IoError => IoFailure,
+        FaultReason::Offline => ByClient,
+        FaultReason::RebuildFailed => RebuildFailed,
+        FaultReason::AdminCommandFailed => AdminFailed,
+        FaultReason::OfflinePermanent => ByClient,
+    }
+}
+
+fn map_child_state(child: &NexusChild) -> (ChildState, ChildStateReason) {
     use ChildState::*;
     use ChildStateReason::*;
 
-    if ch.is_opened_unsync() {
-        return (Degraded, OutOfSync);
-    }
-
-    match ch.state() {
-        nexus::ChildState::Init => (Degraded, Init),
-
-        nexus::ChildState::ConfigInvalid => (Faulted, ConfigInvalid),
-
-        nexus::ChildState::Open => (Online, None),
-
-        nexus::ChildState::Closed | nexus::ChildState::Destroying => {
-            (Degraded, Closed)
-        }
-
-        nexus::ChildState::Faulted(reason) => match reason {
-            Reason::NoSpace => (Degraded, NoSpace),
-            Reason::TimedOut => (Degraded, TimedOut),
-            Reason::Unknown => (Faulted, None),
-            Reason::CantOpen => (Faulted, CannotOpen),
-            Reason::RebuildFailed => (Faulted, RebuildFailed),
-            Reason::IoError => (Faulted, IoFailure),
-            Reason::ByClient => (Faulted, ByClient),
-            Reason::AdminCommandFailed => (Faulted, AdminFailed),
-        },
+    match child.state_client() {
+        ChildStateClient::Init => (Degraded, Init),
+        ChildStateClient::ConfigInvalid => (Faulted, ConfigInvalid),
+        ChildStateClient::Open => (Online, None),
+        ChildStateClient::Closed => (Degraded, Closed),
+        ChildStateClient::Faulted(r) => (
+            match r {
+                FaultReason::IoError => Faulted,
+                s if s.is_recoverable() => Degraded,
+                _ => Faulted,
+            },
+            map_fault_reason(r),
+        ),
+        ChildStateClient::Faulting(r) => (Unknown, map_fault_reason(r)),
+        ChildStateClient::OutOfSync => (Degraded, OutOfSync),
     }
 }
 
@@ -603,7 +615,7 @@ impl NexusRpc for NexusService {
                 trace!("{:?}", args);
                 debug!("Faulting child {} on nexus {}", args.uri, args.uuid);
                 nexus_lookup(&args.uuid)?
-                    .fault_child(&args.uri, nexus::Reason::ByClient)
+                    .fault_child_legacy(&args.uri)
                     .await?;
                 info!("Faulted child {} on nexus {}", args.uri, args.uuid);
                 Ok(FaultNexusChildResponse {
@@ -889,9 +901,19 @@ impl NexusRpc for NexusService {
                 let mut nexus = nexus_lookup(&args.nexus_uuid)?;
 
                 match args.action {
-                    0 => nexus.as_mut().offline_child(&args.uri).await,
+                    0 => {
+                        nexus
+                            .as_mut()
+                            .fault_child(&args.uri, FaultReason::Offline)
+                            .await
+                    }
                     1 => nexus.as_mut().online_child(&args.uri).await,
-                    2 => nexus.as_mut().retire_child(&args.uri).await,
+                    2 => {
+                        nexus
+                            .as_mut()
+                            .fault_child(&args.uri, FaultReason::IoError)
+                            .await
+                    }
                     _ => Err(nexus::Error::InvalidKey {}),
                 }?;
 

@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
 };
 
-use super::{ChildState, Nexus, Reason};
+use super::{ChildState, FaultReason, Nexus};
 
 use crate::core::{BlockDeviceHandle, CoreError, Cores};
 
@@ -40,13 +40,11 @@ impl<'n> Debug for NexusChannel<'n> {
 #[allow(clippy::enum_variant_names)]
 /// Dynamic Reconfiguration Events occur when a child is added or removed
 pub enum DrEvent {
-    /// Child offline reconfiguration event
-    ChildOffline,
-    /// mark the child as faulted
-    ChildFault,
-    /// Child unplug reconfiguration event
+    /// The child is faulted by a client API call.
+    ChildFaultByClient,
+    /// Child unplug reconfiguration event.
     ChildUnplug,
-    /// Child rebuild event
+    /// Child rebuild event.
     ChildRebuild,
 }
 
@@ -56,8 +54,7 @@ impl Display for DrEvent {
             f,
             "{}",
             match self {
-                Self::ChildOffline => "offline",
-                Self::ChildFault => "fault",
+                Self::ChildFaultByClient => "fault",
                 Self::ChildUnplug => "unplug",
                 Self::ChildRebuild => "rebuild",
             }
@@ -74,7 +71,9 @@ impl<'n> NexusChannel<'n> {
         let mut readers = Vec::new();
 
         unsafe {
-            nexus.as_mut().children_iter_mut()
+            nexus
+                .as_mut()
+                .children_iter_mut()
                 .filter(|c| c.is_healthy())
                 .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                     (Ok(w), Ok(r)) => {
@@ -82,8 +81,12 @@ impl<'n> NexusChannel<'n> {
                         readers.push(r);
                     }
                     _ => {
-                        c.set_state(ChildState::Faulted(Reason::CantOpen));
-                        error!("Failed to get I/O handle for {}, skipping block device", c.uri())
+                        c.set_state(ChildState::Faulted(FaultReason::CantOpen));
+                        error!(
+                            "Failed to get I/O handle for {}, \
+                                skipping block device",
+                            c.uri()
+                        )
                     }
                 });
         }
@@ -200,7 +203,7 @@ impl<'n> NexusChannel<'n> {
                         readers.push(r);
                     }
                     _ => {
-                        c.set_state(ChildState::Faulted(Reason::CantOpen));
+                        c.set_state(ChildState::Faulted(FaultReason::CantOpen));
                         error!("failed to get I/O handle for {}", c.uri());
                     }
                 });
@@ -216,7 +219,9 @@ impl<'n> NexusChannel<'n> {
                         if let Ok(hdl) = c.get_io_handle() {
                             writers.push(hdl);
                         } else {
-                            c.set_state(ChildState::Faulted(Reason::CantOpen));
+                            c.set_state(ChildState::Faulted(
+                                FaultReason::CantOpen,
+                            ));
                             error!("failed to get I/O handle for {}", c.uri());
                         }
                     });
@@ -230,6 +235,17 @@ impl<'n> NexusChannel<'n> {
         self.readers = readers;
 
         trace!("{:?}: new number of readers/writes", self);
+    }
+
+    /// Faults the child by its device, with the given fault reason.
+    /// The faulted device is scheduled to be retired.
+    pub(super) fn fault_device(
+        &mut self,
+        child_device: &str,
+        reason: FaultReason,
+    ) {
+        self.nexus_mut()
+            .retire_child_device(child_device, reason, true);
     }
 
     /// Returns core on which channel was created.

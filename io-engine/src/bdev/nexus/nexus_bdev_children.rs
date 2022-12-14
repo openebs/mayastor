@@ -35,6 +35,7 @@ use super::{
     ChildSyncState,
     DrEvent,
     Error,
+    FaultReason,
     Nexus,
     NexusChannel,
     NexusChild,
@@ -42,7 +43,6 @@ use super::{
     NexusState,
     NexusStatus,
     PersistOp,
-    Reason,
 };
 
 use crate::{
@@ -115,7 +115,9 @@ impl<'n> Nexus<'n> {
                     e.verbose()
                 );
                 match self.child_mut(uri) {
-                    Ok(child) => child.fault(Reason::RebuildFailed).await,
+                    Ok(child) => {
+                        child.close_faulted(FaultReason::RebuildFailed).await
+                    }
                     Err(e) => error!(
                         "Failed to find newly added child {}, error: {}",
                         uri,
@@ -173,7 +175,7 @@ impl<'n> Nexus<'n> {
             }
         };
 
-        if self.lookup_child_device(&name).is_some() {
+        if self.lookup_child_by_device(&name).is_some() {
             return Err(Error::ChildAlreadyExists {
                 child: name,
                 name: self.name.to_owned(),
@@ -330,36 +332,47 @@ impl<'n> Nexus<'n> {
         res
     }
 
-    /// offline a child device and reconfigure the IO channels
-    pub(crate) async fn offline_child(
+    /// Faults a child with the given reason.
+    pub async fn fault_child(
         mut self: Pin<&mut Self>,
         child_uri: &str,
+        reason: FaultReason,
     ) -> Result<NexusStatus, Error> {
-        info!("{:?}: offline child request: '{}'", self, child_uri);
+        info!(
+            "{:?}: fault ({}) child request for '{}'",
+            self, reason, child_uri
+        );
 
+        self.check_nexus_operation(NexusOperation::ReplicaFault)?;
+
+        let dev_name = self.get_child_device_name(child_uri)?;
+
+        // TODO: check to prevent faulting if a rebuild is running (?).
         let paused = self.as_mut().pause_rebuild_jobs(child_uri).await;
 
-        let res = match self.as_mut().child_mut(child_uri) {
-            Ok(child) => {
-                child.offline().await;
-                self.reconfigure(DrEvent::ChildOffline).await;
-                Ok(self.status())
-            }
-            Err(e) => Err(e),
-        };
+        // TODO: check to prevent the last child from degrading (?).
+        self.as_mut().retire_child_device(&dev_name, reason, false);
+
+        let res = Ok(self.status());
 
         paused.resume().await;
 
         res
     }
 
-    /// Faults a child device and reconfigures the IO channels.
-    pub async fn fault_child(
+    /// TODO: Legacy method to fault child by client.
+    pub async fn fault_child_legacy(
         mut self: Pin<&mut Self>,
         child_uri: &str,
-        reason: Reason,
     ) -> Result<(), Error> {
-        info!("{:?}: fault child request for '{}'", self, child_uri);
+        self.check_nexus_operation(NexusOperation::ReplicaFault)?;
+
+        let reason = FaultReason::OfflinePermanent;
+
+        info!(
+            "{:?}: permanent fault child request for '{}'",
+            self, child_uri
+        );
 
         if self.children().len() < 2 {
             return Err(Error::RemoveLastChild {
@@ -387,17 +400,15 @@ impl<'n> Nexus<'n> {
             Ok(child) => {
                 match child.state() {
                     ChildState::Faulted(current_reason) => {
-                        if current_reason != reason
-                            && reason == Reason::ByClient
-                        {
-                            child.fault(reason).await;
+                        if current_reason != reason {
+                            child.close_faulted(reason).await;
                         } else {
                             warn!("{:?}: already faulted", child);
                         }
                     }
                     _ => {
-                        child.fault(reason).await;
-                        self.reconfigure(DrEvent::ChildFault).await;
+                        child.close_faulted(reason).await;
+                        self.reconfigure(DrEvent::ChildFaultByClient).await;
                     }
                 }
                 Ok(())
@@ -410,33 +421,8 @@ impl<'n> Nexus<'n> {
         res
     }
 
-    /// Retires a child immediately.
-    #[allow(dead_code)]
-    pub(crate) async fn retire_child(
-        mut self: Pin<&mut Self>,
-        child_uri: &str,
-    ) -> Result<NexusStatus, Error> {
-        info!("{:?}: retire child request: '{}'", self, child_uri);
-
-        // Check that device does exist.
-        let ch = self.as_mut().child_mut(child_uri)?;
-
-        if let Some(dev_name) = ch.get_device_name() {
-            self.as_mut().retire_child_device(
-                &dev_name,
-                Reason::IoError,
-                false,
-            );
-        } else {
-            warn!("{:?}: child is not open, won't retire", ch);
-        }
-
-        Ok(self.status())
-    }
-
-    /// online a child and reconfigure the IO channels. The child is already
-    /// registered, but simply not opened. This can be required in case where
-    /// a child is misbehaving.
+    /// Onlines a child by re-opening its underlying block device and rebuilding
+    /// the data from an existing child.
     pub async fn online_child(
         mut self: Pin<&mut Self>,
         child_uri: &str,
@@ -448,17 +434,39 @@ impl<'n> Nexus<'n> {
 
         info!("{:?}: online child request: '{}'", self, child_uri);
 
-        let child = self.as_mut().child_mut(child_uri)?;
+        let child = unsafe { self.as_mut().child_mut_unsafe(child_uri)? };
+
+        if child.state() == ChildState::Open {
+            warn!("{:?}: child already online", child);
+            return Ok(self.status());
+        }
 
         child
             .online(nexus_size)
             .await
             .context(nexus_err::OnlineChild {
                 child: child_uri.to_owned(),
-                name: nexus_name,
+                name: nexus_name.clone(),
             })?;
 
-        self.as_mut().start_rebuild(child_uri).await.map(|_| {})?;
+        // Acquire reservations.
+        if let Err(e) = child.reservation_acquire(&self.nvme_params).await {
+            let _ = child.close().await;
+
+            return Err(e).context(nexus_err::OnlineChild {
+                child: child_uri.to_owned(),
+                name: nexus_name.clone(),
+            });
+        }
+
+        // Register event listener for onlined child.
+        child.set_event_listener(self.get_event_sink());
+
+        // Start rebuild.
+        if let Err(e) = self.as_mut().start_rebuild(child_uri).await {
+            let _ = child.close().await;
+            return Err(e);
+        }
 
         Ok(self.status())
     }
@@ -588,28 +596,22 @@ impl<'n> Nexus<'n> {
         Ok(())
     }
 
-    /// TODO
-    pub async fn destroy_child_device(
-        &self,
+    /// Closes a child by its device name.
+    pub async fn close_child(
+        mut self: Pin<&mut Self>,
         device_name: &str,
     ) -> Result<(), Error> {
         info!("{:?}: destroying child device: '{}'", self, device_name);
 
-        if let Some(child) = self.lookup_child_device(device_name) {
-            child
-                .destroy_device()
-                .await
-                .map_err(|source| Error::DestroyChild {
-                    source,
-                    child: device_name.to_string(),
-                    name: self.name.to_string(),
-                })
-        } else {
-            Err(Error::ChildNotFound {
+        self.as_mut()
+            .child_by_device_mut(device_name)?
+            .close()
+            .await
+            .map_err(|source| Error::CloseChild {
+                source,
                 child: device_name.to_string(),
                 name: self.name.to_string(),
             })
-        }
     }
 
     /// The nexus is allowed to be smaller then the underlying child devices
@@ -622,8 +624,8 @@ impl<'n> Nexus<'n> {
             .reduce(min)
     }
 
-    /// Looks up a child based on the underlying block device name.
-    pub fn lookup_child_device(
+    /// Looks up a child by device name.
+    pub fn lookup_child_by_device(
         &self,
         device_name: &str,
     ) -> Option<&NexusChild<'n>> {
@@ -631,9 +633,22 @@ impl<'n> Nexus<'n> {
             .find(|c| c.match_device_name(device_name))
     }
 
-    /// Looks up a child based on the underlying block device name and
-    /// returns a mutable reference.
-    pub fn lookup_child_device_mut(
+    /// Looks up a child by device name.
+    /// Returns an error if child is not found.
+    pub fn child_by_device(
+        &self,
+        device_name: &str,
+    ) -> Result<&NexusChild<'n>, Error> {
+        self.lookup_child_by_device(device_name).ok_or_else(|| {
+            Error::ChildNotFound {
+                child: device_name.to_owned(),
+                name: self.name.clone(),
+            }
+        })
+    }
+
+    /// Looks up a child by device name and returns a mutable reference.
+    pub fn lookup_child_by_device_mut(
         self: Pin<&mut Self>,
         device_name: &str,
     ) -> Option<&mut NexusChild<'n>> {
@@ -643,9 +658,34 @@ impl<'n> Nexus<'n> {
         }
     }
 
+    /// Looks up a child by device name and returns a mutable reference.
+    /// Returns an error if child is not found.
+    pub fn child_by_device_mut(
+        self: Pin<&mut Self>,
+        device_name: &str,
+    ) -> Result<&mut NexusChild<'n>, Error> {
+        let nexus_name = self.name.clone();
+        self.lookup_child_by_device_mut(device_name).ok_or_else(|| {
+            Error::ChildNotFound {
+                child: device_name.to_owned(),
+                name: nexus_name,
+            }
+        })
+    }
+
     /// Looks up a child by its URI.
     pub fn lookup_child(&self, child_uri: &str) -> Option<&NexusChild<'n>> {
         self.children_iter().find(|c| c.uri() == child_uri)
+    }
+
+    /// Looks up a child by its URI.
+    /// Returns an error if child is not found.
+    pub fn child(&self, child_uri: &str) -> Result<&NexusChild<'n>, Error> {
+        self.lookup_child(child_uri)
+            .ok_or_else(|| Error::ChildNotFound {
+                child: child_uri.to_owned(),
+                name: self.name.clone(),
+            })
     }
 
     /// Looks up a child by its URI and returns a mutable reference.
@@ -656,7 +696,8 @@ impl<'n> Nexus<'n> {
         unsafe { self.children_iter_mut().find(|c| c.uri() == child_uri) }
     }
 
-    /// Looks up a child by its URI.
+    /// Looks up a child by its URI and returns a mutable reference.
+    /// Returns an error if child is not found.
     pub fn child_mut(
         self: Pin<&mut Self>,
         child_uri: &str,
@@ -667,6 +708,34 @@ impl<'n> Nexus<'n> {
                 child: child_uri.to_owned(),
                 name: nexus_name,
             })
+    }
+
+    /// Version of `child_mut` that returns a reference to a child in
+    /// static lifetime, allowing to manipulate a child and the nexus in the
+    /// same scope.
+    unsafe fn child_mut_unsafe(
+        self: Pin<&mut Self>,
+        child_uri: &str,
+    ) -> Result<&'static mut NexusChild<'static>, Error> {
+        self.child_mut(child_uri).map(|c| {
+            std::mem::transmute::<
+                &mut NexusChild<'n>,
+                &'static mut NexusChild<'static>,
+            >(c)
+        })
+    }
+
+    /// Looks up a child by its URI and returns child device name.
+    pub fn get_child_device_name(
+        &self,
+        child_uri: &str,
+    ) -> Result<String, Error> {
+        self.child(child_uri)?.get_device_name().ok_or_else(|| {
+            Error::ChildDeviceNotOpen {
+                child: child_uri.to_owned(),
+                name: self.name.clone(),
+            }
+        })
     }
 
     /// TODO
@@ -697,7 +766,7 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                 );
                 self.retire_child_device(
                     dev_name,
-                    Reason::AdminCommandFailed,
+                    FaultReason::AdminCommandFailed,
                     false,
                 );
             }
@@ -739,66 +808,50 @@ fn update_failfast_done(
 }
 
 impl<'n> Nexus<'n> {
-    /// Marks a child device as faulted.
-    /// Returns true if the child was in open state, false otherwise.
-    fn child_io_faulted(
-        self: Pin<&mut Self>,
-        device_name: &str,
-        reason: Reason,
-    ) -> bool {
-        match self.lookup_child_device(device_name) {
-            Some(c) => {
-                debug!("{:?}: faulting with {}...", c, reason);
-
-                if Ok(ChildState::Open)
-                    == c.state.compare_exchange(
-                        ChildState::Open,
-                        ChildState::Faulted(reason),
-                    )
-                {
-                    warn!("{:?}: I/O faulted; will retire", c);
-                    true
-                } else {
-                    warn!("{:?}: I/O faulted; child was already faulted", c);
-                    false
-                }
-            }
-            None => {
-                error!(
-                    "{:?}: trying to fault a child device which \
-                        cannot be not found '{}'",
-                    self, device_name
-                );
-                false
-            }
-        }
-    }
-
-    /// TODO
+    /// Faults the device by its name, with the given fault reason.
+    /// The faulted device is scheduled to be retired.
     pub(crate) fn retire_child_device(
         mut self: Pin<&mut Self>,
         child_device: &str,
-        reason: Reason,
+        reason: FaultReason,
         retry: bool,
     ) {
-        // check if this child needs to be retired
-        let need_retire = self.as_mut().child_io_faulted(child_device, reason);
+        let name = self.name.clone();
 
-        // The child state was not faulted yet, so this is the first I/O
-        // to this child for which we encountered an error.
-        if need_retire {
-            Reactors::master().send_future(Nexus::child_retire_routine(
-                self.name.clone(),
-                child_device.to_owned(),
-                retry,
-            ));
+        if let Some(c) = self.as_mut().lookup_child_by_device_mut(child_device)
+        {
+            if Ok(ChildState::Open)
+                == c.state.compare_exchange(
+                    ChildState::Open,
+                    ChildState::Faulted(reason),
+                )
+            {
+                warn!("{:?}: faulted with {}, will retire", c, reason);
+
+                // The child state was not faulted yet, so this is the first
+                // I/O to this child for which we
+                // encountered an error.
+                Reactors::master().send_future(Nexus::child_retire_routine(
+                    name,
+                    child_device.to_owned(),
+                    retry,
+                ));
+            } else {
+                warn!("{:?}: faulted with {}, already retired", c, reason);
+            }
+        } else {
+            error!(
+                "{:?}: trying to retire a child device which \
+                        cannot be not found '{}'",
+                self, child_device
+            );
         }
     }
 
     /// Handle child device removal.
     async fn child_remove_routine(nexus_name: String, child_device: String) {
         if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
-            match nexus.as_mut().lookup_child_device_mut(&child_device) {
+            match nexus.as_mut().lookup_child_by_device_mut(&child_device) {
                 Some(child) => {
                     info!(
                         nexus_name,
@@ -880,20 +933,21 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         warn!("{:?}: retiring child device '{}'...", self, device_name);
 
-        self.disconnect_all_channels(device_name.clone()).await?;
+        self.disconnect_device_from_channels(device_name.clone())
+            .await?;
 
         debug!("{:?}: pausing...", self);
         self.as_mut().pause().await?;
         debug!("{:?}: pausing ok", self);
 
-        if let Some(child) = self.lookup_child_device(&device_name) {
+        if let Some(child) = self.lookup_child_by_device(&device_name) {
             let uri = child.uri();
 
             // Schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
             // complete anyway.
-            debug!("{:?}: enqueuing remove device '{}'", child, device_name);
-            device_cmd_queue().enqueue(DeviceCommand::RemoveDevice {
+            debug!("{:?}: enqueuing retire device '{}'", child, device_name);
+            device_cmd_queue().enqueue(DeviceCommand::RetireDevice {
                 nexus_name: self.name.clone(),
                 child_device: device_name.clone(),
             });
@@ -950,7 +1004,7 @@ impl<'n> Nexus<'n> {
     }
 
     // TODO
-    pub(crate) async fn disconnect_all_channels(
+    pub(crate) async fn disconnect_device_from_channels(
         &self,
         child_device: String,
     ) -> Result<(), Error> {

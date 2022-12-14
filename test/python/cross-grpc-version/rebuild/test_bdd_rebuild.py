@@ -1,5 +1,6 @@
 import pytest
 from pytest_bdd import given, scenario, then, when, parsers
+from retrying import retry
 
 import os
 import subprocess
@@ -92,6 +93,29 @@ def convert_child_action(state):
         "ONLINE": nexus_pb.ChildAction.Online,
     }
     return ACTIONS[state]
+
+
+def lookup_nexus(v1_mayastor_instance, nexus_uuid):
+    for nexus in v1_mayastor_instance.nexus_rpc.ListNexus(pb.Null()).nexus_list:
+        if nexus.uuid == nexus_uuid:
+            return nexus
+    return None
+
+
+def lookup_nexus_child(v1_mayastor_instance, nexus_uuid, child_uri):
+    nexus = lookup_nexus(v1_mayastor_instance, nexus_uuid)
+    if nexus is None:
+        return None
+    for child in nexus.children:
+        if child.uri == child_uri:
+            return child
+    return None
+
+
+@retry(wait_fixed=100, stop_max_attempt_number=5)
+def wait_child_state(v1_mayastor_instance, nexus_uuid, child_uri, state):
+    child = lookup_nexus_child(v1_mayastor_instance, nexus_uuid, child_uri)
+    assert child is not None and child.state == convert_child_state(state)
 
 
 @scenario("features/rebuild.feature", "running rebuild")
@@ -211,6 +235,10 @@ def set_child(v1_mayastor_instance, mayastor_nexus, nexus_uuid, target_uri, stat
             nexus_uuid=nexus_uuid, uri=target_uri, action=convert_child_action(state)
         )
     )
+    # After offlining a child, it may take some time to close the device
+    # and reach DEGRADED state.
+    if state == "OFFLINE":
+        wait_child_state(v1_mayastor_instance, nexus_uuid, target_uri, "DEGRADED")
 
 
 @pytest.fixture
