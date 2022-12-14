@@ -1,4 +1,5 @@
-use std::{cell::RefCell, marker::PhantomData, pin::Pin};
+use parking_lot::Mutex;
+use std::{cell::RefCell, marker::PhantomData, pin::Pin, time::Duration};
 
 use spdk_rs::{
     BdevIo,
@@ -16,10 +17,16 @@ use spdk_rs::{
 const NULL_MODULE_NAME: &str = "NullNg";
 
 /// Poller data for Null Bdev.
+#[derive(Default)]
+#[allow(clippy::non_send_fields_in_send_ty)]
 struct NullIoPollerData<'a> {
-    iovs: RefCell<Vec<BdevIo<NullIoDevice<'a>>>>,
+    iovs: Mutex<Vec<BdevIo<NullIoDevice<'a>>>>,
     _my_num: f64,
 }
+
+// Required because `NullIoPollerData.iovs` contains `BdevIo`, which
+// contains NonNull, which is not Send.
+unsafe impl<'a> Send for NullIoPollerData<'a> {}
 
 /// Per-core channel data.
 struct NullIoChannelData<'a> {
@@ -30,13 +37,13 @@ struct NullIoChannelData<'a> {
 impl NullIoChannelData<'_> {
     fn new(some_value: i64) -> Self {
         let poller = PollerBuilder::new()
-            .with_interval(1000)
+            .with_interval(Duration::from_micros(1000))
             .with_data(NullIoPollerData {
-                iovs: RefCell::new(Vec::new()),
+                iovs: Mutex::new(Vec::new()),
                 _my_num: 77.77 + some_value as f64,
             })
             .with_poll_fn(|dat| {
-                let ready: Vec<_> = dat.iovs.borrow_mut().drain(..).collect();
+                let ready: Vec<_> = dat.iovs.lock().drain(..).collect();
                 let cnt = ready.len();
                 ready.iter().for_each(|io: &BdevIo<_>| io.ok());
                 cnt as i32
@@ -96,7 +103,7 @@ impl<'a> BdevOps for NullIoDevice<'a> {
 
         match bio.io_type() {
             IoType::Read | IoType::Write => {
-                chan_data.poller.data().iovs.borrow_mut().push(bio)
+                chan_data.poller.data().iovs.lock().push(bio)
             }
             _ => bio.fail(),
         };

@@ -1,22 +1,35 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
-use std::{convert::From, fmt, os::raw::c_void, ptr::NonNull, sync::Arc};
+use std::{
+    convert::From,
+    fmt,
+    os::raw::c_void,
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
+use once_cell::sync::OnceCell;
 
-use spdk_rs::libspdk::{
-    spdk_nvme_async_event_completion,
-    spdk_nvme_cpl,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_fail,
-    spdk_nvme_ctrlr_get_ns,
-    spdk_nvme_ctrlr_is_active_ns,
-    spdk_nvme_ctrlr_register_aer_callback,
-    spdk_nvme_ctrlr_reset,
-    spdk_nvme_detach,
+use spdk_rs::{
+    cpu_cores::{Cores, RoundRobinCoreSelector},
+    libspdk::{
+        spdk_nvme_async_event_completion,
+        spdk_nvme_cpl,
+        spdk_nvme_ctrlr,
+        spdk_nvme_ctrlr_fail,
+        spdk_nvme_ctrlr_get_ns,
+        spdk_nvme_ctrlr_is_active_ns,
+        spdk_nvme_ctrlr_register_aer_callback,
+        spdk_nvme_ctrlr_reset,
+        spdk_nvme_detach,
+    },
+    Poller,
+    PollerBuilder,
 };
 
 use crate::{
@@ -43,7 +56,6 @@ use crate::{
     },
     bdev_api::BdevError,
     core::{
-        poller,
         BlockDeviceIoStats,
         CoreError,
         DeviceEventDispatcher,
@@ -73,6 +85,10 @@ struct ShutdownCtx {
     cb_arg: OpCompletionCallbackArg,
 }
 
+/// CPU core selector for adminq pollers.
+static ADMINQ_CORE_SELECTOR: OnceCell<Mutex<RoundRobinCoreSelector>> =
+    OnceCell::new();
+
 impl<'a> NvmeControllerInner<'a> {
     fn new(
         ctrlr: SpdkNvmeController,
@@ -86,12 +102,23 @@ impl<'a> NvmeControllerInner<'a> {
             Some(NvmeControllerIoChannel::destroy),
         ));
 
-        let adminq_poller = poller::Builder::new()
+        // Select next core for adminq poller, skipping the current one
+        // (current core is supposed to the master core).
+        let core = ADMINQ_CORE_SELECTOR
+            .get_or_init(|| Mutex::new(RoundRobinCoreSelector::new()))
+            .lock()
+            .unwrap()
+            .filter_next(|c| c != Cores::current());
+
+        info!("Running admin queue poller on core #{}", core);
+
+        let adminq_poller = PollerBuilder::new()
             .with_name("nvme_poll_adminq")
-            .with_interval(
+            .with_interval(Duration::from_micros(
                 nvme_bdev_running_config().nvme_adminq_poll_period_us,
-            )
-            .with_poll_fn(move || nvme_poll_adminq(cfg.as_ptr().cast()))
+            ))
+            .with_poll_fn(move |_| nvme_poll_adminq(cfg.as_ptr().cast()))
+            .with_core(core)
             .build();
 
         Self {
@@ -102,11 +129,12 @@ impl<'a> NvmeControllerInner<'a> {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct NvmeControllerInner<'a> {
     namespaces: Vec<Arc<NvmeNamespace>>,
     ctrlr: SpdkNvmeController,
-    adminq_poller: poller::Poller<'a>,
+    adminq_poller: Poller<'a>,
     io_device: Arc<IoDevice>,
 }
 
@@ -755,7 +783,7 @@ impl<'a> Drop for NvmeController<'a> {
         }
 
         unsafe {
-            Box::from_raw(self.timeout_config.as_ptr());
+            drop(Box::from_raw(self.timeout_config.as_ptr()));
         }
     }
 }

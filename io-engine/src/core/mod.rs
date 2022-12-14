@@ -78,7 +78,6 @@ pub mod lock;
 pub mod mempool;
 mod nic;
 pub mod partition;
-pub mod poller;
 mod reactor;
 pub mod runtime;
 mod share;
