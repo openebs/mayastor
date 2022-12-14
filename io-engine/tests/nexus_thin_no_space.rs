@@ -1,6 +1,5 @@
 pub mod common;
 
-use crate::common::nexus::find_nexus_by_uuid;
 use common::{
     compose::{
         rpc::v1::{
@@ -10,7 +9,7 @@ use common::{
         Binary,
         Builder,
     },
-    nexus::{test_write_to_nexus, NexusBuilder},
+    nexus::{find_nexus_by_uuid, test_write_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
 };

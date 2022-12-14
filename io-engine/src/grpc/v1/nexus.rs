@@ -162,6 +162,7 @@ impl<'c> From<&NexusChild<'c>> for Child {
             state: s as i32,
             state_reason: r as i32,
             rebuild_progress: ch.get_rebuild_progress(),
+            device_name: ch.get_device_name(),
         }
     }
 }
@@ -571,7 +572,7 @@ impl NexusRpc for NexusService {
                 nexus_lookup(&args.uuid)?
                     .inject_add_fault(&args.uri)
                     .await?;
-                info!("Injectinged fault to nexus '{}': '{}'", uuid, uri);
+                info!("Injected fault to nexus '{}': '{}'", uuid, uri);
                 Ok(())
             })?;
 

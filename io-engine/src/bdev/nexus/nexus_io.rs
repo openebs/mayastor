@@ -59,7 +59,15 @@ pub(super) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
 
 impl<'n> Debug for NexusBio<'n> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} I/O [{:?}]", self.channel(), self.ctx().status)
+        write!(
+            f,
+            "{:?} I/O: {}/{} [{:?}] on {:?}",
+            self.io_type(),
+            self.effective_offset(),
+            self.num_blocks(),
+            self.ctx().status,
+            self.channel(),
+        )
     }
 }
 
@@ -202,7 +210,6 @@ impl<'n> NexusBio<'n> {
     fn ok_checked(&mut self) {
         if self.ctx().in_flight == 0 {
             if self.ctx().must_fail {
-                //warn!(?self, "resubmitted due to must_fail");
                 self.retry_checked();
                 //self.fail();
             } else {
@@ -223,7 +230,7 @@ impl<'n> NexusBio<'n> {
     #[inline]
     fn retry_checked(&mut self) {
         if self.ctx().in_flight == 0 {
-            debug!(?self, "resubmitting IO");
+            warn!("{:?}: resubmitted due to must_fail", self);
             self.clone().submit_request();
         }
     }
@@ -248,6 +255,13 @@ impl<'n> NexusBio<'n> {
         self.nexus().data_ent_offset
     }
 
+    /// Returns the effictive offset in num blocks where the I/O operation
+    /// starts.
+    #[inline]
+    fn effective_offset(&self) -> u64 {
+        self.offset() + self.data_ent_offset()
+    }
+
     /// submit a read operation to one of the children of this nexus
     #[inline]
     fn submit_read(
@@ -255,10 +269,13 @@ impl<'n> NexusBio<'n> {
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         #[cfg(feature = "fault_injection")]
-        if self.nexus().inject_is_faulted(hdl.get_device()) {
+        if self.nexus().inject_is_faulted(
+            hdl.get_device(),
+            super::nexus_injection::InjectionOp::Read,
+        ) {
             return Err(CoreError::ReadDispatch {
-                source: Errno::ENODEV,
-                offset: self.offset(),
+                source: Errno::ENXIO,
+                offset: self.effective_offset(),
                 len: self.num_blocks(),
             });
         }
@@ -266,7 +283,7 @@ impl<'n> NexusBio<'n> {
         hdl.readv_blocks(
             self.iovs(),
             self.iov_count(),
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -354,10 +371,22 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        #[cfg(feature = "fault_injection")]
+        if self.nexus().inject_is_faulted(
+            hdl.get_device(),
+            super::nexus_injection::InjectionOp::Write,
+        ) {
+            return Err(CoreError::WriteDispatch {
+                source: Errno::ENXIO,
+                offset: self.effective_offset(),
+                len: self.num_blocks(),
+            });
+        }
+
         hdl.writev_blocks(
             self.iovs(),
             self.iov_count(),
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -370,7 +399,7 @@ impl<'n> NexusBio<'n> {
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         hdl.unmap_blocks(
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -382,8 +411,20 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        #[cfg(feature = "fault_injection")]
+        if self.nexus().inject_is_faulted(
+            hdl.get_device(),
+            super::nexus_injection::InjectionOp::Write,
+        ) {
+            return Err(CoreError::WriteDispatch {
+                source: Errno::ENXIO,
+                offset: self.effective_offset(),
+                len: self.num_blocks(),
+            });
+        }
+
         hdl.write_zeroes(
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -451,7 +492,7 @@ impl<'n> NexusBio<'n> {
             self.retire_device(
                 &device,
                 IoCompletionStatus::IoSubmissionError(
-                    IoSubmissionFailure::Read,
+                    IoSubmissionFailure::Write,
                 ),
             );
         }

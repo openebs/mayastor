@@ -6,9 +6,13 @@ use super::{
             ChildOperationRequest,
             ChildState,
             CreateNexusRequest,
+            InjectNexusFaultRequest,
+            InjectedFault,
+            ListInjectedNexusFaultsRequest,
             ListNexusOptions,
             Nexus,
             PublishNexusRequest,
+            RemoveInjectedNexusFaultRequest,
         },
         SharedRpcHandle,
         Status,
@@ -211,6 +215,86 @@ impl NexusBuilder {
         r: &ReplicaBuilder,
     ) -> Result<Nexus, Status> {
         self.online_child_bdev(&self.replica_uri(r)).await
+    }
+
+    pub async fn offline_child_bdev(
+        &self,
+        bdev: &str,
+    ) -> Result<Nexus, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .child_operation(ChildOperationRequest {
+                nexus_uuid: self.uuid(),
+                uri: bdev.to_owned(),
+                action: ChildAction::Offline as i32,
+            })
+            .await
+            .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn offline_child_replica(
+        &self,
+        r: &ReplicaBuilder,
+    ) -> Result<Nexus, Status> {
+        self.offline_child_bdev(&self.replica_uri(r)).await
+    }
+
+    pub async fn inject_nexus_fault(
+        &self,
+        inj_uri: &str,
+    ) -> Result<(), Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .inject_nexus_fault(InjectNexusFaultRequest {
+                uuid: self.uuid(),
+                uri: inj_uri.to_owned(),
+            })
+            .await
+            .map(|r| r.into_inner())
+    }
+
+    pub async fn remove_injected_nexus_fault(
+        &self,
+        inj_uri: &str,
+    ) -> Result<(), Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .remove_injected_nexus_fault(RemoveInjectedNexusFaultRequest {
+                uuid: self.uuid(),
+                uri: inj_uri.to_owned(),
+            })
+            .await
+            .map(|r| r.into_inner())
+    }
+
+    pub async fn list_injected_faults(
+        &self,
+    ) -> Result<Vec<InjectedFault>, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .list_injected_nexus_faults(ListInjectedNexusFaultsRequest {
+                uuid: self.uuid(),
+            })
+            .await
+            .map(|r| r.into_inner().injections)
+    }
+
+    pub async fn get_nexus(&self) -> Result<Nexus, Status> {
+        let uuid = self.uuid();
+        list_nexuses(self.rpc())
+            .await?
+            .into_iter()
+            .find(|p| p.uuid == uuid)
+            .ok_or_else(|| {
+                Status::new(
+                    Code::NotFound,
+                    format!("Nexus '{}' not found", uuid),
+                )
+            })
     }
 
     pub async fn wait_children_online(
