@@ -108,7 +108,8 @@ impl<'n> Nexus<'n> {
         }?;
 
         self.as_mut()
-            .create_rebuild_job(&src_child_uri, &dst_child_uri)?;
+            .create_rebuild_job(&src_child_uri, &dst_child_uri)
+            .await?;
 
         // We're now rebuilding the `dst_child` which means it HAS to become an
         // active participant in the frontend nexus bdev for Writes.
@@ -129,7 +130,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    fn create_rebuild_job(
+    async fn create_rebuild_job(
         self: Pin<&mut Self>,
         src_child_uri: &str,
         dst_child_uri: &str,
@@ -148,6 +149,7 @@ impl<'n> Nexus<'n> {
                 });
             },
         )
+        .await
         .and_then(RebuildJob::store)
         .context(nexus_err::CreateRebuild {
             child: dst_child_uri.to_owned(),

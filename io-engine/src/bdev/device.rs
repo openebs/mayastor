@@ -172,6 +172,7 @@ impl From<UntypedDescriptorGuard> for SpdkBlockDeviceDescriptor {
     }
 }
 
+#[async_trait(?Send)]
 impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice> {
         Box::new(SpdkBlockDevice::new(self.0.bdev()))
@@ -189,6 +190,13 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     }
 
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
+        let handle = SpdkBlockDeviceHandle::try_from(self.0.clone())?;
+        Ok(Box::new(handle))
+    }
+
+    async fn get_io_handle_nonblock(
+        &self,
+    ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
         let handle = SpdkBlockDeviceHandle::try_from(self.0.clone())?;
         Ok(Box::new(handle))
     }

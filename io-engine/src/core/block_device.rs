@@ -80,7 +80,8 @@ pub trait BlockDevice {
 
 /// Core trait that represents a descriptor for an opened block device.
 /// TODO: Add text.
-pub trait BlockDeviceDescriptor: Send {
+#[async_trait(?Send)]
+pub trait BlockDeviceDescriptor {
     /// TODO
     fn get_device(&self) -> Box<dyn BlockDevice>;
 
@@ -97,6 +98,11 @@ pub trait BlockDeviceDescriptor: Send {
 
     /// TODO
     fn unclaim(&self);
+
+    /// TODO
+    async fn get_io_handle_nonblock(
+        &self,
+    ) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
 }
 
 /// TODO

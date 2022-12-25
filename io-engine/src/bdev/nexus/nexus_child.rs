@@ -459,7 +459,7 @@ impl<'c> NexusChild<'c> {
         &self,
         args: &NexusNvmeParams,
     ) -> Result<(), ChildError> {
-        let hdl = self.get_io_handle().context(HandleOpen {})?;
+        let hdl = self.get_io_handle_nonblock().await.context(HandleOpen {})?;
 
         let mut buffer = hdl.dma_malloc(4096).context(HandleDmaMalloc {})?;
         match hdl.nvme_resv_report(1, &mut buffer).await {
@@ -581,7 +581,8 @@ impl<'c> NexusChild<'c> {
         &self,
         params: &NexusNvmeParams,
     ) -> Result<(), ChildError> {
-        let hdl = self.get_io_handle().context(HandleOpen {})?;
+        let hdl = self.get_io_handle_nonblock().await.context(HandleOpen {})?;
+
         let resv_key = params.resv_key;
         if let Err(e) = self.resv_register(&*hdl, resv_key).await {
             return match e {
@@ -620,6 +621,7 @@ impl<'c> NexusChild<'c> {
         if !params.reservations_enabled() {
             return Ok(());
         }
+
         match params.preempt_policy {
             NexusNvmePreemption::ArgKey => {
                 self.reservation_acquire_argkey(params).await?;
@@ -640,7 +642,7 @@ impl<'c> NexusChild<'c> {
         &self,
         args: &NexusNvmeParams,
     ) -> Result<(), ChildError> {
-        let hdl = self.get_io_handle().context(HandleOpen {})?;
+        let hdl = self.get_io_handle_nonblock().await.context(HandleOpen {})?;
 
         // To be able to issue any other commands we must first register.
         if let Err(e) = self.resv_register(&*hdl, args.resv_key).await {
@@ -1043,6 +1045,19 @@ impl<'c> NexusChild<'c> {
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
         if let Some(desc) = self.device_descriptor.as_ref() {
             desc.get_io_handle()
+        } else {
+            error!("{:?}: child does not have valid descriptor", self);
+            Err(CoreError::InvalidDescriptor {
+                name: self.name.clone(),
+            })
+        }
+    }
+
+    pub async fn get_io_handle_nonblock(
+        &self,
+    ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
+        if let Some(desc) = self.device_descriptor.as_ref() {
+            desc.get_io_handle_nonblock().await
         } else {
             error!("{:?}: child does not have valid descriptor", self);
             Err(CoreError::InvalidDescriptor {
