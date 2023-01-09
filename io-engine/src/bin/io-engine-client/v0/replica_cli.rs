@@ -57,52 +57,52 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         );
 
     let create_v2 = SubCommand::with_name("create2")
-                .about("Create replica on pool")
-                .arg(
-                    Arg::with_name("pool")
-                        .required(true)
-                        .index(1)
-                        .help("Storage pool name"))
-                .arg(
-                    Arg::with_name("name")
-                        .required(true)
-                        .index(2)
-                        .help("Replica name"))
-                .arg(
-                    Arg::with_name("uuid")
-                        .required(true).index(3)
-                        .help("Unique replica uuid"))
-                .arg(
-                    Arg::with_name("protocol")
-                        .short("p")
-                        .long("protocol")
-                        .takes_value(true)
-                        .value_name("PROTOCOL")
-                        .help("Name of a protocol (nvmf) used for sharing the replica (default none)"))
-                .arg(
-                    Arg::with_name("size")
-                        .short("s")
-                        .long("size")
-                        .takes_value(true)
-                        .required(true)
-                        .value_name("NUMBER")
-                        .help("Size of the replica"))
-                .arg(
-                    Arg::with_name("thin")
-                        .short("t")
-                        .long("thin")
-                        .takes_value(false)
-                        .help("Whether replica is thin provisioned (default false)"))
-                .arg(
-                    Arg::with_name("allowed-host")
-                        .long("allowed-host")
-                        .takes_value(true)
-                        .multiple(true)
-                        .required(false)
-                        .help(
-                            "NQN of hosts which are allowed to connect to the target",
-                        ),
-                );
+        .about("Create replica on pool")
+        .arg(
+            Arg::with_name("pool")
+                .required(true)
+                .index(1)
+                .help("Storage pool name"))
+        .arg(
+            Arg::with_name("name")
+                .required(true)
+                .index(2)
+                .help("Replica name"))
+        .arg(
+            Arg::with_name("uuid")
+                .required(true).index(3)
+                .help("Unique replica uuid"))
+        .arg(
+            Arg::with_name("protocol")
+                .short("p")
+                .long("protocol")
+                .takes_value(true)
+                .value_name("PROTOCOL")
+                .help("Name of a protocol (nvmf) used for sharing the replica (default none)"))
+        .arg(
+            Arg::with_name("size")
+                .short("s")
+                .long("size")
+                .takes_value(true)
+                .required(true)
+                .value_name("NUMBER")
+                .help("Size of the replica"))
+        .arg(
+            Arg::with_name("thin")
+                .short("t")
+                .long("thin")
+                .takes_value(false)
+                .help("Whether replica is thin provisioned (default false)"))
+        .arg(
+            Arg::with_name("allowed-host")
+                .long("allowed-host")
+                .takes_value(true)
+                .multiple(true)
+                .required(false)
+                .help(
+                    "NQN of hosts which are allowed to connect to the target",
+                ),
+        );
 
     let destroy = SubCommand::with_name("destroy")
         .about("Destroy replica")
