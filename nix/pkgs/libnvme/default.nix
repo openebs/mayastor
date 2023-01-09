@@ -7,6 +7,9 @@ stdenv.mkDerivation rec {
   src = sources.libnvme;
 
   nativeBuildInputs = [ json_c libuuid meson ninja openssl pkg-config python3 ];
+  preConfigure = ''
+    patchShebangs ./.
+  '';
   meta = {
     description = "Userspace NVMe library";
     longDescription = ''
@@ -14,6 +17,6 @@ stdenv.mkDerivation rec {
     '';
     homepage = "https://github.com/linux-nvme/libnvme";
     licenses = lib.licenses.lgpl21Plus;
-    maintainers = "jonathan.teh@mayadata.io";
+    maintainers = [ "jonathan.teh@mayadata.io" ];
   };
 }

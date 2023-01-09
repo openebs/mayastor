@@ -5,10 +5,10 @@
         "homepage": "https://github.com/linux-nvme/libnvme",
         "owner": "linux-nvme",
         "repo": "libnvme",
-        "rev": "c434d43faee6e6e93ac5ad603ef94a77299fa178",
-        "sha256": "0wkr0axmm4wqjncb6x7fjyg0wxjdi9f2qd3df6ph671qh5ralrjy",
+        "rev": "v1.2",
+        "sha256": "04jv5f6j2ykxbjpxrgf0865a7zhpbr7278gjs217syq1wzf67lak",
         "type": "tarball",
-        "url": "https://github.com/linux-nvme/libnvme/archive/c434d43faee6e6e93ac5ad603ef94a77299fa178.tar.gz",
+        "url": "https://github.com/linux-nvme/libnvme/archive/v1.2.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
