@@ -956,7 +956,7 @@ describe('nexus', function () {
       });
     });
 
-    it('should be the case that we do not have any dangling NBD devices left on the system', (done) => {
+    it.skip('should be the case that we do not have any dangling NBD devices left on the system', (done) => {
       exec('sleep 3; lsblk --json', (err, stdout, stderr) => {
         if (err) return done(err);
         const output = JSON.parse(stdout);

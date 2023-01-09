@@ -19,11 +19,13 @@ static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
+static DISK_SIZE_MB: u64 = 400;
+
 macro_rules! prepare_storage {
     () => {
         common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
-        common::truncate_file(DISKNAME1, 64 * 1024);
-        common::truncate_file(DISKNAME2, 64 * 1024);
+        common::truncate_file(DISKNAME1, DISK_SIZE_MB * 1024);
+        common::truncate_file(DISKNAME2, DISK_SIZE_MB * 1024);
     };
 }
 
@@ -164,19 +166,19 @@ async fn mount_fn_fio() {
 
 async fn create_nexus() {
     let ch = vec![BDEVNAME1.to_string(), BDEVNAME2.to_string()];
-    nexus_create("nexus", 64 * 1024 * 1024, None, &ch)
+    nexus_create("nexus", DISK_SIZE_MB * 1024 * 1024, None, &ch)
         .await
         .unwrap();
 }
 
 async fn create_nexus_splitted() {
     let ch = vec![BDEVNAME1.to_string()];
-    nexus_create("left", 64 * 1024 * 1024, None, &ch)
+    nexus_create("left", DISK_SIZE_MB * 1024 * 1024, None, &ch)
         .await
         .unwrap();
 
     let ch = vec![BDEVNAME2.to_string()];
-    nexus_create("right", 64 * 1024 * 1024, None, &ch)
+    nexus_create("right", DISK_SIZE_MB * 1024 * 1024, None, &ch)
         .await
         .unwrap();
 }

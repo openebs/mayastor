@@ -9,7 +9,7 @@
 , libspdk
 , libspdk-dev
 , libpcap
-, libudev
+, udev
 , liburing
 , libunwind
 , makeRustPlatform
@@ -70,7 +70,7 @@ let
       libbsd
       libnvme
       libpcap
-      libudev
+      udev
       liburing
       numactl
       openssl

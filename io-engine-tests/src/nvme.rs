@@ -163,7 +163,7 @@ pub fn get_nvme_resv_report(nvme_dev: &str) -> serde_json::Value {
     let output_resv = Command::new("nvme")
         .args(&["resv-report"])
         .args(&[nvme_dev])
-        .args(&["-c", "1"])
+        .args(&["-e", "1"])
         .args(&["-o", "json"])
         .output()
         .unwrap();
