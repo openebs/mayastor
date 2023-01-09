@@ -1,6 +1,6 @@
+use super::nexus_child_cli;
 use crate::{
     context::{Context, OutputFormat},
-    nexus_child_cli,
     parse_size,
     ClientError,
     GrpcStatus,

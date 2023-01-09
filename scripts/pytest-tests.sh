@@ -35,5 +35,27 @@ cd "$SRCDIR/test/python" && source ./venv/bin/activate
 run_tests << 'END'
 
 tests/cli_controller
+tests/replica
+tests/publish
+tests/rebuild
+
+#tests/csi
+
+tests/ana_client
+tests/cli_controller
+tests/replica_uuid
+#tests/rpc
+
+tests/nexus_multipath
+tests/nexus
+
+v1/pool
+v1/replica
+v1/nexus
+
+cross-grpc-version/pool
+cross-grpc-version/nexus
+cross-grpc-version/rebuild
+cross-grpc-version/replica
 
 END
