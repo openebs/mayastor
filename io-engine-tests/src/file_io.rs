@@ -13,22 +13,39 @@ pub fn set_test_buf_rng_seed(seed: u64) {
     RNG_SEED.set(ChaCha8Rng::seed_from_u64(seed)).unwrap();
 }
 
-fn create_test_buf(size_mb: usize) -> Vec<u8> {
+fn create_test_buf(buf_size: BufferSize) -> Vec<u8> {
     let rng = RNG_SEED.get_or_init(ChaCha8Rng::from_entropy).clone();
 
     let range = Uniform::new_inclusive(0, u8::MAX);
 
     rng.sample_iter(&range)
-        .take(size_mb * 1024 * 1024)
+        .take(buf_size.size_bytes() as usize)
         .collect()
+}
+
+pub enum BufferSize {
+    Bytes(u64),
+    Mb(u64),
+    Kb(u64),
+}
+
+impl BufferSize {
+    pub fn size_bytes(&self) -> u64 {
+        match &self {
+            BufferSize::Bytes(s) => *s,
+            BufferSize::Mb(s) => s * 1024 * 1024,
+            BufferSize::Kb(s) => s * 1024,
+        }
+    }
 }
 
 pub async fn test_write_to_file(
     path: impl AsRef<Path>,
+    offset: u64,
     count: usize,
-    buf_size_mb: usize,
+    buf_size: BufferSize,
 ) -> std::io::Result<()> {
-    let src_buf = create_test_buf(buf_size_mb);
+    let src_buf = create_test_buf(buf_size);
 
     let mut dst_buf: Vec<u8> = vec![];
     dst_buf.resize(src_buf.len(), 0);
@@ -41,14 +58,17 @@ pub async fn test_write_to_file(
         .open(&path)
         .await?;
 
+    f.seek(SeekFrom::Start(offset)).await?;
+
+    // Write.
     for _i in 0 .. count {
-        let pos = f.stream_position().await?;
-
-        // Write buffer.
         f.write_all(&src_buf).await?;
+    }
 
-        // Validate written data.
-        f.seek(SeekFrom::Start(pos)).await?;
+    // Validate.
+    f.seek(SeekFrom::Start(offset)).await?;
+    let mut pos = offset;
+    for _i in 0 .. count {
         f.read_exact(&mut dst_buf).await?;
 
         for k in 0 .. src_buf.len() {
@@ -64,6 +84,8 @@ pub async fn test_write_to_file(
                 ));
             }
         }
+
+        pos += src_buf.len() as u64;
     }
 
     Ok(())
@@ -92,4 +114,66 @@ pub async fn compute_file_checksum(
     }
 
     Ok(hex::encode(hasher.compute().0))
+}
+
+pub async fn compare_files(
+    path_a: impl AsRef<Path>,
+    path_b: impl AsRef<Path>,
+) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+
+    let name_a = path_a.as_ref();
+    let name_b = path_b.as_ref();
+
+    let mut fa = OpenOptions::new()
+        .write(false)
+        .read(true)
+        .create(false)
+        .truncate(false)
+        .open(&path_a)
+        .await?;
+
+    let mut fb = OpenOptions::new()
+        .write(false)
+        .read(true)
+        .create(false)
+        .truncate(false)
+        .open(&path_b)
+        .await?;
+
+    let mut buf_a = [0; 16384];
+    let mut buf_b = [0; 16384];
+
+    let mut pos = 0;
+
+    loop {
+        let na = fa.read(&mut buf_a).await?;
+        let nb = fb.read(&mut buf_b).await?;
+
+        if na != nb {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Size of file {name_a:?} != size of {name_b:?}"),
+            ));
+        }
+
+        if na == 0 {
+            break;
+        }
+
+        for i in 0 .. na {
+            if buf_a[i] != buf_b[i] {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    format!(
+                        "Miscompare at {} ({} blk): {:?} {:#02x} != {:?} {:#02x}",
+                        pos, pos / 512, name_a, buf_a[i], name_b, buf_b[i],
+                    ),
+                ));
+            }
+            pos += 1;
+        }
+    }
+
+    Ok(())
 }
