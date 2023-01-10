@@ -24,13 +24,38 @@ use mayastor_api::{
 };
 
 use crate::subsys::registration::registration_grpc::ApiVersion;
+use futures::{select, FutureExt, StreamExt};
+use once_cell::sync::OnceCell;
 use std::{borrow::Cow, time::Duration};
 use tonic::transport::Server;
 use tracing::trace;
 
-pub struct MayastorGrpcServer;
+static MAYASTOR_GRPC_SERVER: OnceCell<MayastorGrpcServer> = OnceCell::new();
+
+#[derive(Clone)]
+pub struct MayastorGrpcServer {
+    /// Receive channel for messages and termination
+    rcv_chan: async_channel::Receiver<()>,
+    /// Termination channel
+    fini_chan: async_channel::Sender<()>,
+}
 
 impl MayastorGrpcServer {
+    /// Get or initialise the grpc server global instance.
+    pub fn get_or_init() -> &'static MayastorGrpcServer {
+        let (msg_sender, msg_receiver) = async_channel::unbounded::<()>();
+        MAYASTOR_GRPC_SERVER.get_or_init(|| MayastorGrpcServer {
+            rcv_chan: msg_receiver,
+            fini_chan: msg_sender,
+        })
+    }
+
+    /// Terminate the grpc server.
+    pub fn fini(&self) {
+        self.fini_chan.close();
+    }
+
+    /// Start the grpc server.
     pub async fn run(
         node_name: &str,
         node_nqn: &Option<String>,
@@ -38,6 +63,8 @@ impl MayastorGrpcServer {
         rpc_addr: String,
         api_versions: Vec<ApiVersion>,
     ) -> Result<(), ()> {
+        let mut rcv_chan = Self::get_or_init().rcv_chan.clone();
+
         let address = Cow::from(rpc_addr);
 
         let enable_v0 = api_versions.contains(&ApiVersion::V0).then(|| true);
@@ -89,14 +116,22 @@ impl MayastorGrpcServer {
             )
             .serve(endpoint);
 
-        match svc.await {
-            Ok(result) => {
-                trace!(?result);
+        select! {
+            result = svc.fuse() => {
+                match result {
+                    Ok(result) => {
+                        trace!(?result);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!("gRPC server failed with error: {}", e);
+                        Err(())
+                    }
+                }
+            },
+            _ = rcv_chan.next().fuse() => {
+                info!("Shutting down grpc server");
                 Ok(())
-            }
-            Err(e) => {
-                error!("gRPC server failed with error: {}", e);
-                Err(())
             }
         }
     }

@@ -145,8 +145,8 @@ impl Registration {
         GRPC_REGISTRATION.get()
     }
 
-    /// terminate and re-register
-    pub(super) fn fini(&self) {
+    /// Terminate the channel to deregister.
+    pub fn fini(&self) {
         self.fini_chan.close();
     }
 
