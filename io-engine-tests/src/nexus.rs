@@ -17,6 +17,7 @@ use super::{
         SharedRpcHandle,
         Status,
     },
+    file_io::BufferSize,
     generate_uuid,
     nvmf::{test_write_to_nvmf, NvmfLocation},
     replica::ReplicaBuilder,
@@ -349,8 +350,9 @@ pub async fn find_nexus_by_uuid(
 
 pub async fn test_write_to_nexus(
     nex: &NexusBuilder,
+    offset: u64,
     count: usize,
-    buf_size_mb: usize,
+    buf_size: BufferSize,
 ) -> std::io::Result<()> {
-    test_write_to_nvmf(&nex.nvmf_location(), count, buf_size_mb).await
+    test_write_to_nvmf(&nex.nvmf_location(), offset, count, buf_size).await
 }

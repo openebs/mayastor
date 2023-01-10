@@ -9,6 +9,7 @@ use common::{
         Binary,
         Builder,
     },
+    file_io::BufferSize,
     nexus::{find_nexus_by_uuid, test_write_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
@@ -62,10 +63,12 @@ async fn nexus_thin_nospc_local_single() {
     nex_0.publish().await.unwrap();
 
     // Write less than pool size.
-    test_write_to_nexus(&nex_0, 30, 1).await.unwrap();
+    test_write_to_nexus(&nex_0, 0, 30, BufferSize::Mb(1))
+        .await
+        .unwrap();
 
     // Write more than pool size. Must result in ENOSPC.
-    let res = test_write_to_nexus(&nex_0, 80, 1).await;
+    let res = test_write_to_nexus(&nex_0, 0, 80, BufferSize::Mb(1)).await;
 
     assert_eq!(
         res.unwrap_err().raw_os_error().unwrap(),
@@ -125,10 +128,12 @@ async fn nexus_thin_nospc_remote_single() {
     nex_0.publish().await.unwrap();
 
     // Write less than pool size.
-    test_write_to_nexus(&nex_0, 30, 1).await.unwrap();
+    test_write_to_nexus(&nex_0, 0, 30, BufferSize::Mb(1))
+        .await
+        .unwrap();
 
     // Write more than pool size. Must result in ENOSPC.
-    let res = test_write_to_nexus(&nex_0, 80, 1).await;
+    let res = test_write_to_nexus(&nex_0, 0, 80, BufferSize::Mb(1)).await;
 
     assert_eq!(
         res.unwrap_err().raw_os_error().unwrap(),
@@ -311,7 +316,9 @@ async fn test_recover_from_enospc(
 ) {
     // Write more data than pool free space.
     // Must succeed.
-    test_write_to_nexus(&nex, count, buf_size_mb).await.unwrap();
+    test_write_to_nexus(&nex, 0, count, BufferSize::Mb(buf_size_mb))
+        .await
+        .unwrap();
 
     // First child must be degraded.
     let n = find_nexus_by_uuid(nex.rpc(), &nex.uuid()).await.unwrap();

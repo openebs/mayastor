@@ -1,8 +1,8 @@
 use super::{
-    file_io::{compute_file_checksum, test_write_to_file},
+    file_io::{compare_files, test_write_to_file, BufferSize},
     nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct NvmfLocation {
@@ -11,37 +11,36 @@ pub struct NvmfLocation {
     pub serial: String,
 }
 
+impl NvmfLocation {
+    fn open(&self) -> std::io::Result<(NmveConnectGuard, PathBuf)> {
+        let cg = NmveConnectGuard::connect_addr(&self.addr, &self.nqn);
+        let path = find_mayastor_nvme_device_path(&self.serial)?;
+        Ok((cg, path))
+    }
+}
+
 pub async fn test_write_to_nvmf(
     nvmf: &NvmfLocation,
+    offset: u64,
     count: usize,
-    buf_size_mb: usize,
+    buf_size: BufferSize,
 ) -> std::io::Result<()> {
     let _cg = NmveConnectGuard::connect_addr(&nvmf.addr, &nvmf.nqn);
     let path = find_mayastor_nvme_device_path(&nvmf.serial)?;
-    test_write_to_file(path, count, buf_size_mb).await
+    test_write_to_file(path, offset, count, buf_size).await
 }
 
 /// Checks that all given NVMF devices contain identical copies of data.
 pub async fn test_devices_identical(
     devices: &[NvmfLocation],
 ) -> std::io::Result<()> {
-    assert!(!devices.is_empty());
+    assert!(devices.len() > 1);
 
-    let mut first: Option<String> = None;
+    let (_cg0, path0) = devices[0].open()?;
 
-    for d in devices {
-        let _cg = NmveConnectGuard::connect_addr(&d.addr, &d.nqn);
-        let path = find_mayastor_nvme_device_path(&d.serial)?;
-        let ch = compute_file_checksum(&path).await?;
-        if let Some(f) = &first {
-            assert_eq!(
-                f, &ch,
-                "Device {}/{}: checksum mismatch",
-                d.addr, d.nqn
-            );
-        } else {
-            first = Some(ch);
-        }
+    for dev in devices.iter().skip(1) {
+        let (_cgi, pathi) = dev.open()?;
+        compare_files(&path0, &pathi).await?;
     }
 
     Ok(())

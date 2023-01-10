@@ -12,6 +12,7 @@ async fn nexus_fault_injection() {
             Binary,
             Builder,
         },
+        file_io::BufferSize,
         nexus::{test_write_to_nexus, NexusBuilder},
         pool::PoolBuilder,
         replica::ReplicaBuilder,
@@ -105,7 +106,9 @@ async fn nexus_fault_injection() {
     assert_eq!(&lst[0].device_name, dev_name);
 
     // Write less than pool size.
-    test_write_to_nexus(&nex_0, 30, 1).await.unwrap();
+    test_write_to_nexus(&nex_0, 0, 30, BufferSize::Mb(1))
+        .await
+        .unwrap();
 
     //
     let children = nex_0.get_nexus().await.unwrap().children;
