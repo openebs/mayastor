@@ -86,7 +86,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
             futures::future::try_join_all(futures)
                 .await
-                .expect_err("runtime exited in the abnormal state");
+                .expect("runtime exited in the normal state");
         });
     });
 }

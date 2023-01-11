@@ -49,6 +49,7 @@ use crate::{
         Mthread,
     },
     grpc,
+    grpc::MayastorGrpcServer,
     logger,
     persistent_store::PersistentStore,
     subsys::{
@@ -56,6 +57,7 @@ use crate::{
         registration::registration_grpc::ApiVersion,
         Config,
         PoolConfig,
+        Registration,
     },
 };
 
@@ -370,6 +372,14 @@ async fn do_shutdown(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
+    // Shutdown GRPC Server and Registration Client first, to not accept any
+    // more requests once we start shutting down, otherwise the control
+    // plane might schedule workloads on this instance while it's shutting
+    // down.
+    MayastorGrpcServer::get_or_init().fini();
+    if let Some(reg) = Registration::get() {
+        reg.fini();
+    }
     nexus::shutdown_nexuses().await;
     crate::lvs::Lvs::export_all().await;
     unsafe {
