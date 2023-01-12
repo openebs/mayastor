@@ -8,6 +8,8 @@ use spdk_rs::{BdevDescError, DmaError};
 /// Various rebuild errors when interacting with a rebuild job or
 /// encountered during a rebuild copy
 pub enum RebuildError {
+    #[snafu(display("Job {} already exists", job))]
+    JobAlreadyExists { job: String },
     #[snafu(display("Failed to allocate buffer for the rebuild copy"))]
     NoCopyBuffer { source: DmaError },
     #[snafu(display("Failed to validate rebuild job creation parameters"))]

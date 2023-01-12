@@ -1013,30 +1013,18 @@ impl<'c> NexusChild<'c> {
     }
 
     /// TODO
-    pub(super) fn set_rebuild_job(&mut self, job: RebuildJob<'c>) {
-        assert!(self.rebuild_job.is_none());
-        self.rebuild_job = Some(job);
-    }
-
-    /// TODO
-    pub(super) fn remove_rebuild_job(&mut self) -> Option<RebuildJob<'c>> {
-        self.rebuild_job.take()
+    pub(super) fn remove_rebuild_job(&mut self) -> Option<RebuildJob<'static>> {
+        RebuildJob::remove(&self.name).ok()
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding.
-    pub fn rebuild_job(&self) -> Option<&RebuildJob<'c>> {
-        self.rebuild_job.as_ref()
-    }
-
-    /// Return the rebuild job which is rebuilding this child, if rebuilding.
-    pub fn rebuild_job_mut(&mut self) -> Option<&mut RebuildJob<'c>> {
-        self.rebuild_job.as_mut()
+    pub fn rebuild_job(&self) -> Option<&mut RebuildJob<'c>> {
+        RebuildJob::lookup(&self.name).ok()
     }
 
     /// Return the rebuild progress on this child, if rebuilding.
     pub fn get_rebuild_progress(&self) -> i32 {
-        self.rebuild_job
-            .as_ref()
+        self.rebuild_job()
             .map(|j| j.stats().progress as i32)
             .unwrap_or_else(|| -1)
     }
