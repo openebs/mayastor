@@ -6,11 +6,7 @@ use std::fmt;
 use spdk_rs::{DmaBuf, LbaRange};
 
 use crate::{
-    bdev::{
-        device_open,
-        nexus::{nexus_iter, nexus_iter_mut},
-        Nexus,
-    },
+    bdev::{device_open, nexus::nexus_iter, Nexus},
     bdev_api::bdev_get_name,
     core::{
         Bdev,
@@ -38,6 +34,18 @@ use super::{
     SEGMENT_SIZE,
     SEGMENT_TASKS,
 };
+
+use once_cell::sync::OnceCell;
+use spdk_rs::Thread;
+use std::{cell::UnsafeCell, collections::HashMap};
+
+unsafe impl Sync for RebuildInstances {}
+unsafe impl Send for RebuildInstances {}
+
+/// Global list of rebuild jobs using a static OnceCell
+pub(crate) struct RebuildInstances {
+    inner: UnsafeCell<HashMap<String, Box<RebuildJob<'static>>>>,
+}
 
 #[derive(Debug)]
 /// Operations used to control the state of the job
@@ -212,44 +220,86 @@ impl<'n> RebuildJob<'n> {
         })
     }
 
-    /// Searches all nexues for a rebuild job by its destination URI.
+    /// Get the rebuild job instances container, we ensure that this can only
+    /// ever be called on a properly allocated thread
+    fn get_instances() -> &'static mut HashMap<String, Box<RebuildJob<'static>>>
+    {
+        if !Thread::is_spdk_thread() {
+            panic!("not called from SPDK thread")
+        }
+
+        static REBUILD_INSTANCES: OnceCell<RebuildInstances> = OnceCell::new();
+
+        let global_instances =
+            REBUILD_INSTANCES.get_or_init(|| RebuildInstances {
+                inner: UnsafeCell::new(HashMap::new()),
+            });
+
+        unsafe { &mut *global_instances.inner.get() }
+    }
+
+    /// Lookup a rebuild job by its destination uri then remove and drop it.
+    pub fn remove(name: &str) -> Result<RebuildJob<'static>, RebuildError> {
+        match Self::get_instances().remove(name) {
+            Some(job) => Ok(*job),
+            None => Err(RebuildError::JobNotFound {
+                job: name.to_owned(),
+            }),
+        }
+    }
+
+    /// Stores a rebuild job in the rebuild job list
+    pub fn store(self) -> Result<(), RebuildError> {
+        let rebuild_list = Self::get_instances();
+
+        if rebuild_list.contains_key(&self.dst_uri) {
+            Err(RebuildError::JobAlreadyExists {
+                job: self.dst_uri,
+            })
+        } else {
+            let _ = rebuild_list
+                .insert(self.dst_uri.clone(), Box::new(self.into_static()));
+            Ok(())
+        }
+    }
+
+    /// Lookup a rebuild job by its destination uri and return it
     pub fn lookup<'a>(
         dst_uri: &str,
-    ) -> Result<&'a RebuildJob<'a>, RebuildError> {
-        for n in nexus_iter() {
-            if let Ok(j) = n.rebuild_job(dst_uri) {
-                return Ok(j);
-            }
-        }
-
-        Err(RebuildError::JobNotFound {
-            job: dst_uri.to_owned(),
-        })
-    }
-
-    /// Searches all nexues for a rebuild job by its destination URI.
-    fn lookup_mut<'a>(
-        dst_uri: &str,
     ) -> Result<&'a mut RebuildJob<'a>, RebuildError> {
-        for n in nexus_iter_mut() {
-            if let Ok(j) = n.rebuild_job_mut(dst_uri) {
-                return Ok(j);
-            }
+        if let Some(job) = Self::get_instances().get_mut(dst_uri) {
+            Ok(Self::from_static(job))
+        } else {
+            Err(RebuildError::JobNotFound {
+                job: dst_uri.to_owned(),
+            })
         }
-
-        Err(RebuildError::JobNotFound {
-            job: dst_uri.to_owned(),
-        })
     }
 
-    /// Searches all nexues for all rebuild jobs with the given URI as its
-    /// source.
-    pub fn lookup_src<'a>(src_uri: &str) -> Vec<&'a RebuildJob<'a>> {
-        let mut res = Vec::new();
-        for n in nexus_iter() {
-            res.extend(n.rebuild_jobs_src(src_uri));
-        }
-        res
+    /// Lookup all rebuilds jobs with name as its source.
+    pub fn lookup_src<'a>(src_uri: &str) -> Vec<&'a mut RebuildJob<'a>> {
+        Self::get_instances()
+            .iter_mut()
+            .filter_map(|j| {
+                if j.1.src_uri == src_uri {
+                    Some(Self::from_static(j.1.as_mut()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// TODO
+    fn into_static(self) -> RebuildJob<'static> {
+        unsafe { std::mem::transmute::<_, RebuildJob<'static>>(self) }
+    }
+
+    /// TODO
+    fn from_static<'a>(
+        job: &mut RebuildJob<'static>,
+    ) -> &'a mut RebuildJob<'a> {
+        unsafe { std::mem::transmute::<_, &'a mut RebuildJob<'a>>(job) }
     }
 
     /// Returns number of all rebuild jobs on the system.
@@ -494,7 +544,7 @@ impl<'n> RebuildJob<'n> {
             RebuildState::Paused | RebuildState::Init => {
                 let dst_uri = self.dst_uri.clone();
                 Reactors::master().send_future(async move {
-                    let job = match RebuildJob::lookup_mut(&dst_uri) {
+                    let job = match RebuildJob::lookup(&dst_uri) {
                         Ok(job) => job,
                         Err(_) => {
                             return error!(
@@ -527,7 +577,7 @@ impl<'n> RebuildJob<'n> {
 
         info!(
             "State: {}, Src: {}, Dst: {}, range: {:?}, next: {}, \
-             block_size: {}, segment_sz: {}, recovered_blks: {}, progress: {}%",
+             block_size: {}, segment_sz: {}, recovered_blks: {}, progress: {}%, TaskPool: {:?}",
             self.state(),
             self.src_uri,
             self.dst_uri,
@@ -537,6 +587,7 @@ impl<'n> RebuildJob<'n> {
             self.segment_size_blks,
             blocks_recovered,
             progress,
+            self.task_pool,
         );
 
         RebuildStats {
@@ -668,7 +719,7 @@ impl<'n> RebuildJob<'n> {
             let dst_uri = self.dst_uri.clone();
 
             Reactors::current().send_future(async move {
-                let job = Self::lookup_mut(&dst_uri).unwrap();
+                let job = Self::lookup(&dst_uri).unwrap();
 
                 let r = TaskResult {
                     blk,

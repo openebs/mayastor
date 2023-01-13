@@ -30,7 +30,6 @@ pub(super) struct RebuildTask {
 /// Pool of rebuild tasks and progress tracking
 /// Each task uses a clone of the sender allowing the management task to poll a
 /// single receiver
-#[derive(Debug)]
 pub(super) struct RebuildTasks {
     /// TODO
     pub(super) tasks: Vec<RebuildTask>,
@@ -42,6 +41,16 @@ pub(super) struct RebuildTasks {
     pub(super) total: usize,
     /// TODO
     pub(super) segments_done: u64,
+}
+
+impl std::fmt::Debug for RebuildTasks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RebuildTasks")
+            .field("active", &self.active)
+            .field("total", &self.total)
+            .field("segments_done", &self.segments_done)
+            .finish()
+    }
 }
 
 impl RebuildTasks {

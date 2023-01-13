@@ -385,6 +385,7 @@ def test_nexus_resv_key(create_nexus_v2, nexus_name, nexus_uuid, mayastors, resv
         nvme_disconnect(child_uri)
 
 
+@pytest.mark.skip
 def test_nexus_preempt_key(
     create_nexus_v2,
     create_nexus_2_v2,

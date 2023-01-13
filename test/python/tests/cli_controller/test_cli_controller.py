@@ -88,14 +88,15 @@ async def test_controller_list(mayastor_mod, create_replicas, create_nexus):
 async def test_controller_stats(mayastor_mod, create_replicas, create_nexus):
     nexus = mayastor_mod.get("ms3")
     mscli = get_msclient().with_json_output().with_url(nexus.ip_address())
-
     # Should see exactly 2 controllers on the nexus instance.
     assure_controllers(mscli, create_replicas)
-
+    list_controller = mscli("controller", "list")
+    output = {"controllers": []}
+    for controller in list_controller["controllers"]:
+        output["controllers"].append(mscli("controller", "stats", controller["name"]))
     # Check that stats exist for all controllers and are initially empty.
-    output = mscli("controller", "stats")
     assert len(output["controllers"]) == len(create_replicas)
-    names = [c["name"] for c in output["controllers"]]
+    names = [c["name"] for c in list_controller["controllers"]]
 
     for r in create_replicas:
         c = ctrl_name_from_uri(r)
@@ -113,7 +114,10 @@ async def test_controller_stats(mayastor_mod, create_replicas, create_nexus):
     target_stats = ["num_read_ops", "num_write_ops", "bytes_read", "bytes_written"]
     cached_stats = {"num_write_ops": 0, "bytes_written": 0}
 
-    output = mscli("controller", "stats")
+    output = {"controllers": []}
+    for controller in list_controller["controllers"]:
+        output["controllers"].append(mscli("controller", "stats", controller["name"]))
+
     assert len(output["controllers"]) == 2
     for c in output["controllers"]:
         stats = c["stats"]
