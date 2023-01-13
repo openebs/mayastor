@@ -116,6 +116,7 @@ impl<'c> NexusChild<'c> {
             state: rpc::ChildState::from(self.state()) as i32,
             rebuild_progress: self.get_rebuild_progress(),
             reason: rpc::ChildStateReason::from(self.state()) as i32,
+            device_name: self.get_device_name(),
         }
     }
 }

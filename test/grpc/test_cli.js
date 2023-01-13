@@ -6,7 +6,7 @@
 // be tested independetly on other components. The price we pay for
 // the isolation and flexibility is that we have to use grpc mock
 // server to fake the server and responses.
-
+process.env.API_VERSION = 'v0';
 const assert = require('chai').assert;
 const exec = require('child_process').exec;
 const path = require('path');
@@ -28,7 +28,6 @@ const CLIENT_CMD = path.join(
   'io-engine-client'
 );
 const EGRESS_CMD = CLIENT_CMD + ' --bind 127.0.0.1:' + EGRESS_PORT;
-
 let mayastorMockServer;
 
 // Here we initialize gRPC mock server with predefined replies for requests
