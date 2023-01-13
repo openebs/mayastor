@@ -134,7 +134,7 @@ impl<'n> Nexus<'n> {
         src_child_uri: &str,
         dst_child_uri: &str,
     ) -> Result<(), Error> {
-        let job = RebuildJob::new(
+        RebuildJob::new(
             &self.name,
             src_child_uri,
             dst_child_uri,
@@ -148,14 +148,11 @@ impl<'n> Nexus<'n> {
                 });
             },
         )
+        .and_then(RebuildJob::store)
         .context(nexus_err::CreateRebuild {
             child: dst_child_uri.to_owned(),
             name: self.name.clone(),
-        })?;
-
-        self.child_mut(dst_child_uri)?.set_rebuild_job(job);
-
-        Ok(())
+        })
     }
 
     /// Terminates a rebuild in the background
@@ -259,17 +256,17 @@ impl<'n> Nexus<'n> {
     /// Cancels all rebuilds jobs associated with the child.
     /// Returns a list of rebuilding children whose rebuild job was cancelled.
     pub async fn cancel_rebuild_jobs(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         src_uri: &str,
     ) -> Vec<String> {
         info!("{:?}: cancel rebuild jobs from '{}'...", self, src_uri);
 
-        let mut src_jobs = self.as_mut().rebuild_jobs_src_mut(src_uri);
+        let src_jobs = RebuildJob::lookup_src(src_uri);
         let mut terminated_jobs = Vec::new();
         let mut rebuilding_children = Vec::new();
 
         // terminate all jobs with the child as a source
-        src_jobs.iter_mut().for_each(|j| {
+        src_jobs.into_iter().for_each(|j| {
             terminated_jobs.push(j.terminate());
             rebuilding_children.push(j.dst_uri.clone());
         });
@@ -309,56 +306,19 @@ impl<'n> Nexus<'n> {
         }
     }
 
-    /// Returns references to all rebuild jobs associated with the source child
-    /// URI.
-    pub fn rebuild_jobs_src(&self, src_uri: &str) -> Vec<&RebuildJob<'n>> {
-        self.children_iter()
-            .filter_map(|c| {
-                c.rebuild_job()
-                    .map(|j| if j.src_uri == src_uri { Some(j) } else { None })
-                    .flatten()
-            })
-            .collect()
-    }
-
-    /// Returns mutable references to all rebuild jobs associated with the
-    /// source child URI.
-    fn rebuild_jobs_src_mut(
-        self: Pin<&mut Self>,
-        src_uri: &str,
-    ) -> Vec<&mut RebuildJob<'n>> {
-        unsafe {
-            self.children_iter_mut()
-                .filter_map(|c| {
-                    c.rebuild_job_mut()
-                        .map(
-                            |j| {
-                                if j.src_uri == src_uri {
-                                    Some(j)
-                                } else {
-                                    None
-                                }
-                            },
-                        )
-                        .flatten()
-                })
-                .collect()
-        }
-    }
-
     /// Returns rebuild job associated with the destination child URI.
     /// Returns error if no rebuild job associated with it.
     pub fn rebuild_job(
         &self,
         dst_child_uri: &str,
-    ) -> Result<&RebuildJob<'n>, Error> {
-        self.lookup_child(dst_child_uri)
-            .map(|c| c.rebuild_job())
-            .flatten()
-            .ok_or_else(|| Error::RebuildJobNotFound {
+    ) -> Result<&mut RebuildJob<'n>, Error> {
+        let name = self.name.clone();
+        RebuildJob::lookup(dst_child_uri).map_err(|_| {
+            Error::RebuildJobNotFound {
                 child: dst_child_uri.to_owned(),
-                name: self.name.clone(),
-            })
+                name,
+            }
+        })
     }
 
     /// Returns rebuild job associated with the destination child URI.
@@ -368,13 +328,12 @@ impl<'n> Nexus<'n> {
         dst_child_uri: &str,
     ) -> Result<&mut RebuildJob<'n>, Error> {
         let name = self.name.clone();
-        self.lookup_child_mut(dst_child_uri)
-            .map(|c| c.rebuild_job_mut())
-            .flatten()
-            .ok_or_else(move || Error::RebuildJobNotFound {
+        RebuildJob::lookup(dst_child_uri).map_err(|_| {
+            Error::RebuildJobNotFound {
                 child: dst_child_uri.to_owned(),
                 name,
-            })
+            }
+        })
     }
 
     /// Returns number of rebuild jobs on all children.

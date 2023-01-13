@@ -510,7 +510,7 @@ impl NexusRpc for NexusService {
                 let uuid = args.uuid.clone();
                 debug!("Removing child {} from nexus {} ...", args.uri, uuid);
                 nexus_lookup(&args.uuid)?.remove_child(&args.uri).await?;
-                info!("Removed child from nexus {}", uuid);
+                info!("Removed child {} from nexus {}", args.uri, uuid);
                 Ok(nexus_lookup(&args.uuid)?.into_grpc().await)
             })?;
 
