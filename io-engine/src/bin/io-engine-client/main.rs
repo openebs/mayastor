@@ -9,6 +9,7 @@ use mayastor_api::v0::{
 };
 pub(crate) mod context;
 mod v0;
+mod v1;
 
 type MayaClient = MayastorClient<Channel>;
 type BdevClient = BdevRpcClient<Channel>;
@@ -40,5 +41,12 @@ pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
 #[tokio::main(worker_threads = 2)]
 async fn main() -> crate::Result<()> {
     env_logger::init();
-    v0::main_().await
+    match std::env::var("API_VERSION").unwrap_or_default().as_str() {
+        "v0" => v0::main_().await,
+        "v1" => v1::main_().await,
+        "" => v1::main_().await,
+        version => {
+            panic!("Invalid Api version set: {}", version)
+        }
+    }
 }
