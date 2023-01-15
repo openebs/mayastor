@@ -120,7 +120,13 @@ impl<'n> Nexus<'n> {
         // rebuilt ranges in sync with the other children.
         self.reconfigure(DrEvent::ChildRebuild).await;
 
-        self.rebuild_job_mut(&dst_child_uri)?.start().context(
+        let log = if let Ok(c) = self.as_mut().child_mut(&dst_child_uri) {
+            c.take_rebuild_log()
+        } else {
+            None
+        };
+
+        self.rebuild_job_mut(&dst_child_uri)?.start(log).context(
             nexus_err::RebuildOperation {
                 job: child_uri.to_owned(),
                 name: name.clone(),

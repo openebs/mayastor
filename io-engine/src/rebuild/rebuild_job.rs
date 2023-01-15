@@ -28,6 +28,7 @@ use crate::{
 use super::{
     rebuild_error::*,
     RebuildError,
+    RebuildLogHandle,
     RebuildState,
     RebuildStates,
     RebuildStats,
@@ -98,6 +99,8 @@ pub struct RebuildJob<'n> {
     pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
     /// rebuild copy error, if any
     pub error: Option<RebuildError>,
+    /// TODO
+    rebuild_log: Option<RebuildLogHandle>,
 
     // Pre-opened descriptors for source/destination block device.
     pub(super) src_descriptor: Box<dyn BlockDeviceDescriptor>,
@@ -207,6 +210,7 @@ impl<'n> RebuildJob<'n> {
             states: Default::default(),
             complete_chan: Vec::new(),
             error: None,
+            rebuild_log: None,
             src_descriptor,
             dst_descriptor,
         })
@@ -400,6 +404,12 @@ impl<'n> RebuildJob<'n> {
 
         source_hdl.set_read_mode(ReadMode::UnwrittenFail);
 
+        if let Some(ref log) = self.rebuild_log {
+            if !log.need_copy(blk) {
+                return Ok(());
+            }
+        }
+
         let res = source_hdl.read_at(blk * self.block_size, copy_buffer).await;
 
         if let Err(CoreError::ReadingUnallocatedBlock {
@@ -554,7 +564,9 @@ impl<'n> RebuildJob<'n> {
     /// which can be waited on.
     pub fn start(
         &mut self,
+        log: Option<RebuildLogHandle>,
     ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
+        self.rebuild_log = log;
         self.exec_client_op(RebuildOperation::Start)?;
         let end_channel = oneshot::channel();
         self.complete_chan.push(end_channel.0);

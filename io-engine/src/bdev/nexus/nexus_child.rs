@@ -27,7 +27,7 @@ use crate::{
         VerboseError,
     },
     persistent_store::PersistentStore,
-    rebuild::RebuildJob,
+    rebuild::{RebuildJob, RebuildLog, RebuildLogHandle},
 };
 
 use crate::{
@@ -70,8 +70,8 @@ pub enum ChildError {
     ClaimChild { source: Errno },
     #[snafu(display("Child is inaccessible"))]
     ChildInaccessible {},
-    #[snafu(display("Invalid state of child"))]
-    ChildInvalid {},
+    #[snafu(display("Cannot online child in its current state"))]
+    CannotOnlineChild {},
     #[snafu(display("Failed to create a BlockDeviceHandle for child"))]
     HandleCreate { source: CoreError },
     #[snafu(display("Failed to open a BlockDeviceHandle for child"))]
@@ -160,7 +160,7 @@ pub enum ChildState {
     /// Child has not been opened, but we are in the process of opening it.
     Init,
     /// Cannot add this block device to the parent as
-    /// it iss incompatible property-wise.
+    /// it is incompatible property-wise.
     ConfigInvalid,
     /// The child is open for R/W.
     Open,
@@ -213,6 +213,9 @@ pub struct NexusChild<'c> {
     /// TODO
     #[serde(skip_serializing)]
     rebuild_job: Option<RebuildJob<'c>>,
+    /// TODO
+    #[serde(skip_serializing)]
+    rebuild_log: Option<RebuildLogHandle>,
     /// TODO
     #[serde(skip_serializing)]
     _c: PhantomData<&'c ()>,
@@ -797,8 +800,33 @@ impl<'c> NexusChild<'c> {
     ) -> Result<String, ChildError> {
         info!("{:?}: bringing child online", self);
 
-        // Only online a child if it was previously set offline.
-        if !self.can_online() {
+        let state = self.state.load();
+
+        if matches!(
+            state,
+            ChildState::Open | ChildState::Init | ChildState::ConfigInvalid
+        ) {
+            warn!(
+                "{:?}: child is in {} state and cannot be onlined",
+                self, state
+            );
+            return Err(ChildError::CannotOnlineChild {});
+        }
+
+        if matches!(state, ChildState::Destroying) {
+            warn!(
+                "{:?}: child is in {} state and cannot be onlined",
+                self, state
+            );
+            return Err(ChildError::ChildBeingDestroyed {});
+        }
+
+        if !matches!(
+            state,
+            ChildState::Faulted(Reason::IoError)
+                | ChildState::Faulted(Reason::NoSpace)
+                | ChildState::Closed
+        ) {
             warn!(
                 "{:?}: child is permanently faulted and cannot \
                     be brought online",
@@ -827,16 +855,6 @@ impl<'c> NexusChild<'c> {
         self.open(parent_size, ChildState::Faulted(Reason::OutOfSync))
     }
 
-    /// Determines if the child can be onlined.
-    /// Check for a "Closed" state as that is what offlining a child
-    /// will set it to.
-    fn can_online(&self) -> bool {
-        matches!(
-            self.state.load(),
-            ChildState::Faulted(Reason::NoSpace) | ChildState::Closed
-        )
-    }
-
     /// Extract a UUID from a URI.
     pub(crate) fn uuid(uri: &str) -> Option<String> {
         let url = Url::parse(uri).expect("Failed to parse URI");
@@ -853,7 +871,8 @@ impl<'c> NexusChild<'c> {
         self.state.load()
     }
 
-    pub(crate) fn rebuilding(&self) -> bool {
+    /// Returns true if the child has an active rebuild job.
+    pub(crate) fn is_rebuilding(&self) -> bool {
         self.rebuild_job.is_some()
             && self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
@@ -985,6 +1004,7 @@ impl<'c> NexusChild<'c> {
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
             rebuild_job: None,
+            rebuild_log: None,
             _c: Default::default(),
         }
     }
@@ -1103,5 +1123,32 @@ impl<'c> NexusChild<'c> {
                 );
             }
         }
+    }
+
+    /// Creates a new rebuild log.
+    pub(super) fn start_rebuild_log(&mut self) -> Option<RebuildLogHandle> {
+        self.rebuild_log = self.device.as_ref().map(|d| {
+            RebuildLogHandle::from(RebuildLog::new(
+                &d.device_name(),
+                d.num_blocks(),
+                d.block_len(),
+            ))
+        });
+        self.rebuild_log()
+    }
+
+    /// Take the new rebuild log.
+    pub(super) fn take_rebuild_log(&mut self) -> Option<RebuildLogHandle> {
+        self.rebuild_log.take()
+    }
+
+    /// Returns child's rebuild log.
+    pub(super) fn rebuild_log(&self) -> Option<RebuildLogHandle> {
+        self.rebuild_log.clone()
+    }
+
+    /// Returns true if the child has an active rebuild log.
+    pub(super) fn is_logging(&self) -> bool {
+        self.rebuild_log.is_some()
     }
 }

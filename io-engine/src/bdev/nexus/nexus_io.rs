@@ -497,7 +497,16 @@ impl<'n> NexusBio<'n> {
             );
         }
 
-        // partial submission
+        // Log all write-like operation in the rebuild logs, if any exist.
+        self.channel().for_each_rebuild_log(|log| {
+            log.log_op(
+                self.io_type(),
+                self.effective_offset(),
+                self.num_blocks(),
+            );
+        });
+
+        // Partial submission.
         if inflight != 0 {
             // An error was experienced during submission. Some IO however, has
             // been submitted successfully prior to the error condition.

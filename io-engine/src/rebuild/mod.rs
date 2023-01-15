@@ -1,10 +1,12 @@
 mod rebuild_error;
 mod rebuild_job;
+mod rebuild_log;
 mod rebuild_state;
 mod rebuild_task;
 
 pub use rebuild_error::RebuildError;
 pub use rebuild_job::RebuildJob;
+pub use rebuild_log::{RebuildLog, RebuildLogHandle};
 pub use rebuild_state::RebuildState;
 use rebuild_state::RebuildStates;
 use rebuild_task::{RebuildTask, RebuildTasks, TaskResult};

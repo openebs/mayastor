@@ -430,6 +430,11 @@ impl<'n> Nexus<'n> {
 
         let child = self.as_mut().child_mut(child_uri)?;
 
+        if child.state() == ChildState::Open {
+            warn!("{:?}: child already online", child);
+            return Ok(self.status());
+        }
+
         child
             .online(nexus_size)
             .await
@@ -722,12 +727,14 @@ impl<'n> Nexus<'n> {
     /// Faults the device by its name, with the given fault reason.
     /// The faulted device is scheduled to be retired.
     pub(crate) fn fault_child_device(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         child_device: &str,
         reason: Reason,
         retry: bool,
-    ) -> bool {
-        if let Some(c) = self.lookup_child_device(child_device) {
+    ) {
+        let name = self.name.clone();
+
+        if let Some(c) = self.as_mut().lookup_child_device_mut(child_device) {
             debug!("{:?}: faulting with {}...", c, reason);
 
             // check if this child needs to be retired
@@ -739,27 +746,34 @@ impl<'n> Nexus<'n> {
             {
                 warn!("{:?}: I/O faulted; will retire", c);
 
+                if let Some(log) = c.start_rebuild_log() {
+                    self.traverse_io_channels(
+                        |chan, log| {
+                            chan.attach_rebuild_log(log.clone());
+                            ChannelTraverseStatus::Ok
+                        },
+                        |_, _| {},
+                        log,
+                    );
+                }
+
                 // The child state was not faulted yet, so this is the first
                 // I/O to this child for which we
                 // encountered an error.
                 Reactors::master().send_future(Nexus::child_retire_routine(
-                    self.name.clone(),
+                    name,
                     child_device.to_owned(),
                     retry,
                 ));
             } else {
                 warn!("{:?}: I/O faulted; child was already faulted", c);
             }
-
-            true
         } else {
             error!(
                 "{:?}: trying to fault a child device which \
                         cannot be not found '{}'",
                 self, child_device
             );
-
-            false
         }
     }
 
