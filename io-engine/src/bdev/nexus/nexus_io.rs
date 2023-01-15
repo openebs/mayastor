@@ -26,22 +26,25 @@ use super::{
     nexus_injection::InjectionOp,
 };
 
-use crate::core::{
-    device_cmd_queue,
-    BlockDevice,
-    BlockDeviceHandle,
-    CoreError,
-    Cores,
-    DeviceCommand,
-    GenericStatusCode,
-    IoCompletionStatus,
-    IoStatus,
-    IoSubmissionFailure,
-    IoType,
-    LvolFailure,
-    Mthread,
-    NvmeStatus,
-    Reactors,
+use crate::{
+    core::{
+        device_cmd_queue,
+        BlockDevice,
+        BlockDeviceHandle,
+        CoreError,
+        Cores,
+        DeviceCommand,
+        GenericStatusCode,
+        IoCompletionStatus,
+        IoStatus,
+        IoSubmissionFailure,
+        IoType,
+        LvolFailure,
+        Mthread,
+        NvmeStatus,
+        Reactors,
+    },
+    rebuild::RebuildLogHandle,
 };
 
 #[cfg(feature = "nexus-io-tracing")]
@@ -363,14 +366,13 @@ impl<'n> NexusBio<'n> {
                 // device should not be retired in case of ENOMEM.
                 let device = hdl.get_device().device_name();
                 error!(
-                    "{:?}: read I/O to '{}' submission failed: {:?}",
-                    self, device, r
+                    "{self:?}: read I/O to '{device}' submission failed: {r:?}"
                 );
 
                 self.fault_device(
                     &device,
                     IoCompletionStatus::IoSubmissionError(
-                        IoSubmissionFailure::Write,
+                        IoSubmissionFailure::Read,
                     ),
                 );
                 r
@@ -380,8 +382,7 @@ impl<'n> NexusBio<'n> {
             }
         } else {
             error!(
-                "{:?}: read I/O submission failed: no children available",
-                self
+                "{self:?}: read I/O submission failed: no children available"
             );
 
             Err(CoreError::NoDevicesAvailable {})
@@ -450,9 +451,9 @@ impl<'n> NexusBio<'n> {
 
         if !success {
             trace!(
-                "(core: {} thread: {}): get_buf() failed",
-                Cores::current(),
-                Mthread::current().unwrap().name()
+                "(core: {core} thread: {thread}): get_buf() failed",
+                core = Cores::current(),
+                thread = Mthread::current().unwrap().name()
             );
             bio.no_mem();
         }
@@ -601,13 +602,18 @@ impl<'n> NexusBio<'n> {
 
             self.channel_mut().disconnect_device(&device);
 
-            self.fault_device(
+            if let Some(log) = self.fault_device(
                 &device,
                 IoCompletionStatus::IoSubmissionError(
                     IoSubmissionFailure::Write,
                 ),
-            );
+            ) {
+                self.log_operation(&log);
+            }
         }
+
+        self.channel()
+            .for_each_rebuild_log(|log| self.log_operation(log));
 
         if inflight > 0 {
             // TODO: fix comment:
@@ -625,6 +631,12 @@ impl<'n> NexusBio<'n> {
         }
 
         result
+    }
+
+    /// Logs all write-like operation in the rebuild logs, if any exist.
+    #[inline]
+    fn log_operation(&self, log: &RebuildLogHandle) {
+        log.log_op(self.io_type(), self.effective_offset(), self.num_blocks());
     }
 
     /// Initiate shutdown of the nexus associated with this BIO request.
@@ -646,14 +658,14 @@ impl<'n> NexusBio<'n> {
                     {
                         let mut s = nexus.state.lock();
                         match *s {
-                            NexusState::Shutdown |
-                            NexusState::ShuttingDown => {
+                            NexusState::Shutdown | NexusState::ShuttingDown => {
                                 info!(
                                     nexus_name,
-                                    "Nexus is under user-triggered shutdown, skipping self shutdown"
+                                    "Nexus is under user-triggered shutdown, \
+                                    skipping self shutdown"
                                 );
                                 return;
-                            },
+                            }
                             nexus_state => {
                                 info!(
                                     nexus_name,
@@ -675,8 +687,9 @@ impl<'n> NexusBio<'n> {
                     };
 
                     for d in devices {
-                        if let Err(e) =
-                            nexus.disconnect_device_from_channels(d.clone()).await
+                        if let Err(e) = nexus
+                            .disconnect_device_from_channels(d.clone())
+                            .await
                         {
                             error!(
                                 "{}: failed to disconnect I/O channels: {:?}",
@@ -716,7 +729,7 @@ impl<'n> NexusBio<'n> {
         &mut self,
         child_device: &str,
         io_status: IoCompletionStatus,
-    ) {
+    ) -> Option<RebuildLogHandle> {
         let reason = match io_status {
             IoCompletionStatus::LvolError(LvolFailure::NoSpace) => {
                 FaultReason::NoSpace
@@ -724,7 +737,7 @@ impl<'n> NexusBio<'n> {
             _ => FaultReason::IoError,
         };
 
-        self.channel_mut().fault_device(child_device, reason);
+        self.channel_mut().fault_device(child_device, reason)
     }
 
     /// TODO
@@ -792,7 +805,9 @@ impl<'n> NexusBio<'n> {
             );
         }
 
-        self.fault_device(&child.device_name(), status);
+        if let Some(log) = self.fault_device(&child.device_name(), status) {
+            self.log_operation(&log);
+        }
     }
 
     /// Checks if an error is to be injected upon submission.

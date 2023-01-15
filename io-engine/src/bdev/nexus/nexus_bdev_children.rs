@@ -57,6 +57,7 @@ use crate::{
         Reactors,
         VerboseError,
     },
+    rebuild::RebuildLogHandle,
 };
 
 use spdk_rs::{ChannelTraverseStatus, IoDeviceChannelTraverse};
@@ -816,40 +817,78 @@ impl<'n> Nexus<'n> {
         child_device: &str,
         reason: FaultReason,
         retry: bool,
-    ) {
+    ) -> Option<RebuildLogHandle> {
         let name = self.name.clone();
 
-        if let Some(c) = self.as_mut().lookup_child_by_device_mut(child_device)
-        {
-            if Ok(ChildState::Open)
-                == c.state.compare_exchange(
-                    ChildState::Open,
-                    ChildState::Faulted(reason),
-                )
-            {
-                warn!("{:?}: faulted with {}, will retire", c, reason);
-
-                // The child state was not faulted yet, so this is the first
-                // I/O to this child for which we
-                // encountered an error.
-                Reactors::master().send_future(Nexus::child_retire_routine(
-                    name,
-                    child_device.to_owned(),
-                    retry,
-                ));
-
-                // Set the timestamp of this child fault.
-                *c.faulted_at.lock() = Some(Utc::now());
-            } else {
-                warn!("{:?}: faulted with {}, already retired", c, reason);
-            }
-        } else {
+        let Some(c) = self.as_mut().lookup_child_by_device_mut(child_device) else {
             error!(
-                "{:?}: trying to retire a child device which \
-                        cannot be not found '{}'",
-                self, child_device
+                "{self:?}: trying to retire a child device which \
+                cannot be not found '{child_device}'"
+            );
+
+            return None;
+        };
+
+        // Get the existing rebuild log, or create a new one.
+        // We have to do this _before_ changing the state of the child,
+        // otherwise any reconfiguration (Nexus::reconfigure()) that may run
+        // in parallel to this code, may both skip attaching this child's device
+        // as a writer, this child's rebuild log.
+        let log = c.get_or_init_rebuild_log();
+
+        // Fail and retire an open child.
+        if Ok(ChildState::Open)
+            == c.state
+                .compare_exchange(ChildState::Open, ChildState::Faulted(reason))
+        {
+            warn!("{c:?}: faulted with {reason}, will retire");
+
+            // The child state was not faulted yet, so this is the first
+            // I/O to this child for which we
+            // encountered an error.
+            Reactors::master().send_future(Nexus::child_retire_routine(
+                name,
+                child_device.to_owned(),
+                retry,
+            ));
+
+            // Set the timestamp of this child fault.
+            *c.faulted_at.lock() = Some(Utc::now());
+        } else {
+            warn!("{c:?}: faulted with {reason}, already retired/retiring");
+        }
+
+        // Attach the rebuild log all the channels. It is done asynchronously
+        // via `traverse_io_channels`. That implies that other I/O requests
+        // may arrive to other channel(s) in parallel before the log
+        // is attached to that channel(s).
+        //
+        // If that happens and a write I/O to another channel succeeds
+        // (e.g. the condition causing I/O failure is erratic),
+        // the data goes through to the device and there's no problem
+        // if this write operation is not logged.
+        //
+        // If the parallel write operation fails, `retire_child_device` is
+        // called anyway, and that operation ends up logged.
+        // However, in this case, log attach will be called again,
+        // but that's okay since the channel checks if the same log is attached.
+        //
+        // Having a critical section covering log attachment would make the code
+        // validity easier to reason about, but that isn't practical as
+        // it would require a lock in I/O code path, and a complicated
+        // syncronization with SPDK-driven `traverse_io_channels`.
+        if let Some(ref log) = log {
+            self.traverse_io_channels(
+                |chan, log| {
+                    chan.attach_rebuild_log(log.clone());
+                    ChannelTraverseStatus::Ok
+                },
+                |_, _| {},
+                log.clone(),
             );
         }
+
+        log
     }
 
     /// Handle child device removal.
@@ -892,9 +931,9 @@ impl<'n> Nexus<'n> {
             {
                 if retry {
                     warn!(
-                        "{:?}: retire failed (double pause), retrying: {}",
-                        nexus,
-                        err.verbose()
+                        "{nexus:?}: retire failed (double pause), \
+                        retrying: {err}",
+                        err = err.verbose()
                     );
 
                     assert!(Reactors::is_master());
@@ -908,9 +947,8 @@ impl<'n> Nexus<'n> {
                     );
                 } else {
                     warn!(
-                        "{:?}: retire failed (double pause): {}",
-                        nexus,
-                        err.verbose()
+                        "{nexus:?}: retire failed (double pause): {err}",
+                        err = err.verbose()
                     );
                 }
                 return;
@@ -918,14 +956,14 @@ impl<'n> Nexus<'n> {
 
             if matches!(nexus.status(), NexusStatus::Faulted) {
                 error!(
-                    "{:?}: failed to retire '{}': nexus is faulted",
-                    nexus, child_device
+                    "{nexus:?}: failed to retire '{child_device}': \
+                    nexus is faulted"
                 );
             }
         } else {
             warn!(
-                "Nexus '{}': retiring device '{}': nexus already gone",
-                nexus_name, child_device
+                "Nexus '{nexus_name}': retiring device '{child_device}': \
+                nexus already gone"
             );
         }
     }
@@ -935,14 +973,14 @@ impl<'n> Nexus<'n> {
         mut self: Pin<&mut Self>,
         device_name: String,
     ) -> Result<(), Error> {
-        warn!("{:?}: retiring child device '{}'...", self, device_name);
+        warn!("{self:?}: retiring child device '{device_name}'...");
 
         self.disconnect_device_from_channels(device_name.clone())
             .await?;
 
-        debug!("{:?}: pausing...", self);
+        debug!("{self:?}: pausing...");
         self.as_mut().pause().await?;
-        debug!("{:?}: pausing ok", self);
+        debug!("{self:?}: pausing ok");
 
         if let Some(child) = self.lookup_child_by_device(&device_name) {
             let uri = child.uri();
@@ -950,7 +988,7 @@ impl<'n> Nexus<'n> {
             // Schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
             // complete anyway.
-            debug!("{:?}: enqueuing retire device '{}'", child, device_name);
+            debug!("{child:?}: enqueuing retire device '{device_name}'");
             device_cmd_queue().enqueue(DeviceCommand::RetireDevice {
                 nexus_name: self.name.clone(),
                 child_device: device_name.clone(),
@@ -1001,14 +1039,13 @@ impl<'n> Nexus<'n> {
             );
         } else {
             error!(
-                "{:?}: child device to retire is not found: '{}'",
-                self, device_name
+                "{self:?}: child device to retire is not found: '{device_name}'"
             );
         }
 
-        debug!("{:?}: resuming...", self);
+        debug!("{self:?}: resuming...");
         self.as_mut().resume().await?;
-        debug!("{:?}: resuming ok", self);
+        debug!("{self:?}: resuming ok");
         Ok(())
     }
 

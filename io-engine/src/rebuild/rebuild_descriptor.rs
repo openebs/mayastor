@@ -1,6 +1,9 @@
 use snafu::ResultExt;
 
-use super::rebuild_error::{NoBdevHandle, RebuildError};
+use super::{
+    rebuild_error::{NoBdevHandle, RebuildError},
+    RebuildLogHandle,
+};
 use crate::core::{BlockDeviceDescriptor, BlockDeviceHandle, DescriptorGuard};
 use chrono::{DateTime, Utc};
 
@@ -29,6 +32,8 @@ pub(super) struct RebuildDescriptor {
     pub(super) nexus_descriptor: DescriptorGuard<()>,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
+    /// Rebuild log.
+    pub(super) rebuild_log: Option<RebuildLogHandle>,
 }
 
 impl RebuildDescriptor {

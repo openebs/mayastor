@@ -19,6 +19,7 @@ use crate::{
         HistoryRecord,
         RebuildError,
         RebuildJob,
+        RebuildLogHandle,
         RebuildState,
         RebuildStats,
     },
@@ -75,7 +76,7 @@ impl<'n> Nexus<'n> {
     /// Starts a rebuild job and returns a receiver channel
     /// which can be used to await the rebuild completion
     pub async fn start_rebuild(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         child_uri: &str,
     ) -> Result<Receiver<RebuildState>, Error> {
         let name = self.name.clone();
@@ -114,7 +115,11 @@ impl<'n> Nexus<'n> {
             }),
         }?;
 
-        self.create_rebuild_job(&src_child_uri, &dst_child_uri)
+        // Get child' rebuild log.
+        let log = self.lookup_child(child_uri).and_then(|c| c.rebuild_log());
+
+        // Create a rebuild job for the child.
+        self.create_rebuild_job(&src_child_uri, &dst_child_uri, log)
             .await?;
 
         // We're now rebuilding the `dst_child` which means it HAS to become an
@@ -126,6 +131,11 @@ impl<'n> Nexus<'n> {
         // Ensuring that the dst child receives all frontend Write IO keeps all
         // rebuilt ranges in sync with the other children.
         self.reconfigure(DrEvent::ChildRebuild).await;
+
+        // Drop rebuild log from the child.
+        if let Ok(c) = self.as_mut().child_mut(&dst_child_uri) {
+            c.drop_rebuild_log()
+        };
 
         self.rebuild_job_mut(&dst_child_uri)?.start().context(
             nexus_err::RebuildOperation {
@@ -140,6 +150,7 @@ impl<'n> Nexus<'n> {
         &self,
         src_child_uri: &str,
         dst_child_uri: &str,
+        rebuild_log: Option<RebuildLogHandle>,
     ) -> Result<(), Error> {
         RebuildJob::new(
             &self.name,
@@ -149,6 +160,7 @@ impl<'n> Nexus<'n> {
                 start: self.data_ent_offset,
                 end: self.num_blocks() + self.data_ent_offset,
             },
+            rebuild_log,
             |nexus, job| {
                 Reactors::current().send_future(async move {
                     Nexus::notify_rebuild(nexus, job).await;
