@@ -212,9 +212,6 @@ pub struct NexusChild<'c> {
     device_descriptor: Option<Box<dyn BlockDeviceDescriptor>>,
     /// TODO
     #[serde(skip_serializing)]
-    rebuild_job: Option<RebuildJob<'c>>,
-    /// TODO
-    #[serde(skip_serializing)]
     _c: PhantomData<&'c ()>,
 }
 
@@ -854,7 +851,7 @@ impl<'c> NexusChild<'c> {
     }
 
     pub(crate) fn rebuilding(&self) -> bool {
-        self.rebuild_job.is_some()
+        self.rebuild_job().is_some()
             && self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
 
@@ -984,7 +981,6 @@ impl<'c> NexusChild<'c> {
             state: AtomicCell::new(ChildState::Init),
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
-            rebuild_job: None,
             _c: Default::default(),
         }
     }
