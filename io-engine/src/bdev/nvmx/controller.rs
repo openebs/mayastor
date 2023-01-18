@@ -110,7 +110,11 @@ impl<'a> NvmeControllerInner<'a> {
             .unwrap()
             .filter_next(|c| c != Cores::current());
 
-        info!("Running admin queue poller on core #{}", core);
+        info!(
+            "NVMe controller {:p} is running admin queue poller on core #{}",
+            ctrlr.as_ptr(),
+            core
+        );
 
         let adminq_poller = PollerBuilder::new()
             .with_name("nvme_poll_adminq")
@@ -1015,6 +1019,12 @@ pub(crate) fn connected_attached_cb(
     controller.register_callbacks();
 
     NVME_CONTROLLERS.insert_controller(cid.to_string(), ctl);
+
+    info!(
+        "Configured new NVMe controller: {}, ID=0x{:x}",
+        controller.get_name(),
+        cid
+    );
 
     controller
         .state_machine

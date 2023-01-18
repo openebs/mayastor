@@ -273,8 +273,8 @@ impl<'n> NexusBio<'n> {
         )
     }
 
-    /// submit a read operation
-    fn do_readv(&mut self) -> Result<(), CoreError> {
+    /// TODO:
+    fn __do_readv_one(&mut self) -> Result<(), CoreError> {
         if let Some(hdl) = self.channel().select_reader() {
             let r = self.submit_read(hdl);
 
@@ -288,7 +288,6 @@ impl<'n> NexusBio<'n> {
                 // start device retire.
                 // TODO: ENOMEM and ENXIO should be handled differently and
                 // device should not be retired in case of ENOMEM.
-
                 let device = hdl.get_device().device_name();
                 error!(
                     "{:?}: read I/O to '{}' submission failed: {:?}",
@@ -301,20 +300,65 @@ impl<'n> NexusBio<'n> {
                         IoSubmissionFailure::Write,
                     ),
                 );
-
-                self.fail();
+                r
             } else {
                 self.ctx_mut().in_flight = 1;
+                r
             }
-            r
         } else {
             error!(
                 "{:?}: read I/O submission failed: no children available",
                 self
             );
 
-            self.fail();
             Err(CoreError::NoDevicesAvailable {})
+        }
+    }
+
+    /// submit a read operation
+    fn do_readv(&mut self) -> Result<(), CoreError> {
+        match self.__do_readv_one() {
+            Err(e) => {
+                match e {
+                    // No readers available - bail out.
+                    CoreError::NoDevicesAvailable {} => {
+                        self.fail();
+                        Err(e)
+                    }
+                    _ => {
+                        let mut num_readers = self.channel().num_readers();
+
+                        let r = {
+                            if num_readers <= 1 {
+                                // No more readers available (taking into
+                                // account the failed one).
+                                Err(e)
+                            } else {
+                                num_readers -= 1;
+
+                                loop {
+                                    match self.__do_readv_one() {
+                                        Ok(_) => break Ok(()),
+                                        Err(e) => {
+                                            num_readers -= 1;
+
+                                            if num_readers == 0 {
+                                                break Err(e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        };
+
+                        if r.is_err() {
+                            self.fail();
+                        }
+                        r
+                    }
+                }
+            }
+            Ok(_) => Ok(()),
         }
     }
 

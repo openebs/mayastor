@@ -110,21 +110,21 @@ impl PersistentStore {
         let value_clone = put_value.clone();
 
         let rx = Self::execute_store_op(async move {
-            info!(
-                "Putting key {}, value {} in store.",
-                key_string,
-                value_clone.to_string()
-            );
+            //info!(
+            //    "Putting key {}, value {} in store.",
+            //    key_string,
+            //    value_clone.to_string()
+            //);
             match Self::backing_store()
                 .put_kv(&key_string, &value_clone)
                 .await
             {
                 Ok(_) => {
-                    info!(
-                        "Successfully put key {}, value {} in store.",
-                        key_string,
-                        value_clone.to_string()
-                    );
+                    //info!(
+                    //    "Successfully put key {}, value {} in store.",
+                    //    key_string,
+                    //    value_clone.to_string()
+                    //);
                     Ok(())
                 }
                 Err(e) => Err(e),

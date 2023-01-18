@@ -22,6 +22,7 @@ use crate::{
         BlockDeviceHandle,
         CoreError,
         DeviceEventSink,
+        GetIoHandleStatus,
         Reactor,
         Reactors,
         VerboseError,
@@ -1036,6 +1037,20 @@ impl<'c> NexusChild<'c> {
                 Some(local)
             }
             None => None,
+        }
+    }
+
+    /// TODO:
+    pub fn try_get_io_handle(&self) -> GetIoHandleStatus {
+        if let Some(desc) = self.device_descriptor.as_ref() {
+            desc.try_get_io_handle()
+        } else {
+            error!("{:?}: child does not have valid descriptor", self);
+            GetIoHandleStatus::Ready {
+                handle: Err(CoreError::InvalidDescriptor {
+                    name: self.name.clone(),
+                }),
+            }
         }
     }
 

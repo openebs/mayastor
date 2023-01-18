@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
+use futures::channel::oneshot;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -117,4 +118,22 @@ pub static NVME_CONTROLLERS: Lazy<NVMeCtlrList> =
 
 pub fn nvme_bdev_running_config() -> &'static NvmeBdevOpts {
     &Config::get().nvme_bdev_opts
+}
+
+pub enum GetNvmeDeviceHandleStatus {
+    Ready {
+        status: Result<NvmeDeviceHandle, CoreError>,
+    },
+    NotReady {
+        channel: oneshot::Receiver<Result<(), CoreError>>,
+    },
+}
+
+pub enum IoQpairConnectionStatus {
+    Complete {
+        status: Result<(), CoreError>,
+    },
+    Pending {
+        channel: oneshot::Receiver<Result<(), CoreError>>,
+    },
 }

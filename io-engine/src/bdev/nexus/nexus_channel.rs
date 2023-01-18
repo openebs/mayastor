@@ -8,7 +8,8 @@ use std::{
 
 use super::{ChildState, Nexus, Reason};
 
-use crate::core::{BlockDeviceHandle, CoreError, Cores};
+use crate::core::{BlockDeviceHandle, CoreError, Cores, GetIoHandleStatus};
+use futures::channel::oneshot;
 
 /// io channel, per core
 #[repr(C)]
@@ -152,6 +153,11 @@ impl<'n> NexusChannel<'n> {
         }
     }
 
+    // TODO:
+    pub(crate) fn num_readers(&self) -> usize {
+        self.readers.len()
+    }
+
     /// Disconnects a child device from the I/O path.
     pub fn disconnect_device(&mut self, device_name: &str) {
         self.previous_reader = UnsafeCell::new(0);
@@ -168,8 +174,11 @@ impl<'n> NexusChannel<'n> {
     /// online or offline. We don't know which child has gone, or was added, so
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
-    pub(crate) fn reconnect_all(&mut self) {
+    pub(crate) fn reconnect_all(
+        &mut self,
+    ) -> Option<Vec<oneshot::Receiver<Result<(), CoreError>>>> {
         debug!("{:?}: reconnecting all children", self);
+        let mut incomplete_handlers = Vec::new();
 
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
@@ -185,7 +194,7 @@ impl<'n> NexusChannel<'n> {
         let mut readers = Vec::new();
 
         // iterate over all our children which are in the open state
-        unsafe {
+        /* unsafe {
             self.nexus_mut()
                 .children_iter_mut()
                 .filter(|c| c.state() == ChildState::Open)
@@ -199,10 +208,75 @@ impl<'n> NexusChannel<'n> {
                         error!("failed to get I/O handle for {}", c.uri());
                     }
                 });
+        } */
+
+        // iterate over all our children which are in the open state
+        unsafe {
+            self.nexus_mut()
+                .children_iter_mut()
+                .filter(|c| c.state() == ChildState::Open)
+                .for_each(|c| {
+                    // Handle Reader handle.
+                    let r = match c.try_get_io_handle() {
+                        GetIoHandleStatus::Ready {
+                            handle,
+                        } => match handle {
+                            Ok(b) => b,
+                            Err(_) => {
+                                c.set_state(ChildState::Faulted(
+                                    Reason::CantOpen,
+                                ));
+                                error!(
+                                    "failed to get I/O handle for {}",
+                                    c.uri()
+                                );
+                                return;
+                            }
+                        },
+                        GetIoHandleStatus::NotReady {
+                            channel,
+                        } => {
+                            readers.clear();
+                            writers.clear();
+                            incomplete_handlers.push(channel);
+                            return;
+                        }
+                    };
+
+                    // Handle Writer handle.
+                    let w = match c.try_get_io_handle() {
+                        GetIoHandleStatus::Ready {
+                            handle,
+                        } => match handle {
+                            Ok(b) => b,
+                            Err(_) => {
+                                c.set_state(ChildState::Faulted(
+                                    Reason::CantOpen,
+                                ));
+                                error!(
+                                    "failed to get I/O handle for {}",
+                                    c.uri()
+                                );
+                                return;
+                            }
+                        },
+                        GetIoHandleStatus::NotReady {
+                            channel,
+                        } => {
+                            readers.clear();
+                            writers.clear();
+                            incomplete_handlers.push(channel);
+                            return;
+                        }
+                    };
+
+                    writers.push(w);
+                    readers.push(r);
+                });
         }
 
         // then add write-only children
-        if !self.readers.is_empty() {
+        /* if !self.readers.is_empty() {
             unsafe {
                 self.nexus_mut()
                     .children_iter_mut()
@@ -216,6 +290,39 @@ impl<'n> NexusChannel<'n> {
                         }
                     });
             }
+        } */
+
+        // then add write-only children
+        if !self.readers.is_empty() {
+            unsafe {
+                self.nexus_mut()
+                    .children_iter_mut()
+                    .filter(|c| c.rebuilding())
+                    .for_each(|c| match c.try_get_io_handle() {
+                        GetIoHandleStatus::Ready {
+                            handle,
+                        } => match handle {
+                            Ok(b) => {
+                                writers.push(b);
+                            }
+                            Err(_) => {
+                                c.set_state(ChildState::Faulted(
+                                    Reason::CantOpen,
+                                ));
+                                error!(
+                                    "failed to get I/O handle for {}",
+                                    c.uri()
+                                );
+                            }
+                        },
+                        GetIoHandleStatus::NotReady {
+                            channel,
+                        } => {
+                            incomplete_handlers.push(channel);
+                            readers.clear();
+                        }
+                    });
+            }
         }
 
         self.writers.clear();
@@ -225,6 +332,12 @@ impl<'n> NexusChannel<'n> {
         self.readers = readers;
 
         trace!("{:?}: new number of readers/writes", self);
+
+        if incomplete_handlers.is_empty() {
+            None
+        } else {
+            Some(incomplete_handlers)
+        }
     }
 
     /// Returns core on which channel was created.

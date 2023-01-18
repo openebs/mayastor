@@ -569,31 +569,69 @@ impl<'n> Nexus<'n> {
 
     /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
-        info!(
-            "{:?}: dynamic reconfiguration event: {} started...",
-            self, event
-        );
+        struct TraverseCtx {
+            sender:
+                oneshot::Sender<Vec<oneshot::Receiver<Result<(), CoreError>>>>,
+            incomplete_handles: Vec<oneshot::Receiver<Result<(), CoreError>>>,
+        }
 
-        let (sender, recv) = oneshot::channel::<ChannelTraverseStatus>();
+        loop {
+            info!(
+                "{:?}: dynamic reconfiguration event: {} started...",
+                self, event
+            );
 
-        self.traverse_io_channels(
-            |chan, _sender| -> ChannelTraverseStatus {
-                chan.reconnect_all();
-                ChannelTraverseStatus::Ok
-            },
-            |status, sender| {
-                debug!("{:?}: reconfigure completed", self);
-                sender.send(status).expect("reconfigure channel gone");
-            },
-            sender,
-        );
+            let (sender, recv) = oneshot::channel::<
+                Vec<oneshot::Receiver<Result<(), CoreError>>>,
+            >();
 
-        let result = recv.await.expect("reconfigure sender already dropped");
+            let traverse_ctx = TraverseCtx {
+                sender,
+                incomplete_handles: Vec::new(),
+            };
 
-        info!(
-            "{:?}: dynamic reconfiguration event: {} completed: {:?}",
-            self, event, result
-        );
+            self.traverse_io_channels(
+                |chan, ctx| -> ChannelTraverseStatus {
+                    if let Some(mut v) = chan.reconnect_all() {
+                        info!("** Adding {} handle waiters", v.len());
+                        ctx.incomplete_handles.append(&mut v);
+                    }
+                    ChannelTraverseStatus::Ok
+                },
+                |_status, ctx| {
+                    debug!("{:?}: reconfigure completed", self);
+                    ctx.sender
+                        .send(ctx.incomplete_handles)
+                        .expect("reconfigure channel gone");
+                },
+                traverse_ctx,
+            );
+
+            let incomplete_handles =
+                recv.await.expect("reconfigure sender already dropped");
+
+            info!(
+                "{:?}: dynamic reconfiguration event: {} completed: {:?}",
+                self, event, incomplete_handles
+            );
+
+            if incomplete_handles.is_empty() {
+                break;
+            } else {
+                info!(
+                    "***** Waiting till {} device handles are available ...",
+                    incomplete_handles.len(),
+                );
+
+                let r =
+                    futures::future::join_all(incomplete_handles.into_iter())
+                        .await;
+
+                info!(
+                    "***** Device handles are available again, retrying channel reconfiguration: {:?}", r
+                );
+            }
+        }
     }
 
     /// Configure nexus's block device to match parameters of the child devices.

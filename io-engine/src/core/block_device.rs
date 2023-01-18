@@ -3,6 +3,7 @@ use super::{CoreError, DeviceEventSink, IoCompletionStatus, IoType};
 use spdk_rs::{DmaBuf, DmaError, IoVec};
 
 use async_trait::async_trait;
+use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
 use std::os::raw::c_void;
@@ -78,6 +79,16 @@ pub trait BlockDevice {
     ) -> Result<(), CoreError>;
 }
 
+/// TODO:
+pub enum GetIoHandleStatus {
+    Ready {
+        handle: Result<Box<dyn BlockDeviceHandle>, CoreError>,
+    },
+    NotReady {
+        channel: oneshot::Receiver<Result<(), CoreError>>,
+    },
+}
+
 /// Core trait that represents a descriptor for an opened block device.
 /// TODO: Add text.
 #[async_trait(?Send)]
@@ -95,6 +106,9 @@ pub trait BlockDeviceDescriptor {
 
     /// Returns a BlockDeviceHandle for this descriptor without consuming it.
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
+
+    /// TODO:
+    fn try_get_io_handle(&self) -> GetIoHandleStatus;
 
     /// TODO
     fn unclaim(&self);

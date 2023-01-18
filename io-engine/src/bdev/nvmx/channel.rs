@@ -8,7 +8,10 @@ use std::{
     time::Duration,
 };
 
+use nix::errno::Errno;
+
 use spdk_rs::{
+    cpu_cores::Cores,
     libspdk::{
         nvme_qpair_abort_all_queued_reqs,
         nvme_transport_qpair_abort_reqs,
@@ -20,6 +23,7 @@ use spdk_rs::{
         spdk_nvme_ctrlr_free_io_qpair,
         spdk_nvme_ctrlr_get_default_io_qpair_opts,
         spdk_nvme_ctrlr_io_qpair_connect_poll_async,
+        spdk_nvme_io_qpair_connect_ctx,
         spdk_nvme_io_qpair_opts,
         spdk_nvme_poll_group,
         spdk_nvme_poll_group_add,
@@ -40,6 +44,7 @@ use crate::{
         nvmx::{
             controller_inner::SpdkNvmeController,
             nvme_bdev_running_config,
+            IoQpairConnectionStatus,
             NvmeControllerState,
             NVME_CONTROLLERS,
         },
@@ -49,7 +54,6 @@ use crate::{
 };
 
 use futures::channel::oneshot;
-use nix::errno::Errno;
 
 #[repr(C)]
 pub struct NvmeIoChannel<'a> {
@@ -125,14 +129,15 @@ impl ToString for QPairState {
 }
 
 #[derive(Debug)]
-pub struct IoQpair {
+pub struct IoQpair<'poller> {
     qpair: NonNull<spdk_nvme_qpair>,
     ctrlr_handle: SpdkNvmeController,
     state: QPairState,
     connect_waiters: Vec<oneshot::Sender<Result<(), CoreError>>>,
+    connect_arg: Option<NonNull<IoQpairConnectContext<'poller>>>,
 }
 
-impl IoQpair {
+impl IoQpair<'_> {
     fn get_default_options(
         ctrlr_handle: SpdkNvmeController,
     ) -> spdk_nvme_io_qpair_opts {
@@ -182,6 +187,7 @@ impl IoQpair {
                 ctrlr_handle,
                 state: QPairState::Disconnected,
                 connect_waiters: Vec::new(),
+                connect_arg: None,
             })
         } else {
             error!(?ctrlr_name, "Failed to allocate I/O qpair for controller",);
@@ -196,6 +202,34 @@ impl IoQpair {
         self.qpair.as_ptr()
     }
 
+    /// TODO:
+    pub(crate) fn try_connect(&mut self) -> IoQpairConnectionStatus {
+        let r = self.connect();
+
+        if r == 0 {
+            IoQpairConnectionStatus::Complete {
+                status: Ok(()),
+            }
+        } else if r == -libc::EAGAIN {
+            let (sender, receiver) =
+                oneshot::channel::<Result<(), CoreError>>();
+            self.connect_waiters.push(sender);
+            info!(
+                ?self,
+                 "Added connection waiter to handle synchronous connect readiness"
+            );
+            IoQpairConnectionStatus::Pending {
+                channel: receiver,
+            }
+        } else {
+            IoQpairConnectionStatus::Complete {
+                status: Err(CoreError::GetIoChannel {
+                    name: "xxx".to_string(),
+                }),
+            }
+        }
+    }
+
     /// Synchronously connect qpair.
     pub(crate) fn connect(&mut self) -> i32 {
         debug!(?self, "connecting I/O qpair");
@@ -208,12 +242,20 @@ impl IoQpair {
         }
 
         // During synchronous connection we shouldn't be preemped by any other
-        // SPDK thread, so we can't see QPairState::Connecting.
-        assert_eq!(
-            self.state,
-            QPairState::Disconnected,
-            "Insufficient QPair state"
-        );
+        // SPDK thread, however, there can be asynchronous connection
+        // operation already in progress, being executed on this thread.
+        // In such a case we proceed with connection synchronously: asynchrnous
+        // operation will observe the result of synchronous connect.
+        if self.state == QPairState::Connecting {
+            info!(
+                ?self,
+                core=Cores::current(),
+                "Asynchronous I/O qpair connection already in progress, bailing out"
+            );
+            return -libc::EAGAIN;
+        } else {
+            self.state = QPairState::Connecting;
+        }
 
         // Mark qpair as being connected and try to connect.
         let status = unsafe {
@@ -244,6 +286,7 @@ impl IoQpair {
             return Ok(());
         }
 
+        debug!(?self, "Asynchronously connecting I/O qpair");
         // Take into account other connect requests for this I/O qpair to avoid
         // multiple concurrent connections.
         match self.state {
@@ -271,6 +314,7 @@ impl IoQpair {
         let connect_arg = Box::into_raw(Box::new(IoQpairConnectContext {
             sender: Some(sender),
             poller: None,
+            connect_ctx: None,
         }));
 
         let connect_ctx = unsafe {
@@ -327,7 +371,16 @@ impl IoQpair {
 
         unsafe {
             (*connect_arg).poller = Some(poller);
+            (*connect_arg).connect_ctx = Some(
+                NonNull::new(connect_ctx)
+                    .expect("I/O qpair async connection context is null"),
+            )
         }
+
+        self.connect_arg = Some(
+            NonNull::new(connect_arg)
+                .expect("I/O qpair async connection argument is null"),
+        );
 
         let r = receiver
             .await
@@ -336,27 +389,45 @@ impl IoQpair {
                 source: e,
             });
 
-        // Update QPairState according to the connection result.
-        self.state = if r.is_ok() {
-            QPairState::Connected
+        let mut dump_info = false; // TODO: debug only.
+
+        // Clear connect arg straight after connection complete.
+        if self.connect_arg.take().is_some() {
+            // Update QPairState according to the connection result.
+            self.state = if r.is_ok() {
+                QPairState::Connected
+            } else {
+                QPairState::Disconnected
+            };
         } else {
-            QPairState::Disconnected
-        };
+            info!(
+                ?self,
+                core = Cores::current(),
+                "Got woken up via synchronous connect !"
+            );
+            dump_info = true;
+        }
 
         // Wake up all other callers waiting for connection to complete.
         if !self.connect_waiters.is_empty() {
             let waiters: Vec<oneshot::Sender<Result<(), CoreError>>> =
                 self.connect_waiters.drain(..).collect();
-            debug!(
-                ?qpair,
-                waiters = waiters.len(),
-                "Notifying connection waiters"
-            );
-            for w in waiters {
-                w.send(r.clone())
-                    .expect("Failed to notify a connection waiter");
+
+            if dump_info {
+                info!(
+                    ?qpair,
+                    waiters = waiters.len(),
+                    "Notifying connection waiters"
+                );
             }
-            debug!(?qpair, "All connection waiters are notified");
+            for w in waiters {
+                if w.send(r.clone()).is_err() {
+                    error!("Failed to notify a connection waiter");
+                }
+            }
+            if dump_info {
+                info!(?qpair, "All connection waiters are notified");
+            }
         }
 
         // Drop context object transformed previously into a raw pointer.
@@ -364,13 +435,16 @@ impl IoQpair {
             Box::from_raw(connect_arg);
         }
 
+        debug!(?self, state=?self.state,"I/O qpair connected asynchronously");
         r
     }
 }
 
+#[derive(Debug)]
 struct IoQpairConnectContext<'poller> {
     sender: Option<oneshot::Sender<Result<(), Errno>>>,
     poller: Option<Poller<'poller>>,
+    connect_ctx: Option<std::ptr::NonNull<spdk_nvme_io_qpair_connect_ctx>>,
 }
 
 extern "C" fn qpair_connect_cb(
@@ -444,7 +518,7 @@ impl Drop for PollGroup {
 ///     and have SPDK disconnect it.
 /// b. set the ptr to null, as SPDK checks if the ptr is NULL. However, that
 /// breaks    the contract with NonNull<T>
-impl Drop for IoQpair {
+impl Drop for IoQpair<'_> {
     fn drop(&mut self) {
         let qpair = self.qpair.as_ptr();
 
@@ -473,7 +547,7 @@ impl std::fmt::Debug for NvmeIoChannelInner<'_> {
 }
 
 pub struct NvmeIoChannelInner<'a> {
-    pub qpair: Option<IoQpair>,
+    pub qpair: Option<IoQpair<'a>>,
     poll_group: PollGroup,
     poller: Poller<'a>,
     io_stats_controller: IoStatsController,

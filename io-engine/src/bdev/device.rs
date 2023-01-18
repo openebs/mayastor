@@ -43,6 +43,7 @@ use crate::core::{
     DeviceEventSink,
     DeviceEventType,
     DeviceIoController,
+    GetIoHandleStatus,
     IoCompletionCallback,
     IoCompletionCallbackArg,
     IoCompletionStatus,
@@ -187,6 +188,12 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
         let handle = SpdkBlockDeviceHandle::try_from(self.0)?;
         Ok(Box::new(handle))
+    }
+
+    fn try_get_io_handle(&self) -> GetIoHandleStatus {
+        GetIoHandleStatus::Ready {
+            handle: self.get_io_handle(),
+        }
     }
 
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {

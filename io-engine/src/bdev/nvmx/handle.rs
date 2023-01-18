@@ -39,6 +39,8 @@ use crate::{
         controller_inner::SpdkNvmeController,
         utils,
         utils::{nvme_cpl_is_pi_error, nvme_cpl_succeeded},
+        GetNvmeDeviceHandleStatus,
+        IoQpairConnectionStatus,
         NvmeBlockDevice,
         NvmeIoChannel,
         NvmeNamespace,
@@ -151,6 +153,72 @@ impl NvmeDeviceHandle {
         }
 
         Ok(handle)
+    }
+
+    pub fn try_create(
+        name: &str,
+        id: u64,
+        ctrlr: SpdkNvmeController,
+        ns: Arc<NvmeNamespace>,
+        prchk_flags: u32,
+    ) -> GetNvmeDeviceHandleStatus {
+        // Obtain SPDK I/O channel for NVMe controller.
+        let ch = NvmeControllerIoChannel::from_null_checked(unsafe {
+            spdk_get_io_channel(id as *mut c_void)
+        })
+        .ok_or(CoreError::GetIoChannel {
+            name: name.to_string(),
+        });
+
+        let io_channel = match ch {
+            Ok(c) => c,
+            Err(e) => {
+                return GetNvmeDeviceHandleStatus::Ready {
+                    status: Err(e),
+                }
+            }
+        };
+
+        let handle = NvmeDeviceHandle {
+            name: name.to_string(),
+            io_channel: ManuallyDrop::new(io_channel),
+            ctrlr,
+            block_device: Self::get_nvme_device(name, &ns),
+            block_len: ns.block_len(),
+            prchk_flags,
+            ns,
+        };
+
+        let inner =
+            NvmeIoChannel::inner_from_channel(handle.io_channel.as_ptr());
+
+        match inner.qpair.as_mut() {
+            Some(q) => match q.try_connect() {
+                IoQpairConnectionStatus::Complete {
+                    status,
+                } => match status {
+                    Err(e) => GetNvmeDeviceHandleStatus::Ready {
+                        status: Err(e),
+                    },
+                    Ok(_) => GetNvmeDeviceHandleStatus::Ready {
+                        status: Ok(handle),
+                    },
+                },
+                IoQpairConnectionStatus::Pending {
+                    channel,
+                } => GetNvmeDeviceHandleStatus::NotReady {
+                    channel,
+                },
+            },
+            None => {
+                warn!("No I/O qpair in NvmeDeviceHandle, can't connect()");
+                GetNvmeDeviceHandleStatus::Ready {
+                    status: Err(CoreError::BdevNotFound {
+                        name: name.to_owned(),
+                    }),
+                }
+            }
+        }
     }
 
     /// TODO:

@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::{
     bdev::nvmx::{
         controller_inner::SpdkNvmeController,
+        GetNvmeDeviceHandleStatus,
         NvmeController,
         NvmeControllerState,
         NvmeDeviceHandle,
@@ -23,6 +24,7 @@ use crate::{
         DeviceEventSink,
         DeviceIoController,
         DeviceTimeoutAction,
+        GetIoHandleStatus,
         IoType,
     },
     ffihelper::{cb_arg, done_cb},
@@ -88,6 +90,34 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
             self.prchk_flags,
             true,
         )?))
+    }
+
+    fn try_get_io_handle(&self) -> GetIoHandleStatus {
+        let status = NvmeDeviceHandle::try_create(
+            &self.name,
+            self.io_device_id,
+            self.ctrlr,
+            self.ns.clone(),
+            self.prchk_flags,
+        );
+
+        match status {
+            GetNvmeDeviceHandleStatus::Ready {
+                status,
+            } => match status {
+                Ok(h) => GetIoHandleStatus::Ready {
+                    handle: Ok(Box::new(h)),
+                },
+                Err(e) => GetIoHandleStatus::Ready {
+                    handle: Err(e),
+                },
+            },
+            GetNvmeDeviceHandleStatus::NotReady {
+                channel,
+            } => GetIoHandleStatus::NotReady {
+                channel,
+            },
+        }
     }
 
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
