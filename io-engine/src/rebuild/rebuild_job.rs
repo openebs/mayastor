@@ -108,7 +108,9 @@ pub struct RebuildJob<'n> {
     pub error: Option<RebuildError>,
 
     // Pre-opened descriptors for source/destination block device.
+    #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) src_descriptor: Box<dyn BlockDeviceDescriptor>,
+    #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
 }
 
@@ -130,13 +132,13 @@ impl<'n> RebuildJob<'n> {
     /// from start to end (of the data partition); notify_fn callback is called
     /// when the rebuild state is updated - with the nexus and destination
     /// URI as arguments
-    pub fn new(
+    pub async fn new(
         nexus_name: &str,
         src_uri: &str,
         dst_uri: &str,
         range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
-    ) -> Result<Self, RebuildError> {
+    ) -> Result<RebuildJob<'n>, RebuildError> {
         let src_descriptor = device_open(
             &bdev_get_name(src_uri).context(BdevInvalidUri {
                 uri: src_uri.to_string(),
@@ -159,8 +161,8 @@ impl<'n> RebuildJob<'n> {
             bdev: dst_uri.to_string(),
         })?;
 
-        let source_hdl = Self::get_io_handle(&*src_descriptor)?;
-        let destination_hdl = Self::get_io_handle(&*dst_descriptor)?;
+        let source_hdl = Self::get_io_handle(&*src_descriptor).await?;
+        let destination_hdl = Self::get_io_handle(&*dst_descriptor).await?;
 
         if !Self::validate(
             source_hdl.get_device(),
@@ -426,8 +428,9 @@ impl<'n> RebuildJob<'n> {
         blk: u64,
     ) -> Result<(), RebuildError> {
         let mut copy_buffer: DmaBuf;
-        let mut source_hdl = Self::get_io_handle(&*self.src_descriptor)?;
-        let destination_hdl = Self::get_io_handle(&*self.dst_descriptor)?;
+        let mut source_hdl = Self::get_io_handle(&*self.src_descriptor).await?;
+        let destination_hdl =
+            Self::get_io_handle(&*self.dst_descriptor).await?;
 
         let copy_buffer = if self.get_segment_size_blks(blk)
             == self.segment_size_blks
@@ -474,15 +477,15 @@ impl<'n> RebuildJob<'n> {
     }
 
     /// TODO
-    fn get_io_handle(
+    async fn get_io_handle(
         descriptor: &dyn BlockDeviceDescriptor,
     ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
-        descriptor
-            .get_io_handle()
-            .map_err(|e| RebuildError::NoBdevHandle {
+        descriptor.get_io_handle_nonblock().await.map_err(|e| {
+            RebuildError::NoBdevHandle {
                 source: e,
                 bdev: descriptor.get_device().device_name(),
-            })
+            }
+        })
     }
 
     /// TODO

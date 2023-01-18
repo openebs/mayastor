@@ -254,6 +254,10 @@ pub enum CoreError {
     },
     #[snafu(display("No devices available for I/O"))]
     NoDevicesAvailable {},
+    #[snafu(display("Invalid NVMe device hanele: {}", msg))]
+    InvalidNvmeDeviceHandle {
+        msg: String,
+    },
     #[snafu(display(
         "NVMe persistence through power-loss failure: {}",
         reason

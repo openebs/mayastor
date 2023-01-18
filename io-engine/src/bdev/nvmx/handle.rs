@@ -125,6 +125,7 @@ impl NvmeDeviceHandle {
         ctrlr: SpdkNvmeController,
         ns: Arc<NvmeNamespace>,
         prchk_flags: u32,
+        connect: bool,
     ) -> Result<NvmeDeviceHandle, CoreError> {
         // Obtain SPDK I/O channel for NVMe controller.
         let io_channel = NvmeControllerIoChannel::from_null_checked(unsafe {
@@ -134,7 +135,7 @@ impl NvmeDeviceHandle {
             name: name.to_string(),
         })?;
 
-        Ok(NvmeDeviceHandle {
+        let mut handle = NvmeDeviceHandle {
             name: name.to_string(),
             io_channel: ManuallyDrop::new(io_channel),
             ctrlr,
@@ -142,7 +143,41 @@ impl NvmeDeviceHandle {
             block_len: ns.block_len(),
             prchk_flags,
             ns,
-        })
+        };
+
+        // If requested, perform synchronous connect.
+        if connect {
+            handle.connect_sync();
+        }
+
+        Ok(handle)
+    }
+
+    /// TODO:
+    fn connect_sync(&mut self) {
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        match inner.qpair.as_mut() {
+            Some(q) => {
+                q.connect();
+            }
+            None => warn!("No I/O qpair in NvmeDeviceHandle, can't connect()"),
+        };
+    }
+
+    /// TODO:
+    pub(crate) async fn connect_async(&mut self) -> Result<(), CoreError> {
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        match inner.qpair.as_mut() {
+            Some(q) => q.connect_async().await,
+            None => {
+                error!("No I/O qpair in NvmeDeviceHandle, can't connect()");
+                Err(CoreError::InvalidNvmeDeviceHandle {
+                    msg: "No active I/O qpair".to_string(),
+                })
+            }
+        }
     }
 
     fn get_nvme_device(
