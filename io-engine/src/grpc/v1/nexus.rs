@@ -9,7 +9,7 @@ use crate::{
         Share,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult},
-    rebuild::{RebuildJob, RebuildState, RebuildStats},
+    rebuild::{RebuildState, RebuildStats},
 };
 use futures::FutureExt;
 use std::{
@@ -296,7 +296,7 @@ impl<'n> nexus::Nexus<'n> {
                 .children_iter()
                 .map(|ch| ch.into())
                 .collect::<Vec<_>>(),
-            rebuilds: RebuildJob::count() as u32,
+            rebuilds: self.count_rebuild_jobs() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
         }
