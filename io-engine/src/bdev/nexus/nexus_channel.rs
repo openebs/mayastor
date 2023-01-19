@@ -121,6 +121,11 @@ impl<'n> NexusChannel<'n> {
         self.nexus.as_mut()
     }
 
+    /// Returns the total number of available readers in this channel.
+    pub(crate) fn num_readers(&self) -> usize {
+        self.readers.len()
+    }
+
     /// TODO
     #[inline(always)]
     pub(super) fn for_each_writer<F>(&self, mut f: F) -> Result<(), CoreError>
