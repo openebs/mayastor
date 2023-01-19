@@ -17,55 +17,70 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
         .about("Create a new nexus device")
         .arg(
-            Arg::with_name("name")
-                .required(true)
-                .index(1)
-                .help("name of the nexus"),
-        )
-        .arg(
             Arg::with_name("uuid")
                 .required(true)
+                .index(1)
                 .help("uuid for the nexus, if uuid is not known please provide \"\" to autogenerate"),
         )
         .arg(
             Arg::with_name("size")
                 .required(true)
+                .index(2)
                 .help("size with optional unit suffix"),
-        )
-        .arg(
-            Arg::with_name("min-cntlid")
-                .required(true)
-                .help("minimum NVMe controller ID for sharing over NVMf"),
-        )
-        .arg(
-            Arg::with_name("max-cntlid")
-                .required(true)
-                .help("maximum NVMe controller ID"),
-        )
-        .arg(
-            Arg::with_name("resv-key")
-                .required(true)
-                .help("NVMe reservation key for children"),
-        )
-        .arg(
-            Arg::with_name("preempt-key")
-                .required(true)
-                .help("NVMe preempt key for children, 0 for no preemption"),
-        )
-        .arg(
-            Arg::with_name("nexus-info-key")
-                .required(true)
-                .help("Key used to persist the NexusInfo structure to the persistent store"),
-        )
-        .arg(Arg::with_name("resv-type")
-            .required(true)
-            .help("Defines Nvme reservation type.")
         )
         .arg(
             Arg::with_name("children")
                 .required(true)
+                .index(3)
                 .multiple(true)
                 .help("list of children to add"),
+        )
+        .arg(
+            Arg::with_name("name")
+                .required(false)
+                .long("name")
+                .help("name of the nexus"),
+        )
+        .arg(
+            Arg::with_name("min-cntlid")
+                .required(false)
+                .default_value("1")
+                .long("min-cntlid")
+                .help("minimum NVMe controller ID for sharing over NVMf"),
+        )
+        .arg(
+            Arg::with_name("max-cntlid")
+                .required(false)
+                .default_value("65519")
+                .long("max-cntlid")
+                .help("maximum NVMe controller ID"),
+        )
+        .arg(
+            Arg::with_name("resv-key")
+                .required(false)
+                .default_value("0")
+                .long("resv-key")
+                .help("NVMe reservation key for children"),
+        )
+        .arg(
+            Arg::with_name("preempt-key")
+                .required(false)
+                .default_value("0")
+                .long("preempt-key")
+                .help("NVMe preempt key for children, 0 for no preemption"),
+        )
+        .arg(Arg::with_name("resv-type")
+            .required(false)
+            .default_value("")
+            .long("resv-type")
+            .help("Defines Nvme reservation type.")
+        )
+        .arg(
+            Arg::with_name("nexus-info-key")
+                .required(false)
+                .default_value("")
+                .long("nexus-info-key")
+                .help("Key used to persist the NexusInfo structure to the persistent store"),
         );
 
     let destroy = SubCommand::with_name("destroy")
@@ -294,7 +309,7 @@ async fn nexus_create(
 ) -> crate::Result<()> {
     // let (uuid, size, children) = nexus_create_parse(matches)?;
     let (uuid, size, children) = nexus_create_parse(matches)?;
-    let name = matches.value_of("name").unwrap().to_string();
+    let name = matches.value_of("name").unwrap_or(&uuid).to_string();
     let min_cntl_id = value_t!(matches.value_of("min-cntlid"), u32)
         .unwrap_or_else(|e| e.exit());
     let max_cntl_id = value_t!(matches.value_of("max-cntlid"), u32)
@@ -303,12 +318,12 @@ async fn nexus_create(
         .unwrap_or_else(|e| e.exit());
     let preempt_key = value_t!(matches.value_of("preempt-key"), u64)
         .unwrap_or_else(|e| e.exit());
-    let nexus_info_key = matches
-        .value_of("nexus-info-key")
-        .unwrap_or_default()
-        .to_string();
     let resv_type = matches
         .value_of("resv-type")
+        .unwrap_or_default()
+        .to_string();
+    let nexus_info_key = matches
+        .value_of("nexus-info-key")
         .unwrap_or_default()
         .to_string();
 
