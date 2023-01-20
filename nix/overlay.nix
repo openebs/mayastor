@@ -4,6 +4,7 @@ let
   img_prefix = if product_prefix == "" then config.product_prefix else product_prefix;
 in
 self: super: rec {
+  btrfs-progs = super.callPackage ./pkgs/btrfs-progs { };
   fio = super.callPackage ./pkgs/fio { };
   sourcer = super.callPackage ./lib/sourcer.nix { };
   images = super.callPackage ./pkgs/images { inherit img_tag img_org img_prefix; };

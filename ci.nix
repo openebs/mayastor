@@ -26,6 +26,7 @@ mkShell {
   buildInputs = [
     autoconf
     automake
+    btrfs-progs
     clang
     cowsay
     docker

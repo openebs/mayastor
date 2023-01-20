@@ -17,6 +17,7 @@
 , protobuf
 , sources
 , xfsprogs
+, btrfs-progs
 , utillinux
 , llvmPackages
 , targetPackages

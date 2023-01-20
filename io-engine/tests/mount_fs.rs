@@ -124,6 +124,7 @@ async fn mount_fs_mirror() {
 
     mount_test(ms, "xfs").await;
     mount_test(ms, "ext4").await;
+    mount_test(ms, "btrfs").await;
 }
 
 #[tokio::test]
