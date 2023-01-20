@@ -99,14 +99,25 @@ impl<'n> Nexus<'n> {
                 child_uri,
                 healthy,
             } => {
-                // Add the state of a new child.
-                // This should only be called on adding a new child.
+                // Add the state of a new child. This should only be called
+                // on adding a new child. Take into account that the same child
+                // can be readded again.
                 let child_info = ChildInfo {
                     uuid: NexusChild::uuid(&child_uri)
                         .expect("Failed to get child UUID."),
                     healthy,
                 };
-                nexus_info.children.push(child_info);
+
+                // Check if there is a child with the same UUID already
+                // and update the existing record instead of adding a new one.
+                match nexus_info
+                    .children
+                    .iter()
+                    .position(|r| r.uuid == child_info.uuid)
+                {
+                    Some(idx) => nexus_info.children[idx] = child_info,
+                    None => nexus_info.children.push(child_info),
+                }
             }
             PersistOp::Update {
                 child_uri,
