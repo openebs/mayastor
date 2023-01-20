@@ -328,6 +328,11 @@ pub static SIG_RECEIVED: Lazy<AtomicBool> =
 // FFI functions that are needed to initialize the environment
 extern "C" {
     pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
+    pub fn spdk_trace_init(shm_name: *const c_char, num_entries: u64) -> i32;
+    pub fn spdk_trace_set_tpoints(group_id: u32, tpoint_mask: u64);
+    pub fn spdk_trace_create_tpoint_group_mask(
+        group_name: *const c_char,
+    ) -> u64;
     pub fn spdk_trace_cleanup();
     pub fn spdk_env_dpdk_post_init(legacy_mem: bool) -> i32;
     pub fn spdk_env_fini();
@@ -941,6 +946,39 @@ impl MayastorEnvironment {
         None
     }
 
+    fn init_spdk_tracing(&self) {
+        const MAX_GROUP_IDS: u32 = 16;
+        let cshm_name = if self.shm_id >= 0 {
+            CString::new(
+                format!("/{}_trace.{}", self.name, self.shm_id).as_str(),
+            )
+            .unwrap()
+        } else {
+            CString::new(
+                format!("/{}_trace.pid{}", self.name, std::process::id())
+                    .as_str(),
+            )
+            .unwrap()
+        };
+        unsafe {
+            if spdk_trace_init(cshm_name.as_ptr(), self.num_entries) != 0 {
+                error!("SPDK tracing init error");
+            }
+        }
+        let tpoint_group_name = CString::new("all").unwrap();
+        let tpoint_group_mask = unsafe {
+            spdk_trace_create_tpoint_group_mask(tpoint_group_name.as_ptr())
+        };
+
+        for group_id in 0..MAX_GROUP_IDS {
+            if (tpoint_group_mask & (1 << group_id) as u64) > 0 {
+                unsafe {
+                    spdk_trace_set_tpoints(group_id, u64::MAX);
+                }
+            }
+        }
+    }
+
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
         // setup the logger as soon as possible
@@ -1008,6 +1046,11 @@ impl MayastorEnvironment {
 
         // ensure we are within the context of a spdk thread from here
         Mthread::primary().set_current();
+
+        // To enable SPDK tracing set self.num_entries (eg. to 32768).
+        if self.num_entries > 0 {
+            self.init_spdk_tracing();
+        }
 
         Reactor::block_on(async {
             let (sender, receiver) = oneshot::channel::<bool>();
