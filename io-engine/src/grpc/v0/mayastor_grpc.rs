@@ -1056,7 +1056,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 .await?;
                 let nexus = nexus_lookup(&uuid)?;
                 info!("Created nexus: '{}'", uuid);
-                Ok(nexus.to_grpc())
+                Ok(nexus.to_grpc().await)
             })?;
             rx.await
                 .map_err(|_| Status::cancelled("cancelled"))?
@@ -1108,7 +1108,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 .await?;
                 let nexus = nexus_lookup(&args.name)?;
                 info!("Created nexus '{}'", &args.name);
-                Ok(nexus.to_grpc())
+                Ok(nexus.to_grpc().await)
             })?;
             rx.await
                 .map_err(|_| Status::cancelled("cancelled"))?
@@ -1175,12 +1175,16 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
         let rx = rpc_submit::<_, _, nexus::Error>(async move {
             Ok(ListNexusReply {
-                nexus_list: nexus::nexus_iter()
-                    .filter(|n| {
-                        n.state.lock().deref() != &nexus::NexusState::Init
-                    })
-                    .map(|n| n.to_grpc())
-                    .collect::<Vec<_>>(),
+                nexus_list: {
+                    let mut nexus_list =
+                        Vec::with_capacity(nexus::nexus_iter().count());
+                    for n in nexus::nexus_iter() {
+                        if n.state.lock().deref() != &nexus::NexusState::Init {
+                            nexus_list.push(n.to_grpc().await);
+                        }
+                    }
+                    nexus_list
+                },
             })
         })?;
 
@@ -1668,7 +1672,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 trace!("{:?}", args);
                 nexus_lookup(&args.uuid)?
                     .rebuild_state(&args.uri)
-                    .await
                     .map(RebuildStateReply::from)
             })?;
 
@@ -1746,6 +1749,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 nexus_lookup(&args.uuid)?
                     .rebuild_progress(&args.uri)
+                    .await
                     .map(|p| RebuildProgressReply {
                         progress: p,
                     })

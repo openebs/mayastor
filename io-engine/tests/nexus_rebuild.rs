@@ -117,7 +117,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
         let complete = ms
             .spawn(async move {
                 let nexus = nexus_lookup_mut(nexus_name()).unwrap();
-                let state = nexus.rebuild_state(&replica_name).await;
+                let state = nexus.rebuild_state(&replica_name);
 
                 match state {
                     Err(_e) => true, /* Rebuild task completed and was
@@ -236,14 +236,14 @@ async fn rebuild_replica() {
         }
         let src = RebuildJob::lookup(&get_dev(NUM_CHILDREN))
             .expect("now the job should exist")
-            .src_uri
-            .clone();
+            .src_uri()
+            .to_string();
 
         for child in 0 .. NUM_CHILDREN {
             if get_dev(child) != src {
                 RebuildJob::lookup_src(&get_dev(child))
                     .iter()
-                    .filter(|s| s.dst_uri != get_dev(child))
+                    .filter(|s| s.dst_uri() != get_dev(child))
                     .inspect(|&job| {
                         error!(
                             "Job {:?} should be associated with src child {}",
@@ -258,7 +258,7 @@ async fn rebuild_replica() {
             RebuildJob::lookup_src(&src)
                 .iter()
                 .inspect(|&job| {
-                    assert_eq!(job.dst_uri, get_dev(NUM_CHILDREN));
+                    assert_eq!(job.dst_uri(), get_dev(NUM_CHILDREN));
                 })
                 .count(),
             1
@@ -269,7 +269,8 @@ async fn rebuild_replica() {
             get_dev(NUM_CHILDREN),
             RebuildState::Running,
             Duration::from_secs(1),
-        );
+        )
+        .await;
 
         nexus
             .as_mut()

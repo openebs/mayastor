@@ -1,10 +1,21 @@
+mod rebuild_descriptor;
 mod rebuild_error;
 mod rebuild_job;
+mod rebuild_job_backend;
+mod rebuild_record;
 mod rebuild_state;
 mod rebuild_task;
 
+use rebuild_descriptor::RebuildDescriptor;
 pub use rebuild_error::RebuildError;
-pub use rebuild_job::{RebuildJob, RebuildRecord};
+pub use rebuild_job::RebuildJob;
+use rebuild_job::RebuildOperation;
+use rebuild_job_backend::{
+    RebuildFBendChan,
+    RebuildJobBackend,
+    RebuildJobRequest,
+};
+pub use rebuild_record::RebuildRecord;
 pub use rebuild_state::RebuildState;
 use rebuild_state::RebuildStates;
 use rebuild_task::{RebuildTask, RebuildTasks, TaskResult};
@@ -33,19 +44,20 @@ impl Within<u64> for std::ops::Range<u64> {
 }
 
 /// Rebuild statistics.
+#[derive(Default, Debug, Clone)]
 pub struct RebuildStats {
-    /// total number of blocks to recover
+    /// Total number of blocks to recover.
     pub blocks_total: u64,
-    /// number of blocks recovered
+    /// Number of blocks recovered.
     pub blocks_recovered: u64,
-    /// rebuild progress in %
+    /// Rebuild progress in %.
     pub progress: u64,
-    /// granularity of each recovery copy in blocks
+    /// Granularity of each recovery copy in blocks.
     pub segment_size_blks: u64,
-    /// size in bytes of each block
+    /// Size in bytes of each block.
     pub block_size: u64,
-    /// total number of concurrent rebuild tasks
+    /// Total number of concurrent rebuild tasks.
     pub tasks_total: u64,
-    /// number of current active tasks
+    /// Number of current active tasks.
     pub tasks_active: u64,
 }

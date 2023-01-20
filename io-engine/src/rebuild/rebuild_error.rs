@@ -1,5 +1,6 @@
-use crate::{bdev_api::BdevError, core::CoreError};
 use snafu::Snafu;
+
+use crate::{bdev_api::BdevError, core::CoreError};
 use spdk_rs::{BdevDescError, DmaError};
 
 #[derive(Debug, Snafu, Clone)]
@@ -60,4 +61,10 @@ pub enum RebuildError {
     },
     #[snafu(display("Failed to get bdev name from URI {}", uri))]
     BdevInvalidUri { source: BdevError, uri: String },
+    #[snafu(display("The rebuild frontend has been dropped"))]
+    FrontendGone,
+    #[snafu(display("The rebuild backend has been dropped"))]
+    BackendGone,
+    #[snafu(display("The rebuild task pool channel is unexpectedly closed with {} active tasks", active))]
+    RebuildTasksChannel { active: usize },
 }

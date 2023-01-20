@@ -1041,20 +1041,23 @@ impl<'c> NexusChild<'c> {
     }
 
     /// TODO
-    pub(super) fn remove_rebuild_job(&mut self) -> Option<RebuildJob<'static>> {
+    pub(super) fn remove_rebuild_job(
+        &mut self,
+    ) -> Option<std::sync::Arc<RebuildJob>> {
         RebuildJob::remove(&self.name).ok()
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding.
-    pub fn rebuild_job(&self) -> Option<&mut RebuildJob<'c>> {
+    pub fn rebuild_job(&self) -> Option<std::sync::Arc<RebuildJob>> {
         RebuildJob::lookup(&self.name).ok()
     }
 
     /// Return the rebuild progress on this child, if rebuilding.
-    pub fn get_rebuild_progress(&self) -> i32 {
-        self.rebuild_job()
-            .map(|j| j.stats().progress as i32)
-            .unwrap_or_else(|| -1)
+    pub async fn get_rebuild_progress(&self) -> i32 {
+        match self.rebuild_job() {
+            Some(j) => j.stats().await.progress as i32,
+            None => -1,
+        }
     }
 
     /// Determine if a child is local to the nexus (i.e. on the same node).
