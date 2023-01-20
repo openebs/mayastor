@@ -9,7 +9,7 @@ $(dirname "$0")/clean-cargo-tests.sh
 
 cargo build --all
 cd "$(dirname "$0")/../test/grpc"
-npm install
+npm install --legacy-peer-deps
 
 sudo pkill io-engine || true
 

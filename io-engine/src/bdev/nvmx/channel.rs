@@ -361,7 +361,7 @@ impl IoQpair {
 
         // Drop context object transformed previously into a raw pointer.
         unsafe {
-            Box::from_raw(connect_arg);
+            drop(Box::from_raw(connect_arg));
         }
 
         r
