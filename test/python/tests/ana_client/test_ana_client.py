@@ -10,6 +10,7 @@ from common.nvme import (
 import uuid
 import mayastor_pb2 as pb
 import os
+import glob
 
 
 POOL_NAME = "pool1"
@@ -92,9 +93,10 @@ async def test_io_policy(create_replicas, create_nexuses, mayastor_mod):
 
     # Make sure there are 2 virtual NVMe controllers for the namespace.
     ns = os.path.basename(device)
-    for i in range(2):
-        cname = ns.replace("n1", "c%dn1" % i)
-        cpath = "/sys/block/%s" % cname
+    cname = ns.replace("n1", "c*n1")
+    vctls = glob.glob("/sys/block/%s" % cname)
+    assert len(vctls) == 2, "Namespace must have 2 virtual NVMe controllers"
+    for cpath in vctls:
         l = os.readlink(cpath)
         assert l.startswith(
             "../devices/virtual/nvme-fabrics/ctl/"

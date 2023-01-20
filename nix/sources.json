@@ -5,10 +5,22 @@
         "homepage": "https://github.com/linux-nvme/libnvme",
         "owner": "linux-nvme",
         "repo": "libnvme",
-        "rev": "c434d43faee6e6e93ac5ad603ef94a77299fa178",
+        "rev": "v1.0-rc3",
         "sha256": "0wkr0axmm4wqjncb6x7fjyg0wxjdi9f2qd3df6ph671qh5ralrjy",
         "type": "tarball",
-        "url": "https://github.com/linux-nvme/libnvme/archive/c434d43faee6e6e93ac5ad603ef94a77299fa178.tar.gz",
+        "url": "https://github.com/linux-nvme/libnvme/archive/v1.0-rc3.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "nvme-cli": {
+        "branch": "master",
+        "description": "NVM-Express user space tooling for Linux.",
+        "homepage": "https://github.com/linux-nvme/nvme-cli",
+        "owner": "linux-nvme",
+        "repo": "nvme-cli",
+        "rev": "v1.16",
+        "sha256": "130x5cf6kkcnyg5qd35igii249ysfjnbxp1pxfwkickmqg3d007z",
+        "type": "tarball",
+        "url": "https://github.com/linux-nvme/nvme-cli/archive/refs/tags/v1.16.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -29,10 +41,10 @@
         "homepage": "https://github.com/NixOS/nixpkgs",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "3600a82711987ac1267a96fd97974437b69f6806",
-        "sha256": "0pyxcf2vb30maw1rnzw1y949q5mq304jbkgjj0rrkp4ibzzyglai",
+        "rev": "22.11",
+        "sha256": "11w3wn2yjhaa5pv20gbfbirvjq6i3m7pqrq2msf0g7cv44vijwgw",
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs/archive/3600a82711987ac1267a96fd97974437b69f6806.tar.gz",
+        "url": "https://github.com/NixOS/nixpkgs/archive/22.11.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "rust-overlay": {
@@ -41,10 +53,10 @@
         "homepage": "",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "c43ac5a913306abe22c9d1ed8453c7819864f31b",
-        "sha256": "0z0j0iyd2zdc1cqppbnlwgklgbhfks907dhh367w0cdn5kvr93m4",
+        "rev": "3488cec01351c2f1086b02a3a61808be7a25103e",
+        "sha256": "1gqswi63qvgvywzxlsbk2h6zlpvfi61hc4azqkk73ynbyhvkig2d",
         "type": "tarball",
-        "url": "https://github.com/oxalica/rust-overlay/archive/c43ac5a913306abe22c9d1ed8453c7819864f31b.tar.gz",
+        "url": "https://github.com/oxalica/rust-overlay/archive/3488cec01351c2f1086b02a3a61808be7a25103e.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }

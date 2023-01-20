@@ -36,7 +36,7 @@ mkShell {
     libbsd
     libnvme
     libpcap
-    libudev
+    udev
     liburing
     llvmPackages_11.libclang
     meson

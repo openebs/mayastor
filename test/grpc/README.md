@@ -25,7 +25,7 @@ cargo build --all
 Test use mocha. To set this up:
 ```sh
 cd test/grpc
-npm install
+npm install --legacy-peer-deps
 ```
 
 Then to run the nexus tests:

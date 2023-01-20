@@ -11,6 +11,7 @@ self: super: {
   io-engine-dev = (super.callPackage ./pkgs/io-engine { }).debug;
   mkContainerEnv = super.callPackage ./lib/mkContainerEnv.nix { };
   ms-buildenv = super.callPackage ./pkgs/ms-buildenv { };
+  nvme-cli = super.callPackage ./pkgs/nvme-cli { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
   units = (super.callPackage ./pkgs/io-engine/units.nix { });
 }

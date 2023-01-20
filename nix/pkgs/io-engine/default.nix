@@ -8,7 +8,7 @@
 , libspdk
 , libspdk-dev
 , libpcap
-, libudev
+, udev
 , liburing
 , makeRustPlatform
 , numactl

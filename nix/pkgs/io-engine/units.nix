@@ -6,7 +6,7 @@
 , libaio
 , libspdk
 , libspdk-dev
-, libudev
+, udev
 , liburing
 , makeRustPlatform
 , numactl

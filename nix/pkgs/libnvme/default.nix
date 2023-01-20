@@ -14,6 +14,6 @@ stdenv.mkDerivation rec {
     '';
     homepage = "https://github.com/linux-nvme/libnvme";
     licenses = lib.licenses.lgpl21Plus;
-    maintainers = "jonathan.teh@mayadata.io";
+    maintainers = [ "jonathan.teh@mayadata.io" ];
   };
 }
