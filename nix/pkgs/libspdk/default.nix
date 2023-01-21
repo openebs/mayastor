@@ -59,8 +59,8 @@ let
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "0761ff891a41d348143bd27edd4d110aec3bfa2a";
-      sha256 = "sha256-vXLR9uDPZchnTMhp7jN8GGNP9RUYyTby47RixkOEpfY=";
+      rev = "ed484f355864f181ba4c00e7b2f9f31557ce80a7";
+      sha256 = "sha256:00ca5mgxq9qzg22v7zq0fjrxhph7mqz19zga6d4jd8km1y13wmy6";
       fetchSubmodules = true;
     };
 
