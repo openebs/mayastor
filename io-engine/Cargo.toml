@@ -98,6 +98,7 @@ async-process = { version = "1.8.1" }
 rstack = { version = "0.3.3" }
 tokio-stream = "0.1.14"
 rustls = "0.21.12"
+jemalloc-sys = "0.5.2+5.3.0-patched"
 
 devinfo = { path = "../utils/dependencies/devinfo" }
 jsonrpc = { path = "../jsonrpc"}

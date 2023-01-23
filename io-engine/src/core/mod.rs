@@ -478,6 +478,16 @@ pub enum IoSubmissionFailure {
     Write,
 }
 
+/// Supported NVMe command passthrough opcodes
+#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+#[repr(u16)]
+pub enum NvmeCmdOpc{
+    // Zone Management Send opcode: 79h = 121
+    ZoneMgmtSend    = 121,
+    // Zone Management Receive opcode: 7Ah = 122
+    ZoneMgmtReceive = 122,
+}
+
 // Generic I/O completion status for block devices, which supports per-protocol
 // error domains.
 #[derive(Copy, Clone, Eq, PartialOrd, PartialEq)]

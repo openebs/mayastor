@@ -34,6 +34,7 @@ use crate::core::{
     IoType,
     LvolFailure,
     Mthread,
+    NvmeCmdOpc,
     NvmeStatus,
     ReadOptions,
 };
@@ -540,10 +541,29 @@ impl<'n> NexusBio<'n> {
                 self.as_ptr().cast(),
             );
         } else {
-            return Err(CoreError::NvmeIoPassthruDispatch {
-                source: Errno::EOPNOTSUPP,
-                opcode: orig_nvme_cmd.opc(),
-            });
+            let opc = orig_nvme_cmd.opc();
+            match opc {
+                // Zone Management Send
+                opc if opc == NvmeCmdOpc::ZoneMgmtSend as u16 => return hdl.emulate_zone_mgmt_send_io_passthru(
+                    &passthru_nvme_cmd,
+                    buffer,
+                    buffer_size,
+                    Self::child_completion,
+                    self.as_ptr().cast(),
+                ),
+                // Zone Management Receive
+                opc if opc == NvmeCmdOpc::ZoneMgmtReceive as u16 => return hdl.emulate_zone_mgmt_recv_io_passthru(
+                    &passthru_nvme_cmd,
+                    buffer,
+                    buffer_size,
+                    Self::child_completion,
+                    self.as_ptr().cast(),
+                ),
+                _ => return Err(CoreError::NvmeIoPassthruDispatch {
+                    source: Errno::EOPNOTSUPP,
+                    opcode: opc,
+                }),
+            }
         }
     }
 
