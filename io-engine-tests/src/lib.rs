@@ -4,7 +4,7 @@
 //! panic macros. The caller can decide how to handle the error appropriately.
 //! Panics and asserts in this file are still ok for usage & programming errors.
 
-use std::{io, io::Write, process::Command, time::Duration};
+use std::{fmt, io, io::Write, process::Command, time::Duration};
 
 use crossbeam::channel::{after, select, unbounded};
 use once_cell::sync::OnceCell;
@@ -567,6 +567,116 @@ macro_rules! test_diag {
         );
         println!($($arg)*);
     }}
+}
+
+/// The null block device driver emulates block devices and is used for benchmarking and testing.
+/// https://docs.kernel.org/block/null_blk.html
+pub struct NullBlk(u32);
+impl Drop for NullBlk {
+    fn drop(&mut self) {
+        delete_nullblk_device(self.0);
+    }
+}
+impl fmt::Display for NullBlk {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Create a zoned nullblk device with the given parameters. This emulated device exists entirely
+/// in memory.
+pub fn create_zoned_nullblk_device(
+    block_size: u32,
+    zone_size: u32,
+    zone_cap: u32,
+    nr_conv_zones: u32,
+    nr_seq_zones: u32,
+    max_active_zones: u32,
+    max_open_zones: u32,
+) -> Result<NullBlk, (i32, String)> {
+    //Get the next free nullblk device number
+    let mut nid = 1;
+    while std::path::Path::new(&format!(
+        "/sys/kernel/config/nullb/nullb{}",
+        nid
+    ))
+    .exists()
+    {
+        nid += 1;
+    }
+    let (exit, stdout, stderr) = run_script::run(
+        r#"
+        set -e
+        modprobe null_blk nr_devices=0 > /dev/null || return $?
+        nid=$1
+        bs=$2
+        zs=$3
+        zc=$4
+        nr_conv=$5
+        nr_seq=$6
+        max_active_zones=$7
+        max_open_zones=$8
+
+        cap=$(( zs * (nr_conv + nr_seq) ))
+
+        dev="/sys/kernel/config/nullb/nullb$nid"
+        mkdir "$dev"
+
+        echo $bs > "$dev"/blocksize
+        echo 0 > "$dev"/completion_nsec
+        echo 0 > "$dev"/irqmode
+        echo 2 > "$dev"/queue_mode
+        echo 1024 > "$dev"/hw_queue_depth
+        echo 1 > "$dev"/memory_backed
+        echo 1 > "$dev"/zoned
+
+        echo $cap > "$dev"/size
+        echo $zs > "$dev"/zone_size
+        echo $zc > "$dev"/zone_capacity
+        echo $nr_conv > "$dev"/zone_nr_conv
+        echo $max_active_zones > "$dev"/zone_max_active
+        echo $max_open_zones > "$dev"/zone_max_open
+
+        echo 1 > "$dev"/power
+
+        echo mq-deadline > /sys/block/nullb$nid/queue/scheduler
+
+        echo "$nid"
+        "#,
+        &vec![
+            nid.to_string(),
+            block_size.to_string(),
+            zone_size.to_string(),
+            zone_cap.to_string(),
+            nr_conv_zones.to_string(),
+            nr_seq_zones.to_string(),
+            max_active_zones.to_string(),
+            max_open_zones.to_string(),
+        ],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    if exit != 0 {
+        return Err((exit, stderr));
+    }
+    return Ok(NullBlk(stdout.trim().parse::<u32>().unwrap()));
+}
+
+pub fn delete_nullblk_device(nid: u32) -> i32 {
+    let (exit, _, _) = run_script::run(
+        r#"
+        set -e
+        nid=$1
+        dev="/sys/kernel/config/nullb/nullb$nid"
+
+        echo 0 > "$dev"/power
+        rmdir $dev
+        "#,
+        &vec![nid.to_string()],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    exit
 }
 
 pub use io_engine_tests_macros::spdk_test;

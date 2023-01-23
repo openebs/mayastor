@@ -15,7 +15,7 @@ use crate::{
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
 #[derive(Debug, Snafu)]
-#[snafu(visibility(pub(crate)), context(suffix(false)), module(nexus_err))]
+#[snafu(visibility(pub), context(suffix(false)), module(nexus_err))]
 pub enum Error {
     #[snafu(display("Nexus {} does not exist", name))]
     NexusNotFound { name: String },
