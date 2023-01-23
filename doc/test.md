@@ -14,7 +14,7 @@ Or, for ad-hoc:
 - Ensure several kernel modules are installed:
 
   ```bash
-  modprobe nbd xfs nvmet nvme_fabrics nvmet_rdma nvme_tcp nvme_rdma nvme_loop
+  modprobe nbd xfs btrfs nvmet nvme_fabrics nvmet_rdma nvme_tcp nvme_rdma nvme_loop
   ```
 
 ## Running the test suite
@@ -29,7 +29,33 @@ Mayastor's unit tests, integration tests, and documentation tests via the conven
 Mayastor uses [spdk][spdk] which is quite senistive to threading. This means tests need to run one at a time:
 
 ```bash
-cargo test -- --test-threads 1
+cd io-engine
+cargo test -- --test-threads 1 --nocapture
+```
+
+## Using your own SPDK version
+
+In order to use your own SPDK version, your SPDK tree must rebase the commit of the latest `vYY.mm.x-mayastor`
+branch from the https://github.com/openebs/spdk repo.
+Build SPDK with these instructions inside of your nix shell:
+
+```bash
+cd spdk-rs
+git clone https://github.com/openebs/spdk
+cd spdk
+git checkout vYY.mm.x-mayastor
+# Rebase your branch
+git submodule update --init
+cd -
+./build_spdk.sh
+```
+
+Before you run the cargo tests again, make sure spdk-rs is rebuild:
+
+```bash
+cd ../io-engine
+cargo clean -p spdk-rs
+cargo test -- --test-threads 1 --nocapture
 ```
 
 ## Running the end-to-end test suite
