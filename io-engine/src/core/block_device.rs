@@ -6,7 +6,7 @@ use super::{
     SnapshotParams,
 };
 
-use spdk_rs::{DmaBuf, DmaError, IoVec};
+use spdk_rs::{BdevZoneInfo, DmaBuf, DmaError, IoVec};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -56,7 +56,7 @@ pub struct BlockDeviceIoStats {
 /// Core trait that represents a block device.
 /// TODO: Add text.
 #[async_trait(?Send)]
-pub trait BlockDevice {
+pub trait BlockDevice: ZonedBlockDevice {
     /// Returns total size in bytes of the device.
     fn size_in_bytes(&self) -> u64;
 
@@ -81,8 +81,11 @@ pub trait BlockDevice {
     /// Returns aligment of the device.
     fn alignment(&self) -> u64;
 
-    /// Checks whether target I/O type is supported by the device.
+    /// Checks whether target I/O type is supported by the device or storage stack.
     fn io_type_supported(&self, io_type: IoType) -> bool;
+
+    /// Checks whether target I/O type is supported by the device.
+    fn io_type_supported_by_device(&self, io_type: IoType) -> bool;
 
     /// Obtains I/O statistics for the device.
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError>;
@@ -101,6 +104,58 @@ pub trait BlockDevice {
         &self,
         listener: DeviceEventSink,
     ) -> Result<(), CoreError>;
+}
+
+/// Trait to represent zoned storage related fields for zoned block devices.
+#[async_trait(?Send)]
+pub trait ZonedBlockDevice {
+    /// Returns if the device to which this ZoneInfo is linked to is a
+    /// zoned block device (ZBD) or not. If true, the following fields are
+    /// also relavant.
+    fn is_zoned(&self) -> bool;
+
+    /// Returns the number of zones available on the device.
+    fn zone_size(&self) -> u64;
+
+    /// Returns size of each zone (in blocks). Typically alligned to a power of 2.
+    /// In SPDK the actuall writable zone capacity has to be queried for each
+    /// individual zone through a zone report.
+    /// zone_capacity <= zone_size.
+    /// zone_capacity * num_zones = device capacity
+    fn num_zones(&self) -> u64;
+
+    /// Returns maximum data transfer size for a single zone append command (in blocks).
+    /// Normal (seq) writes must respect the device's general max transfer size.
+    fn max_zone_append_size(&self) -> u32;
+
+    /// Returns maximum number of open zones for a given device.
+    /// This essentially limits the amount of parallel open zones that can be written to.
+    /// Refere to NVMe ZNS specification (Figure 7 Zone State Machine) for more details.
+    /// https://nvmexpress.org/wp-content/uploads/NVM-Express-Zoned-Namespace-Command-Set-Specification-1.1d-2023.12.28-Ratified.pdf
+    fn max_open_zones(&self) -> u32;
+
+    /// Returns maximum number of active zones for a given device.
+    /// max_open_zones is a subset of max_active_zones. Closed zones are still active until they
+    /// get finished (finished zones are in effect immutabel until reset).
+    /// Refere to NVMe ZNS specification (Figure 7 Zone State Machine) for more details.
+    /// https://nvmexpress.org/wp-content/uploads/NVM-Express-Zoned-Namespace-Command-Set-Specification-1.1d-2023.12.28-Ratified.pdf
+    fn max_active_zones(&self) -> u32;
+
+    /// Returns the drives prefered number of open zones.
+    fn optimal_open_zones(&self) -> u32;
+
+    /// Returns all zoned storage relavant fields in a condensed BdevZoneInfo struct.
+    fn bdev_zone_info(&self) -> BdevZoneInfo {
+        BdevZoneInfo {
+            zoned: self.is_zoned(),
+            zone_size: self.zone_size(),
+            num_zones: self.num_zones(),
+            max_zone_append_size: self.max_zone_append_size(),
+            max_open_zones: self.max_open_zones(),
+            max_active_zones: self.max_active_zones(),
+            optimal_open_zones: self.optimal_open_zones(),
+        }
+    }
 }
 
 /// Core trait that represents a descriptor for an opened block device.
@@ -406,7 +461,72 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// Emulates the zone management send NvmeIo command for devices that do not support this
+    /// command natively.
+    ///
+    /// * `nvme_cmd`        - The nvme command to emulate.
+    /// * `_buffer`         - The data buffer for the nvme command.
+    /// * `_buffer_size`    - The data buffer for the nvme command.
+    /// * `_cb`             - The completion callback function for the nvme command.
+    /// * `_cb_arg`         - The completion callback function arguments.
+    fn emulate_zone_mgmt_send_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        _buffer: *mut c_void,
+        _buffer_size: u64,
+        _cb: IoCompletionCallback,
+        _cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
+
+    /// Emulates the zone management receive NvmeIo command for devices that do not support this
+    /// command natively.
+    ///
+    /// * `nvme_cmd`        - The nvme command to emulate.
+    /// * `_buffer`         - The data buffer for the nvme command.
+    /// * `_buffer_size`    - The data buffer for the nvme command.
+    /// * `_cb`             - The completion callback function for the nvme command.
+    /// * `_cb_arg`         - The completion callback function arguments.
+    fn emulate_zone_mgmt_recv_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        _buffer: *mut c_void,
+        _buffer_size: u64,
+        _cb: IoCompletionCallback,
+        _cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
+
     // NVMe only.
+
+    /// Submits an NVMe IO Passthrough command to the device.
+    ///
+    /// * `nvme_cmd`        - The nvme command to emulate.
+    /// * `_buffer`         - The data buffer for the nvme command.
+    /// * `_buffer_size`    - The data buffer for the nvme command.
+    /// * `_cb`             - The completion callback function for the nvme command.
+    /// * `_cb_arg`         - The completion callback function arguments.
+    fn submit_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        _buffer: *mut c_void,
+        _buffer_size: u64,
+        _cb: IoCompletionCallback,
+        _cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
 
     /// TODO
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>;

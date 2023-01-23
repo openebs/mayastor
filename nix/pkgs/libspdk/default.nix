@@ -116,7 +116,6 @@ let
     (if with-fio then [ "--with-fio=${fio-include}" ] else [ ]) ++
     [
       "--with-uring"
-      "--without-uring-zns"
       "--disable-unit-tests"
       "--disable-tests"
     ];

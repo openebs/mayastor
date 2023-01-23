@@ -75,11 +75,13 @@ use spdk_rs::{
     libspdk::spdk_bdev_notify_blockcnt_change,
     BdevIo,
     BdevOps,
+    BdevZoneInfo,
     ChannelTraverseStatus,
     IoChannel,
     IoDevice,
     IoDeviceChannelTraverse,
     JsonWriteContext,
+    libspdk::spdk_bdev_is_zoned,
 };
 
 pub static NVME_MIN_CNTLID: u16 = 1;
@@ -372,6 +374,7 @@ impl<'n> Nexus<'n> {
         nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
         nexus_info_key: Option<String>,
+        bdev_zone_info: BdevZoneInfo,
     ) -> spdk_rs::Bdev<Nexus<'n>> {
         let n = Nexus {
             name: name.to_string(),
@@ -405,6 +408,7 @@ impl<'n> Nexus<'n> {
             .with_block_count(0)
             .with_required_alignment(9)
             .with_data(n)
+            .with_zoned_info(bdev_zone_info)
             .build();
 
         unsafe {
@@ -573,6 +577,11 @@ impl<'n> Nexus<'n> {
     /// Returns the required alignment of the Nexus.
     pub fn required_alignment(&self) -> u8 {
         unsafe { self.bdev().required_alignment() }
+    }
+
+    /// Check if the bdev is a zoned block device (ZBD)
+    pub fn is_zoned(&self) -> bool {
+        unsafe { spdk_bdev_is_zoned(self.bdev().unsafe_inner_ptr()) }
     }
 
     /// TODO
@@ -773,6 +782,13 @@ impl<'n> Nexus<'n> {
                         req_blocks: self.req_size() / bs,
                     })
                 }
+            }
+
+            if dev.is_zoned() {
+                //TODO: Implement partitioning zoned block devices. This requires handling drive resources like max active/open zones.
+                warn!("The device '{}' is zoned. Partitioning zoned block devices into smaller devices is not implemented. Using the whole device.", dev.device_name());
+                start_blk = 0;
+                end_blk = nb;
             }
         }
 
@@ -1430,7 +1446,12 @@ impl<'n> BdevOps for Nexus<'n> {
             IoType::Flush
             | IoType::Reset
             | IoType::Unmap
-            | IoType::WriteZeros => {
+            | IoType::WriteZeros
+            | IoType::ZoneAppend
+            | IoType::ZoneInfo
+            | IoType::ZoneManagement
+            | IoType::NvmeIo
+            | IoType::ZeroCopy => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {
                     if io_type == IoType::Flush {
@@ -1574,6 +1595,50 @@ pub async fn nexus_create_v2(
     }
 }
 
+async fn prepare_nexus_zone_info_from_children(
+    children_devices: &mut Vec<(String, String)>,
+    nexus_name: &str,
+) -> Result<BdevZoneInfo, Error> {
+    // if we find non-zoned block devices
+    let mut found_conventional = false;
+    let mut nexus_zone_info: Option<BdevZoneInfo> = None;
+
+    for (_uri, device_name) in &*children_devices {
+        let dev = device_lookup(&device_name).ok_or(Error::ChildMissing {
+            child: device_name.clone(),
+            name: nexus_name.to_string(),
+        })?;
+        if dev.is_zoned() {
+            if let Some(nexus_zone_info) = nexus_zone_info {
+                if nexus_zone_info != dev.bdev_zone_info() {
+                    error!("Can not use ZBD's with different parameters as nexus children");
+                    return Err(Error::MixedZonedChild {
+                        child: device_name.to_string(),
+                    });
+                }
+            } else {
+                nexus_zone_info = Some(dev.bdev_zone_info().clone());
+            }
+        } else {
+            found_conventional = true;
+        }
+
+        if nexus_zone_info.is_some() && found_conventional {
+            error!("{nexus_name} - can not handle conventional and zoned storage at the same time in a nexus");
+            return Err(Error::MixedZonedChild {
+                child: device_name.to_string(),
+            });
+        }
+    }
+
+    if let Some(nexus_zone_info) = nexus_zone_info {
+        return Ok(nexus_zone_info);
+    }
+
+    // For conventional devices return the default BlkZoneInfo where `zoned == false`
+    Ok(BdevZoneInfo::default())
+}
+
 async fn destroy_created_devices(devices: &[(String, String)]) {
     for (uri, _) in devices {
         if let Err(e) = device_destroy(uri).await {
@@ -1597,6 +1662,12 @@ async fn create_children_devices(
         };
 
         children_devices.push((uri.clone(), device_name.clone()));
+
+        if device_lookup(&device_name).unwrap().is_zoned() && children.len() > 1
+        {
+            destroy_created_devices(&children_devices).await;
+            return Err(Error::ZonedReplicationNotImplemented {});
+        }
     }
 
     Ok(children_devices)
@@ -1639,6 +1710,26 @@ async fn nexus_create_internal(
 
     let mut children_devices = create_children_devices(children).await?;
 
+    let nexus_zone_info = match prepare_nexus_zone_info_from_children(
+        &mut children_devices,
+        name,
+    )
+    .await
+    {
+        Err(e) => {
+            destroy_created_devices(&children_devices).await;
+            return Err(e);
+        }
+        Ok(nexus_zone_info) => nexus_zone_info,
+    };
+
+    if nexus_zone_info.zoned {
+        info!(
+            "The Nexus will be zoned with the properies {:?}",
+            nexus_zone_info
+        );
+    }
+
     // Create a new Nexus object, and immediately add it to the global list.
     // This is necessary to ensure proper cleanup, as the code responsible for
     // closing a child assumes that the nexus to which it belongs will appear
@@ -1651,6 +1742,7 @@ async fn nexus_create_internal(
         nexus_uuid,
         nvme_params,
         nexus_info_key,
+        nexus_zone_info,
     );
 
 

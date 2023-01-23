@@ -22,6 +22,7 @@ pub use block_device::{
     OpCompletionCallback,
     OpCompletionCallbackArg,
     ReadOptions,
+    ZonedBlockDevice,
 };
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};

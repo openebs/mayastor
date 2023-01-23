@@ -84,6 +84,8 @@ pub enum Error {
     },
     #[snafu(display("Children of nexus {} have mixed block sizes", name))]
     MixedBlockSizes { name: String },
+    #[snafu(display("Child {} is incompatible with its (zoned) siblings", child))]
+    MixedZonedChild { child: String },
     #[snafu(display(
         "Child {} of nexus {} has incompatible size or block size",
         child,
@@ -222,6 +224,8 @@ pub enum Error {
     UpdateShareProperties { source: CoreError, name: String },
     #[snafu(display("failed to save nexus state {}", name))]
     SaveStateFailed { source: StoreError, name: String },
+    #[snafu(display("Replication for zoned storage is not implemented. Consider adding a single zoned storage device to the nexus"))]
+    ZonedReplicationNotImplemented,
 }
 
 impl From<NvmfError> for Error {

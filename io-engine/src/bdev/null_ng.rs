@@ -6,6 +6,7 @@ use spdk_rs::{
     BdevModule,
     BdevModuleBuild,
     BdevOps,
+    BdevZoneInfo,
     IoChannel,
     IoDevice,
     IoType,
@@ -142,6 +143,7 @@ impl<'a> NullIoDevice<'a> {
             .with_block_length(1 << 12)
             .with_block_count(1 << 20)
             .with_required_alignment(12)
+            .with_zoned_info(BdevZoneInfo::default())
             .build();
 
         bdev.data().register_io_device(Some(name));

@@ -24,6 +24,7 @@ use crate::{
         DeviceIoController,
         DeviceTimeoutAction,
         IoType,
+        ZonedBlockDevice,
     },
     ffihelper::{cb_arg, done_cb},
 };
@@ -204,8 +205,15 @@ impl BlockDevice for NvmeBlockDevice {
             IoType::Unmap => self.ns.supports_deallocate(),
             IoType::WriteZeros => self.ns.supports_write_zeroes(),
             IoType::CompareAndWrite => false,
+            IoType::ZoneAppend | IoType::ZoneInfo | IoType::ZoneManagement => {
+                true
+            }
             _ => false,
         }
+    }
+
+    fn io_type_supported_by_device(&self, io_type: IoType) -> bool {
+        self.io_type_supported(io_type)
     }
 
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
@@ -254,6 +262,37 @@ impl BlockDevice for NvmeBlockDevice {
         )?;
         let controller = controller.lock();
         controller.register_device_listener(listener)
+    }
+}
+
+#[async_trait(?Send)]
+impl ZonedBlockDevice for NvmeBlockDevice {
+    fn is_zoned(&self) -> bool {
+        self.ns.is_zoned()
+    }
+
+    fn zone_size(&self) -> u64 {
+        self.ns.zone_size()
+    }
+
+    fn num_zones(&self) -> u64 {
+        self.ns.num_zones()
+    }
+
+    fn max_zone_append_size(&self) -> u32 {
+        self.ns.max_zone_append_size()
+    }
+
+    fn max_open_zones(&self) -> u32 {
+        self.ns.max_open_zones()
+    }
+
+    fn max_active_zones(&self) -> u32 {
+        self.ns.max_active_zones()
+    }
+
+    fn optimal_open_zones(&self) -> u32 {
+        self.ns.optimal_open_zones()
     }
 }
 
