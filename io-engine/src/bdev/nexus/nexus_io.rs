@@ -12,6 +12,7 @@ use spdk_rs::{
         spdk_bdev_io,
         spdk_bdev_io_complete_nvme_status,
         spdk_io_channel,
+        spdk_nvme_cmd,
         SPDK_NVME_SC_ABORTED_SQ_DELETION,
         SPDK_NVME_SC_CAPACITY_EXCEEDED,
         SPDK_NVME_SC_INVALID_OPCODE,
@@ -189,6 +190,7 @@ impl<'n> NexusBio<'n> {
             // these IOs are submitted to all the underlying children
             IoType::Write
             | IoType::WriteZeros
+            | IoType::NvmeIo
             | IoType::Reset
             | IoType::Unmap
             | IoType::Flush => self.submit_all(),
@@ -510,6 +512,42 @@ impl<'n> NexusBio<'n> {
     }
 
     #[inline]
+    fn submit_io_passthru(
+        &self,
+        hdl: &dyn BlockDeviceHandle,
+    ) -> Result<(), CoreError> {
+        let orig_nvme_cmd = self.nvme_cmd();
+        let buffer = self.nvme_buf();
+        let buffer_size = self.nvme_nbytes();
+
+        let mut passthru_nvme_cmd = spdk_nvme_cmd::default();
+        passthru_nvme_cmd.set_opc(orig_nvme_cmd.opc());
+        unsafe {
+            passthru_nvme_cmd.__bindgen_anon_1.cdw10 = orig_nvme_cmd.__bindgen_anon_1.cdw10;
+            passthru_nvme_cmd.__bindgen_anon_2.cdw11 = orig_nvme_cmd.__bindgen_anon_2.cdw11;
+            passthru_nvme_cmd.__bindgen_anon_3.cdw12 = orig_nvme_cmd.__bindgen_anon_3.cdw12;
+        }
+        passthru_nvme_cmd.cdw13 = orig_nvme_cmd.cdw13;
+        passthru_nvme_cmd.cdw14 = orig_nvme_cmd.cdw14;
+        passthru_nvme_cmd.cdw15 = orig_nvme_cmd.cdw15;
+
+        if hdl.get_device().io_type_supported_by_device(self.io_type()) {
+            return hdl.submit_io_passthru(
+                &passthru_nvme_cmd,
+                buffer,
+                buffer_size,
+                Self::child_completion,
+                self.as_ptr().cast(),
+            );
+        } else {
+            return Err(CoreError::NvmeIoPassthruDispatch {
+                source: Errno::EOPNOTSUPP,
+                opcode: orig_nvme_cmd.opc(),
+            });
+        }
+    }
+
+    #[inline]
     fn submit_write(
         &self,
         hdl: &dyn BlockDeviceHandle,
@@ -613,6 +651,7 @@ impl<'n> NexusBio<'n> {
                 IoType::WriteZeros => self.submit_write_zeroes(h),
                 IoType::Reset => self.submit_reset(h),
                 IoType::Flush => self.submit_flush(h),
+                IoType::NvmeIo => self.submit_io_passthru(h),
                 // we should never reach here, if we do it is a bug.
                 _ => unreachable!(),
             }

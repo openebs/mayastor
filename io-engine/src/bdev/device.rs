@@ -18,6 +18,7 @@ use spdk_rs::{
         spdk_bdev_flush,
         spdk_bdev_free_io,
         spdk_bdev_io,
+        spdk_bdev_nvme_io_passthru,
         spdk_bdev_readv_blocks_with_flags,
         spdk_bdev_reset,
         spdk_bdev_unmap_blocks,
@@ -63,6 +64,7 @@ use crate::{
         ZonedBlockDevice,
     },
     lvs::Lvol,
+    ffihelper::FfiResult,
 };
 
 #[cfg(feature = "fault-injection")]
@@ -624,6 +626,44 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         Err(CoreError::NvmeAdminDispatch {
             source: Errno::ENXIO,
             opcode: nvme_admin_opc::IDENTIFY.into(),
+        })
+    }
+
+    fn submit_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        buffer: *mut c_void,
+        buffer_size: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+
+        let ctx = alloc_bdev_io_ctx(
+            IoType::NvmeIo,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+            },
+            0,
+            0,
+        )?;
+
+        let (desc, ch) = self.handle.io_tuple();
+
+        unsafe {
+            spdk_bdev_nvme_io_passthru(
+                desc,
+                ch,
+                nvme_cmd,
+                buffer,
+                buffer_size,
+                Some(bdev_io_completion),
+                ctx as *mut c_void,
+            )
+        }.to_result(|e| CoreError::NvmeIoPassthruDispatch {
+            source: Errno::from_i32(e),
+            opcode: nvme_cmd.opc(),
         })
     }
 
