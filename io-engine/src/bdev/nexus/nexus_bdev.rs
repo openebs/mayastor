@@ -38,7 +38,9 @@ use super::{
 
 use crate::{
     bdev::{
+        device_create,
         device_destroy,
+        device_lookup,
         nexus::{
             nexus_io_subsystem::NexusPauseState,
             nexus_persistence::PersistentNexusInfo,
@@ -1572,6 +1574,34 @@ pub async fn nexus_create_v2(
     }
 }
 
+async fn destroy_created_devices(devices: &[(String, String)]) {
+    for (uri, _) in devices {
+        if let Err(e) = device_destroy(uri).await {
+            error!("Destroying the device with {uri} was not successfull. This device is dangling now. Error: {e:?}");
+        }
+    }
+}
+
+async fn create_children_devices(
+    children: &[String],
+) -> Result<Vec<(String, String)>, Error> {
+    let mut children_devices = Vec::new();
+
+    for uri in children {
+        let device_name = match device_create(uri).await {
+            Ok(d) => d,
+            Err(e) => {
+                destroy_created_devices(&children_devices).await;
+                return Err(e).context(nexus_err::CreateChild { name: uri });
+            }
+        };
+
+        children_devices.push((uri.clone(), device_name.clone()));
+    }
+
+    Ok(children_devices)
+}
+
 async fn nexus_create_internal(
     name: &str,
     size: u64,
@@ -1607,6 +1637,8 @@ async fn nexus_create_internal(
         return Ok(());
     }
 
+    let mut children_devices = create_children_devices(children).await?;
+
     // Create a new Nexus object, and immediately add it to the global list.
     // This is necessary to ensure proper cleanup, as the code responsible for
     // closing a child assumes that the nexus to which it belongs will appear
@@ -1621,8 +1653,9 @@ async fn nexus_create_internal(
         nexus_info_key,
     );
 
-    for uri in children {
-        if let Err(error) = nexus_bdev.data_mut().new_child(uri).await {
+
+    for (uri, device_name) in &children_devices {
+        if let Err(error) = nexus_bdev.data_mut().new_child(&uri, &device_name).await {
             error!(
                 "{n:?}: failed to add child '{uri}': {e}",
                 n = nexus_bdev.data(),
@@ -1635,6 +1668,8 @@ async fn nexus_create_internal(
                 nexus_bdev.data(),
                 uri
             );
+
+            destroy_created_devices(&children_devices).await;
 
             return Err(Error::CreateChild {
                 source: error,
