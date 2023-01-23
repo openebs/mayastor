@@ -283,7 +283,7 @@ impl Default for MayastorCliArgs {
             reactor_mask: "0x1".into(),
             mem_size: 0,
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
-            no_pci: true,
+            no_pci: false,
             log_components: vec![],
             log_format: None,
             mayastor_config: None,
