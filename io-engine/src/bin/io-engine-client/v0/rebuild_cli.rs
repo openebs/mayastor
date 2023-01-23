@@ -24,6 +24,7 @@ pub async fn handler(
         ("state", Some(args)) => state(ctx, args).await,
         ("stats", Some(args)) => stats(ctx, args).await,
         ("progress", Some(args)) => progress(ctx, args).await,
+        ("history", Some(args)) => history(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
                 .context(GrpcStatus)
@@ -137,6 +138,15 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uri of child to get the rebuild progress from"),
         );
 
+    let history = SubCommand::with_name("history")
+        .about("shows the rebuild history for children of a nexus")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid of the nexus"),
+        );
+
     SubCommand::with_name("rebuild")
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
@@ -151,6 +161,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(state)
         .subcommand(stats)
         .subcommand(progress)
+        .subcommand(history)
 }
 
 async fn start(
@@ -366,6 +377,73 @@ async fn state(
             ctx.print_list(
                 vec!["state"],
                 vec![vec![response.get_ref().state.clone()]],
+            );
+        }
+    };
+
+    Ok(())
+}
+
+async fn history(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+
+    let response = ctx
+        .client
+        .get_rebuild_history(rpc::RebuildHistoryRequest {
+            uuid: uuid.clone(),
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let response = &response.get_ref();
+            if response.records.is_empty() {
+                return Ok(());
+            }
+            let table = response
+                .records
+                .iter()
+                .map(|r| {
+                    vec![
+                        r.dst_uri.clone(),
+                        r.src_uri.clone(),
+                        r.rebuilt_data_size.to_string(),
+                        r.state.to_string(),
+                        r.is_partial.to_string(),
+                        r.started_at.as_ref().unwrap().to_string(),
+                        r.ended_at.as_ref().unwrap().to_string(),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec![
+                    "DEST",
+                    "SRC",
+                    ">REBUILT-SIZE",
+                    ">STATE",
+                    ">IS-PARTIAL",
+                    "START",
+                    "END",
+                ],
+                table,
             );
         }
     };

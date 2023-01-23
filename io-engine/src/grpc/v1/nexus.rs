@@ -9,7 +9,7 @@ use crate::{
         Share,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult},
-    rebuild::{RebuildState, RebuildStats},
+    rebuild::{RebuildRecord, RebuildState, RebuildStats},
 };
 use futures::FutureExt;
 use std::{
@@ -188,6 +188,33 @@ impl From<RebuildStats> for RebuildStatsResponse {
             block_size: stats.block_size,
             tasks_total: stats.tasks_total,
             tasks_active: stats.tasks_active,
+        }
+    }
+}
+
+impl From<RebuildState> for mayastor_api::v1::nexus::RebuildJobState {
+    fn from(state: RebuildState) -> Self {
+        match state {
+            RebuildState::Init => RebuildJobState::Init,
+            RebuildState::Running => RebuildJobState::Rebuilding,
+            RebuildState::Stopped => RebuildJobState::Stopped,
+            RebuildState::Paused => RebuildJobState::Paused,
+            RebuildState::Failed => RebuildJobState::Failed,
+            RebuildState::Completed => RebuildJobState::Completed,
+        }
+    }
+}
+
+impl From<&RebuildRecord> for RebuildHistoryRecord {
+    fn from(record: &RebuildRecord) -> Self {
+        RebuildHistoryRecord {
+            dst_uri: record.dst_uri.clone(),
+            src_uri: record.src_uri.clone(),
+            state: RebuildJobState::from(record.state) as i32,
+            is_partial: record.partial_rebuild,
+            rebuilt_data_size: record.rebuilt_data_size,
+            started_at: Some(record.start.into()),
+            ended_at: Some(record.end.into()),
         }
     }
 }
@@ -1003,6 +1030,35 @@ impl NexusRpc for NexusService {
                     .rebuild_stats(&args.uri)
                     .await
                     .map(RebuildStatsResponse::from)
+            })?;
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
+    }
+
+    #[named]
+    async fn get_rebuild_history(
+        &self,
+        request: Request<RebuildHistoryRequest>,
+    ) -> GrpcResult<RebuildHistoryResponse> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            trace!("{:?}", args);
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                let records = nexus_lookup(&args.uuid)?
+                    .rebuild_history()
+                    .iter()
+                    .map(RebuildHistoryRecord::from)
+                    .collect();
+                Ok(RebuildHistoryResponse {
+                    nexus: args.uuid.clone(),
+                    records,
+                })
             })?;
             rx.await
                 .map_err(|_| Status::cancelled("cancelled"))?
