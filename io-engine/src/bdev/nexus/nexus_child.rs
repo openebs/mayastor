@@ -234,6 +234,24 @@ impl<'c> NexusChild<'c> {
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
     }
+    /// TODO
+    pub(crate) fn set_state_if(
+        &self,
+        current: ChildState,
+        new: ChildState,
+    ) -> Result<ChildState, ChildState> {
+        match self.state.compare_exchange(current, new) {
+            Ok(_) => {
+                debug!(
+                    "{:?}: changing state from '{}' to '{}'",
+                    self, current, new
+                );
+                self.prev_state.store(current);
+                Ok(current)
+            }
+            Err(state) => Err(state),
+        }
+    }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
     /// is already opened by someone else (i.e one of the targets) it will

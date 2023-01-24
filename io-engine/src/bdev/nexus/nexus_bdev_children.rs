@@ -733,17 +733,28 @@ impl<'n> Nexus<'n> {
             Some(c) => {
                 debug!("{:?}: faulting with {}...", c, reason);
 
-                if Ok(ChildState::Open)
-                    == c.state.compare_exchange(
-                        ChildState::Open,
-                        ChildState::Faulted(reason),
-                    )
+                if c.set_state_if(ChildState::Open, ChildState::Faulted(reason))
+                    .is_ok()
                 {
                     warn!("{:?}: I/O faulted; will retire", c);
                     true
                 } else {
-                    warn!("{:?}: I/O faulted; child was already faulted", c);
-                    false
+                    match c.set_state_if(
+                        ChildState::Faulted(Reason::OutOfSync),
+                        ChildState::Faulted(reason),
+                    ) {
+                        Ok(_) => {
+                            warn!("{:?}: I/O faulted; will retire", c);
+                            true
+                        }
+                        Err(state) => {
+                            warn!(
+                                "{:?}: I/O faulted; child was not open but {}",
+                                c, state
+                            );
+                            false
+                        }
+                    }
                 }
             }
             None => {

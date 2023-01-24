@@ -370,15 +370,27 @@ impl<'n> Nexus<'n> {
 
         match job.state() {
             RebuildState::Completed => {
-                dst_child.set_state(ChildState::Open);
                 info!("Child {} has been rebuilt successfully", child_uri);
-                let child_uri = child_uri.to_owned();
-                let child_state = dst_child.state();
-                self.persist(PersistOp::Update {
-                    child_uri,
-                    child_state,
-                })
-                .await;
+                match dst_child.set_state_if(
+                    ChildState::Faulted(Reason::OutOfSync),
+                    ChildState::Open,
+                ) {
+                    Ok(_) => {
+                        let child_uri = child_uri.to_owned();
+                        let child_state = dst_child.state();
+                        self.persist(PersistOp::Update {
+                            child_uri,
+                            child_state,
+                        })
+                        .await;
+                    }
+                    Err(state) => {
+                        warn!(
+                            "Child {} is in unexpected state: {}, so we're not marking it as online.",
+                            child_uri, state
+                        );
+                    }
+                }
             }
             RebuildState::Stopped => {
                 info!(
