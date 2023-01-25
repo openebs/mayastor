@@ -23,7 +23,6 @@ use super::{
     nexus_err,
     nexus_injection::Injections,
     nexus_lookup_name_uuid,
-    ChildState,
     DrEvent,
     Error,
     NbdDisk,
@@ -971,14 +970,14 @@ impl<'n> Nexus<'n> {
                     .children
                     .iter()
                     // All children are online, so the Nexus is also online
-                    .all(|c| c.state() == ChildState::Open)
+                    .all(|c| c.is_healthy())
                 {
                     NexusStatus::Online
                 } else if self
                     .children
                     .iter()
                     // at least one child online, so the Nexus is also online
-                    .any(|c| c.state() == ChildState::Open)
+                    .any(|c| c.is_healthy())
                 {
                     NexusStatus::Degraded
                 } else {
@@ -1109,11 +1108,9 @@ impl<'n> BdevOps for Nexus<'n> {
         Reactor::block_on(async move {
             let self_ref = unsafe { &mut *self_ptr };
 
-            let n = self_ref
-                .children
-                .iter()
-                .filter(|c| c.state() == ChildState::Open)
-                .count();
+            // TODO: double-check interaction with rebuild job logic
+            // TODO: cancel rebuild jobs?
+            let n = self_ref.children.iter().filter(|c| c.is_healthy()).count();
 
             if n > 0 {
                 warn!(
@@ -1122,7 +1119,7 @@ impl<'n> BdevOps for Nexus<'n> {
                 );
 
                 for child in self_ref.children.iter_mut() {
-                    if child.state() == ChildState::Open {
+                    if child.is_healthy() {
                         if let Err(e) = child.close().await {
                             error!(
                                 "{:?}: child failed to close: {}",

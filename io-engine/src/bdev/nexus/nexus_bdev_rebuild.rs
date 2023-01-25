@@ -6,7 +6,7 @@ use super::{
     nexus_err,
     nexus_lookup_mut,
     nexus_persistence::PersistOp,
-    ChildState,
+    ChildSyncState,
     DrEvent,
     Error,
     Nexus,
@@ -75,9 +75,10 @@ impl<'n> Nexus<'n> {
         let name = self.name.clone();
         trace!("{}: start rebuild request for {}", name, child_uri);
 
+        // Find a healthy child to rebuild from.
         let src_child_uri = match self
             .children_iter()
-            .find(|c| c.state() == ChildState::Open && c.uri() != child_uri)
+            .find(|c| c.is_healthy() && c.uri() != child_uri)
         {
             Some(child) => Ok(child.uri().to_owned()),
             None => Err(Error::NoRebuildSource {
@@ -86,7 +87,7 @@ impl<'n> Nexus<'n> {
         }?;
 
         let dst_child_uri = match self.lookup_child(child_uri) {
-            Some(c) if c.state() == ChildState::Faulted(Reason::OutOfSync) => {
+            Some(c) if c.is_opened_unsync() => {
                 if c.rebuild_job().is_some() {
                     Err(Error::RebuildJobAlreadyExists {
                         child: child_uri.to_owned(),
@@ -370,13 +371,13 @@ impl<'n> Nexus<'n> {
 
         match job.state() {
             RebuildState::Completed => {
-                dst_child.set_state(ChildState::Open);
+                dst_child.sync_state = ChildSyncState::Synced;
                 info!("Child {} has been rebuilt successfully", child_uri);
                 let child_uri = child_uri.to_owned();
-                let child_state = dst_child.state();
+                let healthy = dst_child.is_healthy();
                 self.persist(PersistOp::Update {
                     child_uri,
-                    child_state,
+                    healthy,
                 })
                 .await;
             }

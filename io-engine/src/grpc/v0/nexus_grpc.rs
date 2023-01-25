@@ -25,16 +25,19 @@ use crate::{
 
 /// Map the internal child states into rpc child states (i.e. the states that
 /// the control plane sees)
-impl From<ChildState> for rpc::ChildState {
-    fn from(child: ChildState) -> Self {
-        match child {
+impl From<&NexusChild<'_>> for rpc::ChildState {
+    fn from(child: &NexusChild) -> Self {
+        if child.is_opened_unsync() {
+            return rpc::ChildState::ChildDegraded;
+        }
+
+        match child.state() {
             ChildState::Init => rpc::ChildState::ChildDegraded,
             ChildState::ConfigInvalid => rpc::ChildState::ChildFaulted,
             ChildState::Open => rpc::ChildState::ChildOnline,
             ChildState::Destroying => rpc::ChildState::ChildDegraded,
             ChildState::Closed => rpc::ChildState::ChildDegraded,
             ChildState::Faulted(reason) => match reason {
-                Reason::OutOfSync => rpc::ChildState::ChildDegraded,
                 Reason::NoSpace => rpc::ChildState::ChildDegraded,
                 Reason::TimedOut => rpc::ChildState::ChildDegraded,
                 Reason::Unknown => rpc::ChildState::ChildFaulted,
@@ -47,16 +50,19 @@ impl From<ChildState> for rpc::ChildState {
         }
     }
 }
-impl From<ChildState> for rpc::ChildStateReason {
-    fn from(child: ChildState) -> Self {
-        match child {
+impl From<&NexusChild<'_>> for rpc::ChildStateReason {
+    fn from(child: &NexusChild) -> Self {
+        if child.is_opened_unsync() {
+            return Self::OutOfSync;
+        }
+
+        match child.state() {
             ChildState::Init => Self::Init,
             ChildState::ConfigInvalid => Self::ConfigInvalid,
             ChildState::Open => Self::None,
             ChildState::Destroying => Self::Closed,
             ChildState::Closed => Self::Closed,
             ChildState::Faulted(reason) => match reason {
-                Reason::OutOfSync => Self::OutOfSync,
                 Reason::NoSpace => Self::NoSpace,
                 Reason::TimedOut => Self::TimedOut,
                 Reason::Unknown => Self::None,
@@ -113,9 +119,9 @@ impl<'c> NexusChild<'c> {
     pub fn to_grpc(&self) -> rpc::Child {
         rpc::Child {
             uri: self.uri().to_string(),
-            state: rpc::ChildState::from(self.state()) as i32,
+            state: rpc::ChildState::from(self) as i32,
             rebuild_progress: self.get_rebuild_progress(),
-            reason: rpc::ChildStateReason::from(self.state()) as i32,
+            reason: rpc::ChildStateReason::from(self) as i32,
             device_name: self.get_device_name(),
         }
     }
