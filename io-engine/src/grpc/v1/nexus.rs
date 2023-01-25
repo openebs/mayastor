@@ -125,11 +125,15 @@ impl From<NexusStatus> for NexusState {
     }
 }
 
-fn map_child_state(s: nexus::ChildState) -> (ChildState, ChildStateReason) {
+fn map_child_state(ch: &NexusChild) -> (ChildState, ChildStateReason) {
     use ChildState::*;
     use ChildStateReason::*;
 
-    match s {
+    if ch.is_opened_unsync() {
+        return (Degraded, OutOfSync);
+    }
+
+    match ch.state() {
         nexus::ChildState::Init => (Degraded, Init),
 
         nexus::ChildState::ConfigInvalid => (Faulted, ConfigInvalid),
@@ -141,7 +145,6 @@ fn map_child_state(s: nexus::ChildState) -> (ChildState, ChildStateReason) {
         }
 
         nexus::ChildState::Faulted(reason) => match reason {
-            Reason::OutOfSync => (Degraded, OutOfSync),
             Reason::NoSpace => (Degraded, NoSpace),
             Reason::TimedOut => (Degraded, TimedOut),
             Reason::Unknown => (Faulted, None),
@@ -156,7 +159,7 @@ fn map_child_state(s: nexus::ChildState) -> (ChildState, ChildStateReason) {
 
 impl<'c> From<&NexusChild<'c>> for Child {
     fn from(ch: &NexusChild) -> Self {
-        let (s, r) = map_child_state(ch.state());
+        let (s, r) = map_child_state(ch);
         Child {
             uri: ch.uri().to_string(),
             state: s as i32,

@@ -1,8 +1,5 @@
-#[macro_use]
-extern crate assert_matches;
-
 use io_engine::{
-    bdev::nexus::{nexus_create, nexus_lookup_mut, ChildState, Reason},
+    bdev::nexus::{nexus_create, nexus_lookup_mut},
     core::{MayastorCliArgs, Protocol},
 };
 
@@ -54,10 +51,7 @@ async fn add_child() {
         assert_eq!(nexus.child_count(), 2);
 
         // Expect the added child to be in the out-of-sync state
-        assert_matches!(
-            nexus.child_at(1).state(),
-            ChildState::Faulted(Reason::OutOfSync)
-        );
+        assert!(nexus.child_at(1).is_opened_unsync());
     })
     .await;
 
@@ -94,10 +88,7 @@ async fn add_child() {
         assert_eq!(nexus.child_count(), 2);
 
         // Expect the added child to be in the out-of-sync state
-        assert_matches!(
-            nexus.child_at(1).state(),
-            ChildState::Faulted(Reason::OutOfSync)
-        );
+        assert!(nexus.child_at(1).is_opened_unsync());
     })
     .await;
 
