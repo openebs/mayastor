@@ -92,10 +92,34 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 }
 
 fn hugepage_get_nr(hugepage_path: &Path) -> (u32, u32) {
-    let nr_pages: u32 = sysfs::parse_value(hugepage_path, "nr_hugepages")
-        .expect("failed to read the number of pages");
-    let free_pages: u32 = sysfs::parse_value(hugepage_path, "free_hugepages")
-        .expect("failed to read the number of free pages");
+    let nr_pages = match sysfs::parse_value(hugepage_path, "nr_hugepages") {
+        Ok(nr_pages) => nr_pages,
+        Err(error) => {
+            warn!(
+                %error,
+                "Failed to read the number of pages at {}",
+                hugepage_path.display()
+            );
+            // NOTE: We check for 1g pages but the directory for 1g pages won't
+            // exist if they are not enabled. Effectively this means
+            // that zero 1g hugepages are available, so it
+            // seems sensible to fall back to 0 if reads fail. See discussion
+            // here: https://github.com/openebs/mayastor/issues/1273.
+            0
+        }
+    };
+
+    let free_pages = match sysfs::parse_value(hugepage_path, "free_hugepages") {
+        Ok(free_pages) => free_pages,
+        Err(error) => {
+            warn!(
+                %error,
+                "Failed to read the number of free pages at {}",
+                hugepage_path.display()
+            );
+            0
+        }
+    };
 
     (nr_pages, free_pages)
 }
