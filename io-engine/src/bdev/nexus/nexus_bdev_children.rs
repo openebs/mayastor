@@ -32,6 +32,7 @@ use super::{
     nexus_err,
     nexus_lookup_mut,
     ChildState,
+    ChildSyncState,
     DrEvent,
     Error,
     Nexus,
@@ -187,8 +188,7 @@ impl<'n> Nexus<'n> {
 
         // it can never take part in the IO path
         // of the nexus until it's rebuilt from a healthy child.
-        let mut res =
-            child.open(self.req_size(), ChildState::Faulted(Reason::OutOfSync));
+        let mut res = child.open(self.req_size(), ChildSyncState::OutOfSync);
 
         if res.is_ok() {
             // we have created the bdev, and created a nexusChild struct. To
@@ -203,7 +203,7 @@ impl<'n> Nexus<'n> {
 
         match res {
             Ok(child_uri) => {
-                let child_state = child.state();
+                let healthy = child.is_healthy();
 
                 // Register event listener for newly added child.
                 child.set_event_listener(self.get_event_sink());
@@ -214,7 +214,7 @@ impl<'n> Nexus<'n> {
 
                 self.persist(PersistOp::AddChild {
                     child_uri,
-                    child_state,
+                    healthy,
                 })
                 .await;
 
@@ -295,7 +295,7 @@ impl<'n> Nexus<'n> {
         };
 
         if res.is_ok() {
-            let child_state = self.child_at(idx).state();
+            let healthy = self.child_at(idx).is_healthy();
 
             unsafe {
                 self.as_mut().child_remove_at_unsafe(idx);
@@ -303,7 +303,7 @@ impl<'n> Nexus<'n> {
 
             self.persist(PersistOp::Update {
                 child_uri: uri.to_string(),
-                child_state,
+                healthy,
             })
             .await;
         }
@@ -353,7 +353,7 @@ impl<'n> Nexus<'n> {
 
         let healthy = self
             .children_iter()
-            .filter(|c| c.state() == ChildState::Open)
+            .filter(|c| c.is_healthy())
             .collect::<Vec<_>>();
 
         if healthy.len() == 1 && healthy[0].uri() == child_uri {
@@ -476,7 +476,7 @@ impl<'n> Nexus<'n> {
 
         unsafe {
             for child in self.as_mut().children_iter_mut() {
-                match child.open(size, ChildState::Open) {
+                match child.open(size, ChildSyncState::Synced) {
                     Ok(_) => {
                         child.set_event_listener(evt_listener.clone());
                     }
@@ -495,7 +495,7 @@ impl<'n> Nexus<'n> {
             // Close any children that WERE succesfully opened.
             unsafe {
                 for child in self.as_mut().children_iter_mut() {
-                    if child.state() == ChildState::Open {
+                    if child.is_healthy() {
                         if let Err(error) = child.close().await {
                             error!(
                                 "{:?}: child failed to close: {}",
@@ -600,7 +600,7 @@ impl<'n> Nexus<'n> {
     /// they MAY vary in size.
     pub(crate) fn min_num_blocks(&self) -> Option<u64> {
         self.children_iter()
-            .filter(|c| c.state() == ChildState::Open)
+            .filter(|c| c.is_healthy())
             .map(|c| c.get_device().unwrap().num_blocks())
             .reduce(min)
     }
@@ -887,7 +887,7 @@ impl<'n> Nexus<'n> {
             // user data.
             self.persist(PersistOp::UpdateCond {
                 child_uri: uri.to_owned(),
-                child_state: child.state(),
+                healthy: child.is_healthy(),
                 predicate: &|nexus_info| {
                     // Determine the amount of healthy replicas in the persistent state and
                     // check against the last healthy replica remaining.

@@ -1,4 +1,4 @@
-use super::{ChildState, Nexus, NexusChild};
+use super::{Nexus, NexusChild};
 use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -52,22 +52,16 @@ pub(crate) enum PersistOp<'a> {
     /// Create a persistent entry.
     Create,
     /// Add a child to an existing persistent entry.
-    AddChild {
-        child_uri: String,
-        child_state: ChildState,
-    },
+    AddChild { child_uri: String, healthy: bool },
     /// Update a persistent entry.
-    Update {
-        child_uri: String,
-        child_state: ChildState,
-    },
+    Update { child_uri: String, healthy: bool },
     /// Update a persistent entry only when a precondition on this NexusInfo
     /// holds. Predicate is called under protection of the NexusInfo lock,
     /// so the check is assumed to be atomic and not interfering with other
     /// modifications of the same NexusInfo.
     UpdateCond {
         child_uri: String,
-        child_state: ChildState,
+        healthy: bool,
         predicate: &'a dyn Fn(&NexusInfo) -> bool,
     },
     /// Save the clean shutdown variable.
@@ -96,27 +90,27 @@ impl<'n> Nexus<'n> {
                     let child_info = ChildInfo {
                         uuid: NexusChild::uuid(c.uri())
                             .expect("Failed to get child UUID."),
-                        healthy: Self::child_healthy(&c.state()),
+                        healthy: c.is_healthy(),
                     };
                     nexus_info.children.push(child_info);
                 });
             }
             PersistOp::AddChild {
                 child_uri,
-                child_state,
+                healthy,
             } => {
                 // Add the state of a new child.
                 // This should only be called on adding a new child.
                 let child_info = ChildInfo {
                     uuid: NexusChild::uuid(&child_uri)
                         .expect("Failed to get child UUID."),
-                    healthy: Self::child_healthy(&child_state),
+                    healthy,
                 };
                 nexus_info.children.push(child_info);
             }
             PersistOp::Update {
                 child_uri,
-                child_state,
+                healthy,
             } => {
                 let uuid = NexusChild::uuid(&child_uri)
                     .expect("Failed to get child UUID.");
@@ -125,14 +119,14 @@ impl<'n> Nexus<'n> {
                 // This should only be called on a child state change.
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
-                        c.healthy = Self::child_healthy(&child_state);
+                        c.healthy = healthy;
                     }
                 });
             }
             // Only update the state of the child if the precondition holds.
             PersistOp::UpdateCond {
                 child_uri,
-                child_state,
+                healthy,
                 predicate,
             } => {
                 // Do not persist the state if predicate fails.
@@ -145,7 +139,7 @@ impl<'n> Nexus<'n> {
 
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
-                        c.healthy = Self::child_healthy(&child_state);
+                        c.healthy = healthy;
                     }
                 });
             }
@@ -157,11 +151,6 @@ impl<'n> Nexus<'n> {
             }
         }
         self.save(&persistent_nexus_info).await;
-    }
-
-    /// Determine child health.
-    fn child_healthy(state: &ChildState) -> bool {
-        state == &ChildState::Open
     }
 
     // Save the nexus info to the store. This is integral to ensuring data

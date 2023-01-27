@@ -116,8 +116,6 @@ pub enum Reason {
     /// No particular reason for the child to be in this state.
     /// This is typically the init state.
     Unknown,
-    /// Out of sync: child device is ok, but needs to be rebuilt.
-    OutOfSync,
     /// Thin-provisioned child failed a write operate because
     /// the underlying logical volume failed to allocate space.
     /// This a recoverable state in case when additional space
@@ -143,7 +141,6 @@ impl Display for Reason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unknown => write!(f, "unknown"),
-            Self::OutOfSync => write!(f, "out of sync"),
             Self::NoSpace => write!(f, "no space"),
             Self::TimedOut => write!(f, "timed out"),
             Self::CantOpen => write!(f, "cannot open"),
@@ -155,6 +152,7 @@ impl Display for Reason {
     }
 }
 
+/// State of a nexus child.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum ChildState {
     /// Child has not been opened, but we are in the process of opening it.
@@ -162,7 +160,7 @@ pub enum ChildState {
     /// Cannot add this block device to the parent as
     /// it iss incompatible property-wise.
     ConfigInvalid,
-    /// The child is open for R/W.
+    /// The child is open for I/O.
     Open,
     /// The child device is being destroyed.
     Destroying,
@@ -185,6 +183,25 @@ impl Display for ChildState {
     }
 }
 
+/// Synchronization state of a nexus child.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+pub enum ChildSyncState {
+    /// Child is fully synced, i.e. can do both read and writes.
+    Synced,
+    /// Child is out of sync: awaiting for a rebuild or being rebuilt.
+    /// Such child can be a part of write I/O path.
+    OutOfSync,
+}
+
+impl Display for ChildSyncState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Synced => write!(f, "synced"),
+            Self::OutOfSync => write!(f, "out-of-sync"),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct NexusChild<'c> {
     /// name of the parent this child belongs too
@@ -192,6 +209,9 @@ pub struct NexusChild<'c> {
     /// current state of the child
     #[serde(skip_serializing)]
     pub state: AtomicCell<ChildState>,
+    /// indicates that the child device is ok, but needs to be rebuilt.
+    #[serde(skip_serializing)]
+    pub(super) sync_state: ChildSyncState,
     /// previous state of the child
     #[serde(skip_serializing)]
     prev_state: AtomicCell<ChildState>,
@@ -219,10 +239,11 @@ impl Debug for NexusChild<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Child '{} @ {}' [{}]",
+            "Child '{} @ {}' [{} {}]",
             self.name,
             self.parent,
             self.state(),
+            self.sync_state(),
         )
     }
 }
@@ -248,7 +269,7 @@ impl<'c> NexusChild<'c> {
     pub(crate) fn open(
         &mut self,
         parent_size: u64,
-        opened_state: ChildState,
+        sync_state: ChildSyncState,
     ) -> Result<String, ChildError> {
         info!("{:?}: opening child device...", self);
 
@@ -299,15 +320,39 @@ impl<'c> NexusChild<'c> {
         })?;
         self.device_descriptor = Some(desc);
 
-        self.set_state(opened_state);
+        self.set_state(ChildState::Open);
+        self.sync_state = sync_state;
 
         info!("{:?}: opened successfully", self);
         Ok(self.name.clone())
     }
 
-    /// Check if we're healthy.
-    pub(crate) fn is_healthy(&self) -> bool {
+    /// Returns the state of the child.
+    pub fn state(&self) -> ChildState {
+        self.state.load()
+    }
+
+    /// Returns the sync state of the child.
+    pub fn sync_state(&self) -> ChildSyncState {
+        self.sync_state
+    }
+
+    /// Determines if the child is opened but out-of-sync (needs rebuild or
+    /// being rebuilt).
+    pub fn is_opened_unsync(&self) -> bool {
         self.state() == ChildState::Open
+            && self.sync_state == ChildSyncState::OutOfSync
+    }
+
+    /// Determines if the child is opened and fully synced.
+    pub fn is_healthy(&self) -> bool {
+        self.state() == ChildState::Open
+            && self.sync_state == ChildSyncState::Synced
+    }
+
+    /// Determines if the child is being rebuilt.
+    pub(crate) fn is_rebuilding(&self) -> bool {
+        self.rebuild_job().is_some() && self.is_opened_unsync()
     }
 
     /// Register an NVMe reservation, specifying a new key
@@ -754,20 +799,12 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Fault the child with a specific reason.
-    /// We do not close the child if it is out-of-sync because it will
-    /// subsequently be rebuilt.
     pub(crate) async fn fault(&mut self, reason: Reason) {
-        match reason {
-            Reason::OutOfSync => {
-                self.set_state(ChildState::Faulted(reason));
-            }
-            _ => {
-                if let Err(e) = self.close().await {
-                    error!("{:?}: failed to close: {}", self, e.verbose());
-                }
-                self.set_state(ChildState::Faulted(reason));
-            }
+        if let Err(e) = self.close().await {
+            error!("{:?}: failed to close: {}", self, e.verbose());
         }
+
+        self.set_state(ChildState::Faulted(reason));
     }
 
     /// Set the child as temporarily offline
@@ -823,7 +860,7 @@ impl<'c> NexusChild<'c> {
         }
 
         self.set_state(ChildState::Closed);
-        self.open(parent_size, ChildState::Faulted(Reason::OutOfSync))
+        self.open(parent_size, ChildSyncState::OutOfSync)
     }
 
     /// Determines if the child can be onlined.
@@ -845,16 +882,6 @@ impl<'c> NexusChild<'c> {
             }
         }
         None
-    }
-
-    /// returns the state of the child
-    pub fn state(&self) -> ChildState {
-        self.state.load()
-    }
-
-    pub(crate) fn rebuilding(&self) -> bool {
-        self.rebuild_job().is_some()
-            && self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
 
     /// Closes the nexus child.
@@ -909,7 +936,9 @@ impl<'c> NexusChild<'c> {
         }
 
         match state {
-            ChildState::Open | ChildState::Faulted(Reason::OutOfSync) => {
+            ChildState::Open => {
+                // TODO: double-check interaction with rebuild job logic
+
                 // Change the state of the child to ensure it is taken out of
                 // the I/O path when the nexus is reconfigured.
                 self.set_state(ChildState::Closed);
@@ -981,6 +1010,7 @@ impl<'c> NexusChild<'c> {
             parent,
             device_descriptor: None,
             state: AtomicCell::new(ChildState::Init),
+            sync_state: ChildSyncState::Synced,
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
             _c: Default::default(),

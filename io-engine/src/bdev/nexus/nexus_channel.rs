@@ -75,7 +75,7 @@ impl<'n> NexusChannel<'n> {
 
         unsafe {
             nexus.as_mut().children_iter_mut()
-                .filter(|c| c.state() == ChildState::Open)
+                .filter(|c| c.is_healthy())
                 .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                     (Ok(w), Ok(r)) => {
                         writers.push(w);
@@ -184,11 +184,11 @@ impl<'n> NexusChannel<'n> {
         let mut writers = Vec::new();
         let mut readers = Vec::new();
 
-        // iterate over all our children which are in the open state
+        // iterate over all our children which are in the healthy state
         unsafe {
             self.nexus_mut()
                 .children_iter_mut()
-                .filter(|c| c.state() == ChildState::Open)
+                .filter(|c| c.is_healthy())
                 .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                     (Ok(w), Ok(r)) => {
                         writers.push(w);
@@ -206,7 +206,7 @@ impl<'n> NexusChannel<'n> {
             unsafe {
                 self.nexus_mut()
                     .children_iter_mut()
-                    .filter(|c| c.rebuilding())
+                    .filter(|c| c.is_rebuilding())
                     .for_each(|c| {
                         if let Ok(hdl) = c.get_io_handle() {
                             writers.push(hdl);
