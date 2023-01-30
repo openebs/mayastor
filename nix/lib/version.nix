@@ -25,7 +25,7 @@ stdenv.mkDerivation {
 
   buildCommand = ''
     cd $src
-    vers=`${git}/bin/git -c safe.directory=$src tag --points-at HEAD`
+    vers=$(${git}/bin/git -c safe.directory=$src describe --exact-match 2>/dev/null || echo "")
     if [ -z "$vers" ]; then
       vers=`${git}/bin/git -c safe.directory=$src rev-parse --short=12 HEAD`
     fi
