@@ -16,7 +16,7 @@ dockerhub_tag_exists() {
 
 # Get the tag at the HEAD
 get_tag() {
-  vers=`git tag --points-at HEAD`
+  vers=`git describe --exact-match 2>/dev/null || echo ""`
   echo -n $vers
 }
 get_hash() {
