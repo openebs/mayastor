@@ -14,7 +14,7 @@ stdenv.mkDerivation {
   src = whitelistSource ../../. [ ".git" ];
   buildCommand = ''
     cd $src
-    vers=`${git}/bin/git tag --points-at HEAD`
+    vers=$(${git}/bin/git describe --exact-match 2>/dev/null || echo "")
     if [ -z "$vers" ]; then
       vers=`${git}/bin/git rev-parse --short=12 HEAD`
     fi
