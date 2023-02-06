@@ -253,7 +253,7 @@ def create_replica_with_existing_name(create_lvs_replica, replica_name, replica_
             replica_size,
             share=share_protocol("none"),
         )
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.ALREADY_EXISTS
 
 
 @when(
@@ -265,7 +265,7 @@ def create_replica_with_existing_uuid(create_lvs_replica, replica_uuid, replica_
         create_lvs_replica(
             "replica-2", replica_uuid, replica_size, share=share_protocol("none")
         )
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.ALREADY_EXISTS
 
 
 @when("the user creates an unshared replica")
@@ -314,7 +314,7 @@ def the_user_destroys_a_replica_that_does_not_exist(
         mayastor_instance.replica_rpc.DestroyReplica(
             replica_pb.DestroyReplicaRequest(uuid=replica_uuid)
         )
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.NOT_FOUND
 
 
 @when("the user destroys the replica")

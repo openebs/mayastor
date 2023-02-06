@@ -25,7 +25,7 @@ use mayastor_api::v1::nexus::*;
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
-use crate::bdev::{nexus::NexusPtpl, PtplFileOps};
+use crate::bdev::{dev::device_name, nexus::NexusPtpl, PtplFileOps};
 use ::function_name::named;
 use std::panic::AssertUnwindSafe;
 
@@ -337,10 +337,21 @@ impl<'n> nexus::Nexus<'n> {
 /// implementation, however it is not allowed to use '?' in `locally` macro.
 /// So we implement it as a separate function.
 async fn nexus_add_child(
-    args: AddChildNexusRequest,
+    args: &AddChildNexusRequest,
 ) -> Result<Nexus, nexus::Error> {
     let mut n = nexus_lookup(&args.uuid)?;
-    // TODO: do not add child if it already exists (idempotency)
+    if n.contains_child_uri(&args.uri) || {
+        match device_name(&args.uri) {
+            Ok(name) => n.contains_child_name(&name),
+            _ => false,
+        }
+    } {
+        return Err(nexus::Error::ChildAlreadyExists {
+            child: args.uri.to_string(),
+            name: args.uuid.to_string(),
+        });
+    }
+    debug!("Adding child {} to nexus {} ...", args.uri, args.uuid);
     // For that we need api to check existence of child by name (not uri that
     // contain parameters that may change).
     n.as_mut().add_child(&args.uri, args.norebuild).await?;
@@ -513,10 +524,8 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                let uuid = args.uuid.clone();
-                debug!("Adding child {} to nexus {} ...", args.uri, uuid);
-                let nexus = nexus_add_child(args).await?;
-                info!("Added child to nexus {}", uuid);
+                let nexus = nexus_add_child(&args).await?;
+                info!("Added child to nexus {}", args.uuid);
                 Ok(nexus)
             })?;
 
@@ -543,10 +552,17 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                let uuid = args.uuid.clone();
-                debug!("Removing child {} from nexus {} ...", args.uri, uuid);
-                nexus_lookup(&args.uuid)?.remove_child(&args.uri).await?;
-                info!("Removed child {} from nexus {}", args.uri, uuid);
+                if nexus_lookup(&args.uuid)?.contains_child_uri(&args.uri) {
+                    debug!(
+                        "Removing child {} from nexus {} ...",
+                        args.uri, args.uuid
+                    );
+                    nexus_lookup(&args.uuid)?.remove_child(&args.uri).await?;
+                    info!(
+                        "Removed child {} from nexus {}",
+                        args.uri, args.uuid
+                    );
+                }
                 Ok(nexus_lookup(&args.uuid)?.into_grpc().await)
             })?;
 
@@ -573,13 +589,11 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                let uuid = args.uuid.clone();
-                let uri = args.uri.clone();
-                debug!("Faulting child {} on nexus {}", uri, uuid);
+                debug!("Faulting child {} on nexus {}", args.uri, args.uuid);
                 nexus_lookup(&args.uuid)?
                     .fault_child(&args.uri, nexus::Reason::ByClient)
                     .await?;
-                info!("Faulted child {} on nexus {}", uri, uuid);
+                info!("Faulted child {} on nexus {}", args.uri, args.uuid);
                 Ok(FaultNexusChildResponse {
                     nexus: Some(nexus_lookup(&args.uuid)?.into_grpc().await),
                 })
@@ -604,13 +618,18 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                let uuid = args.uuid.clone();
-                let uri = args.uri.clone();
-                debug!("Injecting fault to nexus '{}': '{}'", uuid, uri);
+
+                debug!(
+                    "Injecting fault to child {} of nexus {}",
+                    args.uri, args.uuid
+                );
                 nexus_lookup(&args.uuid)?
                     .inject_add_fault(&args.uri)
                     .await?;
-                info!("Injectinged fault to nexus '{}': '{}'", uuid, uri);
+                info!(
+                    "Injected fault to child {} of nexus {}",
+                    args.uri, args.uuid
+                );
                 Ok(())
             })?;
 
@@ -633,16 +652,18 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                let uuid = args.uuid.clone();
-                let uri = args.uri.clone();
+
                 debug!(
-                    "Removing injected fault to nexus '{}': '{}'",
-                    uuid, uri
+                    "Removing injected fault from child {} of nexus {}",
+                    args.uri, args.uuid
                 );
                 nexus_lookup(&args.uuid)?
                     .inject_remove_fault(&args.uri)
                     .await?;
-                info!("Removed injected fault to nexus '{}': '{}'", uuid, uri);
+                info!(
+                    "Removed injected fault from child {} of nexus {}",
+                    args.uri, args.uuid
+                );
                 Ok(())
             })?;
 
@@ -699,8 +720,7 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                let uuid = args.uuid.clone();
-                debug!("Publishing nexus {} ...", uuid);
+                debug!("Publishing nexus {} ...", args.uuid);
 
                 if !args.key.is_empty() && args.key.len() != 16 {
                     return Err(nexus::Error::InvalidKey {});
@@ -734,7 +754,7 @@ impl NexusRpc for NexusService {
 
                 info!(
                     "Published nexus {} under {} for {:?}",
-                    uuid, device_uri, args.allowed_hosts
+                    args.uuid, device_uri, args.allowed_hosts
                 );
 
                 let nexus = nexus_lookup(&args.uuid)?.into_grpc().await;
