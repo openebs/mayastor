@@ -46,7 +46,7 @@ use super::{
 };
 
 use crate::{
-    bdev::{device_create, device_destroy, device_lookup},
+    bdev::{dev::device_name, device_create, device_destroy, device_lookup},
     bdev_api::BdevError,
     core::{
         device_cmd_queue,
@@ -238,6 +238,16 @@ impl<'n> Nexus<'n> {
         }
     }
 
+    /// Checks if the nexus contains the given child uri.
+    pub fn contains_child_uri(&self, uri: &str) -> bool {
+        self.children_iter().any(|c| c.uri() == uri)
+    }
+    /// Checks if the nexus contains the given child name.
+    pub fn contains_child_name(&self, name: &str) -> bool {
+        self.children_iter()
+            .any(|c| device_name(c.uri()).ok().as_deref() == Some(name))
+    }
+
     /// Destroy child with given uri.
     /// If the child does not exist the method returns success.
     pub async fn remove_child(
@@ -245,6 +255,13 @@ impl<'n> Nexus<'n> {
         uri: &str,
     ) -> Result<(), Error> {
         info!("{:?}: remove child request: '{}'", self, uri);
+
+        if !self.contains_child_uri(uri) {
+            return Err(Error::ChildNotFound {
+                child: uri.to_string(),
+                name: self.name.to_string(),
+            });
+        }
 
         self.check_nexus_operation(NexusOperation::ReplicaRemove)?;
 

@@ -253,7 +253,7 @@ def create_v1_replica_with_existing_name(
     replica = current_replicas[replica_uuid]
     with pytest.raises(grpc.RpcError) as error:
         create_v1_replica(replica.name, replica.uuid, replica.size, share=replica.share)
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.ALREADY_EXISTS
 
 
 @when(
@@ -265,7 +265,7 @@ def create_v1_replica_with_existing_uuid(create_v1_replica, replica_uuid, replic
         create_v1_replica(
             "replica-2", replica_uuid, replica_size, share=share_protocol("none")
         )
-    assert error.value.code() == grpc.StatusCode.INTERNAL
+    assert error.value.code() == grpc.StatusCode.ALREADY_EXISTS
 
 
 @when(

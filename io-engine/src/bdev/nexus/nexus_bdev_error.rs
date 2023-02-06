@@ -249,13 +249,16 @@ impl From<NvmfError> for Error {
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         match e {
-            Error::NexusNotFound {
-                ..
-            } => Status::not_found(e.to_string()),
             Error::InvalidUuid {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::InvalidKey {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::InvalidShareProtocol {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::InvalidReservation {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::AlreadyShared {
@@ -276,10 +279,19 @@ impl From<Error> for tonic::Status {
             Error::ChildGeometry {
                 ..
             } => Status::invalid_argument(e.to_string()),
+            Error::ChildTooSmall {
+                ..
+            } => Status::invalid_argument(e.to_string()),
             Error::OpenChild {
                 ..
             } => Status::invalid_argument(e.to_string()),
+            Error::OperationNotAllowed {
+                ..
+            } => Status::failed_precondition(e.to_string()),
             Error::DestroyLastChild {
+                ..
+            } => Status::failed_precondition(e.to_string()),
+            Error::DestroyLastHealthyChild {
                 ..
             } => Status::failed_precondition(e.to_string()),
             Error::ChildNotFound {
@@ -288,12 +300,15 @@ impl From<Error> for tonic::Status {
             Error::RebuildJobNotFound {
                 ..
             } => Status::not_found(e.to_string()),
-            Error::OperationNotAllowed {
+            Error::NexusNotFound {
                 ..
-            } => Status::failed_precondition(e.to_string()),
-            Error::ChildTooSmall {
+            } => Status::not_found(e.to_string()),
+            Error::ChildAlreadyExists {
                 ..
-            } => Status::invalid_argument(e.to_string()),
+            } => Status::already_exists(e.to_string()),
+            Error::NameExists {
+                ..
+            } => Status::already_exists(e.to_string()),
             e => Status::new(Code::Internal, e.verbose()),
         }
     }
