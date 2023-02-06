@@ -152,6 +152,7 @@ async fn list(
         .list_pools(v1rpc::pool::ListPoolOptions {
             name: None,
             pooltype: None,
+            uuid: None,
         })
         .await
         .context(GrpcStatus)?;

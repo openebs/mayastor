@@ -690,6 +690,7 @@ async fn nexus_children_2(
         .nexus
         .list_nexus(v1::nexus::ListNexusOptions {
             name: None,
+            uuid: None,
         })
         .await
         .context(GrpcStatus)?;

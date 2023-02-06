@@ -190,6 +190,7 @@ pub async fn list_replicas(
         .list_replicas(ListReplicaOptions {
             name: None,
             poolname: None,
+            uuid: None,
         })
         .await
         .map(|r| r.into_inner().replicas)

@@ -434,6 +434,7 @@ async fn nexus_destroy(
         .nexus
         .list_nexus(v1::nexus::ListNexusOptions {
             name: None,
+            uuid: None,
         })
         .await
         .context(GrpcStatus)?;
@@ -464,6 +465,7 @@ async fn nexus_list(
         .nexus
         .list_nexus(v1::nexus::ListNexusOptions {
             name: None,
+            uuid: None,
         })
         .await
         .context(GrpcStatus)?;
@@ -540,6 +542,7 @@ async fn nexus_children_2(
         .nexus
         .list_nexus(v1::nexus::ListNexusOptions {
             name: None,
+            uuid: None,
         })
         .await
         .context(GrpcStatus)?;
