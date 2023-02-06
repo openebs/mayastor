@@ -102,6 +102,11 @@ pub fn device_lookup(name: &str) -> Option<Box<dyn BlockDevice>> {
     nvmx::lookup_by_name(name).or_else(|| SpdkBlockDevice::lookup_by_name(name))
 }
 
+/// Lookup up device name by its uri.
+pub fn device_name(uri: &str) -> Result<String, BdevError> {
+    Ok(uri::parse(uri)?.get_name())
+}
+
 pub async fn device_create(uri: &str) -> Result<String, BdevError> {
     uri::parse(uri)?.create().await
 }

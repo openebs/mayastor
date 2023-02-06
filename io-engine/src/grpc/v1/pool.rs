@@ -302,13 +302,27 @@ impl PoolRpc for PoolService {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
+                let args = request.into_inner();
+                let pool_type = match &args.pooltype {
+                    Some(pool_type) => pool_type.value,
+                    None => PoolType::Lvs as i32,
+                };
+                if pool_type != PoolType::Lvs as i32 {
+                    return Err(tonic::Status::invalid_argument(
+                        "Only pools of Lvs pool type are supported",
+                    ));
+                }
+
                 let rx = rpc_submit::<_, _, LvsError>(async move {
                     let mut pools = Vec::new();
-                    let args = request.into_inner();
                     if let Some(name) = args.name {
                         if let Some(l) = Lvs::lookup(&name) {
-                            pools.push(l.into())
-                        };
+                            pools.push(l.into());
+                        }
+                    } else if let Some(uuid) = args.uuid {
+                        if let Some(l) = Lvs::lookup_by_uuid(&uuid) {
+                            pools.push(l.into());
+                        }
                     } else {
                         Lvs::iter().for_each(|l| pools.push(l.into()));
                     }
