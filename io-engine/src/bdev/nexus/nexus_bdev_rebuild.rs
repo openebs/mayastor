@@ -15,7 +15,13 @@ use super::{
 
 use crate::{
     core::{Reactors, VerboseError},
-    rebuild::{RebuildError, RebuildJob, RebuildState, RebuildStats},
+    rebuild::{
+        RebuildError,
+        RebuildJob,
+        RebuildRecord,
+        RebuildState,
+        RebuildStats,
+    },
 };
 
 /// Rebuild pause guard ensures rebuild jobs are resumed before it is dropped.
@@ -158,6 +164,17 @@ impl<'n> Nexus<'n> {
         })
     }
 
+    // Translate the job into a new rebuild record and push into history.
+    fn create_rebuild_record(self: Pin<&mut Self>, job: RebuildJob) {
+        trace!(
+            "Create Rebuild Record for child {} of nexus {}",
+            job.dst_uri,
+            self.name
+        );
+        let hist = unsafe { &mut self.get_unchecked_mut().rebuild_history };
+        hist.push(job.into());
+    }
+
     /// Terminates a rebuild in the background
     /// used for shutdown operations and
     /// unlike the client operation stop, this command does not fail
@@ -235,6 +252,12 @@ impl<'n> Nexus<'n> {
     ) -> Result<RebuildStats, Error> {
         let rj = self.rebuild_job(dst_uri)?;
         Ok(rj.stats())
+    }
+
+    /// Iterate over the replica rebuild history for this nexus
+    /// and return it as output.
+    pub fn rebuild_history(&self) -> &Vec<RebuildRecord> {
+        &self.rebuild_history
     }
 
     /// Returns the rebuild progress of a rebuild job for the given destination.
@@ -418,6 +441,7 @@ impl<'n> Nexus<'n> {
         }
 
         self.reconfigure(DrEvent::ChildRebuild).await;
+        self.create_rebuild_record(job);
 
         Ok(())
     }

@@ -126,7 +126,7 @@ impl Registration {
             .timeout(config.hb_timeout_sec)
             .http2_keep_alive_interval(HTTP_KEEP_ALIVE_INTERVAL)
             .keep_alive_timeout(HTTP_KEEP_ALIVE_TIMEOUT);
-        let channel = endpoint.connect_lazy().unwrap();
+        let channel = endpoint.connect_lazy();
         Self {
             config,
             client: registration_client::RegistrationClient::new(channel),

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::channel::{mpsc, oneshot};
 use snafu::ResultExt;
@@ -74,6 +75,42 @@ impl std::fmt::Display for RebuildOperation {
     }
 }
 
+/// A rebuild record is a lightweight extract of rebuild job that is maintained
+/// for the statistics.
+pub struct RebuildRecord {
+    /// source URI of the healthy child to rebuild from
+    pub src_uri: String,
+    /// target URI of the out of sync child in need of a rebuild
+    pub dst_uri: String,
+    /// Was this a partial rebuild?
+    pub partial_rebuild: bool,
+    /// What state this rebuild job ended up in
+    pub state: RebuildState,
+    /// Size of rebuilt data: Equal to replica size for full rebuilds,
+    /// and lesser(or possibly equal) for partial rebuilds
+    pub rebuilt_data_size: u64,
+    /// Start time of this rebuild
+    pub start: DateTime<Utc>,
+    /// End time of this rebuild
+    pub end: DateTime<Utc>,
+}
+
+impl From<RebuildJob<'_>> for RebuildRecord {
+    fn from(job: RebuildJob) -> Self {
+        RebuildRecord {
+            src_uri: job.src_uri.to_string(),
+            dst_uri: job.dst_uri.to_string(),
+            // TODO: Set boolean correctly after partial rebuild changes
+            partial_rebuild: false,
+            state: job.state(),
+            // TODO: Set data size correctly after partial rebuild changes
+            rebuilt_data_size: 0,
+            start: job.start,
+            end: Utc::now(),
+        }
+    }
+}
+
 /// A rebuild job is responsible for managing a rebuild (copy) which reads
 /// from source_hdl and writes into destination_hdl from specified start to end
 pub struct RebuildJob<'n> {
@@ -106,6 +143,8 @@ pub struct RebuildJob<'n> {
     pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
     /// rebuild copy error, if any
     pub error: Option<RebuildError>,
+    /// Start time of this rebuild job
+    pub start: DateTime<Utc>,
 
     // Pre-opened descriptors for source/destination block device.
     #[allow(clippy::non_send_fields_in_send_ty)]
@@ -217,6 +256,7 @@ impl<'n> RebuildJob<'n> {
             states: Default::default(),
             complete_chan: Vec::new(),
             error: None,
+            start: Utc::now(),
             src_descriptor,
             dst_descriptor,
         })

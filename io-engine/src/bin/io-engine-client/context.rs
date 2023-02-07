@@ -142,7 +142,7 @@ impl Context {
         };
 
         if verbosity > 1 {
-            println!("Connecting to {:?}", host);
+            println!("Connecting to {:?}", host.uri());
         }
 
         let output = matches.value_of("output").ok_or_else(|| {
