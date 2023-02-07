@@ -490,21 +490,29 @@ impl NexusRpc for NexusService {
             let mut nexus_list: Vec<Nexus> = Vec::new();
             if let Some(name) = args.name {
                 if let Some(nexus) = nexus::nexus_lookup(&name) {
-                    nexus_list.push(nexus.into_grpc().await);
+                    add_nexus(nexus_list.as_mut(), nexus).await;
                 }
             } else if let Some(uuid) = args.uuid {
-                nexus_list.push(nexus_lookup(&uuid)?.into_grpc().await);
+                let nexus = nexus_lookup(&uuid)?;
+                add_nexus(nexus_list.as_mut(), &nexus).await;
             } else {
-                for n in nexus::nexus_iter() {
-                    if n.state.lock().deref() != &nexus::NexusState::Init {
-                        nexus_list.push(n.into_grpc().await);
-                    }
+                for nexus in nexus::nexus_iter() {
+                    add_nexus(nexus_list.as_mut(), nexus).await;
                 }
             }
 
-            Ok(ListNexusResponse {
+            return Ok(ListNexusResponse {
                 nexus_list,
-            })
+            });
+
+            async fn add_nexus(
+                nexus_list: &mut Vec<Nexus>,
+                nexus: &nexus::Nexus<'_>,
+            ) {
+                if nexus.state.lock().deref() != &nexus::NexusState::Init {
+                    nexus_list.push(nexus.into_grpc().await);
+                }
+            }
         })?;
 
         rx.await
