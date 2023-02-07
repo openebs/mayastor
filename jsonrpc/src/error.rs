@@ -37,7 +37,7 @@ impl From<RpcCode> for Code {
     }
 }
 
-impl From<Error> for Status {
+impl From<Error> for tonic::Status {
     fn from(error: Error) -> Status {
         match error {
             Error::RpcError {

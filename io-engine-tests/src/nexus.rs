@@ -245,6 +245,7 @@ pub async fn list_nexuses(rpc: SharedRpcHandle) -> Result<Vec<Nexus>, Status> {
         .nexus
         .list_nexus(ListNexusOptions {
             name: None,
+            uuid: None,
         })
         .await
         .map(|r| r.into_inner().nexus_list)

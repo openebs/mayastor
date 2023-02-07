@@ -202,7 +202,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
     }
 }
 
-impl From<LvsError> for Status {
+impl From<LvsError> for tonic::Status {
     fn from(e: LvsError) -> Self {
         match e {
             LvsError::Import {
@@ -217,6 +217,18 @@ impl From<LvsError> for Status {
                     Status::invalid_argument(e.to_string())
                 }
             }
+            LvsError::RepDestroy {
+                source, ..
+            } => {
+                if source == Errno::ENOENT {
+                    Status::not_found(e.to_string())
+                } else {
+                    Status::internal(e.to_string())
+                }
+            }
+            LvsError::RepExists {
+                ..
+            } => Status::already_exists(e.to_string()),
             LvsError::ReplicaShareProtocol {
                 ..
             } => Status::invalid_argument(e.to_string()),

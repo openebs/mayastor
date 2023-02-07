@@ -102,6 +102,7 @@ pub async fn list_pools(rpc: SharedRpcHandle) -> Result<Vec<Pool>, Status> {
         .list_pools(ListPoolOptions {
             name: None,
             pooltype: None,
+            uuid: None,
         })
         .await
         .map(|r| r.into_inner().pools)
