@@ -257,6 +257,11 @@ impl ReplicaRpc for ReplicaService {
                         .into_iter()
                         .filter(|r| r.name == name)
                         .collect();
+                } else if let Some(uuid) = args.uuid {
+                    replicas = replicas
+                        .into_iter()
+                        .filter(|r| r.uuid == uuid)
+                        .collect();
                 }
 
                 Ok(ListReplicasResponse {

@@ -283,6 +283,7 @@ async fn replica_list(
         .list_replicas(v1_rpc::replica::ListReplicaOptions {
             name: None,
             poolname: None,
+            uuid: None,
         })
         .await
         .context(GrpcStatus)?;

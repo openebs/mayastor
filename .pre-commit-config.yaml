@@ -14,7 +14,7 @@ repos:
         name: Rust style
         description: Check Rust code style on files included in the commit.
         entry: ./scripts/rust-style.sh
-        pass_filenames: true
+        pass_filenames: false
         types: [file, rust]
         language: system
     -   id: rust-lint

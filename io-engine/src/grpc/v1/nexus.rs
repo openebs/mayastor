@@ -404,7 +404,7 @@ impl NexusRpc for NexusService {
                 )
                 .await?;
                 let nexus = nexus_lookup(&args.uuid)?;
-                info!("Created nexus {}", &args.name);
+                info!("Created nexus {}/{}", &args.name, &args.uuid);
                 Ok(nexus.into_grpc().await)
             })?;
             rx.await
@@ -446,14 +446,18 @@ impl NexusRpc for NexusService {
     async fn shutdown_nexus(
         &self,
         request: Request<ShutdownNexusRequest>,
-    ) -> GrpcResult<()> {
+    ) -> GrpcResult<ShutdownNexusResponse> {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
-                nexus_lookup(&args.uuid)?.shutdown().await
+                nexus_lookup(&args.uuid)?.shutdown().await?;
+
+                Ok(ShutdownNexusResponse {
+                    nexus: Some(nexus_lookup(&args.uuid)?.into_grpc().await),
+                })
             })?;
 
             rx.await
@@ -477,6 +481,8 @@ impl NexusRpc for NexusService {
                 if let Some(nexus) = nexus::nexus_lookup(&name) {
                     nexus_list.push(nexus.into_grpc().await);
                 }
+            } else if let Some(uuid) = args.uuid {
+                nexus_list.push(nexus_lookup(&uuid)?.into_grpc().await);
             } else {
                 for n in nexus::nexus_iter() {
                     if n.state.lock().deref() != &nexus::NexusState::Init {
@@ -560,7 +566,7 @@ impl NexusRpc for NexusService {
     async fn fault_nexus_child(
         &self,
         request: Request<FaultNexusChildRequest>,
-    ) -> GrpcResult<()> {
+    ) -> GrpcResult<FaultNexusChildResponse> {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
@@ -574,7 +580,9 @@ impl NexusRpc for NexusService {
                     .fault_child(&args.uri, nexus::Reason::ByClient)
                     .await?;
                 info!("Faulted child {} on nexus {}", uri, uuid);
-                Ok(())
+                Ok(FaultNexusChildResponse {
+                    nexus: Some(nexus_lookup(&args.uuid)?.into_grpc().await),
+                })
             })?;
 
             rx.await
