@@ -297,6 +297,9 @@ async fn rebuild_replica() {
     ms.spawn(async move {
         let mut nexus = nexus_lookup_mut(nexus_name()).unwrap();
 
+        let history = nexus.rebuild_history();
+        assert!(!history.is_empty());
+
         nexus
             .as_mut()
             .remove_child(&get_dev(NUM_CHILDREN))
