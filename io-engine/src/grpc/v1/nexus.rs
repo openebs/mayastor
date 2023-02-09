@@ -157,19 +157,6 @@ fn map_child_state(ch: &NexusChild) -> (ChildState, ChildStateReason) {
     }
 }
 
-impl<'c> From<&NexusChild<'c>> for Child {
-    fn from(ch: &NexusChild) -> Self {
-        let (s, r) = map_child_state(ch);
-        Child {
-            uri: ch.uri().to_string(),
-            state: s as i32,
-            state_reason: r as i32,
-            rebuild_progress: ch.get_rebuild_progress(),
-            device_name: ch.get_device_name(),
-        }
-    }
-}
-
 impl From<RebuildState> for RebuildStateResponse {
     fn from(rs: RebuildState) -> Self {
         RebuildStateResponse {
@@ -299,6 +286,19 @@ pub async fn nexus_destroy(uuid: &str) -> Result<(), nexus::Error> {
     n.destroy().await
 }
 
+impl<'c> NexusChild<'c> {
+    async fn to_grpc_v1(&self) -> Child {
+        let (s, r) = map_child_state(self);
+        Child {
+            uri: self.uri().to_string(),
+            state: s as i32,
+            state_reason: r as i32,
+            rebuild_progress: self.get_rebuild_progress().await,
+            device_name: self.get_device_name(),
+        }
+    }
+}
+
 impl<'n> nexus::Nexus<'n> {
     /// Convert nexus object to grpc representation.
     ///
@@ -322,10 +322,14 @@ impl<'n> nexus::Nexus<'n> {
             size: self.req_size(),
             state: NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
-            children: self
-                .children_iter()
-                .map(|ch| ch.into())
-                .collect::<Vec<_>>(),
+            children: {
+                let mut children =
+                    Vec::with_capacity(self.children_iter().count());
+                for child in self.children_iter() {
+                    children.push(child.to_grpc_v1().await);
+                }
+                children
+            },
             rebuilds: self.count_rebuild_jobs() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
@@ -1039,7 +1043,6 @@ impl NexusRpc for NexusService {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 nexus_lookup(&args.nexus_uuid)?
                     .rebuild_state(&args.uri)
-                    .await
                     .map(RebuildStateResponse::from)
             })?;
 

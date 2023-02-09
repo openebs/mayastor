@@ -116,11 +116,11 @@ impl<'c> NexusChild<'c> {
     ///
     /// We cannot use From trait because it is not value to value conversion.
     /// All we have is a reference to a child.
-    pub fn to_grpc(&self) -> rpc::Child {
+    pub async fn to_grpc(&self) -> rpc::Child {
         rpc::Child {
             uri: self.uri().to_string(),
             state: rpc::ChildState::from(self) as i32,
-            rebuild_progress: self.get_rebuild_progress(),
+            rebuild_progress: self.get_rebuild_progress().await,
             reason: rpc::ChildStateReason::from(self) as i32,
             device_name: self.get_device_name(),
         }
@@ -132,16 +132,19 @@ impl<'n> Nexus<'n> {
     ///
     /// We cannot use From trait because it is not value to value conversion.
     /// All we have is a reference to nexus.
-    pub fn to_grpc(&self) -> rpc::Nexus {
+    pub async fn to_grpc(&self) -> rpc::Nexus {
         rpc::Nexus {
             uuid: name_to_uuid(&self.name).to_string(),
             size: self.req_size(),
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
-            children: self
-                .children_iter()
-                .map(|ch| ch.to_grpc())
-                .collect::<Vec<_>>(),
+            children: {
+                let mut children = Vec::with_capacity(self.children().len());
+                for child in self.children_iter() {
+                    children.push(child.to_grpc().await)
+                }
+                children
+            },
             rebuilds: RebuildJob::count() as u32,
             allowed_hosts: self.allowed_hosts(),
         }
@@ -163,10 +166,13 @@ impl<'n> Nexus<'n> {
             size: self.req_size(),
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
-            children: self
-                .children_iter()
-                .map(|ch| ch.to_grpc())
-                .collect::<Vec<_>>(),
+            children: {
+                let mut children = Vec::with_capacity(self.children().len());
+                for child in self.children_iter() {
+                    children.push(child.to_grpc().await)
+                }
+                children
+            },
             rebuilds: RebuildJob::count() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
@@ -231,7 +237,10 @@ pub async fn nexus_add_child(
     // For that we need api to check existence of child by name (not uri that
     // contain parameters that may change).
     n.as_mut().add_child(&args.uri, args.norebuild).await?;
-    n.child_mut(&args.uri).map(|ch| ch.to_grpc())
+    match n.child_mut(&args.uri) {
+        Ok(child) => Ok(child.to_grpc().await),
+        Err(error) => Err(error),
+    }
 }
 
 /// Idempotent destruction of the nexus.

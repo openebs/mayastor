@@ -425,7 +425,7 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
 }
 
 /// Waits for the rebuild to reach `state`, up to `timeout`
-pub fn wait_for_rebuild(
+pub async fn wait_for_rebuild(
     dst_uri: String,
     state: RebuildState,
     timeout: Duration,
@@ -435,10 +435,10 @@ pub fn wait_for_rebuild(
         Ok(job) => job,
         Err(_) => return,
     };
-    job.stats();
+    job.stats().await;
 
     let mut curr_state = job.state();
-    let ch = job.notify_chan.1.clone();
+    let ch = job.notify_chan();
     let cname = dst_uri.clone();
     let t = Mthread::spawn_unaffinitized(move || {
         let now = std::time::Instant::now();
@@ -465,7 +465,7 @@ pub fn wait_for_rebuild(
     });
     reactor_poll!(r);
     if let Ok(job) = RebuildJob::lookup(&dst_uri) {
-        job.stats();
+        job.stats().await;
     }
     t.join().unwrap().unwrap();
 }
