@@ -69,15 +69,14 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     let has_unit = src.trim_end().chars().any(|c| c.is_alphabetic());
 
     if let Ok(val) = Byte::from_str(src) {
-        let value;
-        if has_unit {
-            value = val.get_adjusted_unit(ByteUnit::MiB).get_value() as i32
+        let value = if has_unit {
+            val.get_adjusted_unit(ByteUnit::MiB).get_value() as i32
         } else {
-            value = val.get_bytes() as i32
-        }
+            val.get_bytes() as i32
+        };
         Ok(value)
     } else {
-        Err(format!("Invalid argument {}", src))
+        Err(format!("Invalid argument {src}"))
     }
 }
 
@@ -603,7 +602,7 @@ impl MayastorEnvironment {
         // carries our default of 0x1 such that existing testing code
         // does not require any changes.
         if let Some(list) = &self.core_list {
-            args.push(CString::new(format!("-l {}", list)).unwrap());
+            args.push(CString::new(format!("-l {list}")).unwrap());
         } else {
             args.push(
                 CString::new(format!("-c {}", self.reactor_mask)).unwrap(),
@@ -701,8 +700,7 @@ impl MayastorEnvironment {
             }
             _ => {
                 return Err(format!(
-                    "Invalid NVMF target interface: '{}'",
-                    iface
+                    "Invalid NVMF target interface: '{iface}'",
                 ));
             }
         };
@@ -712,16 +710,14 @@ impl MayastorEnvironment {
 
         if nics.is_empty() {
             return Err(format!(
-                "Network interface matching '{}' not found",
-                iface
+                "Network interface matching '{iface}' not found",
             ));
         }
 
         if nics.len() > 1 {
             return Err(format!(
                 "Multiple network interfaces that \
-                match '{}' are found",
-                iface
+                match '{iface}' are found",
             ));
         }
 
@@ -756,8 +752,7 @@ impl MayastorEnvironment {
                 } else {
                     Err(format!(
                         "MY_POD_IP environment variable is set to an \
-                            invalid IPv4 address: '{}'",
-                        val
+                            invalid IPv4 address: '{val}'",
                     ))
                 }
             }
@@ -962,6 +957,6 @@ impl MayastorEnvironment {
 
 fn make_hostnqn(node_name: Option<&String>) -> Option<String> {
     std::env::var("HOSTNQN").ok().or_else(|| {
-        node_name.map(|n| format!("{}:node-name:{}", NVME_NQN_PREFIX, n))
+        node_name.map(|n| format!("{NVME_NQN_PREFIX}:node-name:{n}"))
     })
 }

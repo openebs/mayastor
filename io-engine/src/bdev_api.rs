@@ -116,7 +116,7 @@ pub fn bdev_uri_eq<T>(bdev: &Bdev<T>, uri: &url::Url) -> bool
 where
     T: spdk_rs::BdevOps,
 {
-    match uri::parse(&uri.to_string()) {
+    match uri::parse(uri.as_ref()) {
         Ok(device) if device.get_name() == bdev.name() => {
             bdev.driver()
                 == match uri.scheme() {
@@ -133,7 +133,7 @@ pub fn bdev_url_eq<T>(bdev: &Bdev<T>, uri: &url::Url) -> bool
 where
     T: spdk_rs::BdevOps,
 {
-    match uri::parse(&uri.to_string()) {
+    match uri::parse(uri.as_ref()) {
         Ok(device) if device.get_name() == bdev.name() => {
             bdev.driver()
                 == match uri.scheme() {

@@ -57,7 +57,7 @@ pub extern "C" fn log_impl(
 
     log::logger().log(
         &log::Record::builder()
-            .args(format_args!("{}", arg))
+            .args(format_args!("{arg}"))
             .level(from_spdk_level(spdk_level))
             .target("mayastor::spdk")
             .file(Some(filename))
@@ -104,7 +104,7 @@ impl<'a> FormatLevel<'a> {
                 }
             )
         } else {
-            write!(f, "{}", line)
+            write!(f, "{line}")
         }
     }
 }
@@ -271,7 +271,7 @@ impl FromStr for LogFormat {
                 "color" => r.ansi = true,
                 "nocolor" => r.ansi = false,
                 "nodate" => r.no_date = true,
-                _ => return Err(format!("Bad log format option: {}", p)),
+                _ => return Err(format!("Bad log format option: {p}")),
             }
         }
 

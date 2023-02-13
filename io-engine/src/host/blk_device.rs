@@ -72,21 +72,19 @@ pub struct BlockDevice {
 
 impl From<Property<'_>> for String {
     fn from(property: Property) -> Self {
-        String::from(property.0.map(|s| s.to_str()).flatten().unwrap_or(""))
+        String::from(property.0.and_then(|s| s.to_str()).unwrap_or(""))
     }
 }
 
 impl From<Property<'_>> for Option<String> {
     fn from(property: Property) -> Self {
-        property.0.map(|s| s.to_str()).flatten().map(String::from)
+        property.0.and_then(|s| s.to_str()).map(String::from)
     }
 }
 
 impl From<Property<'_>> for Option<u32> {
     fn from(property: Property) -> Self {
-        Option::<String>::from(property)
-            .map(|s| s.parse().ok())
-            .flatten()
+        Option::<String>::from(property).and_then(|s| s.parse().ok())
     }
 }
 
@@ -98,9 +96,7 @@ impl From<Property<'_>> for u32 {
 
 impl From<Property<'_>> for Option<u64> {
     fn from(property: Property) -> Self {
-        Option::<String>::from(property)
-            .map(|s| s.parse().ok())
-            .flatten()
+        Option::<String>::from(property).and_then(|s| s.parse().ok())
     }
 }
 
@@ -159,10 +155,7 @@ fn usable_partition(partition: &Option<Partition>) -> bool {
 // the udev "ID_MODEL" property.
 fn mayastor_device(device: &Device) -> bool {
     matches!(
-        device
-            .property_value("ID_MODEL")
-            .map(|s| s.to_str())
-            .flatten(),
+        device.property_value("ID_MODEL").and_then(|s| s.to_str()),
         Some(NVME_CONTROLLER_MODEL_ID) | Some(NEXUS_CAS_DRIVER)
     )
 }
@@ -266,8 +259,7 @@ fn new_device(
             devpath: Property(device.property_value("DEVPATH")).into(),
             devlinks: device
                 .property_value("DEVLINKS")
-                .map(|s| s.to_str())
-                .flatten()
+                .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .split(' ')
                 .filter(|&s| !s.is_empty())

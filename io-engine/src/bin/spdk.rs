@@ -72,7 +72,7 @@ fn main() -> Result<(), std::io::Error> {
     if rc != 0 {
         Err(Error::new(
             ErrorKind::Other,
-            format!("spdk failed with error {}", rc),
+            format!("spdk failed with error {rc}"),
         ))
     } else {
         Ok(())

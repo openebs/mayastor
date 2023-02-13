@@ -70,7 +70,7 @@ impl RegistrationSubsystem {
 
     fn new() -> Self {
         info!("creating Mayastor registration subsystem...");
-        let mut ss = Box::new(spdk_subsystem::default());
+        let mut ss = Box::<spdk_subsystem>::default();
         ss.name = b"mayastor_grpc_registration\x00" as *const u8
             as *const libc::c_char;
         ss.init = Some(Self::init);

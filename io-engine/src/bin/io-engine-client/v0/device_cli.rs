@@ -37,7 +37,7 @@ pub async fn handler(
     match matches.subcommand() {
         ("list", Some(args)) => list_block_devices(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
@@ -120,7 +120,7 @@ async fn list_block_devices(
                         device
                             .devlinks
                             .iter()
-                            .map(|s| format!("\"{}\"", s))
+                            .map(|s| format!("\"{s}\""))
                             .collect::<Vec<String>>()
                             .join(" "),
                     ]

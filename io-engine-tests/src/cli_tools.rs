@@ -38,8 +38,7 @@ pub fn run_command(
         Ok(s) => s,
         Err(e) => {
             return Err(format!(
-                "Failed to wait on spawned child process '{}': {}",
-                desc, e
+                "Failed to wait on spawned child process '{desc}': {e}",
             ));
         }
     };
@@ -48,8 +47,7 @@ pub fn run_command(
         Ok(lines) => lines,
         Err(e) => {
             return Err(format!(
-                "Failed to read output of child process  '{}': {:?}",
-                desc, e
+                "Failed to read output of child process  '{desc}': {e:?}",
             ));
         }
     };
@@ -74,7 +72,7 @@ fn spawn_child(
                 let mut lines = Vec::new();
                 for line in stddout.split(b'\n').filter_map(|l| l.ok()) {
                     if let Some(ref s) = short_desc {
-                        print!("    [{}] ", s);
+                        print!("    [{s}] ");
                         std::io::stdout().write_all(&line).unwrap();
                         println!();
                     }
@@ -87,10 +85,8 @@ fn spawn_child(
             Ok((child, out_reader))
         }
         Err(e) if e.kind() == ::std::io::ErrorKind::NotFound => {
-            Err(format!("Command '{}' not found: {}", desc, e))
+            Err(format!("Command '{desc}' not found: {e}"))
         }
-        Err(e) => {
-            Err(format!("Failed to spawn a child process '{}': {}", desc, e))
-        }
+        Err(e) => Err(format!("Failed to spawn a child process '{desc}': {e}")),
     }
 }

@@ -36,7 +36,7 @@ impl Display for Protocol {
             Self::Off => "Not shared",
             Self::Nvmf => "NVMe-oF TCP",
         };
-        write!(f, "{}", p)
+        write!(f, "{p}")
     }
 }
 

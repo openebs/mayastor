@@ -133,7 +133,7 @@ async fn acquire_lock(
         lock.lock().await
     };
 
-    (*lock_guard).num_acquires += 1;
+    lock_guard.num_acquires += 1;
 
     Some(ResourceLockGuard {
         _lock_guard: lock_guard,

@@ -58,17 +58,17 @@ impl fmt::Display for Error {
                 sock,
                 err,
             } => {
-                write!(f, "Error connecting to {}: {}", sock, err)
+                write!(f, "Error connecting to {sock}: {err}")
             }
-            Error::IoError(err) => write!(f, "IO error: {}", err),
-            Error::ParseError(err) => write!(f, "Invalid json reply: {}", err),
+            Error::IoError(err) => write!(f, "IO error: {err}"),
+            Error::ParseError(err) => write!(f, "Invalid json reply: {err}"),
             Error::RpcError {
                 code,
                 msg,
             } => {
-                write!(f, "Json-rpc error {:?}: {}", code, msg)
+                write!(f, "Json-rpc error {code:?}: {msg}")
             }
-            Error::GenericError(msg) => write!(f, "{}", msg),
+            Error::GenericError(msg) => write!(f, "{msg}"),
         }
     }
 }

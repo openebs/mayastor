@@ -28,7 +28,7 @@ const NEXUS_UUID: &str = "65acdaac-14c4-41d8-a55e-d03bfd7185a4";
 
 // pool name for mayastor from handle_index
 fn pool_name(handle_index: usize) -> String {
-    format!("pool{}", handle_index)
+    format!("pool{handle_index}")
 }
 
 // tests that both local and remote replicas have a unique identifier within

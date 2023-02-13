@@ -47,7 +47,7 @@ impl PoolBuilder {
     }
 
     pub fn with_malloc(self, bdev_name: &str, size_mb: u64) -> Self {
-        let bdev = format!("malloc:///{}?size_mb={}", bdev_name, size_mb);
+        let bdev = format!("malloc:///{bdev_name}?size_mb={size_mb}");
         self.with_bdev(&bdev)
     }
 
@@ -88,10 +88,7 @@ impl PoolBuilder {
             .into_iter()
             .find(|p| p.uuid == uuid)
             .ok_or_else(|| {
-                Status::new(
-                    Code::NotFound,
-                    format!("Pool '{}' not found", uuid),
-                )
+                Status::new(Code::NotFound, format!("Pool '{uuid}' not found"))
             })
     }
 }

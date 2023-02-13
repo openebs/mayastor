@@ -78,7 +78,7 @@ impl FromStr for MacAddr {
     fn from_str(s: &str) -> Result<MacAddr, Self::Err> {
         match MacAddr::parse(s) {
             Some(mac) => Ok(mac),
-            None => Err(format!("Invalid MAC address: '{}'", s)),
+            None => Err(format!("Invalid MAC address: '{s}'")),
         }
     }
 }
@@ -207,7 +207,7 @@ pub fn find_all_nics() -> Vec<Interface> {
         }
     }
 
-    nics.into_values().into_iter().collect()
+    nics.into_values().collect()
 }
 
 /// Utility to parse an IPv4 address string into a nix's Ipv4Addr.
@@ -222,7 +222,7 @@ pub fn parse_ipv4(addr: &str) -> Result<Ipv4Addr, String> {
 pub fn parse_ipv4_subnet(addr_str: &str) -> Result<(Ipv4Addr, u32), String> {
     let (addr, bits) = match addr_str.split_once('/') {
         Some(p) => p,
-        None => return Err(format!("Invalid subnet: '{}'", addr_str)),
+        None => return Err(format!("Invalid subnet: '{addr_str}'")),
     };
 
     let addr = parse_ipv4(addr)?;
@@ -230,10 +230,10 @@ pub fn parse_ipv4_subnet(addr_str: &str) -> Result<(Ipv4Addr, u32), String> {
 
     let bits = bits
         .parse::<u32>()
-        .map_err(|e| format!("Invalid subnet '{}': {}", addr_str, e))?;
+        .map_err(|e| format!("Invalid subnet '{addr_str}': {e}"))?;
 
     if bits > 32 {
-        return Err(format!("Invalid subnet '{}': suffix too large", addr_str));
+        return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
     }
 
     let mask = !0 << (32 - bits);

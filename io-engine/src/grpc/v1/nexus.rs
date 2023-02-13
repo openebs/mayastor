@@ -235,8 +235,7 @@ impl TryFrom<NvmeReservationConv> for nexus::NvmeReservation {
             Some(v) => match NvmeReservation::from_i32(v) {
                 Some(v) => Ok(v.into()),
                 None => Err(tonic::Status::invalid_argument(format!(
-                    "Invalid reservation type {}",
-                    v
+                    "Invalid reservation type {v}",
                 ))),
             },
             None => Ok(nexus::NvmeReservation::WriteExclusiveAllRegs),
@@ -748,7 +747,7 @@ impl NexusRpc for NexusService {
                     Ok(protocol) => protocol,
                     Err(_) => {
                         return Err(nexus::Error::InvalidShareProtocol {
-                            sp_value: args.share as i32,
+                            sp_value: args.share,
                         });
                     }
                 };
@@ -756,7 +755,7 @@ impl NexusRpc for NexusService {
                 // error out if nbd or iscsi
                 if !matches!(share_protocol, Protocol::Off | Protocol::Nvmf) {
                     return Err(nexus::Error::InvalidShareProtocol {
-                        sp_value: args.share as i32,
+                        sp_value: args.share,
                     });
                 }
 

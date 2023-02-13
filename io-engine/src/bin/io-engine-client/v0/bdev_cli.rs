@@ -23,7 +23,7 @@ pub async fn handler(
         ("destroy", Some(args)) => destroy(ctx, args).await,
         ("unshare", Some(args)) => unshare(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
@@ -286,7 +286,7 @@ async fn unshare(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", name,);
+            println!("{name}",);
         }
     }
     Ok(())

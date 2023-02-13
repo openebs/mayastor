@@ -173,7 +173,7 @@ pub enum ChildState {
 impl Display for ChildState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Faulted(r) => write!(f, "faulted ({})", r),
+            Self::Faulted(r) => write!(f, "faulted ({r})"),
             Self::Init => write!(f, "init"),
             Self::ConfigInvalid => write!(f, "config invalid"),
             Self::Open => write!(f, "open"),

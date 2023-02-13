@@ -89,7 +89,7 @@ async fn replica_snapshot() {
         .spawn(async move {
             Lvs::create_or_import(PoolArgs {
                 name: POOL1_NAME.to_string(),
-                disks: vec![format!("aio://{}", DISKNAME1)],
+                disks: vec![format!("aio://{DISKNAME1}")],
                 uuid: None,
             })
             .await
@@ -125,7 +125,7 @@ async fn replica_snapshot() {
     hdls[0]
         .mayastor
         .share_replica(ShareReplicaRequest {
-            uuid: format!("{}-snap-{}", UUID1, t),
+            uuid: format!("{UUID1}-snap-{t}"),
             share: ShareProtocolReplica::ReplicaNvmf as i32,
             ..Default::default()
         })
@@ -154,7 +154,7 @@ async fn replica_snapshot() {
 
 async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
     let mut children = vec![
-        "loopback:///".to_string() + &UUID1.to_string(),
+        "loopback:///".to_string() + UUID1,
         format!("nvmf://{}:8420/nqn.2019-05.io.openebs:{}", &ip, UUID1),
     ];
     let mut nexus_name = NXNAME;

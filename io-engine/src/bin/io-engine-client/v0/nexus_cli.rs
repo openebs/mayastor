@@ -295,7 +295,7 @@ pub async fn handler(
         ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
         ("inject", Some(args)) => injections(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
@@ -318,7 +318,7 @@ fn nexus_create_parse(
             field: "size".to_string(),
         }
     })?)
-    .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))
+    .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
     .context(GrpcStatus)?;
     let children = matches
         .values_of("children")
@@ -1000,7 +1000,7 @@ async fn injections(
 
     if let Some(uris) = inj_add {
         for uri in uris {
-            println!("Injecting fault: {}", uri);
+            println!("Injecting fault: {uri}");
             ctx.client
                 .inject_nexus_fault(v0::InjectNexusFaultRequest {
                     uuid: uuid.clone(),
@@ -1013,7 +1013,7 @@ async fn injections(
 
     if let Some(uris) = inj_remove {
         for uri in uris {
-            println!("Removing injected fault: {}", uri);
+            println!("Removing injected fault: {uri}");
             ctx.client
                 .remove_injected_nexus_fault(
                     v0::RemoveInjectedNexusFaultRequest {

@@ -136,7 +136,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     test.pause("ms1").await.unwrap();
     for i in 1 .. 6 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        println!("waiting for the container to be fully suspended... {}/5", i);
+        println!("waiting for the container to be fully suspended... {i}/5");
     }
 
     // Read completion callback.
@@ -212,7 +212,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
 
     // Wait up to 120 seconds till I/O times out.
     for i in 1 .. 25 {
-        println!("waiting for I/O to be timed out... {}/24", i);
+        println!("waiting for I/O to be timed out... {i}/24");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         // Break the loop if the callback has been called in response to I/O
         // cancelling.
@@ -329,7 +329,7 @@ async fn io_timeout_ignore() {
     test.pause("ms1").await.unwrap();
     for i in 1 .. 6 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        println!("waiting for the container to be fully suspended... {}/5", i);
+        println!("waiting for the container to be fully suspended... {i}/5");
     }
 
     // Read completion callback.
@@ -407,7 +407,7 @@ async fn io_timeout_ignore() {
     // Wait 5 times longer than timeout interval. Make sure I/O operation not
     // interrupted.
     for i in 1 .. 6 {
-        println!("waiting for I/O timeout to happen... {}/5", i);
+        println!("waiting for I/O timeout to happen... {i}/5");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         assert!(!CALLBACK_FLAG.load(), "I/O operation interrupted");
     }
