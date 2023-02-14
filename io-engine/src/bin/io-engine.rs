@@ -176,6 +176,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         logger::init_ex("INFO", log_format);
     }
 
+    spdk_rs::some_test_foo("abc");
+
     info!("{}", fmt_package_info!());
 
     // Handle diagnostics-related commands before initializing the agent.
