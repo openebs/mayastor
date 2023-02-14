@@ -54,7 +54,14 @@ nix.
 
 ```shell
 python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf` --python_out=test/python --grpc_python_out=test/python mayastor.proto
-python -m grpc_tools.protoc --proto_path=`realpath csi/proto` --python_out=test/python --grpc_python_out=test/python csi.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf` --python_out=test/python --grpc_python_out=test/python csi.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python registration.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python host.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python common.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python bdev.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python replica.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python pool.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python nexus.proto
 virtualenv --no-setuptools test/python/venv
 source test/python/venv/bin/activate
 pip install -r test/python/requirements.txt
