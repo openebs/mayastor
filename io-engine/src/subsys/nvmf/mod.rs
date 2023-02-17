@@ -124,7 +124,7 @@ impl Nvmf {
     pub fn new() -> Self {
         debug!("Creating NVMF subsystem...");
 
-        let mut ss = Box::new(spdk_subsystem::default());
+        let mut ss = Box::<spdk_subsystem>::default();
         ss.name = b"mayastor_nvmf_tgt\x00" as *const u8 as *const libc::c_char;
         ss.init = Some(Self::init);
         ss.fini = Some(Self::fini);

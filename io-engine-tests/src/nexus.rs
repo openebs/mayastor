@@ -260,7 +260,7 @@ pub async fn find_nexus_by_uuid(
         .into_iter()
         .find(|n| n.uuid == uuid)
         .ok_or_else(|| {
-            Status::new(Code::NotFound, format!("Nexus '{}' not found", uuid))
+            Status::new(Code::NotFound, format!("Nexus '{uuid}' not found"))
         })
 }
 

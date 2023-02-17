@@ -43,20 +43,17 @@ impl RpcHandle {
             }
             attempts -= 1;
             if attempts == 0 {
-                return Err(format!(
-                    "Failed to connect to {}/{}",
-                    name, endpoint
-                ));
+                return Err(format!("Failed to connect to {name}/{endpoint}"));
             }
         }
 
-        let mayastor = MayastorClient::connect(format!("http://{}", endpoint))
+        let mayastor = MayastorClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
-        let bdev = BdevRpcClient::connect(format!("http://{}", endpoint))
+        let bdev = BdevRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
-        let jsonrpc = JsonRpcClient::connect(format!("http://{}", endpoint))
+        let jsonrpc = JsonRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
 
@@ -111,7 +108,7 @@ impl<'a> GrpcConnect<'a> {
                     .unwrap(),
             )
             .await?),
-            None => Err(format!("Container {} not found!", name)),
+            None => Err(format!("Container {name} not found!")),
         }
     }
 }

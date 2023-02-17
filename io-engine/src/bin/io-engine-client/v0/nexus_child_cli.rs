@@ -22,7 +22,7 @@ pub async fn handler(
         ("online", Some(args)) => child_operation(ctx, args, 1).await,
         ("retire", Some(args)) => child_operation(ctx, args, 2).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
@@ -139,7 +139,7 @@ async fn fault(
             );
         }
         OutputFormat::Default => {
-            println!("{}", uri);
+            println!("{uri}");
         }
     };
 
@@ -185,7 +185,7 @@ async fn child_operation(
             );
         }
         OutputFormat::Default => {
-            println!("{}", uri);
+            println!("{uri}");
         }
     };
 

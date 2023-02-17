@@ -67,7 +67,7 @@ impl PersistentStore {
     fn format_endpoint(endpoint: &str) -> String {
         match endpoint.contains(':') {
             true => endpoint.to_string(),
-            false => format!("{}:{}", endpoint, DEFAULT_PORT),
+            false => format!("{endpoint}:{DEFAULT_PORT}"),
         }
     }
 

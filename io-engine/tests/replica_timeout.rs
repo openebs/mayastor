@@ -102,14 +102,14 @@ async fn replica_stop_cont() {
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
     for i in 1 .. 6 {
         ticker.tick().await;
-        println!("waiting for the container to be fully suspended... {}/5", i);
+        println!("waiting for the container to be fully suspended... {i}/5");
     }
 
     // initiate the read and leave it in the background to time out
     let nxuri =
-        format!("nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:{}", NXNAME);
+        format!("nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:{NXNAME}");
     Command::new("../target/debug/initiator")
-        .args(&[&nxuri, "read", "/tmp/tmpread"])
+        .args([&nxuri, "read", "/tmp/tmpread"])
         .stdout(Stdio::piped())
         .spawn()
         .expect("should send read from initiator");
@@ -120,7 +120,7 @@ async fn replica_stop_cont() {
     let n = 10;
     for i in 1 ..= n {
         ticker.tick().await;
-        println!("unfreeze delay... {}/{}", i, n);
+        println!("unfreeze delay... {i}/{n}");
     }
     test.thaw("ms1").await.unwrap();
     println!("container thawed");
@@ -130,7 +130,7 @@ async fn replica_stop_cont() {
 
     // with no child to send read to, io should still complete as failed
     let status = Command::new("../target/debug/initiator")
-        .args(&[&nxuri, "read", "/tmp/tmpread"])
+        .args([&nxuri, "read", "/tmp/tmpread"])
         .stdout(Stdio::piped())
         .status()
         .expect("should send read from initiator");

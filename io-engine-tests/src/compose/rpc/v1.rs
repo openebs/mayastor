@@ -50,36 +50,33 @@ impl RpcHandle {
             }
             attempts -= 1;
             if attempts == 0 {
-                return Err(format!(
-                    "Failed to connect to {}/{}",
-                    name, endpoint
-                ));
+                return Err(format!("Failed to connect to {name}/{endpoint}"));
             }
         }
 
-        let bdev = bdev::BdevRpcClient::connect(format!("http://{}", endpoint))
+        let bdev = bdev::BdevRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
 
-        let json = json::JsonRpcClient::connect(format!("http://{}", endpoint))
+        let json = json::JsonRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
 
-        let pool = pool::PoolRpcClient::connect(format!("http://{}", endpoint))
+        let pool = pool::PoolRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
 
         let replica =
-            replica::ReplicaRpcClient::connect(format!("http://{}", endpoint))
+            replica::ReplicaRpcClient::connect(format!("http://{endpoint}"))
                 .await
                 .unwrap();
 
-        let host = host::HostRpcClient::connect(format!("http://{}", endpoint))
+        let host = host::HostRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
 
         let nexus =
-            nexus::NexusRpcClient::connect(format!("http://{}", endpoint))
+            nexus::NexusRpcClient::connect(format!("http://{endpoint}"))
                 .await
                 .unwrap();
 
@@ -136,7 +133,7 @@ impl<'a> GrpcConnect<'a> {
                     .unwrap(),
             )
             .await?),
-            None => Err(format!("Container {} not found!", name)),
+            None => Err(format!("Container {name} not found!")),
         }
     }
 

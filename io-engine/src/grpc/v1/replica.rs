@@ -241,10 +241,7 @@ impl ReplicaRpc for ReplicaService {
 
                 // perform filtering on lvols
                 if let Some(pool_name) = args.poolname {
-                    lvols = lvols
-                        .into_iter()
-                        .filter(|l| l.pool_name() == pool_name)
-                        .collect();
+                    lvols.retain(|l| l.pool_name() == pool_name);
                 }
 
                 // convert lvols to replicas
@@ -253,15 +250,9 @@ impl ReplicaRpc for ReplicaService {
 
                 // perform the filtering on the replica list
                 if let Some(name) = args.name {
-                    replicas = replicas
-                        .into_iter()
-                        .filter(|r| r.name == name)
-                        .collect();
+                    replicas.retain(|r| r.name == name);
                 } else if let Some(uuid) = args.uuid {
-                    replicas = replicas
-                        .into_iter()
-                        .filter(|r| r.uuid == uuid)
-                        .collect();
+                    replicas.retain(|r| r.uuid == uuid);
                 }
 
                 Ok(ListReplicasResponse {

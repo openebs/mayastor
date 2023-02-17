@@ -55,7 +55,7 @@ pub(crate) trait PtplFileOps {
     fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
         if let Some(path) = self.path() {
             if let Some(path) = path.parent() {
-                std::fs::create_dir_all(&path)?;
+                std::fs::create_dir_all(path)?;
             }
             return Ok(Some(PtplProps::new(path)));
         }

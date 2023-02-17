@@ -24,7 +24,7 @@ use common::compose::{
 fn build_type() -> String {
     let out_dir = env!("OUT_DIR");
     let src_dir = env!("SRCDIR");
-    let prefix = format!("{}/target/", src_dir);
+    let prefix = format!("{src_dir}/target/");
     let target = out_dir.replace(&prefix, "");
     let splits = target.split('/').take(1).collect::<Vec<_>>();
     let build = splits.first().expect("build type not found");
@@ -75,13 +75,13 @@ async fn get_children(compose: Arc<ComposeTest>) -> &'static Vec<String> {
                 h.bdev.list(Null {}).await.unwrap();
                 h.bdev
                     .create(BdevUri {
-                        uri: format!("malloc:///disk{}?size_mb=20", disk_index),
+                        uri: format!("malloc:///disk{disk_index}?size_mb=20"),
                     })
                     .await
                     .unwrap();
                 h.bdev
                     .share(BdevShareRequest {
-                        name: format!("disk{}", disk_index),
+                        name: format!("disk{disk_index}"),
                         proto: "nvmf".into(),
                         ..Default::default()
                     })
@@ -129,7 +129,7 @@ async fn nexus_create_direct(
     nr_children: usize,
 ) -> DirectNexus {
     let uuid = uuid::Uuid::new_v4();
-    let nexus_name = format!("nexus-{}", uuid);
+    let nexus_name = format!("nexus-{uuid}");
     let name = nexus_name.clone();
     let uuid_str = uuid.to_string();
 

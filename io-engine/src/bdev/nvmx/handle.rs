@@ -684,10 +684,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             num_blocks,
         )?;
 
-        let rc;
-
-        if iovcnt == 1 {
-            rc = unsafe {
+        let rc = if iovcnt == 1 {
+            unsafe {
                 spdk_nvme_ns_cmd_read(
                     self.ns.as_ptr(),
                     inner.qpair.as_mut().unwrap().as_ptr(),
@@ -698,9 +696,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                     bio as *mut c_void,
                     self.prchk_flags,
                 )
-            };
+            }
         } else {
-            rc = unsafe {
+            unsafe {
                 spdk_nvme_ns_cmd_readv(
                     self.ns.as_ptr(),
                     inner.qpair.as_mut().unwrap().as_ptr(),
@@ -713,7 +711,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                     Some(nvme_queued_next_sge),
                 )
             }
-        }
+        };
 
         if rc < 0 {
             Err(CoreError::ReadDispatch {
@@ -761,10 +759,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             num_blocks,
         )?;
 
-        let rc;
-
-        if iovcnt == 1 {
-            rc = unsafe {
+        let rc = if iovcnt == 1 {
+            unsafe {
                 spdk_nvme_ns_cmd_write(
                     self.ns.as_ptr(),
                     inner.qpair.as_mut().unwrap().as_ptr(),
@@ -775,9 +771,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                     bio as *mut c_void,
                     self.prchk_flags,
                 )
-            };
+            }
         } else {
-            rc = unsafe {
+            unsafe {
                 spdk_nvme_ns_cmd_writev(
                     self.ns.as_ptr(),
                     inner.qpair.as_mut().unwrap().as_ptr(),
@@ -790,7 +786,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                     Some(nvme_queued_next_sge),
                 )
             }
-        }
+        };
 
         if rc < 0 {
             Err(CoreError::WriteDispatch {
@@ -999,7 +995,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let now = subsys::set_snapshot_time(&mut cmd);
         debug!("Creating snapshot at {}", now);
         self.nvme_admin(&cmd, None).await?;
-        Ok(now as u64)
+        Ok(now)
     }
 
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {

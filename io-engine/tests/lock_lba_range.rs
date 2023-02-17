@@ -47,7 +47,7 @@ fn test_fini() {
 }
 
 fn get_disk(number: u64) -> String {
-    format!("/tmp/disk{}.img", number)
+    format!("/tmp/disk{number}.img")
 }
 
 fn get_dev(number: u64) -> String {
@@ -179,7 +179,7 @@ fn lock_then_fe_io() {
         let blk_size = 512;
         let buf = DmaBuf::new(blk * blk_size, 9).unwrap();
 
-        match h.write_at((blk * blk_size) as u64, &buf).await {
+        match h.write_at(blk * blk_size, &buf).await {
             Ok(_) => trace!("Successfully wrote to nexus"),
             Err(e) => trace!("Failed to write to nexus: {}", e),
         }

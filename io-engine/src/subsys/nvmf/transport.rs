@@ -87,7 +87,7 @@ impl TransportId {
             ..Default::default()
         };
 
-        let port = format!("{}", port);
+        let port = format!("{port}");
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
 
         copy_cstr_with_null(&TCP_TRANSPORT, &mut trid.trstring);

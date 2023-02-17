@@ -40,15 +40,15 @@ where
     let sock_path = Path::new(&sock);
     // Cleanup should be called at all places where we exit from this function
     let cleanup = || {
-        let _ = fs::remove_file(&sock_path);
+        let _ = fs::remove_file(sock_path);
     };
 
-    let server = match UnixListener::bind(&sock_path) {
+    let server = match UnixListener::bind(sock_path) {
         Ok(server) => server,
         Err(_) => {
             // most likely the socket file exists, remove it and retry
             cleanup();
-            UnixListener::bind(&sock_path).unwrap()
+            UnixListener::bind(sock_path).unwrap()
         }
     };
 

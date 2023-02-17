@@ -139,7 +139,7 @@ impl Job {
         let bdev = bdev_create(bdev)
             .await
             .map_err(|e| {
-                eprintln!("Failed to open URI {}: {}", bdev, e);
+                eprintln!("Failed to open URI {bdev}: {e}");
                 std::process::exit(1);
             })
             .map(|name| UntypedBdev::lookup_by_name(&name).unwrap())

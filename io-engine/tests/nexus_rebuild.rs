@@ -57,14 +57,14 @@ fn get_err_bdev() -> &'static mut Vec<u64> {
 }
 fn get_disk(number: u64) -> String {
     if get_err_bdev().contains(&number) {
-        format!("error_device{}", number)
+        format!("error_device{number}")
     } else {
         format!("/tmp/{}-disk{}.img", nexus_name(), number)
     }
 }
 fn get_dev(number: u64) -> String {
     if get_err_bdev().contains(&number) {
-        format!("bdev:///EE_error_device{}", number)
+        format!("bdev:///EE_error_device{number}")
     } else {
         format!("aio://{}?blk_size=512", get_disk(number))
     }
@@ -224,11 +224,7 @@ async fn rebuild_replica() {
                 .any(|_| panic!("Should not have found any jobs!"));
         }
 
-        let _ = nexus
-            .as_mut()
-            .start_rebuild(&get_dev(NUM_CHILDREN))
-            .await
-            .unwrap();
+        let _ = nexus.as_mut().start_rebuild(&get_dev(NUM_CHILDREN)).await;
 
         for child in 0 .. NUM_CHILDREN {
             RebuildJob::lookup(&get_dev(child))
@@ -284,10 +280,7 @@ async fn rebuild_replica() {
             .add_child(&get_dev(NUM_CHILDREN + 1), true)
             .await
             .unwrap();
-        let _ = nexus
-            .start_rebuild(&get_dev(NUM_CHILDREN + 1))
-            .await
-            .unwrap();
+        let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN + 1)).await;
         assert_eq!(RebuildJob::lookup_src(&src).len(), 2);
     })
     .await;

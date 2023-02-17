@@ -117,14 +117,9 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
         for i in 0 .. 10 {
-            pool.create_lvol(
-                &format!("vol-{}", i),
-                8 * 1024 * 1024,
-                None,
-                true,
-            )
-            .await
-            .unwrap();
+            pool.create_lvol(&format!("vol-{i}"), 8 * 1024 * 1024, None, true)
+                .await
+                .unwrap();
         }
 
         assert_eq!(pool.lvols().unwrap().count(), 10);
@@ -144,7 +139,7 @@ async fn lvs_pool_test() {
         for i in 0 .. 5 {
             pool2
                 .create_lvol(
-                    &format!("pool2-vol-{}", i),
+                    &format!("pool2-vol-{i}"),
                     8 * 1024 * 1024,
                     None,
                     false,
@@ -256,14 +251,9 @@ async fn lvs_pool_test() {
         let pool = Lvs::lookup("tpool").unwrap();
 
         for i in 0 .. 10 {
-            pool.create_lvol(
-                &format!("vol-{}", i),
-                8 * 1024 * 1024,
-                None,
-                true,
-            )
-            .await
-            .unwrap();
+            pool.create_lvol(&format!("vol-{i}"), 8 * 1024 * 1024, None, true)
+                .await
+                .unwrap();
         }
 
         for mut l in pool.lvols().unwrap() {

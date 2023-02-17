@@ -616,7 +616,7 @@ async fn nvmf_device_readv_test() {
 
     let buf_ptr = ms
         .spawn(async move {
-            let name = device_create(&(*url)).await.unwrap();
+            let name = device_create(&url).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
             let (block_len, alignment) = {
@@ -683,7 +683,7 @@ async fn nvmf_device_readv_test() {
     // Once all handles are closed, destroy the device.
     url = u.clone();
     ms.spawn(async move {
-        device_destroy(&(*url)).await.unwrap();
+        device_destroy(&url).await.unwrap();
     })
     .await;
 }
@@ -746,7 +746,7 @@ async fn nvmf_device_writev_test() {
 
     let ctx = ms
         .spawn(async move {
-            let name = device_create(&(*url)).await.unwrap();
+            let name = device_create(&url).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
             let (block_len, alignment) = {
@@ -917,7 +917,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     let io_ctx = ms
         .spawn(async move {
-            let device_name = device_create(&(*url)).await.unwrap();
+            let device_name = device_create(&url).await.unwrap();
             let descr = device_open(&device_name, false).unwrap();
             let handle = descr.into_handle().unwrap();
             let (block_len, alignment) = {
@@ -1002,7 +1002,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Safely destroy the device once all handles are freed.
     ms.spawn(async move {
-        device_destroy(&(*url)).await.unwrap();
+        device_destroy(&url).await.unwrap();
     })
     .await;
 }
@@ -1076,7 +1076,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     let io_ctx = ms
         .spawn(async move {
-            let device_name = device_create(&(*url)).await.unwrap();
+            let device_name = device_create(&url).await.unwrap();
             let descr = device_open(&device_name, false).unwrap();
             let handle = descr.into_handle().unwrap();
             let (block_len, alignment) = {
@@ -1197,7 +1197,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Safely destroy the device once all handles are freed.
     ms.spawn(async move {
-        device_destroy(&(*u)).await.unwrap();
+        device_destroy(&u).await.unwrap();
     })
     .await;
 }
@@ -1628,7 +1628,7 @@ async fn nvmf_reset_abort_io() {
 
     let buf_ptr = ms
         .spawn(async move {
-            let name = device_create(&(*url)).await.unwrap();
+            let name = device_create(&url).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
             let (block_len, alignment) = {
@@ -1725,7 +1725,7 @@ async fn nvmf_reset_abort_io() {
     // Once all handles are closed, destroy the device.
     url = u.clone();
     ms.spawn(async move {
-        device_destroy(&(*url)).await.unwrap();
+        device_destroy(&url).await.unwrap();
     })
     .await;
 }

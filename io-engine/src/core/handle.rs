@@ -144,7 +144,7 @@ impl<T: BdevOps> BdevHandle<T> {
                 self.channel.legacy_as_ptr(),
                 **buffer,
                 offset,
-                buffer.len() as u64,
+                buffer.len(),
                 Some(Self::io_completion_cb),
                 cb_arg(s),
             )
@@ -183,7 +183,7 @@ impl<T: BdevOps> BdevHandle<T> {
                 self.channel.legacy_as_ptr(),
                 **buffer,
                 offset,
-                buffer.len() as u64,
+                buffer.len(),
                 Some(Self::io_completion_cb),
                 cb_arg(s),
                 self.io_flags,
@@ -291,7 +291,7 @@ impl<T: BdevOps> BdevHandle<T> {
         let now = subsys::set_snapshot_time(&mut cmd);
         debug!("Creating snapshot at {}", now);
         self.nvme_admin(&cmd, None).await?;
-        Ok(now as u64)
+        Ok(now)
     }
 
     /// identify controller
@@ -329,7 +329,7 @@ impl<T: BdevOps> BdevHandle<T> {
             spdk_bdev_nvme_admin_passthru_ro(
                 self.desc.legacy_as_ptr(),
                 self.channel.legacy_as_ptr(),
-                &*nvme_cmd,
+                nvme_cmd,
                 match buffer {
                     Some(ref b) => ***b,
                     None => std::ptr::null_mut(),

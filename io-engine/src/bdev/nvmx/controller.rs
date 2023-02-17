@@ -981,7 +981,7 @@ pub(crate) fn connected_attached_cb(
     // get a reference to our controller we created when we kicked of the async
     // attaching process
     let controller = NVME_CONTROLLERS
-        .lookup_by_name(&ctx.name())
+        .lookup_by_name(ctx.name())
         .expect("no controller in the list");
 
     // clone it now such that we can lock the original, and insert it later.

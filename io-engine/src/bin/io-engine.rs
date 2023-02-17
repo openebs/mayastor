@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(s) => match s.as_str() {
                 "Y" => "yes".to_string(),
                 "N" => "disabled".to_string(),
-                u => format!("unknown value {}", u),
+                u => format!("unknown value {u}"),
             },
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
@@ -203,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "nvme not loaded".to_string()
                     }
                 } else {
-                    format!("unknown error: {}", e)
+                    format!("unknown error: {e}")
                 }
             }
         };

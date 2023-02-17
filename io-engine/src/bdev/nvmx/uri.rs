@@ -238,10 +238,8 @@ impl<'probe> NvmeControllerContext<'probe> {
             if let Ok(uuid) = Uuid::parse_str(&ext_host_id) {
                 opts = opts.with_ext_host_id(*uuid.as_bytes());
                 if hostnqn.is_none() {
-                    opts = opts.with_hostnqn(format!(
-                        "{}:uuid:{}",
-                        NVME_NQN_PREFIX, uuid
-                    ));
+                    opts = opts
+                        .with_hostnqn(format!("{NVME_NQN_PREFIX}:uuid:{uuid}"));
                 }
             }
         }

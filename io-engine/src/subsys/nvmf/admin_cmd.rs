@@ -82,7 +82,7 @@ pub fn set_snapshot_time(cmd: &mut spdk_nvme_cmd) -> u64 {
         *nvme_cmd_cdw10_get(&mut *cmd) = now as u32;
         *nvme_cmd_cdw11_get(&mut *cmd) = (now >> 32) as u32;
     }
-    now as u64
+    now
 }
 
 /// NVMf custom command handler for opcode c0h
@@ -146,8 +146,8 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
 
 pub fn create_snapshot(lvol: Lvol, cmd: &spdk_nvme_cmd, io: *mut spdk_bdev_io) {
     let snapshot_time = unsafe {
-        nvme_cmd_cdw10_get_val(&*cmd) as u64
-            | (nvme_cmd_cdw11_get_val(&*cmd) as u64) << 32
+        nvme_cmd_cdw10_get_val(cmd) as u64
+            | (nvme_cmd_cdw11_get_val(cmd) as u64) << 32
     };
     let snapshot_name = Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
     // Blobfs operations must be on md_thread

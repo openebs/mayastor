@@ -63,7 +63,7 @@ impl ConfigSubsystem {
             let f = async move {
                 let cfg = Config::get().refresh();
                 if let Some(target) = cfg.source.as_ref() {
-                    if let Err(e) = cfg.write(&target) {
+                    if let Err(e) = cfg.write(target) {
                         error!("error writing config file {} {}", target, e);
                     }
                 } else {
@@ -102,7 +102,7 @@ impl ConfigSubsystem {
     pub fn new() -> Self {
         static MAYASTOR_SUBSYS: &str = "MayastorConfig";
         debug!("creating Mayastor subsystem...");
-        let mut ss = Box::new(spdk_subsystem::default());
+        let mut ss = Box::<spdk_subsystem>::default();
         ss.name = std::ffi::CString::new(MAYASTOR_SUBSYS).unwrap().into_raw();
         ss.init = Some(Self::init);
         ss.fini = Some(Self::fini);

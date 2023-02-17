@@ -163,7 +163,7 @@ pub async fn handler(
         ("share", Some(args)) => replica_share(ctx, args).await,
         ("stats", Some(args)) => replica_stat(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
@@ -190,7 +190,7 @@ async fn replica_create(
             field: "size".to_string(),
         }
     })?)
-    .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))
+    .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
     .context(GrpcStatus)?;
     let thin = matches.is_present("thin");
     let share = parse_replica_protocol(matches.value_of("protocol"))
@@ -253,7 +253,7 @@ async fn replica_create_v2(
             field: "size".to_string(),
         }
     })?)
-    .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))
+    .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
     .context(GrpcStatus)?;
     let thin = matches.is_present("thin");
     let share = parse_replica_protocol(matches.value_of("protocol"))

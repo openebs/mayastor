@@ -197,7 +197,7 @@ impl Lvs {
         let disk = match disks.first() {
             Some(disk) if disks.len() == 1 => {
                 if Url::parse(disk).is_err() {
-                    format!("aio://{}", disk)
+                    format!("aio://{disk}")
                 } else {
                     disk.clone()
                 }
@@ -461,10 +461,7 @@ impl Lvs {
                 error!("pool name mismatch");
                 Err(Error::Import {
                     source,
-                    name: format!(
-                        "a pool currently exists on the device with name: {}",
-                        name
-                    ),
+                    name: format!("a pool currently exists on the device with name: {name}"),
                 })
             }
             // try to create the pool
@@ -492,7 +489,7 @@ impl Lvs {
     /// export the given lvs
     #[tracing::instrument(level = "debug", err)]
     pub async fn export(self) -> Result<(), Error> {
-        let self_str = format!("{:?}", self);
+        let self_str = format!("{self:?}");
 
         info!("{}: exporting lvs...", self_str);
 
@@ -584,7 +581,7 @@ impl Lvs {
     /// un share all targets
     #[tracing::instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<(), Error> {
-        let self_str = format!("{:?}", self);
+        let self_str = format!("{self:?}");
         info!("{}: destroying lvs...", self_str);
 
         let ptpl = self.ptpl();

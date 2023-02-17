@@ -23,8 +23,7 @@ impl Display for DeviceCommand {
                 child_device,
             } => write!(
                 f,
-                "remove device '{}' from nexus '{}'",
-                child_device, nexus_name
+                "remove device '{child_device}' from nexus '{nexus_name}'",
             ),
         }
     }

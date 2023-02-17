@@ -39,7 +39,7 @@ pub async fn handler(
         ("list", Some(args)) => list_controllers(ctx, args).await,
         ("stats", Some(args)) => controller_stats(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }

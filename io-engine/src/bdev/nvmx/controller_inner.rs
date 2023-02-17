@@ -44,8 +44,7 @@ impl TryFrom<u32> for DeviceTimeoutAction {
             4 => DeviceTimeoutAction::HotRemove,
             _ => {
                 return Err(format!(
-                    "Invalid timeout action in config: {}",
-                    action
+                    "Invalid timeout action in config: {action}"
                 ));
             }
         };
