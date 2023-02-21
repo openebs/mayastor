@@ -44,11 +44,13 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .arg(Arg::with_name("name").required(true).index(1))
         .arg(
             Arg::with_name("protocol")
+                .long("protocol")
                 .short("p")
                 .help("the protocol to used to share the given bdev.")
                 .required(false)
-                .possible_values(&["nvmf"])
-                .default_value("nvmf"),
+                .possible_values(&["Nvmf"])
+                .takes_value(true)
+                .default_value("Nvmf"),
         )
         .arg(
             Arg::with_name("allowed-host")
