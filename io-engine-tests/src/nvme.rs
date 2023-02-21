@@ -76,7 +76,7 @@ pub fn nvme_discover(target_addr: &str) -> Vec<BTreeMap<String, String>> {
             res
         }
         Err(e) => {
-            println!("Failed to discover NVMEs: {}", e);
+            println!("Failed to discover NVMEs: {e}");
             vec![]
         }
     }
@@ -88,24 +88,23 @@ pub fn nvme_connect(
     must_succeed: bool,
 ) -> ExitStatus {
     let status = Command::new("nvme")
-        .args(&["connect"])
-        .args(&["-t", "tcp"])
-        .args(&["-a", target_addr])
-        .args(&["-s", "8420"])
-        .args(&["-c", "1"])
-        .args(&["-n", nqn])
+        .args(["connect"])
+        .args(["-t", "tcp"])
+        .args(["-a", target_addr])
+        .args(["-s", "8420"])
+        .args(["-c", "1"])
+        .args(["-n", nqn])
         .status()
         .unwrap();
 
     if !status.success() {
         let msg = format!(
-            "failed to connect to {}, nqn '{}': {}",
-            target_addr, nqn, status,
+            "failed to connect to {target_addr}, nqn '{nqn}': {status}"
         );
         if must_succeed {
             panic!("{}", msg);
         } else {
-            eprintln!("{}", msg);
+            eprintln!("{msg}");
         }
     } else {
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -116,8 +115,8 @@ pub fn nvme_connect(
 
 pub fn nvme_disconnect_nqn(nqn: &str) {
     let output_dis = Command::new("nvme")
-        .args(&["disconnect"])
-        .args(&["-n", nqn])
+        .args(["disconnect"])
+        .args(["-n", nqn])
         .output()
         .unwrap();
     assert!(
@@ -154,17 +153,17 @@ pub fn find_mayastor_nvme_device_path(
         .ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("NVMe device with serial '{}' not found", serial),
+                format!("NVMe device with serial '{serial}' not found"),
             )
         })
 }
 
 pub fn get_nvme_resv_report(nvme_dev: &str) -> serde_json::Value {
     let output_resv = Command::new("nvme")
-        .args(&["resv-report"])
-        .args(&[nvme_dev])
-        .args(&["-c", "1"])
-        .args(&["-o", "json"])
+        .args(["resv-report"])
+        .args([nvme_dev])
+        .args(["-c", "1"])
+        .args(["-o", "json"])
         .output()
         .unwrap();
     assert!(

@@ -81,7 +81,7 @@ impl Display for ReactorState {
             ReactorState::Shutdown => "Shutdown",
             ReactorState::Delayed => "Delayed",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

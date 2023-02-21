@@ -67,8 +67,8 @@ impl MayastorGrpcServer {
 
         let address = Cow::from(rpc_addr);
 
-        let enable_v0 = api_versions.contains(&ApiVersion::V0).then(|| true);
-        let enable_v1 = api_versions.contains(&ApiVersion::V1).then(|| true);
+        let enable_v0 = api_versions.contains(&ApiVersion::V0).then_some(true);
+        let enable_v1 = api_versions.contains(&ApiVersion::V1).then_some(true);
         info!(
             "{:?} gRPC server configured at address {}",
             api_versions, endpoint

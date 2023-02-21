@@ -23,7 +23,7 @@ impl TryFrom<i32> for PoolBackend {
             0 => Ok(Self::Lvs),
             _ => Err(Self::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("invalid pool type {}", value),
+                format!("invalid pool type {value}"),
             )),
         }
     }

@@ -169,13 +169,13 @@ impl Context {
     }
     pub(crate) fn v1(&self, s: &str) {
         if self.verbosity > 0 {
-            println!("{}", s)
+            println!("{s}")
         }
     }
 
     pub(crate) fn v2(&self, s: &str) {
         if self.verbosity > 1 {
-            println!("{}", s)
+            println!("{s}")
         }
     }
 

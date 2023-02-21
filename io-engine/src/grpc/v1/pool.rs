@@ -80,7 +80,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
                 LvsError::Invalid {
                     source: Errno::EINVAL,
-                    msg: format!("invalid uuid provided, {}", e),
+                    msg: format!("invalid uuid provided, {e}"),
                 }
             })?;
         }
@@ -107,7 +107,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
                 LvsError::Invalid {
                     source: Errno::EINVAL,
-                    msg: format!("invalid uuid provided, {}", e),
+                    msg: format!("invalid uuid provided, {e}"),
                 }
             })?;
         }

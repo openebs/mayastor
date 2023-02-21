@@ -69,7 +69,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
-    println!("{}", fut);
+    println!("{fut}");
 
     Ok(())
 }

@@ -34,7 +34,7 @@ async fn nexus_create_destroy() {
             .create_nexus(CreateNexusRequest {
                 uuid: uuid::Uuid::new_v4().to_string(),
                 size: 10 * 1024 * 1024,
-                children: vec![format!("malloc:///d{}?size_mb=10", i)],
+                children: vec![format!("malloc:///d{i}?size_mb=10")],
             })
             .await;
 
@@ -96,7 +96,7 @@ async fn create_nexuses(handle: &mut RpcHandle, count: usize) -> Vec<Nexus> {
             .create_nexus(CreateNexusRequest {
                 uuid: uuid::Uuid::new_v4().to_string(),
                 size: 10 * 1024 * 1024,
-                children: vec![format!("malloc:///d{}?size_mb=10", i)],
+                children: vec![format!("malloc:///d{i}?size_mb=10")],
             })
             .await
             .unwrap();

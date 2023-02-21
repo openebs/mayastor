@@ -124,9 +124,9 @@ pub fn find_unused() -> Result<String, NbdError> {
             .unwrap_or(16);
 
     for i in 0 .. nbd_max {
-        let name = format!("nbd{}", i);
+        let name = format!("nbd{i}");
         match parse_value::<u32>(
-            Path::new(&format!("/sys/class/block/{}", name)),
+            Path::new(&format!("/sys/class/block/{name}")),
             "pid",
         ) {
             // if we find a pid file the device is in use
@@ -138,7 +138,7 @@ pub fn find_unused() -> Result<String, NbdError> {
                     // so we need to make sure we are not using it internally
                     // already.
                     let nbd_device =
-                        CString::new(format!("/dev/{}", name)).unwrap();
+                        CString::new(format!("/dev/{name}")).unwrap();
                     let ptr = unsafe {
                         nbd_disk_find_by_nbd_path(nbd_device.as_ptr())
                     };

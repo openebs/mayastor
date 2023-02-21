@@ -141,14 +141,14 @@ async fn nexus_io_multipath() {
         .create_nexus(CreateNexusRequest {
             uuid: NEXUS_UUID.to_string(),
             size: 32 * 1024 * 1024,
-            children: [format!("loopback:///{}", REPL_UUID)].to_vec(),
+            children: [format!("loopback:///{REPL_UUID}")].to_vec(),
         })
         .await
         .unwrap();
 
     let mayastor = get_ms();
     let ip0 = hdls[0].endpoint.ip();
-    let nexus_name = format!("nexus-{}", NEXUS_UUID);
+    let nexus_name = format!("nexus-{NEXUS_UUID}");
     let name = nexus_name.clone();
     mayastor
         .spawn(async move {
@@ -157,7 +157,7 @@ async fn nexus_io_multipath() {
                 &name,
                 32 * 1024 * 1024,
                 Some(NEXUS_UUID),
-                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID)],
+                &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
             )
             .await
             .unwrap();
@@ -182,7 +182,7 @@ async fn nexus_io_multipath() {
         .await
         .unwrap();
 
-    let nqn = format!("{}:nexus-{}", HOSTNQN, NEXUS_UUID);
+    let nqn = format!("{HOSTNQN}:nexus-{NEXUS_UUID}");
     nvme_connect("127.0.0.1", &nqn, true);
 
     // The first attempt will fail with "Duplicate cntlid x with y" error from
@@ -214,8 +214,8 @@ async fn nexus_io_multipath() {
 
     //  +- nvme0 tcp traddr=127.0.0.1 trsvcid=8420 live <ana_state>
     let output_subsys = Command::new("nvme")
-        .args(&["list-subsys"])
-        .args(&[ns])
+        .args(["list-subsys"])
+        .args([ns])
         .output()
         .unwrap();
     assert!(
@@ -234,8 +234,8 @@ async fn nexus_io_multipath() {
 
     // NQN:<nqn> disconnected 2 controller(s)
     let output_dis = Command::new("nvme")
-        .args(&["disconnect"])
-        .args(&["-n", &nqn])
+        .args(["disconnect"])
+        .args(["-n", &nqn])
         .output()
         .unwrap();
     assert!(
@@ -252,7 +252,7 @@ async fn nexus_io_multipath() {
     assert_eq!(v[2], "2", "mismatched number of controllers disconnected");
 
     // Connect to remote replica to check key registered
-    let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
+    let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
     nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
     let rep_dev = get_mayastor_nvme_device();
@@ -371,26 +371,22 @@ async fn nexus_io_resv_acquire() {
             nvme_params.set_resv_key(resv_key);
             // create nexus on local node with remote replica as child
             nexus_create_v2(
-                &NXNAME.to_string(),
+                NXNAME,
                 32 * 1024 * 1024,
                 NEXUS_UUID,
                 nvme_params,
-                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID)],
+                &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
                 None,
             )
             .await
             .unwrap();
-            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
-                .await
-                .unwrap();
-            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
-                .await
-                .unwrap();
+            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
         })
         .await;
 
     // Connect to remote replica to check key registered
-    let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
+    let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
     nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
     let rep_dev = get_mayastor_nvme_device();
@@ -415,7 +411,7 @@ async fn nexus_io_resv_acquire() {
     );
     assert_eq!(
         v["regctlext"][0]["hostid"].as_str().unwrap(),
-        HOSTID0.to_string().replace("-", ""),
+        HOSTID0.to_string().replace('-', ""),
         "should match host ID of NVMe client"
     );
     assert_eq!(
@@ -435,11 +431,8 @@ async fn nexus_io_resv_acquire() {
             max_cntl_id: 0xffef,
             resv_key: resv_key2,
             preempt_key: 0,
-            children: [format!(
-                "nvmf://{}:8420/{}:{}",
-                ip0, HOSTNQN, REPL_UUID
-            )]
-            .to_vec(),
+            children: [format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")]
+                .to_vec(),
             nexus_info_key: "".to_string(),
             resv_type: None,
             preempt_policy: 0,
@@ -473,24 +466,20 @@ async fn nexus_io_resv_acquire() {
     );
     assert_eq!(
         v2["regctlext"][1]["hostid"].as_str().unwrap(),
-        HOSTID1.to_string().replace("-", ""),
+        HOSTID1.to_string().replace('-', ""),
         "should match host ID of NVMe client"
     );
 
     mayastor
         .spawn(async move {
-            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
+            bdev_io::write_some(NXNAME, 0, 0xff)
                 .await
                 .expect("writes should still succeed");
-            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
+            bdev_io::read_some(NXNAME, 0, 0xff)
                 .await
                 .expect("reads should succeed");
 
-            nexus_lookup_mut(&NXNAME.to_string())
-                .unwrap()
-                .destroy()
-                .await
-                .unwrap();
+            nexus_lookup_mut(NXNAME).unwrap().destroy().await.unwrap();
         })
         .await;
 
@@ -510,7 +499,7 @@ async fn nexus_io_resv_preempt() {
     common::delete_file(&[DISKNAME1.into(), PTPL_HOST_DIR.into()]);
     common::truncate_file(DISKNAME1, 64 * 1024);
 
-    let ptpl_dir = |ms| format!("{}/{}", PTPL_CONTAINER_DIR, ms);
+    let ptpl_dir = |ms| format!("{PTPL_CONTAINER_DIR}/{ms}");
 
     let test = Builder::new()
         .name("nexus_io_resv_preempt_test")
@@ -578,26 +567,22 @@ async fn nexus_io_resv_preempt() {
             nvme_params.set_preempt_policy(NexusNvmePreemption::Holder);
             // create nexus on local node with remote replica as child
             nexus_create_v2(
-                &NXNAME.to_string(),
+                NXNAME,
                 32 * 1024 * 1024,
                 NEXUS_UUID,
                 nvme_params,
-                &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID)],
+                &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
                 None,
             )
             .await
             .unwrap();
-            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
-                .await
-                .unwrap();
-            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
-                .await
-                .unwrap();
+            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
         })
         .await;
 
     // Connect to remote replica to check key registered
-    let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
+    let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
 
     nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
@@ -620,7 +605,7 @@ async fn nexus_io_resv_preempt() {
     );
     assert_eq!(
         v["regctlext"][0]["hostid"].as_str().unwrap(),
-        HOSTID0.to_string().replace("-", ""),
+        HOSTID0.to_string().replace('-', ""),
         "should match host ID of NVMe client"
     );
     assert_eq!(
@@ -640,11 +625,8 @@ async fn nexus_io_resv_preempt() {
             max_cntl_id: 0xffef,
             resv_key: resv_key2,
             preempt_key: 0,
-            children: [format!(
-                "nvmf://{}:8420/{}:{}",
-                ip0, HOSTNQN, REPL_UUID
-            )]
-            .to_vec(),
+            children: [format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")]
+                .to_vec(),
             nexus_info_key: "".to_string(),
             resv_type: Some(NvmeReservation::ExclusiveAccess as i32),
             preempt_policy: NexusNvmePreemption::Holder as i32,
@@ -675,7 +657,7 @@ async fn nexus_io_resv_preempt() {
     );
     assert_eq!(
         v2["regctlext"][0]["hostid"].as_str().unwrap(),
-        HOSTID2.to_string().replace("-", ""),
+        HOSTID2.to_string().replace('-', ""),
         "should match host ID of NVMe client"
     );
 
@@ -683,10 +665,10 @@ async fn nexus_io_resv_preempt() {
     // shutdown.
     mayastor
         .spawn(async move {
-            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
+            bdev_io::write_some(NXNAME, 0, 0xff)
                 .await
                 .expect_err("writes should fail");
-            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
+            bdev_io::read_some(NXNAME, 0, 0xff)
                 .await
                 .expect_err("reads should fail");
         })
@@ -697,7 +679,7 @@ async fn nexus_io_resv_preempt() {
 
     mayastor
         .spawn(async move {
-            let nexus = nexus_lookup_mut(&NXNAME.to_string()).unwrap();
+            let nexus = nexus_lookup_mut(NXNAME).unwrap();
 
             // Make sure nexus is in Shutdown state.
             assert_eq!(
@@ -775,7 +757,7 @@ async fn nexus_io_resv_preempt() {
     );
     assert_eq!(
         v2["regctlext"][0]["hostid"].as_str().unwrap(),
-        HOSTID2.to_string().replace("-", ""),
+        HOSTID2.to_string().replace('-', ""),
         "should match host ID of NVMe client"
     );
 
@@ -861,24 +843,17 @@ async fn nexus_io_resv_preempt_tabled() {
                     nvme_params.set_preempt_policy(NexusNvmePreemption::Holder);
                     // create nexus on local node with remote replica as child
                     nexus_create_v2(
-                        &NXNAME.to_string(),
+                        NXNAME,
                         32 * 1024 * 1024,
                         NEXUS_UUID,
                         nvme_params,
-                        &[format!(
-                            "nvmf://{}:8420/{}:{}",
-                            ip0, HOSTNQN, REPL_UUID
-                        )],
+                        &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
                         None,
                     )
                     .await
                     .unwrap();
-                    bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
-                        .await
-                        .unwrap();
-                    bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
-                        .await
-                        .unwrap();
+                    bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+                    bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
                 })
                 .await;
         } else {
@@ -893,8 +868,7 @@ async fn nexus_io_resv_preempt_tabled() {
                     resv_key,
                     preempt_key: 0,
                     children: [format!(
-                        "nvmf://{}:8420/{}:{}",
-                        ip0, HOSTNQN, REPL_UUID
+                        "nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}"
                     )]
                     .to_vec(),
                     nexus_info_key: "".to_string(),
@@ -906,7 +880,7 @@ async fn nexus_io_resv_preempt_tabled() {
         }
 
         // Connect to remote replica to check key registered
-        let rep_nqn = format!("{}:{}", HOSTNQN, REPL_UUID);
+        let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
 
         nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
@@ -945,7 +919,7 @@ async fn nexus_io_resv_preempt_tabled() {
                 let host = if local { HOSTID0 } else { HOSTID2 };
                 assert_eq!(
                     entry["hostid"].as_str().unwrap(),
-                    host.to_string().replace("-", ""),
+                    host.to_string().replace('-', ""),
                     "should match host ID of NVMe client"
                 );
                 assert_eq!(
@@ -1072,7 +1046,7 @@ async fn nexus_io_write_zeroes() {
 
     let mayastor = get_ms();
     let ip0 = hdls[0].endpoint.ip();
-    let nexus_name = format!("nexus-{}", NEXUS_UUID);
+    let nexus_name = format!("nexus-{NEXUS_UUID}");
     let name = nexus_name.clone();
     mayastor
         .spawn(async move {
@@ -1086,14 +1060,9 @@ async fn nexus_io_write_zeroes() {
             .unwrap();
 
             let pool = Lvs::lookup(POOL_NAME).unwrap();
-            pool.create_lvol(
-                &REPL_UUID.to_string(),
-                32 * 1024 * 1024,
-                None,
-                true,
-            )
-            .await
-            .unwrap();
+            pool.create_lvol(REPL_UUID, 32 * 1024 * 1024, None, true)
+                .await
+                .unwrap();
 
             // create nexus on local node with 2 children, local and remote
             nexus_create(
@@ -1101,8 +1070,8 @@ async fn nexus_io_write_zeroes() {
                 32 * 1024 * 1024,
                 Some(NEXUS_UUID),
                 &[
-                    format!("loopback:///{}", REPL_UUID),
-                    format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, REPL_UUID),
+                    format!("loopback:///{REPL_UUID}"),
+                    format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}"),
                 ],
             )
             .await

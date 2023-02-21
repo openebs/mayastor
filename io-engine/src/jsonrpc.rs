@@ -118,10 +118,10 @@ impl std::error::Error for JsonRpcError {}
 pub type Result<T, E = JsonRpcError> = std::result::Result<T, E>;
 
 pub fn print_error_chain(err: &dyn std::error::Error) -> String {
-    let mut msg = format!("{}", err);
+    let mut msg = format!("{err}");
     let mut opt_source = err.source();
     while let Some(source) = opt_source {
-        msg = format!("{}: {}", msg, source);
+        msg = format!("{msg}: {source}");
         opt_source = source.source();
     }
     msg

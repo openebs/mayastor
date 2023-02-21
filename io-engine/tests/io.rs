@@ -12,7 +12,7 @@ async fn io_test() {
     let ms = common::MayastorTest::new(MayastorCliArgs::default());
 
     let output = Command::new("truncate")
-        .args(&["-s", "64m", DISKNAME])
+        .args(["-s", "64m", DISKNAME])
         .output()
         .expect("failed exec truncate");
 
@@ -20,7 +20,7 @@ async fn io_test() {
     ms.spawn(async { start().await }).await;
 
     let output = Command::new("rm")
-        .args(&["-rf", DISKNAME])
+        .args(["-rf", DISKNAME])
         .output()
         .expect("failed delete test file");
 

@@ -26,7 +26,7 @@ pub async fn handler(
         ("progress", Some(args)) => progress(ctx, args).await,
         ("history", Some(args)) => history(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
@@ -469,8 +469,7 @@ async fn stats(
         .to_string();
 
     ctx.v2(&format!(
-        "Getting the rebuild stats of child {} on nexus {}",
-        uri, uuid
+        "Getting the rebuild stats of child {uri} on nexus {uuid}",
     ));
     let response = ctx
         .client

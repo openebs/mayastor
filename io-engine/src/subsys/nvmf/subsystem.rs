@@ -191,7 +191,7 @@ impl NvmfSubsystem {
         let sn = if let Some(nn) = Bdev::<()>::lookup_by_name(uuid) {
             make_sn(nn.uuid().as_bytes())
         } else {
-            make_sn(&uuid)
+            make_sn(uuid)
         };
 
         unsafe { spdk_nvmf_subsystem_set_sn(ss.as_ptr(), sn.as_ptr()) }
@@ -389,7 +389,7 @@ impl NvmfSubsystem {
             .to_result(|errno| Error::Subsystem {
                 source: Errno::from_i32(errno),
                 nqn: self.get_nqn(),
-                msg: format!("failed to add allowed host: {:?}", host),
+                msg: format!("failed to add allowed host: {host:?}"),
             })
     }
 
@@ -410,7 +410,7 @@ impl NvmfSubsystem {
         .to_result(|errno| Error::Subsystem {
             source: Errno::from_i32(errno),
             nqn: self.get_nqn(),
-            msg: format!("failed to remove allowed host: {:?}", host),
+            msg: format!("failed to remove allowed host: {host:?}"),
         })?;
         Ok(())
     }
@@ -460,7 +460,7 @@ impl NvmfSubsystem {
         .to_result(|e| Error::Subsystem {
             source: Errno::from_i32(e),
             nqn: self.get_nqn(),
-            msg: format!("failed to set ANA reporting, enable {}", enable),
+            msg: format!("failed to set ANA reporting, enable {enable}"),
         })?;
         Ok(())
     }
@@ -481,10 +481,7 @@ impl NvmfSubsystem {
         .to_result(|e| Error::Subsystem {
             source: Errno::from_i32(e),
             nqn: self.get_nqn(),
-            msg: format!(
-                "failed to set controller ID range [{}, {}]",
-                cntlid_min, cntlid_max
-            ),
+            msg: format!("failed to set controller ID range [{cntlid_min}, {cntlid_max}]"),
         })?;
         Ok(())
     }
@@ -573,7 +570,7 @@ impl NvmfSubsystem {
                 0 => r.await.unwrap().to_result(|e| Error::Subsystem {
                     source: Errno::from_i32(e),
                     nqn: self.get_nqn(),
-                    msg: format!("{} failed", op),
+                    msg: format!("{op} failed"),
                 }),
                 libc::EBUSY => Err(Error::SubsystemBusy {
                     nqn: self.get_nqn(),
@@ -582,7 +579,7 @@ impl NvmfSubsystem {
                 e => Err(Error::Subsystem {
                     source: Errno::from_i32(e),
                     nqn: self.get_nqn(),
-                    msg: format!("failed to initiate {}", op),
+                    msg: format!("failed to initiate {op}"),
                 }),
             }
         };
@@ -808,11 +805,7 @@ impl NvmfSubsystem {
     pub fn uri_endpoints(&self) -> Option<Vec<String>> {
         if let Some(v) = self.listeners_to_vec() {
             let nqn = self.get_nqn();
-            Some(
-                v.iter()
-                    .map(|t| format!("{}/{}", t, nqn))
-                    .collect::<Vec<_>>(),
-            )
+            Some(v.iter().map(|t| format!("{t}/{nqn}")).collect::<Vec<_>>())
         } else {
             None
         }
@@ -820,5 +813,5 @@ impl NvmfSubsystem {
 }
 
 fn gen_nqn(id: &str) -> String {
-    format!("{}:{}", NVME_NQN_PREFIX, id)
+    format!("{NVME_NQN_PREFIX}:{id}")
 }

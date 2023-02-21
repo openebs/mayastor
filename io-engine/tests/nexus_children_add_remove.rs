@@ -53,8 +53,8 @@ async fn remove_children_from_nexus() {
             60 * 1024 * 1024,
             None,
             &[
-                format!("uring:///{}", DISKNAME1),
-                format!("uring:///{}", DISKNAME2),
+                format!("uring:///{DISKNAME1}"),
+                format!("uring:///{DISKNAME2}"),
             ],
         )
         .await
@@ -75,7 +75,7 @@ async fn remove_children_from_nexus() {
     ms.spawn(async {
         let nexus =
             nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
-        nexus.remove_child(&format!("uring:///{}", DISKNAME1)).await
+        nexus.remove_child(&format!("uring:///{DISKNAME1}")).await
     })
     .await
     .expect("failed to remove child from nexus");
@@ -83,7 +83,7 @@ async fn remove_children_from_nexus() {
     ms.spawn(async {
         let nexus =
             nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
-        nexus.remove_child(&format!("uring:///{}", DISKNAME2)).await
+        nexus.remove_child(&format!("uring:///{DISKNAME2}")).await
     })
     .await
     .expect_err("cannot remove the last child from nexus");
@@ -93,7 +93,7 @@ async fn remove_children_from_nexus() {
         let nexus =
             nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
         nexus
-            .add_child(&format!("uring:///{}", DISKNAME1), true)
+            .add_child(&format!("uring:///{DISKNAME1}"), true)
             .await
     })
     .await
@@ -102,7 +102,7 @@ async fn remove_children_from_nexus() {
     ms.spawn(async {
         let nexus =
             nexus_lookup_mut("remove_from_nexus").expect("nexus is not found!");
-        nexus.remove_child(&format!("uring:///{}", DISKNAME2)).await
+        nexus.remove_child(&format!("uring:///{DISKNAME2}")).await
     })
     .await
     .expect_err("cannot remove the last healthy child from nexus");
@@ -133,8 +133,8 @@ async fn nexus_add_child() {
             60 * 1024 * 1024,
             None,
             &[
-                format!("uring:///{}", DISKNAME1),
-                format!("uring:///{}", DISKNAME2),
+                format!("uring:///{DISKNAME1}"),
+                format!("uring:///{DISKNAME2}"),
             ],
         )
         .await
@@ -156,7 +156,7 @@ async fn nexus_add_child() {
         let nexus =
             nexus_lookup_mut("nexus_add_child").expect("nexus is not found!");
         nexus
-            .add_child(&format!("uring:///{}", DISKNAME3), false)
+            .add_child(&format!("uring:///{DISKNAME3}"), false)
             .await
     })
     .await

@@ -176,7 +176,7 @@ impl ReplicaBuilder {
             .ok_or_else(|| {
                 Status::new(
                     Code::NotFound,
-                    format!("Replica '{}' not found", uuid),
+                    format!("Replica '{uuid}' not found"),
                 )
             })
     }

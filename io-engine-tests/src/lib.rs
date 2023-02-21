@@ -129,8 +129,8 @@ pub fn mayastor_test_init() {
         std::env::var("PATH").map(|paths| {
             paths
                 .split(':')
-                .map(|p| format!("{}/{}", p, name))
-                .any(|p| std::fs::metadata(&p).is_ok())
+                .map(|p| format!("{p}/{name}"))
+                .any(|p| std::fs::metadata(p).is_ok())
         })
     }
 
@@ -148,11 +148,11 @@ pub fn mayastor_test_init() {
 pub fn dd_random_file(path: &str, bs: u32, size: u64) {
     let count = size * 1024 / bs as u64;
     let output = Command::new("dd")
-        .args(&[
+        .args([
             "if=/dev/urandom",
-            &format!("of={}", path),
-            &format!("bs={}", bs),
-            &format!("count={}", count),
+            &format!("of={path}"),
+            &format!("bs={bs}"),
+            &format!("count={count}"),
         ])
         .output()
         .expect("failed exec dd");
@@ -162,7 +162,7 @@ pub fn dd_random_file(path: &str, bs: u32, size: u64) {
 
 pub fn truncate_file(path: &str, size: u64) {
     let output = Command::new("truncate")
-        .args(&["-s", &format!("{}m", size / 1024), path])
+        .args(["-s", &format!("{}m", size / 1024), path])
         .output()
         .expect("failed exec truncate");
 
@@ -171,7 +171,7 @@ pub fn truncate_file(path: &str, size: u64) {
 
 pub fn truncate_file_bytes(path: &str, size: u64) {
     let output = Command::new("truncate")
-        .args(&["-s", &format!("{}", size), path])
+        .args(["-s", &format!("{size}"), path])
         .output()
         .expect("failed exec truncate");
     assert!(output.status.success());
@@ -179,7 +179,7 @@ pub fn truncate_file_bytes(path: &str, size: u64) {
 
 pub fn fscheck(device: &str) {
     let output = Command::new("fsck")
-        .args(&[device, "-n"])
+        .args([device, "-n"])
         .output()
         .expect("fsck exec failed");
 
@@ -199,7 +199,7 @@ pub fn mkfs(path: &str, fstype: &str) -> bool {
     };
 
     let output = Command::new(fs)
-        .args(&args)
+        .args(args)
         .output()
         .expect("mkfs exec error");
 
@@ -210,7 +210,7 @@ pub fn mkfs(path: &str, fstype: &str) -> bool {
 
 pub fn delete_file(disks: &[String]) {
     let output = Command::new("rm")
-        .args(&["-rf"])
+        .args(["-rf"])
         .args(disks)
         .output()
         .expect("failed to execute rm");
@@ -224,7 +224,7 @@ pub fn delete_file(disks: &[String]) {
 
 pub fn compare_files(a: &str, b: &str) {
     let output = Command::new("cmp")
-        .args(&[a, b])
+        .args([a, b])
         .output()
         .expect("failed to execute \"cmp\"");
 
@@ -397,7 +397,7 @@ pub fn compare_devices(
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    assert_eq!(exit, 0, "stdout: {stdout}\nstderr: {stderr}");
     stdout
 }
 
@@ -412,7 +412,7 @@ pub fn device_path_from_uri(device_uri: &str) -> String {
 
 pub fn get_device_size(nexus_device: &str) -> u64 {
     let output = Command::new("blockdev")
-        .args(&["--getsize64", nexus_device])
+        .args(["--getsize64", nexus_device])
         .output()
         .expect("failed to get block device size");
 

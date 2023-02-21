@@ -68,10 +68,7 @@ async fn nexus_thin_nospc_local_single() {
     // Write more than pool size. Must result in ENOSPC.
     let res = test_write_to_nexus(&nex_0, 80, 1).await;
 
-    assert_eq!(
-        res.unwrap_err().raw_os_error().unwrap(),
-        libc::ENOSPC as i32
-    );
+    assert_eq!(res.unwrap_err().raw_os_error().unwrap(), libc::ENOSPC);
 }
 
 #[tokio::test]
@@ -131,10 +128,7 @@ async fn nexus_thin_nospc_remote_single() {
     // Write more than pool size. Must result in ENOSPC.
     let res = test_write_to_nexus(&nex_0, 80, 1).await;
 
-    assert_eq!(
-        res.unwrap_err().raw_os_error().unwrap(),
-        libc::ENOSPC as i32
-    );
+    assert_eq!(res.unwrap_err().raw_os_error().unwrap(), libc::ENOSPC);
 }
 
 #[tokio::test]

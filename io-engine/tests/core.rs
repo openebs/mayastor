@@ -190,16 +190,14 @@ async fn core_4() {
                             .add_child(BDEVNAME2, true)
                             .await
                             .expect_err(&format!(
-                                "Case {} - Child should not have been added",
-                                test_case_index
+                                "Case {test_case_index} - Child should not have been added",
                             ));
                     }
 
                     nexus.destroy().await.unwrap();
                 } else {
                     create.expect_err(&format!(
-                        "Case {} - Nexus should not have been created",
-                        test_case_index
+                        "Case {test_case_index} - Nexus should not have been created",
                     ));
                 }
             })

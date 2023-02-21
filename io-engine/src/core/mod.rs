@@ -96,10 +96,10 @@ where
     /// loops through the error chain and formats into a single string
     /// containing all the lower level errors
     fn verbose(&self) -> String {
-        let mut msg = format!("{}", self);
+        let mut msg = format!("{self}");
         let mut opt_source = self.source();
         while let Some(source) = opt_source {
-            msg = format!("{}: {}", msg, source);
+            msg = format!("{msg}: {source}");
             opt_source = source.source();
         }
         msg
@@ -293,7 +293,7 @@ pub enum IoCompletionStatus {
 
 impl From<NvmeStatus> for IoCompletionStatus {
     fn from(s: NvmeStatus) -> Self {
-        if s == NvmeStatus::VendorSpecific(libc::ENOSPC as i32) {
+        if s == NvmeStatus::VendorSpecific(libc::ENOSPC) {
             IoCompletionStatus::LvolError(LvolFailure::NoSpace)
         } else {
             IoCompletionStatus::NvmeError(s)

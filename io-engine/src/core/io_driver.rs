@@ -327,8 +327,7 @@ impl Builder {
 
         (0 .. self.qd).for_each(|offset| {
             queue.push(Io {
-                buf: DmaBuf::new(self.io_size as u64, bdev.alignment())
-                    .unwrap(),
+                buf: DmaBuf::new(self.io_size, bdev.alignment()).unwrap(),
                 iot: self.iot,
                 offset,
                 job: NonNull::dangling(),

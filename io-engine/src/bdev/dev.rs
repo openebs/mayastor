@@ -81,15 +81,12 @@ pub(crate) fn reject_unknown_parameters(
     if !parameters.is_empty() {
         let invalid_parameters = parameters
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join(", ");
         Err(BdevError::InvalidUri {
             uri: url.to_string(),
-            message: format!(
-                "unrecognized parameter(s): {}",
-                invalid_parameters
-            ),
+            message: format!("unrecognized parameter(s): {invalid_parameters}"),
         })
     } else {
         Ok(())

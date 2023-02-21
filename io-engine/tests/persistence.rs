@@ -351,7 +351,7 @@ async fn persistent_store_connection() {
 async fn start_infrastructure(test_name: &str) -> ComposeTest {
     common::composer_init();
 
-    let etcd_endpoint = format!("http://etcd.{}:2379", test_name);
+    let etcd_endpoint = format!("http://etcd.{test_name}:2379");
     let test = Builder::new()
         .name(test_name)
         .add_container_spec(

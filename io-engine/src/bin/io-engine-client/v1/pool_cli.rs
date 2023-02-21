@@ -55,7 +55,7 @@ pub async fn handler(
         ("destroy", Some(args)) => destroy(ctx, args).await,
         ("list", Some(args)) => list(ctx, args).await,
         (cmd, _) => {
-            Err(Status::not_found(format!("command {} does not exist", cmd)))
+            Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }

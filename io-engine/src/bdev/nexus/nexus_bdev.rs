@@ -1107,7 +1107,7 @@ impl<'n> BdevOps for Nexus<'n> {
             return;
         }
 
-        let self_ptr = unsafe { unsafe_static_ptr(&*self) };
+        let self_ptr = unsafe { unsafe_static_ptr(&self) };
 
         Reactor::block_on(async move {
             let self_ref = unsafe { &mut *self_ptr };
