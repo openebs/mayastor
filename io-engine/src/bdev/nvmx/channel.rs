@@ -124,12 +124,21 @@ impl ToString for QPairState {
     }
 }
 
+/// Allows interaction with the asynchronous connect loop
+/// to cancel connection when this I/O qpair is dropped while
+/// active asynchronous connection is in progress.
+#[derive(Debug)]
+struct IoQpairDropConnector {
+    sender: oneshot::Sender<()>,
+}
+
 #[derive(Debug)]
 pub struct IoQpair {
     qpair: NonNull<spdk_nvme_qpair>,
     ctrlr_handle: SpdkNvmeController,
     state: QPairState,
     connect_waiters: Vec<oneshot::Sender<Result<(), CoreError>>>,
+    drop_connector: Option<IoQpairDropConnector>,
 }
 
 impl IoQpair {
@@ -182,6 +191,7 @@ impl IoQpair {
                 ctrlr_handle,
                 state: QPairState::Disconnected,
                 connect_waiters: Vec::new(),
+                drop_connector: None,
             })
         } else {
             error!(?ctrlr_name, "Failed to allocate I/O qpair for controller",);
@@ -289,7 +299,17 @@ impl IoQpair {
             });
         }
 
+        // Prepare for potential I/O qpair closure while waiting for
+        // connection to complete.
+        let (drop_sender, drop_receiver) = oneshot::channel::<()>();
+        let drop_connector = IoQpairDropConnector {
+            sender: drop_sender,
+        };
+
         let qpair = self.qpair.as_ptr();
+        let qpair_drop = self.qpair.as_ptr();
+
+        self.drop_connector = Some(drop_connector);
 
         let poller = PollerBuilder::new()
             .with_name("io_qpair_connect_poller")
@@ -329,12 +349,36 @@ impl IoQpair {
             (*connect_arg).poller = Some(poller);
         }
 
-        let r = receiver
-            .await
-            .expect("I/O qpair connection sender disappeared")
-            .map_err(|e| CoreError::OpenBdev {
-                source: e,
-            });
+        let r = tokio::select! {
+            _ = drop_receiver => {
+                warn!(?qpair_drop, "I/O channel is closed while connecting I/O qpair, bailing out");
+
+                // Drop context object transformed previously into a raw pointer.
+                unsafe {
+                    let ctx = &mut *connect_arg;
+
+                    // Stop the poller and notify the listener.
+                    ctx.poller.take();
+
+                    drop(Box::from_raw(connect_arg));
+
+                    // Drop I/O qpair since IoQpair::Drop delegated I/O qpair removal to us.
+                    spdk_nvme_ctrlr_free_io_qpair(qpair);
+                }
+
+                return Err(CoreError::OpenBdev {
+                    source: Errno::ENODEV
+                });
+            },
+
+            res = receiver => {
+                res.expect("I/O qpair connection sender disappeared")
+                    .map_err(|e| CoreError::OpenBdev { source: e })
+            }
+        };
+
+        // Connection complete, unset drop context.
+        self.drop_connector = None;
 
         // Update QPairState according to the connection result.
         self.state = if r.is_ok() {
@@ -455,8 +499,56 @@ impl Drop for IoQpair {
             debug!(?qpair, "transport requests successfully aborted,");
             spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
             debug!(?qpair, "qpair successfully disconnected,");
-            spdk_nvme_ctrlr_free_io_qpair(qpair);
-            debug!(?qpair, "qpair successfully freed,");
+
+            // In case there is asynchronous connect request is in progress for
+            // this I/O qpair, interrupt connection request and delegate I/O
+            // qpair removal to the connection initiator.
+            let destroy_qpair =
+                if let Some(drop_connector) = self.drop_connector.take() {
+                    debug!(
+                        ?qpair,
+                        "Notifying connection initiator about I/Q qpair drop"
+                    );
+                    // If connection initiator can't be notified successfully,
+                    // deallocate I/O qpair without delegation.
+                    if drop_connector.sender.send(()).is_err() {
+                        error!(
+                        ?qpair,
+                        "Failed to notify asynchronous connection initiator"
+                    );
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    true
+                };
+
+            // Wake up all waiters asynchronously waiting on this qpair.
+            if !self.connect_waiters.is_empty() {
+                let waiters: Vec<oneshot::Sender<Result<(), CoreError>>> =
+                    self.connect_waiters.drain(..).collect();
+
+                for w in waiters {
+                    debug!(qpair=?self, "Notifying connection waiters about I/Q qpair drop");
+                    if let Err(error) = w.send(Err(CoreError::OpenBdev {
+                        source: Errno::ENODEV,
+                    })) {
+                        error!(?error, "Failed to notify a connection waiter");
+                    }
+                    debug!(?qpair, "All connection waiters are notified");
+                }
+            }
+
+            if destroy_qpair {
+                spdk_nvme_ctrlr_free_io_qpair(qpair);
+                debug!(?qpair, "qpair successfully freed,");
+            } else {
+                debug!(
+                    ?qpair,
+                    "deferring qpair free to async connect handler,"
+                );
+            }
         }
 
         debug!(?qpair, "qpair successfully dropped,");
@@ -504,6 +596,9 @@ impl NvmeIoChannelInner<'_> {
         if self.qpair.is_some() {
             // Remove qpair and trigger its deallocation via drop().
             let qpair = self.qpair.take().unwrap();
+
+            self.poll_group.remove_qpair(&qpair);
+
             debug!(
                 "dropping qpair {:p} ({}) I/O requests pending)",
                 qpair.as_ptr(),
