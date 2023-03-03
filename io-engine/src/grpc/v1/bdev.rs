@@ -153,11 +153,7 @@ impl BdevRpc for BdevService {
                 })
             }
 
-            Err(_) => {
-                return Err(Status::invalid_argument(protocol.to_string()))
-            }
-
-            _ => unreachable!(),
+            _ => return Err(Status::invalid_argument(protocol.to_string())),
         }?;
 
         rx.await
