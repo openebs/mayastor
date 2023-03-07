@@ -582,10 +582,22 @@ async fn nexus_children_2(
                         v1::nexus::ChildStateReason::from_i32(c.state_reason)
                             .unwrap(),
                     );
-                    vec![c.uri.clone(), state.to_string(), reason.to_string()]
+                    let fault_timestamp = match &c.fault_timestamp {
+                        Some(d) => d.to_string(),
+                        None => "-".to_string(),
+                    };
+                    vec![
+                        c.uri.clone(),
+                        state.to_string(),
+                        reason.to_string(),
+                        fault_timestamp,
+                    ]
                 })
                 .collect();
-            ctx.print_list(vec!["NAME", "STATE", "REASON"], table);
+            ctx.print_list(
+                vec!["NAME", "STATE", "REASON", "LAST_FAULTED_AT"],
+                table,
+            );
         }
     };
 

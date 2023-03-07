@@ -4,6 +4,7 @@ use std::{
     marker::PhantomData,
 };
 
+use chrono::{DateTime, Utc};
 use crossbeam::atomic::AtomicCell;
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use nix::errno::Errno;
@@ -215,6 +216,8 @@ pub struct NexusChild<'c> {
     /// previous state of the child
     #[serde(skip_serializing)]
     prev_state: AtomicCell<ChildState>,
+    /// last fault timestamp if this child went faulted
+    pub faulted_at: Option<DateTime<Utc>>,
     /// TODO
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
@@ -805,6 +808,7 @@ impl<'c> NexusChild<'c> {
         }
 
         self.set_state(ChildState::Faulted(reason));
+        self.faulted_at = Some(Utc::now());
     }
 
     /// Set the child as temporarily offline
@@ -1012,6 +1016,7 @@ impl<'c> NexusChild<'c> {
             state: AtomicCell::new(ChildState::Init),
             sync_state: ChildSyncState::Synced,
             prev_state: AtomicCell::new(ChildState::Init),
+            faulted_at: None,
             remove_channel: mpsc::channel(0),
             _c: Default::default(),
         }
