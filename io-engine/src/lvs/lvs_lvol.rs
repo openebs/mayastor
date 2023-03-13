@@ -289,18 +289,184 @@ impl Lvol {
             .expect("Receiver is gone");
     }
 
-    /// returns the underlying bdev of the lvol
-    pub(crate) fn as_bdev(&self) -> UntypedBdev {
-        Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
+    /// Get a `PtplFileOps` from `&self`.
+    pub(crate) fn ptpl(&self) -> impl PtplFileOps {
+        LvolPtpl::from(self)
+    }
+}
+
+struct LvolPtpl {
+    lvs: super::lvs_store::LvsPtpl,
+    uuid: String,
+}
+impl LvolPtpl {
+    fn lvs(&self) -> &super::lvs_store::LvsPtpl {
+        &self.lvs
+    }
+    fn uuid(&self) -> &str {
+        &self.uuid
+    }
+}
+impl From<&Lvol> for LvolPtpl {
+    fn from(lvol: &Lvol) -> Self {
+        Self {
+            lvs: (&lvol.lvs()).into(),
+            uuid: lvol.uuid(),
+        }
+    }
+}
+impl PtplFileOps for LvolPtpl {
+    fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
+        if let Some(path) = self.path() {
+            self.lvs().create()?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            return Ok(Some(PtplProps::new(path)));
+        }
+        Ok(None)
     }
 
-    /// return the size of the lvol in bytes
-    pub fn size(&self) -> u64 {
+    fn destroy(&self) -> Result<(), std::io::Error> {
+        if let Some(path) = self.path() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn subpath(&self) -> std::path::PathBuf {
+        self.lvs()
+            .subpath()
+            .join("replica/")
+            .join(self.uuid())
+            .with_extension("json")
+    }
+}
+
+#[async_trait(?Send)]
+pub trait LogicalVolume {
+    /// returns the name of the Logical Volume
+    fn name(&self) -> String;
+
+    /// returns the UUID of the Logical Volume
+    fn uuid(&self) -> String;
+
+    /// return lvs for the Logical Volume
+    fn lvs(&self) -> Lvs;
+
+    /// returns the pool name of the Logical Volume
+    fn pool_name(&self) -> String;
+
+    /// returns the pool uuid of the Logical Volume
+    fn pool_uuid(&self) -> String;
+
+    /// returns a boolean indicating if the Logical Volume is thin provisioned
+    fn is_thin(&self) -> bool;
+
+    /// returns a boolean indicating if the Logical Volume is read-only
+    fn is_read_only(&self) -> bool;
+
+    /// return the size of the Logical Volume in bytes
+    fn size(&self) -> u64;
+
+    /// Returns Lvol disk space usage.
+    fn usage(&self) -> LvolSpaceUsage;
+}
+
+#[async_trait(?Send)]
+pub trait SpdkLvol: LogicalVolume + Share {
+    /// returns the underlying bdev of the lvol
+    fn as_bdev(&self) -> UntypedBdev;
+    // wipe the first 8MB if unmap is not supported on failure the operation
+    // needs to be repeated
+    async fn wipe_super(&self) -> Result<(), Error>;
+
+    /// returns a boolean indicating if the lvol is a snapshot
+    fn is_snapshot(&self) -> bool;
+
+    /// get/read a property from this lvol from disk
+    async fn get(&self, prop: PropName) -> Result<PropValue, Error>;
+
+    /// destroy the lvol
+    async fn destroy(mut self) -> Result<String, Error>;
+
+    /// write the property prop on to the lvol but do not sync the metadata yet.
+    async fn set_no_sync(
+        self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error>;
+
+    /// write the property prop on to the lvol which is stored on disk
+    async fn set(
+        mut self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error>;
+
+    /// callback executed after synchronizing the lvols metadata
+    extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32);
+
+    /// write the property prop on to the lvol which is stored on disk
+    async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error>;
+
+    /// Format snapshot name
+    /// base_name is the nexus or replica UUID
+    fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String;
+
+    /// Create a snapshot
+    async fn create_snapshot(&self, nvmf_req: &NvmfReq, snapshot_name: &str);
+
+    /// Create snapshot for local replica
+    async fn create_snapshot_local(
+        &self,
+        io: *mut spdk_bdev_io,
+        snapshot_name: &str,
+    );
+}
+
+#[async_trait(? Send)]
+impl LogicalVolume for Lvol {
+    /// returns the name of the Snapshot
+    fn name(&self) -> String {
+        self.as_bdev().name().to_string()
+    }
+
+    /// returns the UUID of the Snapshot
+    fn uuid(&self) -> String {
+        self.as_bdev().uuid_as_string()
+    }
+
+    /// return lvs for the Logical Volume
+    fn lvs(&self) -> Lvs {
+        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
+    }
+
+    /// returns the pool name of the Snapshot
+    fn pool_name(&self) -> String {
+        self.lvs().name().to_string()
+    }
+
+    /// returns the pool uuid of the Snapshot
+    fn pool_uuid(&self) -> String {
+        self.lvs().uuid()
+    }
+
+    /// returns a boolean indicating if the Logical Volume is thin provisioned
+    fn is_thin(&self) -> bool {
+        self.as_inner_ref().thin_provision
+    }
+
+    /// returns a boolean indicating if the Logical Volume is read-only
+    fn is_read_only(&self) -> bool {
+        unsafe { spdk_blob_is_read_only(self.blob_checked()) }
+    }
+
+    /// return the size of the Snapshot in bytes
+    fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
     }
 
     /// Returns Lvol disk space usage.
-    pub fn usage(&self) -> LvolSpaceUsage {
+    fn usage(&self) -> LvolSpaceUsage {
         let bs = self.lvs().blob_store();
         let blob = self.blob_checked();
         unsafe {
@@ -317,35 +483,17 @@ impl Lvol {
             }
         }
     }
+}
 
-    /// returns the name of the bdev
-    pub fn name(&self) -> String {
-        self.as_bdev().name().to_string()
+#[async_trait(? Send)]
+impl SpdkLvol for Lvol {
+    /// returns the underlying bdev of the lvol
+    fn as_bdev(&self) -> UntypedBdev {
+        Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
     }
-
-    /// returns the UUID of the lvol
-    pub fn uuid(&self) -> String {
-        self.as_bdev().uuid_as_string()
-    }
-
-    /// TODO
-    pub fn lvs(&self) -> Lvs {
-        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
-    }
-
-    /// returns the pool name of the lvol
-    pub fn pool_name(&self) -> String {
-        self.lvs().name().to_string()
-    }
-
-    /// returns the pool uuid of the lvol
-    pub fn pool_uuid(&self) -> String {
-        self.lvs().uuid()
-    }
-
     // wipe the first 8MB if unmap is not supported on failure the operation
     // needs to be repeated
-    pub async fn wipe_super(&self) -> Result<(), Error> {
+    async fn wipe_super(&self) -> Result<(), Error> {
         if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
             let hdl = Bdev::open(&self.as_bdev(), true)
                 .and_then(|desc| desc.into_handle())
@@ -387,158 +535,13 @@ impl Lvol {
         Ok(())
     }
 
-    /// returns a boolean indicating if the lvol is thin provisioned
-    pub fn is_thin(&self) -> bool {
-        self.as_inner_ref().thin_provision
-    }
-
-    /// returns a boolean indicating if the lvol is read-only
-    pub fn is_read_only(&self) -> bool {
-        unsafe { spdk_blob_is_read_only(self.blob_checked()) }
-    }
-
     /// returns a boolean indicating if the lvol is a snapshot
-    pub fn is_snapshot(&self) -> bool {
+    fn is_snapshot(&self) -> bool {
         unsafe { spdk_blob_is_snapshot(self.blob_checked()) }
     }
 
-    /// destroy the lvol
-    pub async fn destroy(mut self) -> Result<String, Error> {
-        extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
-            let sender =
-                unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
-            sender.send(errno).unwrap();
-        }
-
-        // we must always unshare before destroying bdev
-        let _ = Pin::new(&mut self).unshare().await;
-
-        let name = self.name();
-        let ptpl = self.ptpl();
-
-        let (s, r) = pair::<i32>();
-        unsafe {
-            vbdev_lvol_destroy(self.as_inner_ptr(), Some(destroy_cb), cb_arg(s))
-        };
-
-        r.await
-            .expect("lvol destroy callback is gone")
-            .to_result(|e| {
-                warn!("error while destroying lvol {}", name);
-                Error::RepDestroy {
-                    source: Errno::from_i32(e),
-                    name: name.clone(),
-                }
-            })?;
-        if let Err(error) = ptpl.destroy() {
-            tracing::error!(
-                "{}: Failed to clean up persistence through power loss for replica: {}",
-                name,
-                error
-            );
-        }
-
-        info!("destroyed lvol {}", name);
-        Ok(name)
-    }
-
-    /// callback executed after synchronizing the lvols metadata
-    extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32) {
-        let sender =
-            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
-        sender.send(errno).expect("blob cb receiver is gone");
-    }
-
-    /// write the property prop on to the lvol but do not sync the metadata yet.
-    pub async fn set_no_sync(
-        self: Pin<&mut Self>,
-        prop: PropValue,
-    ) -> Result<(), Error> {
-        let blob = self.blob_checked();
-
-        if self.is_snapshot() {
-            warn!("ignoring set property on snapshot {}", self.name());
-            return Ok(());
-        }
-        if self.is_read_only() {
-            warn!("{} is read-only", self.name());
-        }
-        match prop.clone() {
-            PropValue::Shared(val) => {
-                let name = PropName::from(&prop).to_string().into_cstring();
-                let value = if val { "true" } else { "false" }.into_cstring();
-                unsafe {
-                    spdk_blob_set_xattr(
-                        blob,
-                        name.as_ptr(),
-                        value.as_bytes_with_nul().as_ptr() as *const _,
-                        value.as_bytes_with_nul().len() as u16,
-                    )
-                }
-                .to_result(|e| Error::SetProperty {
-                    source: Errno::from_i32(e),
-                    prop: prop.into(),
-                    name: self.name(),
-                })?;
-            }
-            PropValue::AllowedHosts(hosts) => {
-                let name = PropName::from(&prop).to_string().into_cstring();
-                let value = hosts.join(",").into_cstring();
-                unsafe {
-                    spdk_blob_set_xattr(
-                        blob,
-                        name.as_ptr(),
-                        value.as_bytes_with_nul().as_ptr() as *const _,
-                        value.as_bytes_with_nul().len() as u16,
-                    )
-                }
-                .to_result(|e| Error::SetProperty {
-                    source: Errno::from_i32(e),
-                    prop: prop.into(),
-                    name: self.name(),
-                })?;
-            }
-        }
-        Ok(())
-    }
-
-    /// write the property prop on to the lvol which is stored on disk
-    pub async fn set(
-        mut self: Pin<&mut Self>,
-        prop: PropValue,
-    ) -> Result<(), Error> {
-        self.as_mut().set_no_sync(prop).await?;
-        self.sync_metadata().await
-    }
-
-    /// write the property prop on to the lvol which is stored on disk
-    pub async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error> {
-        let blob = self.blob_checked();
-
-        if self.is_snapshot() {
-            return Ok(());
-        }
-        if self.is_read_only() {
-            warn!("{} is read-only", self.name());
-        }
-
-        let (s, r) = pair::<i32>();
-        unsafe {
-            spdk_blob_sync_md(blob, Some(Self::blob_sync_cb), cb_arg(s));
-        };
-
-        r.await.expect("sync callback is gone").to_result(|e| {
-            Error::SyncProperty {
-                source: Errno::from_i32(e),
-                name: self.name(),
-            }
-        })?;
-
-        Ok(())
-    }
-
     /// get/read a property from this lvol from disk
-    pub async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
+    async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = self.blob_checked();
 
         match prop {
@@ -605,18 +608,147 @@ impl Lvol {
         }
     }
 
+    /// callback executed after synchronizing the lvols metadata
+    extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32) {
+        let sender =
+            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
+        sender.send(errno).expect("blob cb receiver is gone");
+    }
+    /// destroy the lvol
+    async fn destroy(mut self) -> Result<String, Error> {
+        extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
+            let sender =
+                unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
+            sender.send(errno).unwrap();
+        }
+
+        // we must always unshare before destroying bdev
+        let _ = Pin::new(&mut self).unshare().await;
+
+        let name = self.name();
+        let ptpl = self.ptpl();
+
+        let (s, r) = pair::<i32>();
+        unsafe {
+            vbdev_lvol_destroy(self.as_inner_ptr(), Some(destroy_cb), cb_arg(s))
+        };
+
+        r.await
+            .expect("lvol destroy callback is gone")
+            .to_result(|e| {
+                warn!("error while destroying lvol {}", name);
+                Error::RepDestroy {
+                    source: Errno::from_i32(e),
+                    name: name.clone(),
+                }
+            })?;
+        if let Err(error) = ptpl.destroy() {
+            tracing::error!(
+                "{}: Failed to clean up persistence through power loss for replica: {}",
+                name,
+                error
+            );
+        }
+
+        info!("destroyed lvol {}", name);
+        Ok(name)
+    }
+    /// write the property prop on to the lvol but do not sync the metadata yet.
+    async fn set_no_sync(
+        self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error> {
+        let blob = self.blob_checked();
+
+        if self.is_snapshot() {
+            warn!("ignoring set property on snapshot {}", self.name());
+            return Ok(());
+        }
+        if self.is_read_only() {
+            warn!("{} is read-only", self.name());
+        }
+        match prop.clone() {
+            PropValue::Shared(val) => {
+                let name = PropName::from(&prop).to_string().into_cstring();
+                let value = if val { "true" } else { "false" }.into_cstring();
+                unsafe {
+                    spdk_blob_set_xattr(
+                        blob,
+                        name.as_ptr(),
+                        value.as_bytes_with_nul().as_ptr() as *const _,
+                        value.as_bytes_with_nul().len() as u16,
+                    )
+                }
+                .to_result(|e| Error::SetProperty {
+                    source: Errno::from_i32(e),
+                    prop: prop.into(),
+                    name: self.name(),
+                })?;
+            }
+            PropValue::AllowedHosts(hosts) => {
+                let name = PropName::from(&prop).to_string().into_cstring();
+                let value = hosts.join(",").into_cstring();
+                unsafe {
+                    spdk_blob_set_xattr(
+                        blob,
+                        name.as_ptr(),
+                        value.as_bytes_with_nul().as_ptr() as *const _,
+                        value.as_bytes_with_nul().len() as u16,
+                    )
+                }
+                .to_result(|e| Error::SetProperty {
+                    source: Errno::from_i32(e),
+                    prop: prop.into(),
+                    name: self.name(),
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// write the property prop on to the lvol which is stored on disk
+    async fn set(
+        mut self: Pin<&mut Self>,
+        prop: PropValue,
+    ) -> Result<(), Error> {
+        self.as_mut().set_no_sync(prop).await?;
+        self.sync_metadata().await
+    }
+
+    /// write the property prop on to the lvol which is stored on disk
+    async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error> {
+        let blob = self.blob_checked();
+
+        if self.is_snapshot() {
+            return Ok(());
+        }
+        if self.is_read_only() {
+            warn!("{} is read-only", self.name());
+        }
+
+        let (s, r) = pair::<i32>();
+        unsafe {
+            spdk_blob_sync_md(blob, Some(Self::blob_sync_cb), cb_arg(s));
+        };
+
+        r.await.expect("sync callback is gone").to_result(|e| {
+            Error::SyncProperty {
+                source: Errno::from_i32(e),
+                name: self.name(),
+            }
+        })?;
+
+        Ok(())
+    }
+
     /// Format snapshot name
     /// base_name is the nexus or replica UUID
-    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
+    fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
         format!("{base_name}-snap-{snapshot_time}")
     }
 
     /// Create a snapshot
-    pub async fn create_snapshot(
-        &self,
-        nvmf_req: &NvmfReq,
-        snapshot_name: &str,
-    ) {
+    async fn create_snapshot(&self, nvmf_req: &NvmfReq, snapshot_name: &str) {
         extern "C" fn snapshot_done_cb(
             nvmf_req_ptr: *mut c_void,
             _lvol_ptr: *mut spdk_lvol,
@@ -655,7 +787,7 @@ impl Lvol {
     }
 
     /// Create snapshot for local replica
-    pub async fn create_snapshot_local(
+    async fn create_snapshot_local(
         &self,
         io: *mut spdk_bdev_io,
         snapshot_name: &str,
@@ -686,58 +818,5 @@ impl Lvol {
         };
 
         info!("{:?}: creating snapshot '{}'", self, snapshot_name);
-    }
-
-    /// Get a `PtplFileOps` from `&self`.
-    pub(crate) fn ptpl(&self) -> impl PtplFileOps {
-        LvolPtpl::from(self)
-    }
-}
-
-struct LvolPtpl {
-    lvs: super::lvs_store::LvsPtpl,
-    uuid: String,
-}
-impl LvolPtpl {
-    fn lvs(&self) -> &super::lvs_store::LvsPtpl {
-        &self.lvs
-    }
-    fn uuid(&self) -> &str {
-        &self.uuid
-    }
-}
-impl From<&Lvol> for LvolPtpl {
-    fn from(lvol: &Lvol) -> Self {
-        Self {
-            lvs: (&lvol.lvs()).into(),
-            uuid: lvol.uuid(),
-        }
-    }
-}
-impl PtplFileOps for LvolPtpl {
-    fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
-        if let Some(path) = self.path() {
-            self.lvs().create()?;
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            return Ok(Some(PtplProps::new(path)));
-        }
-        Ok(None)
-    }
-
-    fn destroy(&self) -> Result<(), std::io::Error> {
-        if let Some(path) = self.path() {
-            std::fs::remove_file(path)?;
-        }
-        Ok(())
-    }
-
-    fn subpath(&self) -> std::path::PathBuf {
-        self.lvs()
-            .subpath()
-            .join("replica/")
-            .join(self.uuid())
-            .with_extension("json")
     }
 }

@@ -2,7 +2,7 @@ use common::MayastorTest;
 use io_engine::{
     bdev_api::bdev_create,
     core::{MayastorCliArgs, Protocol, Share, UntypedBdev},
-    lvs::{Lvs, PropName, PropValue},
+    lvs::{LogicalVolume, Lvs, PropName, PropValue, SpdkLvol},
     pool_backend::PoolArgs,
     subsys::NvmfSubsystem,
 };
