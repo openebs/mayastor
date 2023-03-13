@@ -3,7 +3,14 @@ use crate::{
     bdev_api::BdevError,
     core::{Bdev, Protocol, Share, ShareProps, UntypedBdev, UpdateProps},
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
-    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
+    lvs::{
+        Error as LvsError,
+        LogicalVolume,
+        Lvol,
+        LvolSpaceUsage,
+        Lvs,
+        SpdkLvol,
+    },
 };
 use ::function_name::named;
 use futures::FutureExt;

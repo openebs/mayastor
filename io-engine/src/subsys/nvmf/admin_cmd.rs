@@ -10,7 +10,10 @@ use std::{
 use crate::{
     bdev::nexus,
     core::{Bdev, Reactors},
-    lvs::Lvol,
+    lvs::{
+        lvs_lvol::{LogicalVolume, SpdkLvol},
+        Lvol,
+    },
 };
 
 use spdk_rs::{
