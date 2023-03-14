@@ -3,7 +3,7 @@
 use mayastor_api::v0::CreateSnapshotReply;
 
 use super::{Error, Nexus};
-use crate::lvs::{lvs_lvol::SpdkLvol, Lvol};
+use crate::lvs::Lvol;
 
 impl<'n> Nexus<'n> {
     /// Create a snapshot on all children

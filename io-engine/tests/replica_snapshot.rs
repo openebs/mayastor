@@ -1,7 +1,7 @@
 use io_engine::{
     bdev::nexus::nexus_create,
     core::{CoreError, MayastorCliArgs, UntypedBdevHandle},
-    lvs::{Lvol, Lvs, SpdkLvol},
+    lvs::{Lvol, Lvs},
     pool_backend::PoolArgs,
 };
 use tracing::info;
