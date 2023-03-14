@@ -39,6 +39,7 @@ use super::{Error, Lvs};
 use crate::{
     bdev::{nexus::Nexus, PtplFileOps},
     core::{
+        logical_volume::LogicalVolume,
         Bdev,
         Mthread,
         Protocol,
@@ -363,6 +364,7 @@ impl From<&Lvol> for LvolPtpl {
         }
     }
 }
+
 impl PtplFileOps for LvolPtpl {
     fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
         if let Some(path) = self.path() {
@@ -391,66 +393,39 @@ impl PtplFileOps for LvolPtpl {
     }
 }
 
+///  LvsLvol Trait Provide the interface for all the Volume Specific Interface
 #[async_trait(?Send)]
-pub trait LogicalVolume {
-    /// returns the name of the Logical Volume
-    fn name(&self) -> String;
-
-    /// returns the UUID of the Logical Volume
-    fn uuid(&self) -> String;
-
-    /// return lvs for the Logical Volume
+pub trait LvsLvol: LogicalVolume + Share {
+    /// Return lvs for the Logical Volume
     fn lvs(&self) -> Lvs;
-
-    /// returns the pool name of the Logical Volume
-    fn pool_name(&self) -> String;
-
-    /// returns the pool uuid of the Logical Volume
-    fn pool_uuid(&self) -> String;
-
-    /// returns a boolean indicating if the Logical Volume is thin provisioned
-    fn is_thin(&self) -> bool;
-
-    /// returns a boolean indicating if the Logical Volume is read-only
-    fn is_read_only(&self) -> bool;
-
-    /// return the size of the Logical Volume in bytes
-    fn size(&self) -> u64;
-
-    /// Returns Lvol disk space usage.
-    fn usage(&self) -> LvolSpaceUsage;
-}
-
-#[async_trait(?Send)]
-pub trait SpdkLvol: LogicalVolume + Share {
-    /// returns the underlying bdev of the lvol
+    /// Returns the underlying bdev of the lvol
     fn as_bdev(&self) -> UntypedBdev;
 
-    /// returns a boolean indicating if the lvol is a snapshot
+    /// Returns a boolean indicating if the lvol is a snapshot
     fn is_snapshot(&self) -> bool;
 
-    /// get/read a property from this lvol from disk
+    /// Get/Read a property from this lvol from disk
     async fn get(&self, prop: PropName) -> Result<PropValue, Error>;
 
-    /// destroy the lvol
+    /// Destroy the lvol
     async fn destroy(mut self) -> Result<String, Error>;
 
-    /// write the property prop on to the lvol but do not sync the metadata yet.
+    /// Write the property prop on to the lvol but do not sync the metadata yet.
     async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), Error>;
 
-    /// write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), Error>;
 
-    /// callback executed after synchronizing the lvols metadata
+    /// Callback executed after synchronizing the lvols metadata
     extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32);
 
-    /// write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error>;
 
     /// Create a snapshot
@@ -464,44 +439,39 @@ pub trait SpdkLvol: LogicalVolume + Share {
     );
 }
 
-#[async_trait(? Send)]
+///  LogicalVolume implement Generic interface for Lvol
 impl LogicalVolume for Lvol {
-    /// returns the name of the Snapshot
+    /// Returns the name of the Snapshot
     fn name(&self) -> String {
         self.as_bdev().name().to_string()
     }
 
-    /// returns the UUID of the Snapshot
+    /// Returns the UUID of the Snapshot
     fn uuid(&self) -> String {
         self.as_bdev().uuid_as_string()
     }
 
-    /// return lvs for the Logical Volume
-    fn lvs(&self) -> Lvs {
-        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
-    }
-
-    /// returns the pool name of the Snapshot
+    /// Returns the pool name of the Snapshot
     fn pool_name(&self) -> String {
         self.lvs().name().to_string()
     }
 
-    /// returns the pool uuid of the Snapshot
+    /// Returns the pool uuid of the Snapshot
     fn pool_uuid(&self) -> String {
         self.lvs().uuid()
     }
 
-    /// returns a boolean indicating if the Logical Volume is thin provisioned
+    /// Returns a boolean indicating if the Logical Volume is thin provisioned
     fn is_thin(&self) -> bool {
         self.as_inner_ref().thin_provision
     }
 
-    /// returns a boolean indicating if the Logical Volume is read-only
+    /// Returns a boolean indicating if the Logical Volume is read-only
     fn is_read_only(&self) -> bool {
         unsafe { spdk_blob_is_read_only(self.blob_checked()) }
     }
 
-    /// return the size of the Snapshot in bytes
+    /// Return the size of the Snapshot in bytes
     fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
     }
@@ -526,19 +496,25 @@ impl LogicalVolume for Lvol {
     }
 }
 
+/// LvsLvol Trait Implementation for Lvol for Volume Specific Interface.
 #[async_trait(? Send)]
-impl SpdkLvol for Lvol {
-    /// returns the underlying bdev of the lvol
+impl LvsLvol for Lvol {
+    /// Return lvs for the Logical Volume
+    fn lvs(&self) -> Lvs {
+        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
+    }
+
+    /// Returns the underlying bdev of the lvol
     fn as_bdev(&self) -> UntypedBdev {
         Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
     }
 
-    /// returns a boolean indicating if the lvol is a snapshot
+    /// Returns a boolean indicating if the lvol is a snapshot
     fn is_snapshot(&self) -> bool {
         unsafe { spdk_blob_is_snapshot(self.blob_checked()) }
     }
 
-    /// get/read a property from this lvol from disk
+    /// Get/Read a property from this lvol from disk
     async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = self.blob_checked();
 
@@ -606,13 +582,13 @@ impl SpdkLvol for Lvol {
         }
     }
 
-    /// callback executed after synchronizing the lvols metadata
+    /// Callback executed after synchronizing the lvols metadata
     extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32) {
         let sender =
             unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
         sender.send(errno).expect("blob cb receiver is gone");
     }
-    /// destroy the lvol
+    /// Destroy the lvol
     async fn destroy(mut self) -> Result<String, Error> {
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
@@ -651,7 +627,8 @@ impl SpdkLvol for Lvol {
         info!("destroyed lvol {}", name);
         Ok(name)
     }
-    /// write the property prop on to the lvol but do not sync the metadata yet.
+
+    /// Write the property prop on to the lvol but do not sync the metadata yet.
     async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
@@ -704,7 +681,7 @@ impl SpdkLvol for Lvol {
         Ok(())
     }
 
-    /// write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
@@ -713,7 +690,7 @@ impl SpdkLvol for Lvol {
         self.sync_metadata().await
     }
 
-    /// write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error> {
         let blob = self.blob_checked();
 

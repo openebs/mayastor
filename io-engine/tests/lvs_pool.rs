@@ -1,8 +1,14 @@
 use common::MayastorTest;
 use io_engine::{
     bdev_api::bdev_create,
-    core::{MayastorCliArgs, Protocol, Share, UntypedBdev},
-    lvs::{LogicalVolume, Lvs, PropName, PropValue, SpdkLvol},
+    core::{
+        logical_volume::LogicalVolume,
+        MayastorCliArgs,
+        Protocol,
+        Share,
+        UntypedBdev,
+    },
+    lvs::{Lvs, LvsLvol, PropName, PropValue},
     pool_backend::PoolArgs,
     subsys::NvmfSubsystem,
 };
