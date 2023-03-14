@@ -9,8 +9,8 @@ use std::{
 
 use crate::{
     bdev::nexus,
-    core::{Bdev, Reactors},
-    lvs::Lvol,
+    core::{logical_volume::LogicalVolume, Bdev, Reactors},
+    lvs::{lvs_lvol::LvsLvol, Lvol},
 };
 
 use spdk_rs::{

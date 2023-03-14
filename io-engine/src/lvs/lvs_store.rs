@@ -38,9 +38,16 @@ use super::{Error, Lvol, LvsIter, PropName, PropValue};
 use crate::{
     bdev::{uri, PtplFileOps},
     bdev_api::{bdev_destroy, BdevError},
-    core::{Bdev, IoType, Share, ShareProps, UntypedBdev},
+    core::{
+        logical_volume::LogicalVolume,
+        Bdev,
+        IoType,
+        Share,
+        ShareProps,
+        UntypedBdev,
+    },
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
-    lvs::lvs_lvol::WIPE_SUPER_LEN,
+    lvs::lvs_lvol::{LvsLvol, WIPE_SUPER_LEN},
     pool_backend::PoolArgs,
 };
 

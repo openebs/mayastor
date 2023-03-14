@@ -1,9 +1,17 @@
 use crate::{
     bdev::PtplFileOps,
     bdev_api::BdevError,
-    core::{Bdev, Protocol, Share, ShareProps, UntypedBdev, UpdateProps},
+    core::{
+        logical_volume::LogicalVolume,
+        Bdev,
+        Protocol,
+        Share,
+        ShareProps,
+        UntypedBdev,
+        UpdateProps,
+    },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
-    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
+    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol},
 };
 use ::function_name::named;
 use futures::FutureExt;

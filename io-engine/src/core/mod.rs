@@ -42,6 +42,7 @@ pub use env::{
 };
 pub use handle::{BdevHandle, UntypedBdevHandle};
 pub use io_device::IoDevice;
+pub use logical_volume::LogicalVolume;
 pub use reactor::{
     reactor_monitor_loop,
     Reactor,
@@ -75,6 +76,7 @@ mod handle;
 mod io_device;
 pub mod io_driver;
 pub mod lock;
+pub mod logical_volume;
 pub mod mempool;
 mod nic;
 pub mod partition;

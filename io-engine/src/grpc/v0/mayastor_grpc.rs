@@ -13,6 +13,7 @@ use crate::{
     bdev_api::BdevError,
     core::{
         lock::{ProtectedSubsystems, ResourceLockManager},
+        logical_volume::LogicalVolume,
         BlockDeviceIoStats,
         CoreError,
         MayastorFeatures,
@@ -39,7 +40,7 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
+    lvs::{lvs_lvol::LvsLvol, Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
     pool_backend::PoolArgs,
     rebuild::{RebuildRecord, RebuildState, RebuildStats},
     subsys::PoolConfig,
