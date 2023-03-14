@@ -273,6 +273,50 @@ impl Lvol {
         blob
     }
 
+    // wipe the first 8MB if unmap is not supported on failure the operation
+    // needs to be repeated
+    pub async fn wipe_super(&self) -> Result<(), Error> {
+        if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
+            let hdl = Bdev::open(&self.as_bdev(), true)
+                .and_then(|desc| desc.into_handle())
+                .map_err(|e| {
+                    error!(?self, ?e, "failed to wipe lvol");
+                    Error::RepDestroy {
+                        source: Errno::ENXIO,
+                        name: self.name(),
+                    }
+                })?;
+
+            // Set the buffer size to the maximum allowed by SPDK.
+            let buf_size = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
+            let buf = hdl.dma_malloc(buf_size).map_err(|e| {
+                error!(
+                    ?self,
+                    ?e,
+                    "no memory available to allocate zero buffer"
+                );
+                Error::RepDestroy {
+                    source: Errno::ENOMEM,
+                    name: self.name(),
+                }
+            })?;
+            // write zero to the first 8MB which wipes the metadata and the
+            // first 4MB of the data partition
+            let range =
+                std::cmp::min(self.as_bdev().size_in_bytes(), WIPE_SUPER_LEN);
+            for offset in 0 .. (range / buf_size) {
+                hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
+                    error!(?self, ?e);
+                    Error::RepDestroy {
+                        source: Errno::EIO,
+                        name: self.name(),
+                    }
+                })?;
+            }
+        }
+        Ok(())
+    }
+
     /// generic callback for lvol operations
     pub(crate) extern "C" fn lvol_cb(
         sender_ptr: *mut c_void,
@@ -288,7 +332,11 @@ impl Lvol {
             .send(errno_result_from_i32(lvol_ptr, errno))
             .expect("Receiver is gone");
     }
-
+    /// Format snapshot name
+    /// base_name is the nexus or replica UUID
+    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
+        format!("{base_name}-snap-{snapshot_time}")
+    }
     /// Get a `PtplFileOps` from `&self`.
     pub(crate) fn ptpl(&self) -> impl PtplFileOps {
         LvolPtpl::from(self)
@@ -377,9 +425,6 @@ pub trait LogicalVolume {
 pub trait SpdkLvol: LogicalVolume + Share {
     /// returns the underlying bdev of the lvol
     fn as_bdev(&self) -> UntypedBdev;
-    // wipe the first 8MB if unmap is not supported on failure the operation
-    // needs to be repeated
-    async fn wipe_super(&self) -> Result<(), Error>;
 
     /// returns a boolean indicating if the lvol is a snapshot
     fn is_snapshot(&self) -> bool;
@@ -407,10 +452,6 @@ pub trait SpdkLvol: LogicalVolume + Share {
 
     /// write the property prop on to the lvol which is stored on disk
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error>;
-
-    /// Format snapshot name
-    /// base_name is the nexus or replica UUID
-    fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String;
 
     /// Create a snapshot
     async fn create_snapshot(&self, nvmf_req: &NvmfReq, snapshot_name: &str);
@@ -490,49 +531,6 @@ impl SpdkLvol for Lvol {
     /// returns the underlying bdev of the lvol
     fn as_bdev(&self) -> UntypedBdev {
         Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
-    }
-    // wipe the first 8MB if unmap is not supported on failure the operation
-    // needs to be repeated
-    async fn wipe_super(&self) -> Result<(), Error> {
-        if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
-            let hdl = Bdev::open(&self.as_bdev(), true)
-                .and_then(|desc| desc.into_handle())
-                .map_err(|e| {
-                    error!(?self, ?e, "failed to wipe lvol");
-                    Error::RepDestroy {
-                        source: Errno::ENXIO,
-                        name: self.name(),
-                    }
-                })?;
-
-            // Set the buffer size to the maximum allowed by SPDK.
-            let buf_size = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
-            let buf = hdl.dma_malloc(buf_size).map_err(|e| {
-                error!(
-                    ?self,
-                    ?e,
-                    "no memory available to allocate zero buffer"
-                );
-                Error::RepDestroy {
-                    source: Errno::ENOMEM,
-                    name: self.name(),
-                }
-            })?;
-            // write zero to the first 8MB which wipes the metadata and the
-            // first 4MB of the data partition
-            let range =
-                std::cmp::min(self.as_bdev().size_in_bytes(), WIPE_SUPER_LEN);
-            for offset in 0 .. (range / buf_size) {
-                hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
-                    error!(?self, ?e);
-                    Error::RepDestroy {
-                        source: Errno::EIO,
-                        name: self.name(),
-                    }
-                })?;
-            }
-        }
-        Ok(())
     }
 
     /// returns a boolean indicating if the lvol is a snapshot
@@ -739,12 +737,6 @@ impl SpdkLvol for Lvol {
         })?;
 
         Ok(())
-    }
-
-    /// Format snapshot name
-    /// base_name is the nexus or replica UUID
-    fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
-        format!("{base_name}-snap-{snapshot_time}")
     }
 
     /// Create a snapshot
