@@ -53,7 +53,7 @@ pub struct RebuildJob {
     src_uri: String,
     /// Target URI of the out of sync child in need of a rebuild.
     pub(crate) dst_uri: String,
-    comms: super::RebuildFBendChan,
+    comms: RebuildFBendChan,
     /// Current state of the rebuild job.
     states: Arc<parking_lot::RwLock<RebuildStates>>,
     /// Channel used to Notify rebuild updates when the state changes.
@@ -86,7 +86,7 @@ impl RebuildJob {
             src_uri: backend.src_uri.clone(),
             dst_uri: backend.dst_uri.clone(),
             states: backend.states.clone(),
-            comms: backend.info_chan.clone(),
+            comms: RebuildFBendChan::from(&backend.info_chan),
             complete_chan: Arc::downgrade(&backend.complete_chan),
             notify_chan: backend.notify_chan.1.clone(),
             start_time: Utc::now(),
@@ -188,7 +188,27 @@ impl RebuildJob {
     pub async fn stats(&self) -> RebuildStats {
         let (s, r) = oneshot::channel::<RebuildStats>();
         self.comms.send(RebuildJobRequest::Stats(s)).await.ok();
-        r.await.unwrap_or_default()
+        match r.await {
+            Ok(stats) => stats,
+            Err(_) => match self.final_stats() {
+                Some(stats) => {
+                    tracing::debug!(
+                        rebuild.target = self.dst_uri,
+                        "Using final rebuild stats: {stats:?}"
+                    );
+
+                    stats
+                }
+                _ => {
+                    tracing::error!(
+                        rebuild.target = self.dst_uri,
+                        "Rebuild backend terminated without setting final rebuild stats"
+                    );
+
+                    RebuildStats::default()
+                }
+            },
+        }
     }
 
     /// Get the last error.
@@ -224,6 +244,11 @@ impl RebuildJob {
     /// Start time of this rebuild job.
     pub fn start_time(&self) -> DateTime<Utc> {
         self.start_time
+    }
+
+    /// Get the final rebuild statistics.
+    fn final_stats(&self) -> Option<RebuildStats> {
+        self.states.read().final_stats().clone()
     }
 
     /// Get the rebuild job instances container, we ensure that this can only
@@ -268,11 +293,13 @@ impl RebuildJob {
 
     fn wake_up(&self) {
         let sender = self.comms.send_clone();
+        let dst_uri = self.dst_uri.clone();
         Reactors::master().send_future(async move {
             if let Err(error) = sender.send(RebuildJobRequest::WakeUp).await {
                 error!(
                     ?error,
-                    "Failed to wake up rebuild backend, it has been dropped"
+                    rebuild.target = dst_uri,
+                    "Failed to wake up rebuild backend, it has been dropped",
                 );
             }
         });
@@ -293,3 +320,28 @@ impl RebuildJob {
 
 /// List of rebuild jobs indexed by the destination's replica uri.
 type RebuildJobInstances = HashMap<String, Arc<RebuildJob>>;
+
+#[derive(Debug, Clone)]
+struct RebuildFBendChan {
+    sender: async_channel::Sender<RebuildJobRequest>,
+}
+impl RebuildFBendChan {
+    /// Forward the given request to the backend job.
+    async fn send(&self, req: RebuildJobRequest) -> Result<(), RebuildError> {
+        self.sender
+            .send(req)
+            .await
+            .map_err(|_| RebuildError::BackendGone)
+    }
+    /// Get a clone of the sender channel.
+    fn send_clone(&self) -> async_channel::Sender<RebuildJobRequest> {
+        self.sender.clone()
+    }
+}
+impl From<&super::RebuildFBendChan> for RebuildFBendChan {
+    fn from(value: &super::RebuildFBendChan) -> Self {
+        Self {
+            sender: value.sender_clone(),
+        }
+    }
+}

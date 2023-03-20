@@ -377,7 +377,11 @@ impl<'n> Nexus<'n> {
         let job = self.rebuild_job(child_uri)?;
         let job_state = job.state();
         if !job_state.done() {
-            tracing::info!("Rebuild update but not done: {:?}", job_state);
+            tracing::info!(
+                rebuild.target = child_uri,
+                rebuild.state = ?job_state,
+                "Rebuild update notification"
+            );
             // Leave all states as they are
             return Ok(());
         }

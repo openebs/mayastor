@@ -1,4 +1,5 @@
 use super::{RebuildError, RebuildOperation};
+use crate::rebuild::RebuildStats;
 
 /// Allowed states for a rebuild job.
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -55,6 +56,7 @@ pub(super) struct RebuildStates {
     pub(super) pending: Option<RebuildState>,
     /// Last rebuild error, if any.
     pub(super) error: Option<RebuildError>,
+    final_stats: Option<RebuildStats>,
 }
 
 impl std::fmt::Display for RebuildStates {
@@ -70,6 +72,15 @@ impl Default for RebuildState {
 }
 
 impl RebuildStates {
+    /// Get the final rebuild statistics.
+    pub(super) fn final_stats(&self) -> &Option<RebuildStats> {
+        &self.final_stats
+    }
+    /// Set the final rebuild statistics.
+    pub(super) fn set_final_stats(&mut self, stats: RebuildStats) {
+        self.final_stats = Some(stats);
+    }
+
     /// Set's the next pending state
     /// if one is already set then override only if flag is set
     pub(super) fn set_pending(

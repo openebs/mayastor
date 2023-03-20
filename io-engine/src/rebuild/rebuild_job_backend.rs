@@ -50,31 +50,24 @@ impl RebuildFBendChan {
             receiver,
         }
     }
-    /// Forward the given request to the backend job.
-    pub(super) async fn send(
-        &self,
-        req: RebuildJobRequest,
-    ) -> Result<(), RebuildError> {
-        self.sender
-            .send(req)
-            .await
-            .map_err(|_| RebuildError::BackendGone)
-    }
-    /// Get a clone of the sender channel.
-    pub(super) fn send_clone(
-        &self,
-    ) -> async_channel::Sender<RebuildJobRequest> {
-        self.sender.clone()
-    }
     async fn recv(&mut self) -> Result<RebuildJobRequest, RebuildError> {
         self.receiver
             .recv()
             .await
             .map_err(|_| RebuildError::FrontendGone {})
     }
+
     /// Get a clone of the receive channel.
-    fn recv_clone(&self) -> async_channel::Receiver<RebuildJobRequest> {
+    pub(super) fn recv_clone(
+        &self,
+    ) -> async_channel::Receiver<RebuildJobRequest> {
         self.receiver.clone()
+    }
+    /// Get a clone of the send channel.
+    pub(super) fn sender_clone(
+        &self,
+    ) -> async_channel::Sender<RebuildJobRequest> {
+        self.sender.clone()
     }
 }
 
@@ -524,7 +517,11 @@ impl RebuildJobBackend {
 
 impl Drop for RebuildJobBackend {
     fn drop(&mut self) {
-        tracing::warn!(
+        let stats = self.stats();
+        self.states.write().set_final_stats(stats);
+
+        tracing::info!(
+            rebuild.target = self.dst_uri,
             "RebuildJobBackend being dropped with done({})",
             self.state().done()
         );
