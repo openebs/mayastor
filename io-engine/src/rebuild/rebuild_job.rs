@@ -53,7 +53,7 @@ pub struct RebuildJob {
     src_uri: String,
     /// Target URI of the out of sync child in need of a rebuild.
     pub(crate) dst_uri: String,
-    comms: super::RebuildFBendChan,
+    comms: RebuildFBendChan,
     /// Current state of the rebuild job.
     states: Arc<parking_lot::RwLock<RebuildStates>>,
     /// Channel used to Notify rebuild updates when the state changes.
@@ -86,7 +86,7 @@ impl RebuildJob {
             src_uri: backend.src_uri.clone(),
             dst_uri: backend.dst_uri.clone(),
             states: backend.states.clone(),
-            comms: backend.info_chan.clone(),
+            comms: RebuildFBendChan::from(&backend.info_chan),
             complete_chan: Arc::downgrade(&backend.complete_chan),
             notify_chan: backend.notify_chan.1.clone(),
             start_time: Utc::now(),
@@ -293,3 +293,28 @@ impl RebuildJob {
 
 /// List of rebuild jobs indexed by the destination's replica uri.
 type RebuildJobInstances = HashMap<String, Arc<RebuildJob>>;
+
+#[derive(Debug, Clone)]
+struct RebuildFBendChan {
+    sender: async_channel::Sender<RebuildJobRequest>,
+}
+impl RebuildFBendChan {
+    /// Forward the given request to the backend job.
+    async fn send(&self, req: RebuildJobRequest) -> Result<(), RebuildError> {
+        self.sender
+            .send(req)
+            .await
+            .map_err(|_| RebuildError::BackendGone)
+    }
+    /// Get a clone of the sender channel.
+    fn send_clone(&self) -> async_channel::Sender<RebuildJobRequest> {
+        self.sender.clone()
+    }
+}
+impl From<&super::RebuildFBendChan> for RebuildFBendChan {
+    fn from(value: &super::RebuildFBendChan) -> Self {
+        Self {
+            sender: value.sender_clone(),
+        }
+    }
+}
