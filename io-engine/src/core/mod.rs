@@ -86,7 +86,17 @@ pub use snapshot::{
     SnapshotXattrs,
 };
 
-use spdk_rs::libspdk::SPDK_NVME_SC_CAPACITY_EXCEEDED;
+use spdk_rs::libspdk::{
+    SPDK_NVME_SC_CAPACITY_EXCEEDED,
+    SPDK_NVME_SC_ZONED_BOUNDARY_ERROR,
+    SPDK_NVME_SC_ZONE_IS_FULL,
+    SPDK_NVME_SC_ZONE_IS_READ_ONLY,
+    SPDK_NVME_SC_ZONE_IS_OFFLINE,
+    SPDK_NVME_SC_ZONE_INVALID_WRITE,
+    SPDK_NVME_SC_TOO_MANY_ACTIVE_ZONES,
+    SPDK_NVME_SC_TOO_MANY_OPEN_ZONES,
+    SPDK_NVME_SC_INVALID_ZONE_STATE_TRANSITION,
+};
 
 mod bdev;
 mod block_device;
@@ -525,6 +535,24 @@ impl From<NvmeStatus> for IoCompletionStatus {
             }
             _ => Self::NvmeError(s),
         }
+    }
+}
+
+/// Returns true if the given IoCompletionStatus NvmeError can be matched to a Zoned Namespace Command Specific Status Code
+pub fn is_zoned_nvme_error(status: IoCompletionStatus) -> bool {
+    match status {
+        IoCompletionStatus::NvmeError(NvmeStatus::CmdSpecific(cssc)) => match cssc {
+            SPDK_NVME_SC_ZONED_BOUNDARY_ERROR |
+            SPDK_NVME_SC_ZONE_IS_FULL |
+            SPDK_NVME_SC_ZONE_IS_READ_ONLY |
+            SPDK_NVME_SC_ZONE_IS_OFFLINE |
+            SPDK_NVME_SC_ZONE_INVALID_WRITE |
+            SPDK_NVME_SC_TOO_MANY_ACTIVE_ZONES |
+            SPDK_NVME_SC_TOO_MANY_OPEN_ZONES |
+            SPDK_NVME_SC_INVALID_ZONE_STATE_TRANSITION => true,
+            _ => false,
+        },
+        _ => false,
     }
 }
 
