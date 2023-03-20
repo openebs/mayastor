@@ -27,7 +27,6 @@ use spdk_rs::{
         spdk_nvme_connect_async,
         spdk_nvme_ctrlr,
         spdk_nvme_ctrlr_opts,
-        spdk_nvme_probe_ctx,
         spdk_nvme_probe_poll_async,
         spdk_nvme_transport_id,
     },
@@ -205,7 +204,7 @@ pub(crate) struct NvmeControllerContext<'probe> {
     name: String,
     trid: NvmeTransportId,
     sender: Option<oneshot::Sender<Result<(), Errno>>>,
-    receiver: oneshot::Receiver<Result<(), Errno>>,
+    receiver: Option<oneshot::Receiver<Result<(), Errno>>>,
     poller: Option<Poller<'probe>>,
     attached: bool,
 }
@@ -258,7 +257,7 @@ impl<'probe> NvmeControllerContext<'probe> {
             trid,
             name: template.get_name(),
             sender: Some(sender),
-            receiver,
+            receiver: Some(receiver),
             poller: None,
             attached: false,
         }
@@ -303,7 +302,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
         let mut context = NvmeControllerContext::new(self);
 
         // Initiate connection with remote NVMe target.
-        let probe_ctx = match NonNull::new(unsafe {
+        let mut probe_ctx = match NonNull::new(unsafe {
             spdk_nvme_connect_async(
                 context.trid.as_ptr(),
                 context.opts.as_ptr(),
@@ -321,41 +320,34 @@ impl CreateDestroy for NvmfDeviceTemplate {
             }
         };
 
-        struct AttachCtx {
-            probe_ctx: NonNull<spdk_nvme_probe_ctx>,
-            /// NvmeControllerContext required for handling of attach failures.
-            cb_ctx: *const spdk_nvme_ctrlr_opts,
-            name: String,
+        // Save the receiver upfront for further use.
+        let receiver = context.receiver.take().unwrap();
+        let raw_ctx = Box::into_raw(Box::new(context));
+
+        // By default 'cb_ctx' is set to &opts, so update it
+        // to hold NVMx-specific attach context.
+        unsafe {
+            probe_ctx.as_mut().cb_ctx = raw_ctx as *mut c_void;
         }
 
-        let attach_cb_ctx = AttachCtx {
-            probe_ctx,
-            cb_ctx: context.opts.as_ptr(),
-            name: self.get_name(),
-        };
+        let name = self.get_name();
 
         let poller = PollerBuilder::new()
             .with_name("nvme_async_probe_poller")
             .with_interval(Duration::from_micros(1000))
             .with_poll_fn(move |_| unsafe {
-                let context =
-                    &mut *(attach_cb_ctx.cb_ctx as *mut NvmeControllerContext);
-
-                let r = spdk_nvme_probe_poll_async(
-                    attach_cb_ctx.probe_ctx.as_ptr(),
-                );
+                let r = spdk_nvme_probe_poll_async(probe_ctx.as_ptr());
 
                 if r != -libc::EAGAIN {
                     // Double check against successful attach, as we expect
                     // the attach handler to be called by the poller.
+                    let context = &*raw_ctx;
+
                     if !context.attached {
-                        error!(
-                            "{} controller attach failed",
-                            attach_cb_ctx.name
-                        );
+                        error!(name, "controller attach failed");
 
                         connect_attach_cb(
-                            attach_cb_ctx.cb_ctx as *mut c_void,
+                            (*probe_ctx.as_ptr()).cb_ctx,
                             std::ptr::null(),
                             std::ptr::null_mut(),
                             std::ptr::null(),
@@ -367,9 +359,18 @@ impl CreateDestroy for NvmfDeviceTemplate {
             })
             .build();
 
-        context.poller = Some(poller);
+        // Store poller in the context after context is created.
+        unsafe {
+            let c = &mut *raw_ctx;
+            c.poller = Some(poller);
+        };
 
-        let attach_status = context.receiver.await.unwrap();
+        let attach_status = receiver.await.unwrap();
+
+        // Drop attach context object transformed previously into a raw pointer.
+        unsafe {
+            drop(Box::from_raw(raw_ctx));
+        }
 
         match attach_status {
             Err(e) => {
