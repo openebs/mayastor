@@ -188,7 +188,27 @@ impl RebuildJob {
     pub async fn stats(&self) -> RebuildStats {
         let (s, r) = oneshot::channel::<RebuildStats>();
         self.comms.send(RebuildJobRequest::Stats(s)).await.ok();
-        r.await.unwrap_or_default()
+        match r.await {
+            Ok(stats) => stats,
+            Err(_) => match self.final_stats() {
+                Some(stats) => {
+                    tracing::debug!(
+                        rebuild.target = self.dst_uri,
+                        "Using final rebuild stats: {stats:?}"
+                    );
+
+                    stats
+                }
+                _ => {
+                    tracing::error!(
+                        rebuild.target = self.dst_uri,
+                        "Rebuild backend terminated without setting final rebuild stats"
+                    );
+
+                    RebuildStats::default()
+                }
+            },
+        }
     }
 
     /// Get the last error.
@@ -224,6 +244,11 @@ impl RebuildJob {
     /// Start time of this rebuild job.
     pub fn start_time(&self) -> DateTime<Utc> {
         self.start_time
+    }
+
+    /// Get the final rebuild statistics.
+    fn final_stats(&self) -> Option<RebuildStats> {
+        self.states.read().final_stats().clone()
     }
 
     /// Get the rebuild job instances container, we ensure that this can only
@@ -268,11 +293,13 @@ impl RebuildJob {
 
     fn wake_up(&self) {
         let sender = self.comms.send_clone();
+        let dst_uri = self.dst_uri.clone();
         Reactors::master().send_future(async move {
             if let Err(error) = sender.send(RebuildJobRequest::WakeUp).await {
                 error!(
                     ?error,
-                    "Failed to wake up rebuild backend, it has been dropped"
+                    rebuild.target = dst_uri,
+                    "Failed to wake up rebuild backend, it has been dropped",
                 );
             }
         });

@@ -37,3 +37,5 @@ ansible-hosts
 /test/python/venv/*
 /package.json
 /rust-toolchain.toml
+/test/python/registration_pb2.py
+/test/python/registration_pb2_grpc.py

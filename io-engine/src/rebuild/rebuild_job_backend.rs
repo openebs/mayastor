@@ -517,7 +517,11 @@ impl RebuildJobBackend {
 
 impl Drop for RebuildJobBackend {
     fn drop(&mut self) {
-        tracing::warn!(
+        let stats = self.stats();
+        self.states.write().set_final_stats(stats);
+
+        tracing::info!(
+            rebuild.target = self.dst_uri,
             "RebuildJobBackend being dropped with done({})",
             self.state().done()
         );
