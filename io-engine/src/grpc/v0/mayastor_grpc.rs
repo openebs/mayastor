@@ -9,7 +9,12 @@
 //! without the need for setting up a grpc client.
 
 use crate::{
-    bdev::{nexus, NvmeControllerState as ControllerState, PtplFileOps},
+    bdev::{
+        nexus,
+        nexus::FaultReason,
+        NvmeControllerState as ControllerState,
+        PtplFileOps,
+    },
     bdev_api::BdevError,
     core::{
         lock::{ProtectedSubsystems, ResourceLockManager},
@@ -1288,7 +1293,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let uri = args.uri.clone();
                 debug!("Faulting child {} on nexus {}", uri, uuid);
                 nexus_lookup(&args.uuid)?
-                    .fault_child(&args.uri, nexus::Reason::ByClient)
+                    .fault_child_legacy(&args.uri)
                     .await?;
                 info!("Faulted child {} on nexus {}", uri, uuid);
                 Ok(Null {})
@@ -1547,9 +1552,13 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let nexus = nexus_lookup(&args.uuid)?;
 
                 match args.action {
-                    0 => nexus.offline_child(&args.uri).await,
+                    0 => {
+                        nexus.fault_child(&args.uri, FaultReason::Offline).await
+                    }
                     1 => nexus.online_child(&args.uri).await,
-                    2 => nexus.retire_child(&args.uri).await,
+                    2 => {
+                        nexus.fault_child(&args.uri, FaultReason::IoError).await
+                    }
                     _ => Err(nexus::Error::InvalidKey {}),
                 }?;
 

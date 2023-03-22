@@ -84,6 +84,7 @@ pub enum NexusOperation {
     ReplicaAdd,
     ReplicaRemove,
     ReplicaOnline,
+    ReplicaFault,
 }
 
 /// TODO

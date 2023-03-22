@@ -13,10 +13,10 @@ use spdk_rs::{
 
 use super::{
     nexus_lookup_mut,
+    FaultReason,
     Nexus,
     NexusChannel,
     NexusState,
-    Reason,
     NEXUS_PRODUCT_ID,
 };
 
@@ -294,7 +294,7 @@ impl<'n> NexusBio<'n> {
                     self, device, r
                 );
 
-                self.retire_device(
+                self.fault_device(
                     &device,
                     IoCompletionStatus::IoSubmissionError(
                         IoSubmissionFailure::Write,
@@ -498,7 +498,7 @@ impl<'n> NexusBio<'n> {
 
             self.channel_mut().disconnect_device(&device);
 
-            self.retire_device(
+            self.fault_device(
                 &device,
                 IoCompletionStatus::IoSubmissionError(
                     IoSubmissionFailure::Read,
@@ -570,7 +570,7 @@ impl<'n> NexusBio<'n> {
 
                     for d in devices {
                         if let Err(e) =
-                            nexus.disconnect_all_channels(d.clone()).await
+                            nexus.disconnect_device_from_channels(d.clone()).await
                         {
                             error!(
                                 "{}: failed to disconnect I/O channels: {:?}",
@@ -579,7 +579,7 @@ impl<'n> NexusBio<'n> {
                         }
 
                         device_cmd_queue().enqueue(
-                            DeviceCommand::RemoveDevice {
+                            DeviceCommand::RetireDevice {
                                 nexus_name: nexus.name.clone(),
                                 child_device: d.clone(),
                             },
@@ -604,24 +604,21 @@ impl<'n> NexusBio<'n> {
         }
     }
 
-    /// TODO
-    fn retire_device(
+    /// Faults the device by its name, with the given I/O error.
+    /// The faulted device is scheduled to be retired.
+    fn fault_device(
         &mut self,
         child_device: &str,
         io_status: IoCompletionStatus,
     ) {
         let reason = match io_status {
             IoCompletionStatus::LvolError(LvolFailure::NoSpace) => {
-                Reason::NoSpace
+                FaultReason::NoSpace
             }
-            _ => Reason::IoError,
+            _ => FaultReason::IoError,
         };
 
-        self.channel_mut().nexus_mut().retire_child_device(
-            child_device,
-            reason,
-            true,
-        );
+        self.channel_mut().fault_device(child_device, reason);
     }
 
     /// Test handle_failure()
@@ -671,7 +668,7 @@ impl<'n> NexusBio<'n> {
             );
             self.try_self_shutdown_nexus();
         } else {
-            self.retire_device(&child.device_name(), status);
+            self.fault_device(&child.device_name(), status);
 
             let retry = matches!(
                 status,

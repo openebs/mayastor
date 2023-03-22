@@ -147,14 +147,10 @@ pub enum Error {
         name
     ))]
     FaultingLastHealthyChild { child: String, name: String },
-    #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
-    DestroyChild {
-        source: BdevError,
-        child: String,
-        name: String,
-    },
     #[snafu(display("Child {} of nexus {} not found", child, name))]
     ChildNotFound { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} is not open", child, name))]
+    ChildDeviceNotOpen { child: String, name: String },
     #[snafu(display("Child {} of nexus {} already exists", child, name))]
     ChildAlreadyExists { child: String, name: String },
     #[snafu(display("Failed to pause child {} of nexus {}", child, name))]

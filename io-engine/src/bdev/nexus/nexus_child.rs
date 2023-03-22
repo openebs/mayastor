@@ -71,8 +71,8 @@ pub enum ChildError {
     ClaimChild { source: Errno },
     #[snafu(display("Child is inaccessible"))]
     ChildInaccessible {},
-    #[snafu(display("Invalid state of child"))]
-    ChildInvalid {},
+    #[snafu(display("Cannot online child in its current state"))]
+    CannotOnlineChild {},
     #[snafu(display("Failed to create a BlockDeviceHandle for child"))]
     HandleCreate { source: CoreError },
     #[snafu(display("Failed to open a BlockDeviceHandle for child"))]
@@ -111,12 +111,14 @@ pub enum ChildError {
     ChildBdevCreate { child: String, source: BdevError },
 }
 
-/// TODO
+/// Fault reason.
 #[derive(Debug, Serialize, PartialEq, Deserialize, Eq, Copy, Clone)]
-pub enum Reason {
+pub enum FaultReason {
     /// No particular reason for the child to be in this state.
     /// This is typically the init state.
     Unknown,
+    /// Cannot open the underlying block device.
+    CantOpen,
     /// Thin-provisioned child failed a write operate because
     /// the underlying logical volume failed to allocate space.
     /// This a recoverable state in case when additional space
@@ -126,30 +128,41 @@ pub enum Reason {
     /// This a recoverable state in case the device can be expected
     /// to come back online.
     TimedOut,
-    /// Cannot open device.
-    CantOpen,
-    /// The child failed to rebuild successfully.
-    RebuildFailed,
     /// The child has been faulted due to I/O error(s).
     IoError,
-    /// The child has been explicitly faulted due to an RPC call.
-    ByClient,
+    /// The child failed to rebuild successfully.
+    RebuildFailed,
     /// Admin command failure.
     AdminCommandFailed,
+    /// The child has been temporarily offlined by a client API call.
+    Offline,
+    /// The child has been permanently offlined by a client API call.
+    OfflinePermanent,
 }
 
-impl Display for Reason {
+impl Display for FaultReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unknown => write!(f, "unknown"),
+            Self::CantOpen => write!(f, "cannot open"),
             Self::NoSpace => write!(f, "no space"),
             Self::TimedOut => write!(f, "timed out"),
-            Self::CantOpen => write!(f, "cannot open"),
+            Self::IoError => write!(f, "I/O error"),
             Self::RebuildFailed => write!(f, "rebuild failed"),
-            Self::IoError => write!(f, "io error"),
-            Self::ByClient => write!(f, "by client"),
             Self::AdminCommandFailed => write!(f, "admin command failed"),
+            Self::Offline => write!(f, "offline"),
+            Self::OfflinePermanent => write!(f, "offline permanent"),
         }
+    }
+}
+
+impl FaultReason {
+    /// Determines if the fault reason is recoverable.
+    pub fn is_recoverable(&self) -> bool {
+        matches!(
+            self,
+            Self::NoSpace | Self::TimedOut | Self::IoError | Self::Offline
+        )
     }
 }
 
@@ -159,7 +172,7 @@ pub enum ChildState {
     /// Child has not been opened, but we are in the process of opening it.
     Init,
     /// Cannot add this block device to the parent as
-    /// it iss incompatible property-wise.
+    /// it is incompatible property-wise.
     ConfigInvalid,
     /// The child is open for I/O.
     Open,
@@ -168,18 +181,56 @@ pub enum ChildState {
     /// The child has been closed by the nexus.
     Closed,
     /// The child is faulted.
-    Faulted(Reason),
+    Faulted(FaultReason),
+}
+
+/// State of the child from the client API perspective.
+#[derive(Debug, Clone, Copy)]
+pub enum ChildStateClient {
+    Init,
+    ConfigInvalid,
+    Open,
+    Closed,
+    Faulted(FaultReason),
+    Faulting(FaultReason),
+    OutOfSync,
 }
 
 impl Display for ChildState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Faulted(r) => write!(f, "faulted ({r})"),
             Self::Init => write!(f, "init"),
             Self::ConfigInvalid => write!(f, "config invalid"),
             Self::Open => write!(f, "open"),
             Self::Destroying => write!(f, "destroying"),
             Self::Closed => write!(f, "closed"),
+            Self::Faulted(r) => write!(f, "faulted ({r})"),
+        }
+    }
+}
+
+impl ChildState {
+    /// Determines if the state is open-like or open-failed.
+    /// A child is such state cannot be opened again.
+    pub fn is_open_or_init(&self) -> bool {
+        matches!(
+            self,
+            ChildState::Open | ChildState::Init | ChildState::ConfigInvalid
+        )
+    }
+
+    /// Determines if the state is a transition into a destroyed or close-like
+    /// state.
+    pub fn is_destroying(&self) -> bool {
+        matches!(self, ChildState::Destroying)
+    }
+
+    /// Determines if a child is in a state that can be onlined (re-opened).
+    pub fn is_recoverable(&self) -> bool {
+        match self {
+            Self::Faulted(reason) => reason.is_recoverable(),
+            Self::Closed => true,
+            _ => false,
         }
     }
 }
@@ -278,7 +329,7 @@ impl<'c> NexusChild<'c> {
 
         // verify the state of the child before we open it
         match self.state() {
-            ChildState::Faulted(_) => {
+            ChildState::Faulted(s) if !s.is_recoverable() => {
                 error!("{:?}: cannot open: state is {}", self, self.state());
                 return Err(ChildError::ChildFaulted {});
             }
@@ -316,7 +367,7 @@ impl<'c> NexusChild<'c> {
         }
 
         let desc = dev.open(true).map_err(|source| {
-            self.set_state(ChildState::Faulted(Reason::CantOpen));
+            self.set_state(ChildState::Faulted(FaultReason::CantOpen));
             ChildError::OpenChild {
                 source,
             }
@@ -333,6 +384,34 @@ impl<'c> NexusChild<'c> {
     /// Returns the state of the child.
     pub fn state(&self) -> ChildState {
         self.state.load()
+    }
+
+    /// Returns the state of the child from the client API perspective.
+    pub fn state_client(&self) -> ChildStateClient {
+        if self.is_opened_unsync() {
+            return ChildStateClient::OutOfSync;
+        }
+
+        match self.state() {
+            ChildState::Init => ChildStateClient::Init,
+            ChildState::ConfigInvalid => ChildStateClient::ConfigInvalid,
+            ChildState::Open => ChildStateClient::Open,
+            ChildState::Destroying => match self.prev_state.load() {
+                ChildState::Faulted(r) => ChildStateClient::Faulting(r),
+                _ => ChildStateClient::Faulting(FaultReason::Unknown),
+            },
+            ChildState::Closed => ChildStateClient::Closed,
+            ChildState::Faulted(r) => {
+                // If the child is in the `Faulted` state but the device is
+                // still being closed, report it as a transitional `Faulting`
+                // state.
+                if self.device_descriptor.is_some() {
+                    ChildStateClient::Faulting(r)
+                } else {
+                    ChildStateClient::Faulted(r)
+                }
+            }
+        }
     }
 
     /// Returns the sync state of the child.
@@ -801,21 +880,14 @@ impl<'c> NexusChild<'c> {
         Ok(())
     }
 
-    /// Fault the child with a specific reason.
-    pub(crate) async fn fault(&mut self, reason: Reason) {
+    /// Closes the child and forces a faulted state.
+    pub(crate) async fn close_faulted(&mut self, reason: FaultReason) {
         if let Err(e) = self.close().await {
             error!("{:?}: failed to close: {}", self, e.verbose());
         }
 
         self.set_state(ChildState::Faulted(reason));
         self.faulted_at = Some(Utc::now());
-    }
-
-    /// Set the child as temporarily offline
-    pub(crate) async fn offline(&mut self) {
-        if let Err(e) = self.close().await {
-            error!("{:?}: failed to close: {}", self, e.verbose());
-        }
     }
 
     /// Get URI of this Nexus child.
@@ -828,7 +900,7 @@ impl<'c> NexusChild<'c> {
         &self.parent
     }
 
-    /// Online a previously offlined child.
+    /// Onlines a previously offlined child.
     /// The child is set out-of-sync so that it will be rebuilt.
     /// TODO: channels need to be updated when block devices are opened.
     pub(crate) async fn online(
@@ -837,11 +909,27 @@ impl<'c> NexusChild<'c> {
     ) -> Result<String, ChildError> {
         info!("{:?}: bringing child online", self);
 
-        // Only online a child if it was previously set offline.
-        if !self.can_online() {
+        let state = self.state.load();
+
+        if state.is_open_or_init() {
             warn!(
-                "{:?}: child is permanently faulted and cannot \
-                    be brought online",
+                "{:?}: child is in {} state and cannot be onlined",
+                self, state
+            );
+            return Err(ChildError::CannotOnlineChild {});
+        }
+
+        if state.is_destroying() {
+            warn!(
+                "{:?}: child device is being destroyed and cannot be onlined",
+                self
+            );
+            return Err(ChildError::ChildBeingDestroyed {});
+        }
+
+        if !state.is_recoverable() {
+            warn!(
+                "{:?}: child is permanently faulted and cannot be onlined",
                 self
             );
             return Err(ChildError::PermanentlyFaulted {});
@@ -863,18 +951,7 @@ impl<'c> NexusChild<'c> {
             return Err(ChildError::ChildInaccessible {});
         }
 
-        self.set_state(ChildState::Closed);
         self.open(parent_size, ChildSyncState::OutOfSync)
-    }
-
-    /// Determines if the child can be onlined.
-    /// Check for a "Closed" state as that is what offlining a child
-    /// will set it to.
-    fn can_online(&self) -> bool {
-        matches!(
-            self.state.load(),
-            ChildState::Faulted(Reason::NoSpace) | ChildState::Closed
-        )
     }
 
     /// Extract a UUID from a URI.
@@ -891,6 +968,7 @@ impl<'c> NexusChild<'c> {
     /// Closes the nexus child.
     pub(crate) async fn close(&mut self) -> Result<(), BdevError> {
         info!("{:?}: closing child...", self);
+
         if self.device.is_none() {
             warn!("{:?}: no block device: appears to be already closed", self);
             return Ok(());
@@ -914,6 +992,7 @@ impl<'c> NexusChild<'c> {
         }
 
         info!("{:?}: child closed successfully", self);
+
         destroyed
     }
 
@@ -963,7 +1042,7 @@ impl<'c> NexusChild<'c> {
         // TODO: Revisit nexus reconfiguration once Nexus has switched to
         // BlockDevice-based children and is able to listen to
         // device-related events directly.
-        if state != ChildState::Faulted(Reason::IoError) {
+        if state != ChildState::Faulted(FaultReason::IoError) {
             let nexus_name = self.parent.clone();
             Reactor::block_on(async move {
                 match nexus_lookup_mut(&nexus_name) {
@@ -1022,7 +1101,19 @@ impl<'c> NexusChild<'c> {
         }
     }
 
-    /// Destroys the child's block device.
+    /// Destroys the child's underlying block device.
+    ///
+    /// While the desvice is being destroyed, the child will temporarily stay in
+    /// `Destroying` state.
+    ///
+    /// Once the device is destroyed, the child transits
+    /// to `Closed` state or reverts to the state before the device destroy:
+    ///
+    /// * If the child was `Open` before destroying the device, it will transit
+    ///   to `Closed`.
+    ///
+    /// * If the child was `Faulted` before destroying the device, it will
+    ///   revert back to `Faulted`.
     pub(super) async fn destroy_device(&self) -> Result<(), BdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);

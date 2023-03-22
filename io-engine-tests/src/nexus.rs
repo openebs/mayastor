@@ -2,9 +2,11 @@ use super::{
     compose::rpc::v1::{
         nexus::{
             AddChildNexusRequest,
+            Child,
             ChildAction,
             ChildOperationRequest,
             ChildState,
+            ChildStateReason,
             CreateNexusRequest,
             ListNexusOptions,
             Nexus,
@@ -213,6 +215,61 @@ impl NexusBuilder {
         self.online_child_bdev(&self.replica_uri(r)).await
     }
 
+    pub async fn offline_child_bdev(
+        &self,
+        bdev: &str,
+    ) -> Result<Nexus, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .child_operation(ChildOperationRequest {
+                nexus_uuid: self.uuid(),
+                uri: bdev.to_owned(),
+                action: ChildAction::Offline as i32,
+            })
+            .await
+            .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn offline_child_replica(
+        &self,
+        r: &ReplicaBuilder,
+    ) -> Result<Nexus, Status> {
+        self.offline_child_bdev(&self.replica_uri(r)).await
+    }
+
+    pub async fn get_nexus(&self) -> Result<Nexus, Status> {
+        let uuid = self.uuid();
+        list_nexuses(self.rpc())
+            .await?
+            .into_iter()
+            .find(|p| p.uuid == uuid)
+            .ok_or_else(|| {
+                Status::new(Code::NotFound, format!("Nexus '{uuid}' not found"))
+            })
+    }
+
+    pub async fn get_nexus_replica_child(
+        &self,
+        r: &ReplicaBuilder,
+    ) -> Result<Child, Status> {
+        let child_uri = self.replica_uri(r);
+        let n = find_nexus_by_uuid(self.rpc(), &self.uuid()).await?;
+        n.children
+            .into_iter()
+            .find(|c| c.uri == child_uri)
+            .ok_or_else(|| {
+                Status::new(
+                    Code::NotFound,
+                    format!(
+                        "Child '{}' not found on nexus '{}'",
+                        child_uri,
+                        self.uuid()
+                    ),
+                )
+            })
+    }
+
     pub async fn wait_children_online(
         &self,
         timeout: Duration,
@@ -231,6 +288,37 @@ impl NexusBuilder {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
             if Instant::now() - start > timeout {
+                return Err(Status::new(
+                    Code::Cancelled,
+                    "Waiting for children to get online timed out",
+                ));
+            }
+        }
+    }
+
+    pub async fn wait_replica_state(
+        &self,
+        r: &ReplicaBuilder,
+        state: ChildState,
+        reason: Option<ChildStateReason>,
+        timeout: Duration,
+    ) -> Result<(), Status> {
+        let start = Instant::now();
+
+        loop {
+            let c = self.get_nexus_replica_child(r).await?;
+            if c.state == state as i32 {
+                if let Some(r) = reason {
+                    if c.state_reason == r as i32 {
+                        return Ok(());
+                    }
+                }
+                return Ok(());
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            if start.elapsed() > timeout {
                 return Err(Status::new(
                     Code::Cancelled,
                     "Waiting for children to get online timed out",

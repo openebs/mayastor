@@ -215,6 +215,7 @@ impl RebuildJob {
     pub fn error(&self) -> Option<RebuildError> {
         self.states.read().error.clone()
     }
+
     /// Get the last error description.
     pub fn error_desc(&self) -> String {
         match self.error() {
@@ -237,10 +238,12 @@ impl RebuildJob {
     pub fn src_uri(&self) -> &str {
         &self.src_uri
     }
+
     /// Get the uri of the rebuild destination.
     pub fn dst_uri(&self) -> &str {
         &self.dst_uri
     }
+
     /// Start time of this rebuild job.
     pub fn start_time(&self) -> DateTime<Utc> {
         self.start_time

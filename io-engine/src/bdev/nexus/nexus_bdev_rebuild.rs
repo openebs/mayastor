@@ -9,8 +9,8 @@ use super::{
     ChildSyncState,
     DrEvent,
     Error,
+    FaultReason,
     Nexus,
-    Reason,
 };
 
 use crate::{
@@ -79,7 +79,7 @@ impl<'n> Nexus<'n> {
         child_uri: &str,
     ) -> Result<Receiver<RebuildState>, Error> {
         let name = self.name.clone();
-        trace!("{name}: start rebuild request for {child_uri}");
+        info!("{name}: start rebuild request for {child_uri}");
 
         // Find a healthy child to rebuild from.
         let src_child_uri = match self
@@ -261,8 +261,7 @@ impl<'n> Nexus<'n> {
         self: Pin<&mut Self>,
         dst_uri: &str,
     ) -> Result<u32, Error> {
-        let rj = self.rebuild_job(dst_uri)?;
-        Ok(rj.stats().await.progress as u32)
+        self.rebuild_stats(dst_uri).await.map(|s| s.progress as u32)
     }
 
     /// Pauses rebuild jobs, returning rebuild pause guard.
@@ -422,7 +421,7 @@ impl<'n> Nexus<'n> {
                     // todo: retry rebuild using another child as source?
                 }
 
-                dst_child.fault(Reason::RebuildFailed).await;
+                dst_child.close_faulted(FaultReason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed, error: {}",
                     child_uri,
@@ -431,7 +430,7 @@ impl<'n> Nexus<'n> {
                 );
             }
             _ => {
-                dst_child.fault(Reason::RebuildFailed).await;
+                dst_child.close_faulted(FaultReason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed with state {:?}",
                     child_uri,

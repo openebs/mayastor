@@ -40,9 +40,10 @@ pub(crate) use nexus_channel::{DrEvent, NexusChannel};
 pub use nexus_child::{
     ChildError,
     ChildState,
+    ChildStateClient,
     ChildSyncState,
+    FaultReason,
     NexusChild,
-    Reason,
 };
 use nexus_io::{NexusBio, NioCtx};
 use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};

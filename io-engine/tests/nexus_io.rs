@@ -47,10 +47,10 @@ use common::{
 use io_engine::{
     bdev::nexus::{
         ChildState,
+        FaultReason,
         NexusNvmePreemption,
         NexusStatus,
         NvmeReservation,
-        Reason,
     },
     grpc::v1::nexus::nexus_destroy,
 };
@@ -691,7 +691,7 @@ async fn nexus_io_resv_preempt() {
             // Make sure all child devices are in faulted state and don't have any associated
             // devices and I/O handles.
             nexus.children().iter().for_each(|c| {
-                assert_eq!(c.state(), ChildState::Faulted(Reason::IoError));
+                assert_eq!(c.state(), ChildState::Faulted(FaultReason::IoError));
 
                 assert!(
                     c.get_device().is_err(),

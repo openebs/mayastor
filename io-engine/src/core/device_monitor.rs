@@ -9,7 +9,7 @@ use crate::{bdev::nexus::nexus_lookup_mut, core::VerboseError};
 /// TODO
 #[derive(Debug, Clone)]
 pub enum DeviceCommand {
-    RemoveDevice {
+    RetireDevice {
         nexus_name: String,
         child_device: String,
     },
@@ -18,12 +18,12 @@ pub enum DeviceCommand {
 impl Display for DeviceCommand {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
-            Self::RemoveDevice {
+            Self::RetireDevice {
                 nexus_name,
                 child_device,
             } => write!(
                 f,
-                "remove device '{child_device}' from nexus '{nexus_name}'",
+                "retire device '{child_device}' from nexus '{nexus_name}'",
             ),
         }
     }
@@ -46,17 +46,18 @@ pub async fn device_monitor_loop() {
         if let Some(w) = device_cmd_queue().take() {
             info!("Device monitor executing command: {}", w);
             match w {
-                DeviceCommand::RemoveDevice {
+                DeviceCommand::RetireDevice {
                     nexus_name,
                     child_device,
                 } => {
                     let rx = Reactor::spawn_at_primary(async move {
-                        if let Some(n) = nexus_lookup_mut(&nexus_name) {
+                        if let Some(mut n) = nexus_lookup_mut(&nexus_name) {
                             if let Err(e) =
-                                n.destroy_child_device(&child_device).await
+                                n.as_mut().close_child(&child_device).await
                             {
                                 error!(
-                                    "{:?}: destroy child failed: {}",
+                                    "{:?}: failed to close child device \
+                                        in response to retire: {}",
                                     n,
                                     e.verbose()
                                 );
