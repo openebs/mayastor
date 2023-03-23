@@ -26,7 +26,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("pooluuid")
                 .required(true)
                 .index(3)
-                .help("Storage pool name"))
+                .help("Storage pool name or UUID"))
         .arg(
             Arg::with_name("size")
                 .short("s")
@@ -296,21 +296,31 @@ async fn replica_list(
             let table = replicas
                 .iter()
                 .map(|r| {
+                    let usage = r.usage.as_ref().unwrap();
                     let proto = replica_protocol_to_str(r.share);
                     let size = ctx.units(Byte::from_bytes(r.size.into()));
+                    let capacity = ctx
+                        .units(Byte::from_bytes(usage.capacity_bytes.into()));
+                    let allocated = ctx
+                        .units(Byte::from_bytes(usage.allocated_bytes.into()));
                     vec![
-                        r.pooluuid.clone(),
+                        r.poolname.clone(),
                         r.name.clone(),
                         r.uuid.clone(),
                         r.thin.to_string(),
                         proto.to_string(),
                         size,
+                        capacity,
+                        allocated,
                         r.uri.clone(),
                     ]
                 })
                 .collect();
             ctx.print_list(
-                vec!["POOL", "NAME", "UUID", ">THIN", ">SHARE", ">SIZE", "URI"],
+                vec![
+                    "POOL", "NAME", "UUID", ">THIN", ">SHARE", ">SIZE", ">CAP",
+                    ">ALLOC", "URI",
+                ],
                 table,
             );
         }
