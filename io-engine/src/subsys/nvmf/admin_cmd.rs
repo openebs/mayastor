@@ -9,10 +9,15 @@ use std::{
 
 use crate::{
     bdev::nexus,
-    core::{logical_volume::LogicalVolume, Bdev, Reactors},
+    core::{
+        logical_volume::LogicalVolume,
+        snapshot::SnapshotOps,
+        Bdev,
+        Reactors,
+        SnapshotParams,
+    },
     lvs::{lvs_lvol::LvsLvol, Lvol},
 };
-
 use spdk_rs::{
     libspdk::{
         nvme_cmd_cdw10_get,
@@ -39,9 +44,9 @@ use spdk_rs::{
     nvme_admin_opc,
 };
 
+#[warn(unused_variables)]
 #[derive(Clone)]
 pub struct NvmeCpl(pub(crate) NonNull<spdk_nvme_cpl>);
-
 impl NvmeCpl {
     /// Returns the NVMe status
     pub(crate) fn status(&mut self) -> &mut spdk_nvme_status {
@@ -51,7 +56,6 @@ impl NvmeCpl {
 
 #[derive(Clone)]
 pub struct NvmfReq(pub(crate) NonNull<spdk_nvmf_request>);
-
 impl NvmfReq {
     /// Returns the NVMe completion
     pub(crate) fn response(&self) -> NvmeCpl {
@@ -135,7 +139,7 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         let nvmf_req = NvmfReq(NonNull::new(req).unwrap());
         // Blobfs operations must be on md_thread
         Reactors::master().send_future(async move {
-            lvol.create_snapshot(&nvmf_req, &snapshot_name).await;
+            lvol.create_snapshot_remote(&nvmf_req, &snapshot_name).await;
         });
         1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
     } else {
@@ -144,15 +148,32 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     }
 }
 
-pub fn create_snapshot(lvol: Lvol, cmd: &spdk_nvme_cmd, io: *mut spdk_bdev_io) {
+pub fn create_snapshot(
+    lvol: Lvol,
+    cmd: &spdk_nvme_cmd,
+    _io: *mut spdk_bdev_io,
+) {
     let snapshot_time = unsafe {
         nvme_cmd_cdw10_get_val(cmd) as u64
             | (nvme_cmd_cdw11_get_val(cmd) as u64) << 32
     };
     let snapshot_name = Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
+    let snap_param = SnapshotParams::new(
+        Some(lvol.name()),
+        Some(lvol.name()),
+        Some(lvol.name()),
+        Some(snapshot_name),
+    );
     // Blobfs operations must be on md_thread
     Reactors::master().send_future(async move {
-        lvol.create_snapshot_local(io, &snapshot_name).await;
+        match lvol.create_snapshot(snap_param).await {
+            Ok(()) => {
+                info!("Create Snapshot Success!!!");
+            }
+            Err(e) => {
+                error!("Create Snapshot Failed with Error: {:?}", e);
+            }
+        }
     });
 }
 
