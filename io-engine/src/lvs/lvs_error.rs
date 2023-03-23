@@ -108,4 +108,9 @@ pub enum Error {
     ReplicaShareProtocol {
         value: i32,
     },
+    #[snafu(display("Snapshot {} created with Resultcode {}", msg, source))]
+    SnapshotCreate {
+        source: Errno,
+        msg: String,
+    },
 }

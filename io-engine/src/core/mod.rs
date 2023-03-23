@@ -64,6 +64,7 @@ pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
+pub use snapshot::{SnapshotDescriptor, SnapshotOps, SnapshotParams};
 
 mod bdev;
 mod block_device;
@@ -83,6 +84,7 @@ pub mod partition;
 mod reactor;
 pub mod runtime;
 mod share;
+pub mod snapshot;
 pub(crate) mod thread;
 mod work_queue;
 

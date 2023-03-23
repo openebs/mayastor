@@ -14,8 +14,6 @@ use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
 use spdk_rs::libspdk::{
-    spdk_bdev_io,
-    spdk_bdev_io_get_thread,
     spdk_blob,
     spdk_blob_calc_used_clusters,
     spdk_blob_get_num_clusters,
@@ -26,7 +24,6 @@ use spdk_rs::libspdk::{
     spdk_blob_sync_md,
     spdk_bs_get_cluster_size,
     spdk_lvol,
-    spdk_nvmf_request_complete,
     vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
@@ -37,15 +34,17 @@ use spdk_rs::libspdk::{
 use super::{Error, Lvs};
 
 use crate::{
-    bdev::{nexus::Nexus, PtplFileOps},
+    bdev::PtplFileOps,
     core::{
         logical_volume::LogicalVolume,
+        snapshot::SnapshotDescriptor,
         Bdev,
-        Mthread,
         Protocol,
         PtplProps,
         Share,
         ShareProps,
+        SnapshotOps,
+        SnapshotParams,
         UntypedBdev,
         UpdateProps,
     },
@@ -59,6 +58,7 @@ use crate::{
     },
     subsys::NvmfReq,
 };
+use spdk_rs::libspdk::spdk_nvmf_request_complete;
 
 // Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
 pub(crate) const WIPE_SUPER_LEN: u64 = (1 << 20) * 8;
@@ -428,13 +428,10 @@ pub trait LvsLvol: LogicalVolume + Share {
     /// Write the property prop on to the lvol which is stored on disk
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error>;
 
-    /// Create a snapshot
-    async fn create_snapshot(&self, nvmf_req: &NvmfReq, snapshot_name: &str);
-
-    /// Create snapshot for local replica
-    async fn create_snapshot_local(
+    /// Create a snapshot in Remote
+    async fn create_snapshot_remote(
         &self,
-        io: *mut spdk_bdev_io,
+        nvmf_req: &NvmfReq,
         snapshot_name: &str,
     );
 }
@@ -715,9 +712,12 @@ impl LvsLvol for Lvol {
 
         Ok(())
     }
-
-    /// Create a snapshot
-    async fn create_snapshot(&self, nvmf_req: &NvmfReq, snapshot_name: &str) {
+    /// Create a snapshot in Remote
+    async fn create_snapshot_remote(
+        &self,
+        nvmf_req: &NvmfReq,
+        snapshot_name: &str,
+    ) {
         extern "C" fn snapshot_done_cb(
             nvmf_req_ptr: *mut c_void,
             _lvol_ptr: *mut spdk_lvol,
@@ -754,38 +754,43 @@ impl LvsLvol for Lvol {
 
         info!("{:?}: creating snapshot '{}'", self, snapshot_name);
     }
+}
 
-    /// Create snapshot for local replica
-    async fn create_snapshot_local(
+#[async_trait(?Send)]
+impl SnapshotOps for Lvol {
+    type Error = Error;
+    /// Create Snapshot Common API for Remote Device.
+    async fn create_snapshot(
         &self,
-        io: *mut spdk_bdev_io,
-        snapshot_name: &str,
-    ) {
-        extern "C" fn snapshot_done_cb(
-            bio_ptr: *mut c_void,
+        snap_param: SnapshotParams,
+    ) -> Result<(), Error> {
+        extern "C" fn snapshot_create_done_cb(
+            arg: *mut c_void,
             _lvol_ptr: *mut spdk_lvol,
             errno: i32,
         ) {
+            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
             if errno != 0 {
-                error!("vbdev_lvol_create_snapshot errno {}", errno);
+                error!("vbdev_lvol_create_snapshot failed errno {}", errno);
             }
-            // Must complete IO on thread IO was submitted from
-            Mthread::from_ptr(unsafe {
-                spdk_bdev_io_get_thread(bio_ptr.cast())
-            })
-            .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
+            s.send(errno).ok();
         }
 
-        let c_snapshot_name = snapshot_name.into_cstring();
+        let c_snapshot_name = snap_param.name().unwrap().into_cstring();
+        let (s, r) = oneshot::channel::<i32>();
         unsafe {
             vbdev_lvol_create_snapshot(
                 self.as_inner_ptr(),
                 c_snapshot_name.as_ptr(),
-                Some(snapshot_done_cb),
-                io.cast(),
+                Some(snapshot_create_done_cb),
+                cb_arg(s),
             )
         };
-
-        info!("{:?}: creating snapshot '{}'", self, snapshot_name);
+        r.await
+            .expect("snapshot_create_done_cb")
+            .to_result(|error| Error::SnapshotCreate {
+                source: Errno::from_i32(error),
+                msg: c_snapshot_name.into_string().unwrap(),
+            })
     }
 }
