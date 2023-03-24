@@ -34,7 +34,6 @@ use super::{
     nexus_lookup_mut,
     ChildState,
     ChildSyncState,
-    DrEvent,
     Error,
     FaultReason,
     Nexus,
@@ -260,40 +259,9 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         info!("{:?}: remove child request: '{}'", self, uri);
 
-        if !self.contains_child_uri(uri) {
-            return Err(Error::ChildNotFound {
-                child: uri.to_string(),
-                name: self.name.to_string(),
-            });
-        }
-
         self.check_nexus_operation(NexusOperation::ReplicaRemove)?;
 
-        if self.child_count() == 1 {
-            return Err(Error::DestroyLastChild {
-                name: self.name.clone(),
-                child: uri.to_owned(),
-            });
-        }
-
-        let healthy_children = self
-            .children_iter()
-            .filter(|c| c.is_healthy())
-            .collect::<Vec<_>>();
-
-        let have_healthy_children = !healthy_children.is_empty();
-        let other_healthy_children = healthy_children
-            .into_iter()
-            .filter(|c| c.uri() != uri)
-            .count()
-            > 0;
-
-        if have_healthy_children && !other_healthy_children {
-            return Err(Error::DestroyLastHealthyChild {
-                name: self.name.clone(),
-                child: uri.to_owned(),
-            });
-        }
+        self.check_child_remove_operation(uri)?;
 
         let paused = self.as_mut().pause_rebuild_jobs(uri).await;
 
@@ -345,38 +313,37 @@ impl<'n> Nexus<'n> {
             self, reason, child_uri
         );
 
+        // Check that the nexus allows such operation.
         self.check_nexus_operation(NexusOperation::ReplicaFault)?;
 
+        // Check that the child exists and can be removed.
+        self.check_child_remove_operation(child_uri)?;
+
+        // Get child's device name.
         let dev_name = self.get_child_device_name(child_uri)?;
 
-        // TODO: check to prevent faulting if a rebuild is running (?).
+        // Stop running rebuild jobs.
         let paused = self.as_mut().pause_rebuild_jobs(child_uri).await;
 
-        // TODO: check to prevent the last child from degrading (?).
+        // Fault and retire.
         self.as_mut().retire_child_device(&dev_name, reason, false);
 
         let res = Ok(self.status());
 
+        // Restart rebuild jobs.
         paused.resume().await;
 
         res
     }
 
-    /// TODO: Legacy method to fault child by client.
-    pub async fn fault_child_legacy(
-        mut self: Pin<&mut Self>,
+    /// Checks that the given child can be removed or offlined.
+    fn check_child_remove_operation(
+        &self,
         child_uri: &str,
     ) -> Result<(), Error> {
-        self.check_nexus_operation(NexusOperation::ReplicaFault)?;
+        let _ = self.child(child_uri)?;
 
-        let reason = FaultReason::OfflinePermanent;
-
-        info!(
-            "{:?}: permanent fault child request for '{}'",
-            self, child_uri
-        );
-
-        if self.children().len() < 2 {
+        if self.child_count() == 1 {
             return Err(Error::RemoveLastChild {
                 name: self.name.clone(),
                 child: child_uri.to_owned(),
@@ -390,37 +357,13 @@ impl<'n> Nexus<'n> {
 
         if healthy.len() == 1 && healthy[0].uri() == child_uri {
             // the last healthy child cannot be faulted
-            return Err(Error::FaultingLastHealthyChild {
+            return Err(Error::RemoveLastHealthyChild {
                 name: self.name.clone(),
                 child: child_uri.to_owned(),
             });
         }
 
-        let paused = self.as_mut().pause_rebuild_jobs(child_uri).await;
-
-        let res = match self.as_mut().child_mut(child_uri) {
-            Ok(child) => {
-                match child.state() {
-                    ChildState::Faulted(current_reason) => {
-                        if current_reason != reason {
-                            child.close_faulted(reason).await;
-                        } else {
-                            warn!("{:?}: already faulted", child);
-                        }
-                    }
-                    _ => {
-                        child.close_faulted(reason).await;
-                        self.reconfigure(DrEvent::ChildFaultByClient).await;
-                    }
-                }
-                Ok(())
-            }
-            Err(e) => Err(e),
-        };
-
-        paused.resume().await;
-
-        res
+        Ok(())
     }
 
     /// Onlines a child by re-opening its underlying block device and rebuilding

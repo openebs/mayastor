@@ -624,7 +624,7 @@ impl NexusRpc for NexusService {
                 trace!("{:?}", args);
                 debug!("Faulting child {} on nexus {}", args.uri, args.uuid);
                 nexus_lookup(&args.uuid)?
-                    .fault_child_legacy(&args.uri)
+                    .fault_child(&args.uri, FaultReason::OfflinePermanent)
                     .await?;
                 info!("Faulted child {} on nexus {}", args.uri, args.uuid);
                 Ok(FaultNexusChildResponse {
@@ -921,6 +921,15 @@ impl NexusRpc for NexusService {
                         nexus
                             .as_mut()
                             .fault_child(&args.uri, FaultReason::IoError)
+                            .await
+                    }
+                    3 => {
+                        nexus
+                            .as_mut()
+                            .fault_child(
+                                &args.uri,
+                                FaultReason::OfflinePermanent,
+                            )
                             .await
                     }
                     _ => Err(nexus::Error::InvalidKey {}),

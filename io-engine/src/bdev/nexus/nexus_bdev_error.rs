@@ -128,26 +128,18 @@ pub enum Error {
         child,
         name
     ))]
-    DestroyLastChild { child: String, name: String },
-    #[snafu(display(
-        "Cannot remove the last child {} of nexus {} from the IO path",
-        child,
-        name
-    ))]
-    DestroyLastHealthyChild { child: String, name: String },
-    #[snafu(display(
-        "Cannot remove the last healthy child {} of nexus {} from the IO path",
-        child,
-        name
-    ))]
     RemoveLastChild { child: String, name: String },
     #[snafu(display(
-        "Cannot fault the last healthy child {} of nexus {}",
+        "Cannot remove or offline the last child {} of nexus {}",
         child,
         name
     ))]
-    FaultingLastHealthyChild { child: String, name: String },
-    #[snafu(display("Child {} of nexus {} not found", child, name))]
+    RemoveLastHealthyChild { child: String, name: String },
+    #[snafu(display(
+        "Cannot remove or offline the last healthy child {} of nexus {}",
+        child,
+        name
+    ))]
     ChildNotFound { child: String, name: String },
     #[snafu(display("Child {} of nexus {} is not open", child, name))]
     ChildDeviceNotOpen { child: String, name: String },
@@ -284,10 +276,10 @@ impl From<Error> for tonic::Status {
             Error::OperationNotAllowed {
                 ..
             } => Status::failed_precondition(e.to_string()),
-            Error::DestroyLastChild {
+            Error::RemoveLastChild {
                 ..
             } => Status::failed_precondition(e.to_string()),
-            Error::DestroyLastHealthyChild {
+            Error::RemoveLastHealthyChild {
                 ..
             } => Status::failed_precondition(e.to_string()),
             Error::ChildNotFound {

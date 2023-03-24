@@ -1276,7 +1276,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let uri = args.uri.clone();
                 debug!("Faulting child {} on nexus {}", uri, uuid);
                 nexus_lookup(&args.uuid)?
-                    .fault_child_legacy(&args.uri)
+                    .fault_child(&args.uri, FaultReason::OfflinePermanent)
                     .await?;
                 info!("Faulted child {} on nexus {}", uri, uuid);
                 Ok(Null {})

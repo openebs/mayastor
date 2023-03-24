@@ -45,8 +45,6 @@ impl<'n> Debug for NexusChannel<'n> {
 #[allow(clippy::enum_variant_names)]
 /// Dynamic Reconfiguration Events occur when a child is added or removed
 pub enum DrEvent {
-    /// The child is faulted by a client API call.
-    ChildFaultByClient,
     /// Child unplug reconfiguration event.
     ChildUnplug,
     /// Child rebuild event.
@@ -59,7 +57,6 @@ impl Display for DrEvent {
             f,
             "{}",
             match self {
-                Self::ChildFaultByClient => "fault",
                 Self::ChildUnplug => "unplug",
                 Self::ChildRebuild => "rebuild",
             }
