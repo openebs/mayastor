@@ -2,6 +2,7 @@ use snafu::ResultExt;
 
 use super::rebuild_error::{NoBdevHandle, RebuildError};
 use crate::core::{BlockDeviceDescriptor, BlockDeviceHandle, DescriptorGuard};
+use chrono::{DateTime, Utc};
 
 /// Contains all descriptors and their associated information which allows the
 /// tasks to copy/rebuild data from source to destination.
@@ -26,6 +27,8 @@ pub(super) struct RebuildDescriptor {
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
     /// Nexus Descriptor so we can lock its ranges when rebuilding a segment.
     pub(super) nexus_descriptor: DescriptorGuard<()>,
+    /// Start time of this rebuild.
+    pub(super) start_time: DateTime<Utc>,
 }
 
 impl RebuildDescriptor {

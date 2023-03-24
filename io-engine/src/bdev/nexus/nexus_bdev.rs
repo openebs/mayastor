@@ -50,7 +50,7 @@ use crate::{
         Share,
         VerboseError,
     },
-    rebuild::RebuildRecord,
+    rebuild::HistoryRecord,
     subsys::NvmfSubsystem,
 };
 
@@ -260,7 +260,7 @@ pub struct Nexus<'n> {
     /// TODO
     event_sink: Option<DeviceEventSink>,
     /// Rebuild history of all children of this nexus instance.
-    pub(super) rebuild_history: Vec<RebuildRecord>,
+    pub(super) rebuild_history: Vec<HistoryRecord>,
     /// TODO
     #[allow(dead_code)]
     pub(super) injections: Injections,

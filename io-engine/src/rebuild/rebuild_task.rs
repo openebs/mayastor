@@ -26,6 +26,9 @@ pub(super) struct TaskResult {
     pub(super) blk: u64,
     /// Encountered error, if any.
     pub(super) error: Option<RebuildError>,
+    /// Indicates if the segment was actually transferred (partial rebuild may
+    /// skip segments).
+    pub(super) is_transferred: bool,
 }
 
 /// Each rebuild task needs a unique buffer to read/write from source to target.
@@ -58,7 +61,7 @@ impl RebuildTask {
         &mut self,
         blk: u64,
         descriptor: &RebuildDescriptor,
-    ) -> Result<(), RebuildError> {
+    ) -> Result<bool, RebuildError> {
         let len = descriptor.get_segment_size_blks(blk);
         // The nexus children have metadata and data partitions, whereas the
         // nexus has a data partition only. Because we are locking the range on
@@ -92,7 +95,7 @@ impl RebuildTask {
                 len,
             })?;
 
-        result
+        result.map(|_| true)
     }
 
     /// Copies one segment worth of data from source into destination.
@@ -166,9 +169,12 @@ pub(super) struct RebuildTasks {
     pub(super) active: usize,
     /// How many tasks in total.
     pub(super) total: usize,
-    /// How many segments have been rebuilt so far.
+    /// How many segments have been rebuilt so far, regardless if they were
+    /// actually copied or the target segment was already in sync.
     /// In other words, how many rebuild tasks have successfully completed.
     pub(super) segments_done: u64,
+    /// How many segments have been actually transferred so far.
+    pub(super) segments_transferred: u64,
 }
 
 impl std::fmt::Debug for RebuildTasks {
@@ -197,6 +203,9 @@ impl RebuildTasks {
             self.active -= 1;
             if f.error.is_none() {
                 self.segments_done += 1;
+                if f.is_transferred {
+                    self.segments_transferred += 1;
+                }
             }
             f
         })
@@ -216,10 +225,12 @@ impl RebuildTasks {
             // No other thread/task will acquire the mutex at the same time.
             let mut task = task.lock();
             let result = task.locked_copy_one(blk, &descriptor).await;
+            let is_transferred = *result.as_ref().unwrap_or(&false);
             let error = TaskResult {
                 id,
                 blk,
                 error: result.err(),
+                is_transferred,
             };
             task.error = Some(error.clone());
             if let Err(e) = task.sender.send(error).await {

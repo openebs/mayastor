@@ -15,7 +15,7 @@ use crate::{
         Share,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult},
-    rebuild::{RebuildRecord, RebuildState, RebuildStats},
+    rebuild::{HistoryRecord, RebuildState, RebuildStats},
 };
 use futures::FutureExt;
 use std::{
@@ -182,11 +182,15 @@ impl From<RebuildStats> for RebuildStatsResponse {
         RebuildStatsResponse {
             blocks_total: stats.blocks_total,
             blocks_recovered: stats.blocks_recovered,
+            blocks_transferred: stats.blocks_transferred,
+            blocks_remaining: stats.blocks_remaining,
             progress: stats.progress,
-            segment_size_blks: stats.segment_size_blks,
+            blocks_per_task: stats.blocks_per_task,
             block_size: stats.block_size,
             tasks_total: stats.tasks_total,
             tasks_active: stats.tasks_active,
+            is_partial: stats.is_partial,
+            start_time: Some(stats.start_time.into()),
         }
     }
 }
@@ -204,16 +208,21 @@ impl From<RebuildState> for mayastor_api::v1::nexus::RebuildJobState {
     }
 }
 
-impl From<&RebuildRecord> for RebuildHistoryRecord {
-    fn from(record: &RebuildRecord) -> Self {
+impl From<&HistoryRecord> for RebuildHistoryRecord {
+    fn from(record: &HistoryRecord) -> Self {
         RebuildHistoryRecord {
-            dst_uri: record.dst_uri.clone(),
+            child_uri: record.child_uri.clone(),
             src_uri: record.src_uri.clone(),
             state: RebuildJobState::from(record.state) as i32,
-            is_partial: record.partial_rebuild,
-            rebuilt_data_size: record.rebuilt_data_size,
-            started_at: Some(record.start.into()),
-            ended_at: Some(record.end.into()),
+            blocks_total: record.blocks_total,
+            blocks_recovered: record.blocks_recovered,
+            blocks_transferred: record.blocks_transferred,
+            blocks_remaining: record.blocks_remaining,
+            blocks_per_task: record.blocks_per_task,
+            block_size: record.block_size,
+            is_partial: record.is_partial,
+            start_time: Some(record.start_time.into()),
+            end_time: Some(record.end_time.into()),
         }
     }
 }
