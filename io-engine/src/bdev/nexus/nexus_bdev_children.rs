@@ -23,6 +23,7 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use chrono::Utc;
 use std::{cmp::min, pin::Pin};
 
 use futures::{channel::oneshot, future::join_all};
@@ -836,6 +837,9 @@ impl<'n> Nexus<'n> {
                     child_device.to_owned(),
                     retry,
                 ));
+
+                // Set the timestamp of this child fault.
+                *c.faulted_at.lock() = Some(Utc::now());
             } else {
                 warn!("{:?}: faulted with {}, already retired", c, reason);
             }

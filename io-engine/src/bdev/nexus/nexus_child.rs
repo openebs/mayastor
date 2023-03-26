@@ -268,7 +268,8 @@ pub struct NexusChild<'c> {
     #[serde(skip_serializing)]
     prev_state: AtomicCell<ChildState>,
     /// last fault timestamp if this child went faulted
-    pub faulted_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub faulted_at: parking_lot::Mutex<Option<DateTime<Utc>>>,
     /// TODO
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
@@ -304,10 +305,15 @@ impl Debug for NexusChild<'_> {
 
 impl<'c> NexusChild<'c> {
     /// TODO
-    pub(crate) fn set_state(&self, state: ChildState) {
+    fn set_state(&self, state: ChildState) {
         debug!("{:?}: changing state to '{}'", self, state);
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
+    }
+
+    pub(crate) fn set_faulted_state(&self, reason: FaultReason) {
+        self.set_state(ChildState::Faulted(reason));
+        *self.faulted_at.lock() = Some(Utc::now());
     }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
@@ -367,7 +373,7 @@ impl<'c> NexusChild<'c> {
         }
 
         let desc = dev.open(true).map_err(|source| {
-            self.set_state(ChildState::Faulted(FaultReason::CantOpen));
+            self.set_faulted_state(FaultReason::CantOpen);
             ChildError::OpenChild {
                 source,
             }
@@ -417,6 +423,11 @@ impl<'c> NexusChild<'c> {
     /// Returns the sync state of the child.
     pub fn sync_state(&self) -> ChildSyncState {
         self.sync_state
+    }
+
+    /// Return the last fault timestamp of the child.
+    pub fn fault_timestamp(&self) -> Option<DateTime<Utc>> {
+        *self.faulted_at.lock()
     }
 
     /// Determines if the child is opened but out-of-sync (needs rebuild or
@@ -886,8 +897,7 @@ impl<'c> NexusChild<'c> {
             error!("{:?}: failed to close: {}", self, e.verbose());
         }
 
-        self.set_state(ChildState::Faulted(reason));
-        self.faulted_at = Some(Utc::now());
+        self.set_faulted_state(reason);
     }
 
     /// Get URI of this Nexus child.
@@ -1095,7 +1105,7 @@ impl<'c> NexusChild<'c> {
             state: AtomicCell::new(ChildState::Init),
             sync_state: ChildSyncState::Synced,
             prev_state: AtomicCell::new(ChildState::Init),
-            faulted_at: None,
+            faulted_at: parking_lot::Mutex::new(None),
             remove_channel: mpsc::channel(0),
             _c: Default::default(),
         }
