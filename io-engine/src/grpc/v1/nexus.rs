@@ -306,7 +306,7 @@ impl<'c> NexusChild<'c> {
             state_reason: r as i32,
             rebuild_progress: self.get_rebuild_progress().await,
             device_name: self.get_device_name(),
-            fault_timestamp: self.faulted_at.map(|d| d.into()),
+            fault_timestamp: self.fault_timestamp().map(|d| d.into()),
         }
     }
 }

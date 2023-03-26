@@ -2,9 +2,11 @@ use std::{
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use crossbeam::atomic::AtomicCell;
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use nix::errno::Errno;
@@ -268,7 +270,7 @@ pub struct NexusChild<'c> {
     #[serde(skip_serializing)]
     prev_state: AtomicCell<ChildState>,
     /// last fault timestamp if this child went faulted
-    pub faulted_at: Option<DateTime<Utc>>,
+    pub faulted_at: AtomicU64,
     /// TODO
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
@@ -308,6 +310,16 @@ impl<'c> NexusChild<'c> {
         debug!("{:?}: changing state to '{}'", self, state);
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
+
+        if let ChildState::Faulted(_) = state {
+            self.faulted_at.store(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                Ordering::Relaxed,
+            );
+        }
     }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
@@ -417,6 +429,17 @@ impl<'c> NexusChild<'c> {
     /// Returns the sync state of the child.
     pub fn sync_state(&self) -> ChildSyncState {
         self.sync_state
+    }
+
+    /// Return the last fault timestamp of the child.
+    pub fn fault_timestamp(&self) -> Option<DateTime<Utc>> {
+        if self.faulted_at.load(Ordering::Relaxed) == 0 {
+            None
+        } else {
+            let ts = self.faulted_at.load(Ordering::Relaxed);
+            NaiveDateTime::from_timestamp_opt(ts as i64, 0)
+                .map(|d| DateTime::from_utc(d, Utc))
+        }
     }
 
     /// Determines if the child is opened but out-of-sync (needs rebuild or
@@ -887,7 +910,6 @@ impl<'c> NexusChild<'c> {
         }
 
         self.set_state(ChildState::Faulted(reason));
-        self.faulted_at = Some(Utc::now());
     }
 
     /// Get URI of this Nexus child.
@@ -1095,7 +1117,7 @@ impl<'c> NexusChild<'c> {
             state: AtomicCell::new(ChildState::Init),
             sync_state: ChildSyncState::Synced,
             prev_state: AtomicCell::new(ChildState::Init),
-            faulted_at: None,
+            faulted_at: 0.into(),
             remove_channel: mpsc::channel(0),
             _c: Default::default(),
         }
