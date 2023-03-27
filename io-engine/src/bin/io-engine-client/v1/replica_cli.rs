@@ -66,6 +66,22 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .required(true)
                 .index(1)
                 .help("Replica uuid"),
+        )
+        .arg(
+            Arg::with_name("pool-uuid")
+                .long("pool-uuid")
+                .required(false)
+                .takes_value(true)
+                .conflicts_with("pool-name")
+                .help("Uuid of the pool where replica resides"),
+        )
+        .arg(
+            Arg::with_name("pool-name")
+                .long("pool-name")
+                .required(false)
+                .takes_value(true)
+                .conflicts_with("pool-uuid")
+                .help("Name of the pool where replica resides"),
         );
 
     let share = SubCommand::with_name("share").about("Share replica over specified protocol")
@@ -211,11 +227,25 @@ async fn replica_destroy(
         })?
         .to_owned();
 
+    let pool = match matches.value_of("pool-uuid") {
+        Some(uuid) => {
+            Some(v1_rpc::replica::destroy_replica_request::Pool::PoolUuid(
+                uuid.to_string(),
+            ))
+        }
+        None => matches.value_of("pool-name").map(|name| {
+            v1_rpc::replica::destroy_replica_request::Pool::PoolName(
+                name.to_string(),
+            )
+        }),
+    };
+
     let _ = ctx
         .v1
         .replica
         .destroy_replica(v1_rpc::replica::DestroyReplicaRequest {
             uuid: uuid.clone(),
+            pool,
         })
         .await
         .context(GrpcStatus)?;
@@ -241,6 +271,7 @@ async fn replica_list(
             name: None,
             poolname: None,
             uuid: None,
+            pooluuid: None,
         })
         .await
         .context(GrpcStatus)?;

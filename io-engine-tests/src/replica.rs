@@ -1,21 +1,19 @@
-pub use super::compose::rpc::v1::replica::Replica;
 use super::{
-    compose::rpc::v1::{
-        replica::{
-            CreateReplicaRequest,
-            DestroyReplicaRequest,
-            ListReplicaOptions,
-            ShareReplicaRequest,
-        },
-        SharedRpcHandle,
-        Status,
-    },
+    compose::rpc::v1::SharedRpcHandle,
     generate_uuid,
     nvmf::{test_devices_identical, NvmfLocation},
     pool::PoolBuilder,
 };
 use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
-use tonic::Code;
+use mayastor_api::v1::replica::{
+    destroy_replica_request,
+    CreateReplicaRequest,
+    DestroyReplicaRequest,
+    ListReplicaOptions,
+    Replica,
+    ShareReplicaRequest,
+};
+use tonic::{Code, Status};
 
 #[derive(Clone)]
 pub struct ReplicaBuilder {
@@ -141,11 +139,16 @@ impl ReplicaBuilder {
     }
 
     pub async fn destroy(&mut self) -> Result<(), Status> {
+        let pool = self
+            .pool_uuid
+            .clone()
+            .map(destroy_replica_request::Pool::PoolUuid);
         self.rpc()
             .borrow_mut()
             .replica
             .destroy_replica(DestroyReplicaRequest {
                 uuid: self.uuid(),
+                pool,
             })
             .await
             .map(|r| r.into_inner())
@@ -191,6 +194,7 @@ pub async fn list_replicas(
             name: None,
             poolname: None,
             uuid: None,
+            pooluuid: None,
         })
         .await
         .map(|r| r.into_inner().replicas)

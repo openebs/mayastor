@@ -20,6 +20,13 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("Storage pool name"),
         )
         .arg(
+            Arg::with_name("uuid")
+                .long("uuid")
+                .required(false)
+                .takes_value(true)
+                .help("Storage pool uuid"),
+        )
+        .arg(
             Arg::with_name("disk")
                 .required(true)
                 .multiple(true)
@@ -71,6 +78,7 @@ async fn create(
             field: "pool".to_string(),
         })?
         .to_owned();
+    let uuid = matches.value_of("uuid");
     let disks_list = matches
         .values_of("disk")
         .ok_or_else(|| ClientError::MissingValue {
@@ -84,7 +92,7 @@ async fn create(
         .pool
         .create_pool(v1rpc::pool::CreatePoolRequest {
             name: name.clone(),
-            uuid: None,
+            uuid: uuid.map(ToString::to_string),
             disks: disks_list,
             pooltype: v1rpc::pool::PoolType::Lvs as i32,
         })

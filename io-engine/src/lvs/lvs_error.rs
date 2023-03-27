@@ -52,10 +52,11 @@ pub enum Error {
         source: Errno,
         name: String,
     },
-    #[snafu(display("failed to destroy lvol {}", name))]
+    #[snafu(display("failed to destroy lvol {}{}", name, if msg.is_empty() { "" } else { msg.as_str() }))]
     RepDestroy {
         source: Errno,
         name: String,
+        msg: String,
     },
     #[snafu(display("bdev {} is not a lvol", name))]
     NotALvol {
