@@ -29,12 +29,17 @@ impl SnapshotParams {
 #[async_trait(?Send)]
 pub trait SnapshotOps {
     type Error;
+    type SnapshotIter;
     /// Create Snapshot Common API.
     async fn create_snapshot(
         &self,
         snap_param: SnapshotParams,
     ) -> Result<(), Self::Error>;
+
+    // Get a Snapshot Iterator.
+    async fn snapshot_iter(self) -> Self::SnapshotIter;
 }
+
 /// Traits gives the Snapshots Related Parameters.
 pub trait SnapshotDescriptor {
     /// Get Transaction Id of the Snapshot Create.

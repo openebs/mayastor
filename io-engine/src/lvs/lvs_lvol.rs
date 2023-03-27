@@ -23,6 +23,7 @@ use spdk_rs::libspdk::{
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_bs_get_cluster_size,
+    spdk_bs_iter_next,
     spdk_lvol,
     vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
@@ -56,6 +57,7 @@ use crate::{
         FfiResult,
         IntoCString,
     },
+    lvs::LvolSnapshotIter,
     subsys::NvmfReq,
 };
 use spdk_rs::libspdk::spdk_nvmf_request_complete;
@@ -434,6 +436,24 @@ pub trait LvsLvol: LogicalVolume + Share {
         nvmf_req: &NvmfReq,
         snapshot_name: &str,
     );
+    /// Callback is executed when blobstore fetching is done using spdk api.
+    extern "C" fn blob_op_complete_cb(
+        arg: *mut c_void,
+        _blob: *mut spdk_blob,
+        errno: i32,
+    );
+
+    /// Get the first spdk_blob from the Lvol Blobstor.
+    fn bs_iter_first(&self) -> *mut spdk_blob;
+
+    /// Get the next spdk_blob from the current blob.
+    async fn bs_iter_next(
+        &self,
+        curr_blob: *mut spdk_blob,
+    ) -> Option<*mut spdk_blob>;
+
+    /// Build Snapshot Parameters from Blob.
+    fn build_snapshot_param(&self, blob: *mut spdk_blob) -> SnapshotParams;
 }
 
 ///  LogicalVolume implement Generic interface for Lvol
@@ -754,12 +774,65 @@ impl LvsLvol for Lvol {
 
         info!("{:?}: creating snapshot '{}'", self, snapshot_name);
     }
+
+    /// Blobstore Common Callback function.
+    extern "C" fn blob_op_complete_cb(
+        arg: *mut c_void,
+        blob: *mut spdk_blob,
+        errno: i32,
+    ) {
+        let s = unsafe {
+            Box::from_raw(arg as *mut oneshot::Sender<(*mut spdk_blob, i32)>)
+        };
+        if errno != 0 {
+            error!("Blobstore Operation failed, errno {}", errno);
+        }
+        s.send((blob, errno)).ok();
+    }
+
+    /// Get the first spdk_blob from the Lvol Blobstor.
+    fn bs_iter_first(&self) -> *mut spdk_blob {
+        self.as_inner_ref().blob
+    }
+
+    /// Get the next spdk_blob from the current blob.
+    async fn bs_iter_next(
+        &self,
+        curr_blob: *mut spdk_blob,
+    ) -> Option<*mut spdk_blob> {
+        let (s, r) = oneshot::channel::<(*mut spdk_blob, i32)>();
+        unsafe {
+            spdk_bs_iter_next(
+                self.lvs().blob_store(),
+                curr_blob,
+                Some(Self::blob_op_complete_cb),
+                cb_arg(s),
+            )
+        };
+        match r.await {
+            Ok((blob, _err)) => Some(blob),
+            Err(_) => None,
+        }
+    }
+
+    /// Build Snapshot Parameters from Blob.
+    fn build_snapshot_param(&self, _blob: *mut spdk_blob) -> SnapshotParams {
+        // TODO: need to Integrate with Snapshot Property Enumeration
+        // Currently it is stub.
+        SnapshotParams::new(
+            Some(self.name()),
+            Some(self.name()),
+            Some(self.name()),
+            Some(self.name()),
+        )
+    }
 }
 
 #[async_trait(?Send)]
 impl SnapshotOps for Lvol {
     type Error = Error;
-    /// Create Snapshot Common API for Remote Device.
+    type SnapshotIter = LvolSnapshotIter;
+    /// Create Snapshot Common API for Local Device.
     async fn create_snapshot(
         &self,
         snap_param: SnapshotParams,
@@ -792,5 +865,9 @@ impl SnapshotOps for Lvol {
                 source: Errno::from_i32(error),
                 msg: c_snapshot_name.into_string().unwrap(),
             })
+    }
+    /// Get a Snapshot Iterator.
+    async fn snapshot_iter(self) -> LvolSnapshotIter {
+        LvolSnapshotIter::new(self)
     }
 }
