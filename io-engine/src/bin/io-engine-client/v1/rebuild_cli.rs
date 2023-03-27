@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
-use mayastor_api::{v0 as rpc, v1 as v1rpc};
+use mayastor_api::v1;
 use snafu::ResultExt;
 use tonic::Status;
 
@@ -184,7 +184,7 @@ async fn start(
     let response = ctx
         .v1
         .nexus
-        .start_rebuild(v1rpc::nexus::StartRebuildRequest {
+        .start_rebuild(v1::nexus::StartRebuildRequest {
             nexus_uuid: uuid,
             uri: uri.clone(),
         })
@@ -225,7 +225,7 @@ async fn stop(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
     let response = ctx
         .v1
         .nexus
-        .stop_rebuild(v1rpc::nexus::StopRebuildRequest {
+        .stop_rebuild(v1::nexus::StopRebuildRequest {
             nexus_uuid: uuid,
             uri: uri.clone(),
         })
@@ -269,7 +269,7 @@ async fn pause(
     let response = ctx
         .v1
         .nexus
-        .pause_rebuild(v1rpc::nexus::PauseRebuildRequest {
+        .pause_rebuild(v1::nexus::PauseRebuildRequest {
             nexus_uuid: uuid,
             uri: uri.clone(),
         })
@@ -314,7 +314,7 @@ async fn resume(
     let response = ctx
         .v1
         .nexus
-        .resume_rebuild(v1rpc::nexus::ResumeRebuildRequest {
+        .resume_rebuild(v1::nexus::ResumeRebuildRequest {
             nexus_uuid: uuid,
             uri: uri.clone(),
         })
@@ -359,7 +359,7 @@ async fn state(
     let response = ctx
         .v1
         .nexus
-        .get_rebuild_state(v1rpc::nexus::RebuildStateRequest {
+        .get_rebuild_state(v1::nexus::RebuildStateRequest {
             nexus_uuid: uuid,
             uri,
         })
@@ -399,7 +399,7 @@ async fn history(
     let response = ctx
         .v1
         .nexus
-        .get_rebuild_history(v1rpc::nexus::RebuildHistoryRequest {
+        .get_rebuild_history(v1::nexus::RebuildHistoryRequest {
             uuid: uuid.clone(),
         })
         .await
@@ -424,11 +424,19 @@ async fn history(
                 .records
                 .iter()
                 .map(|r| {
+                    let state = rebuild_state_to_str(
+                        v1::nexus::RebuildJobState::from_i32(r.state).unwrap(),
+                    )
+                    .to_string();
+
                     vec![
                         r.child_uri.clone(),
                         r.src_uri.clone(),
+                        r.blocks_total.to_string(),
                         r.blocks_transferred.to_string(),
-                        r.state.to_string(),
+                        state,
+                        r.blocks_per_task.to_string(),
+                        r.block_size.to_string(),
                         r.is_partial.to_string(),
                         r.start_time.as_ref().unwrap().to_string(),
                         r.end_time.as_ref().unwrap().to_string(),
@@ -438,10 +446,13 @@ async fn history(
             ctx.print_list(
                 vec![
                     "CHILD",
-                    "SRC",
-                    ">BLOCKS-XFERD",
+                    "SOURCE",
+                    ">TOTAL",
+                    ">TRANSFERRED",
                     ">STATE",
-                    ">IS-PARTIAL",
+                    ">BLK_PER_TASK",
+                    ">BLK_SIZE",
+                    ">PARTIAL",
                     "START",
                     "END",
                 ],
@@ -476,7 +487,7 @@ async fn stats(
     let response = ctx
         .v1
         .nexus
-        .get_rebuild_stats(v1rpc::nexus::RebuildStatsRequest {
+        .get_rebuild_stats(v1::nexus::RebuildStatsRequest {
             nexus_uuid: uuid,
             uri: uri.clone(),
         })
@@ -496,26 +507,29 @@ async fn stats(
             let response = &response.get_ref();
             ctx.print_list(
                 vec![
-                    "blocks_total",
-                    "blocks_recovered",
-                    "progress (%)",
-                    "blocks_per_task",
-                    "block_size",
-                    "tasks_total",
-                    "tasks_active",
+                    ">TOTAL",
+                    ">RECOVERED",
+                    ">TRANSFERRED",
+                    ">REMAINING",
+                    ">PROGRESS (%)",
+                    ">BLK_PER_TASK",
+                    ">BLK_SIZE",
+                    ">PARTIAL",
+                    ">TASKS_TOTAL",
+                    ">TASKS_ACTIVE",
                 ],
                 vec![vec![
-                    response.blocks_total,
-                    response.blocks_recovered,
-                    response.progress,
-                    response.blocks_per_task,
-                    response.block_size,
-                    response.tasks_total,
-                    response.tasks_active,
-                ]
-                .iter()
-                .map(|s| s.to_string())
-                .collect()],
+                    response.blocks_total.to_string(),
+                    response.blocks_recovered.to_string(),
+                    response.blocks_transferred.to_string(),
+                    response.blocks_remaining.to_string(),
+                    response.progress.to_string(),
+                    response.blocks_per_task.to_string(),
+                    response.block_size.to_string(),
+                    response.is_partial.to_string(),
+                    response.tasks_total.to_string(),
+                    response.tasks_active.to_string(),
+                ]],
             );
         }
     };
@@ -523,7 +537,6 @@ async fn stats(
     Ok(())
 }
 
-// TODO : There's no v1 rpc for progress.
 async fn progress(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
@@ -542,9 +555,10 @@ async fn progress(
         .to_string();
 
     let response = ctx
-        .client
-        .get_rebuild_progress(rpc::RebuildProgressRequest {
-            uuid: uuid.clone(),
+        .v1
+        .nexus
+        .get_rebuild_stats(v1::nexus::RebuildStatsRequest {
+            nexus_uuid: uuid,
             uri: uri.clone(),
         })
         .await
@@ -568,4 +582,15 @@ async fn progress(
         }
     };
     Ok(())
+}
+
+fn rebuild_state_to_str(s: v1::nexus::RebuildJobState) -> &'static str {
+    match s {
+        v1::nexus::RebuildJobState::Init => "init",
+        v1::nexus::RebuildJobState::Rebuilding => "rebuilding",
+        v1::nexus::RebuildJobState::Stopped => "stopped",
+        v1::nexus::RebuildJobState::Paused => "paused",
+        v1::nexus::RebuildJobState::Failed => "failed",
+        v1::nexus::RebuildJobState::Completed => "completed",
+    }
 }
