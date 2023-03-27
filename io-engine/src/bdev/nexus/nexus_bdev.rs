@@ -6,6 +6,7 @@
 
 use std::{
     cmp::min,
+    collections::HashSet,
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomPinned,
@@ -268,6 +269,8 @@ pub struct Nexus<'n> {
     pub(crate) shutdown_requested: AtomicCell<bool>,
     /// Prevent auto-Unpin.
     _pin: PhantomPinned,
+    /// Initiators
+    initiators: parking_lot::Mutex<HashSet<String>>,
 }
 
 impl<'n> Debug for Nexus<'n> {
@@ -363,6 +366,7 @@ impl<'n> Nexus<'n> {
             nexus_target: None,
             nvme_params,
             has_io_device: false,
+            initiators: parking_lot::Mutex::new(HashSet::new()),
             nexus_info: futures::lock::Mutex::new(PersistentNexusInfo::new(
                 nexus_info_key,
             )),
@@ -450,6 +454,24 @@ impl<'n> Nexus<'n> {
     /// Returns the Nexus uuid.
     pub(crate) fn uuid(&self) -> Uuid {
         self.nexus_uuid
+    }
+
+    /// Add new initiator to the Nexus
+    pub(crate) unsafe fn add_initiator(self: Pin<&mut Self>, initiator: &str) {
+        self.unpin_mut()
+            .initiators
+            .lock()
+            .insert(initiator.to_string());
+    }
+
+    /// Remove initiator from the Nexus
+    pub(crate) unsafe fn rm_initiator(self: Pin<&mut Self>, initiator: &str) {
+        self.unpin_mut().initiators.lock().remove(initiator);
+    }
+
+    /// initiator count from the Nexus
+    pub(crate) fn initiator_cnt(&self) -> usize {
+        self.initiators.lock().len()
     }
 
     /// Sets the state of the Nexus.
@@ -819,6 +841,47 @@ impl<'n> Nexus<'n> {
     /// be called only from the master core.
     pub async fn resume(self: Pin<&mut Self>) -> Result<(), Error> {
         self.io_subsystem_mut().resume().await
+    }
+
+    /// Set the Nexus state to 'reset'
+    pub fn set_reset_state(self: Pin<&mut Self>) -> bool {
+        let mut state = self.state.lock();
+        match *state {
+            // Reset operation is allowed only when the Nexus is Open state
+            NexusState::Open => {
+                *state = NexusState::Reconfiguring;
+                true
+            }
+            _ => {
+                info!(
+                    nexus=%self.name,
+                    "Transition from {:?} is not permitted to NexusState::Reconfiguring",
+                    state
+                );
+                false
+            }
+        }
+    }
+
+    /// Set the Nexus state to 'open'
+    pub fn set_open_state(self: Pin<&mut Self>) -> bool {
+        let mut state = self.state.lock();
+        match *state {
+            // Open operation is allowed only when the Nexus is
+            // Init/Reconfiguring state
+            NexusState::Reconfiguring | NexusState::Init => {
+                *state = NexusState::Open;
+                true
+            }
+            _ => {
+                info!(
+                    nexus=%self.name,
+                    "Transition from {:?} is not permitted to NexusState::Open",
+                    state
+                );
+                false
+            }
+        }
     }
 
     pub async fn shutdown(mut self: Pin<&mut Self>) -> Result<(), Error> {
