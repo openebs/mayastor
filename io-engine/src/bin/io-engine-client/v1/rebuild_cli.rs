@@ -397,8 +397,9 @@ async fn history(
         })?
         .to_string();
     let response = ctx
-        .client
-        .get_rebuild_history(rpc::RebuildHistoryRequest {
+        .v1
+        .nexus
+        .get_rebuild_history(v1rpc::nexus::RebuildHistoryRequest {
             uuid: uuid.clone(),
         })
         .await
@@ -424,21 +425,21 @@ async fn history(
                 .iter()
                 .map(|r| {
                     vec![
-                        r.dst_uri.clone(),
+                        r.child_uri.clone(),
                         r.src_uri.clone(),
-                        r.rebuilt_data_size.to_string(),
+                        r.blocks_transferred.to_string(),
                         r.state.to_string(),
                         r.is_partial.to_string(),
-                        r.started_at.as_ref().unwrap().to_string(),
-                        r.ended_at.as_ref().unwrap().to_string(),
+                        r.start_time.as_ref().unwrap().to_string(),
+                        r.end_time.as_ref().unwrap().to_string(),
                     ]
                 })
                 .collect();
             ctx.print_list(
                 vec![
-                    "DEST",
+                    "CHILD",
                     "SRC",
-                    ">REBUILT-SIZE",
+                    ">BLOCKS-XFERD",
                     ">STATE",
                     ">IS-PARTIAL",
                     "START",
@@ -498,7 +499,7 @@ async fn stats(
                     "blocks_total",
                     "blocks_recovered",
                     "progress (%)",
-                    "segment_size_blks",
+                    "blocks_per_task",
                     "block_size",
                     "tasks_total",
                     "tasks_active",
@@ -507,7 +508,7 @@ async fn stats(
                     response.blocks_total,
                     response.blocks_recovered,
                     response.progress,
-                    response.segment_size_blks,
+                    response.blocks_per_task,
                     response.block_size,
                     response.tasks_total,
                     response.tasks_active,

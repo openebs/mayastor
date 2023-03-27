@@ -1144,7 +1144,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding.
-    pub fn rebuild_job(&self) -> Option<std::sync::Arc<RebuildJob>> {
+    pub(crate) fn rebuild_job(&self) -> Option<std::sync::Arc<RebuildJob>> {
         RebuildJob::lookup(&self.name).ok()
     }
 

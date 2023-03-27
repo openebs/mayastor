@@ -1,3 +1,4 @@
+use chrono::Utc;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::{
     channel::{mpsc, oneshot},
@@ -166,7 +167,8 @@ impl RebuildJobBackend {
             channel: mpsc::channel(0),
             active: 0,
             total: SEGMENT_TASKS,
-            segments_done: Default::default(),
+            segments_done: 0,
+            segments_transferred: 0,
         };
 
         for _ in 0 .. tasks.total {
@@ -205,6 +207,7 @@ impl RebuildJobBackend {
                 src_descriptor,
                 dst_descriptor,
                 nexus_descriptor,
+                start_time: Utc::now(),
             }),
         })
     }
@@ -367,33 +370,39 @@ impl RebuildJobBackend {
             blocks_total,
         );
 
-        let progress = (blocks_recovered * 100) / blocks_total;
-
-        info!(
-            "State: {}, Nexus: {}, Src: {}, Dst: {}, range: {:?}, next: {}, \
-            block_size: {}, segment_sz: {}, recovered_blks: {}, progress: {}%, TaskPool: {:?}",
-            self.state(),
-            self.nexus_name,
-            self.src_uri,
-            self.dst_uri,
-            self.descriptor.range,
-            self.next,
-            self.descriptor.block_size,
-            self.descriptor.segment_size_blks,
-            blocks_recovered,
-            progress,
-            self.task_pool,
+        let blocks_transferred = std::cmp::min(
+            self.task_pool.segments_transferred
+                * self.descriptor.segment_size_blks,
+            blocks_total,
         );
 
-        RebuildStats {
+        let blocks_remaining = blocks_total - blocks_recovered;
+
+        let progress = (blocks_recovered * 100) / blocks_total;
+
+        let res = RebuildStats {
+            start_time: self.descriptor.start_time,
+            is_partial: false,
             blocks_total,
             blocks_recovered,
+            blocks_transferred,
+            blocks_remaining,
             progress,
-            segment_size_blks: self.descriptor.segment_size_blks,
+            blocks_per_task: self.descriptor.segment_size_blks,
             block_size: self.descriptor.block_size,
             tasks_total: self.task_pool.total as u64,
             tasks_active: self.task_pool.active as u64,
-        }
+        };
+
+        info!(
+            "State: {state}, Nexus: {nex}, Src: {src}, Dst: {dst}: {res:?}",
+            state = self.state(),
+            nex = self.nexus_name,
+            src = self.src_uri,
+            dst = self.dst_uri,
+        );
+
+        res
     }
 
     /// Fails the job, overriding any pending client operation

@@ -1,10 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::channel::oneshot;
 use once_cell::sync::OnceCell;
 
 use super::{
+    HistoryRecord,
     RebuildError,
     RebuildJobRequest,
     RebuildState,
@@ -58,8 +59,6 @@ pub struct RebuildJob {
     states: Arc<parking_lot::RwLock<RebuildStates>>,
     /// Channel used to Notify rebuild updates when the state changes.
     notify_chan: crossbeam::channel::Receiver<RebuildState>,
-    /// Start time of this rebuild job.
-    start_time: DateTime<Utc>,
     /// Channel used to Notify when rebuild completes.
     complete_chan:
         std::sync::Weak<parking_lot::Mutex<Vec<oneshot::Sender<RebuildState>>>>,
@@ -77,10 +76,12 @@ impl RebuildJob {
         range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
+        // Allocate an instance of the rebuild back-end.
         let backend = super::RebuildJobBackend::new(
             nexus_name, src_uri, dst_uri, range, notify_fn,
         )
         .await?;
+
         let frontend = Self {
             nexus_name: backend.nexus_name.clone(),
             src_uri: backend.src_uri.clone(),
@@ -89,10 +90,11 @@ impl RebuildJob {
             comms: RebuildFBendChan::from(&backend.info_chan),
             complete_chan: Arc::downgrade(&backend.complete_chan),
             notify_chan: backend.notify_chan.1.clone(),
-            start_time: Utc::now(),
         };
+
         // kick off the rebuild task where it will "live" and await for commands
         backend.schedule().await;
+
         Ok(frontend)
     }
 
@@ -192,7 +194,7 @@ impl RebuildJob {
             Ok(stats) => stats,
             Err(_) => match self.final_stats() {
                 Some(stats) => {
-                    tracing::debug!(
+                    debug!(
                         rebuild.target = self.dst_uri,
                         "Using final rebuild stats: {stats:?}"
                     );
@@ -200,15 +202,27 @@ impl RebuildJob {
                     stats
                 }
                 _ => {
-                    tracing::error!(
+                    error!(
                         rebuild.target = self.dst_uri,
-                        "Rebuild backend terminated without setting final rebuild stats"
+                        "Rebuild backend terminated without setting \
+                        final rebuild stats"
                     );
 
-                    RebuildStats::default()
+                    Default::default()
                 }
             },
         }
+    }
+
+    /// TODO
+    pub(crate) fn history_record(&self) -> Option<HistoryRecord> {
+        self.final_stats().map(|final_stats| HistoryRecord {
+            child_uri: self.dst_uri.to_string(),
+            src_uri: self.src_uri.to_string(),
+            final_stats,
+            state: self.state(),
+            end_time: Utc::now(),
+        })
     }
 
     /// Get the last error.
@@ -242,11 +256,6 @@ impl RebuildJob {
     /// Get the uri of the rebuild destination.
     pub fn dst_uri(&self) -> &str {
         &self.dst_uri
-    }
-
-    /// Start time of this rebuild job.
-    pub fn start_time(&self) -> DateTime<Utc> {
-        self.start_time
     }
 
     /// Get the final rebuild statistics.

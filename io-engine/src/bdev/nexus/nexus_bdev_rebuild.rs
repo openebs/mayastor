@@ -16,9 +16,9 @@ use super::{
 use crate::{
     core::{Reactors, VerboseError},
     rebuild::{
+        HistoryRecord,
         RebuildError,
         RebuildJob,
-        RebuildRecord,
         RebuildState,
         RebuildStats,
     },
@@ -163,15 +163,24 @@ impl<'n> Nexus<'n> {
         })
     }
 
-    // Translate the job into a new rebuild record and push into history.
-    fn create_rebuild_record(self: Pin<&mut Self>, job: Arc<RebuildJob>) {
-        trace!(
-            "Create Rebuild Record for child {} of nexus {}",
-            job.dst_uri,
-            self.name
+    /// Translates the job into a new history record and pushes into
+    /// the history.
+    fn create_history_record(mut self: Pin<&mut Self>, job: Arc<RebuildJob>) {
+        let Some(rec) = job.history_record() else {
+            error!("{self:?}: try to get history record on unfinished job");
+            return;
+        };
+
+        unsafe {
+            self.as_mut().get_unchecked_mut().rebuild_history.push(rec);
+        }
+
+        debug!(
+            "{self:?}: new rebuild history record for '{dst}'; \
+            total {num} records",
+            dst = job.dst_uri,
+            num = self.rebuild_history.len()
         );
-        let hist = unsafe { &mut self.get_unchecked_mut().rebuild_history };
-        hist.push(job.into());
     }
 
     /// Terminates a rebuild in the background.
@@ -185,7 +194,8 @@ impl<'n> Nexus<'n> {
             let ch = rj.terminate();
             if let Err(e) = ch.await {
                 error!(
-                    "Failed to wait on rebuild job for child {child_uri} to terminate with error {}",
+                    "Failed to wait on rebuild job for child {child_uri} \
+                    to terminate with error {}",
                     e.verbose()
                 );
             }
@@ -242,7 +252,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// Return the stats of a rebuild job for the given destination.
-    pub async fn rebuild_stats(
+    pub(crate) async fn rebuild_stats(
         self: Pin<&mut Self>,
         dst_uri: &str,
     ) -> Result<RebuildStats, Error> {
@@ -252,12 +262,12 @@ impl<'n> Nexus<'n> {
 
     /// Iterate over the replica rebuild history for this nexus
     /// and return it as output.
-    pub fn rebuild_history(&self) -> &Vec<RebuildRecord> {
+    pub fn rebuild_history(&self) -> &Vec<HistoryRecord> {
         &self.rebuild_history
     }
 
     /// Returns the rebuild progress of a rebuild job for the given destination.
-    pub async fn rebuild_progress(
+    pub(crate) async fn rebuild_progress(
         self: Pin<&mut Self>,
         dst_uri: &str,
     ) -> Result<u32, Error> {
@@ -329,7 +339,7 @@ impl<'n> Nexus<'n> {
 
     /// Returns rebuild job associated with the destination child URI.
     /// Returns error if no rebuild job associated with it.
-    pub fn rebuild_job(
+    pub(crate) fn rebuild_job(
         &self,
         dst_child_uri: &str,
     ) -> Result<std::sync::Arc<RebuildJob>, Error> {
@@ -343,7 +353,7 @@ impl<'n> Nexus<'n> {
 
     /// Returns rebuild job associated with the destination child URI.
     /// Returns error if no rebuild job associated with it.
-    pub fn rebuild_job_mut(
+    pub(crate) fn rebuild_job_mut(
         &self,
         dst_child_uri: &str,
     ) -> Result<Arc<RebuildJob>, Error> {
@@ -453,7 +463,7 @@ impl<'n> Nexus<'n> {
                 return Ok(());
             }
             Some(job) => {
-                self.as_mut().create_rebuild_record(job);
+                self.as_mut().create_history_record(job);
             }
         }
 
