@@ -433,13 +433,12 @@ impl<'c> NexusChild<'c> {
 
     /// Return the last fault timestamp of the child.
     pub fn fault_timestamp(&self) -> Option<DateTime<Utc>> {
-        if self.faulted_at.load(Ordering::Relaxed) == 0 {
-            None
-        } else {
-            let ts = self.faulted_at.load(Ordering::Relaxed);
-            NaiveDateTime::from_timestamp_opt(ts as i64, 0)
-                .map(|d| DateTime::from_utc(d, Utc))
+        let ts = self.faulted_at.load(Ordering::Relaxed);
+        if ts == 0 {
+            return None;
         }
+        NaiveDateTime::from_timestamp_opt(ts as i64, 0)
+            .map(|d| DateTime::from_utc(d, Utc))
     }
 
     /// Determines if the child is opened but out-of-sync (needs rebuild or
