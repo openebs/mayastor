@@ -348,6 +348,25 @@ impl Lvol {
     pub(crate) fn ptpl(&self) -> impl PtplFileOps {
         LvolPtpl::from(self)
     }
+
+    /// Build Snapshot Parameters from this lvol.
+    pub fn get_snapshot_param(&self) -> SnapshotParams {
+        Self::build_snapshot_param(self.blob_checked())
+    }
+
+    /// Build snapshot descriptor from the attributes of SPDK blob.
+    pub(crate) fn build_snapshot_param(
+        _blob: *mut spdk_blob,
+    ) -> SnapshotParams {
+        // TODO: need to Integrate with Snapshot Property Enumeration
+        // Currently it is stub.s
+        SnapshotParams::new(
+            Some("name".to_string()),
+            Some("entity_id".to_string()),
+            Some("txn_id".to_string()),
+            Some("parent".to_string()),
+        )
+    }
 }
 
 struct LvolPtpl {
@@ -455,9 +474,6 @@ pub trait LvsLvol: LogicalVolume + Share {
         &self,
         curr_blob: *mut spdk_blob,
     ) -> Option<*mut spdk_blob>;
-
-    /// Build Snapshot Parameters from Blob.
-    fn build_snapshot_param(&self, blob: *mut spdk_blob) -> SnapshotParams;
 }
 
 ///  LogicalVolume implement Generic interface for Lvol
@@ -818,18 +834,6 @@ impl LvsLvol for Lvol {
             Ok((blob, _err)) => Some(blob),
             Err(_) => None,
         }
-    }
-
-    /// Build Snapshot Parameters from Blob.
-    fn build_snapshot_param(&self, _blob: *mut spdk_blob) -> SnapshotParams {
-        // TODO: need to Integrate with Snapshot Property Enumeration
-        // Currently it is stub.
-        SnapshotParams::new(
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
-        )
     }
 }
 

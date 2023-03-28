@@ -39,7 +39,7 @@ impl AsyncIterator for LvolSnapshotIter {
                 Some(next_blob) => self.inner = next_blob,
                 None => self.inner = std::ptr::null_mut(),
             }
-            Some(self.inner_lvol.build_snapshot_param(current))
+            Some(Lvol::build_snapshot_param(current))
         }
     }
 }

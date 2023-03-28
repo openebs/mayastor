@@ -1,7 +1,8 @@
+use crate::core::logical_volume::LogicalVolume;
 use async_trait::async_trait;
 
 /// Snapshot Captures all the Snapshot information for Lvol.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SnapshotParams {
     entity_id: Option<String>,
     parent_id: Option<String>,
@@ -76,4 +77,16 @@ impl SnapshotDescriptor for SnapshotParams {
     fn name(&self) -> Option<String> {
         self.snap_name.clone()
     }
+}
+
+/// Parameters for a clone of snapshot.
+pub struct CloneParams {}
+
+/// Descriptor of a newly created clone.
+pub struct CloneDescriptor {}
+
+/// Snapshot specific operations.
+#[async_trait(?Send)]
+pub trait Snapshot: LogicalVolume + SnapshotDescriptor {
+    async fn clone(params: CloneParams) -> Result<CloneDescriptor, String>;
 }

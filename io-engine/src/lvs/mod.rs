@@ -10,4 +10,5 @@ mod lvs_bdev;
 mod lvs_error;
 mod lvs_iter;
 pub mod lvs_lvol;
+mod lvs_lvol_snapshot;
 mod lvs_store;
