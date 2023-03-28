@@ -55,9 +55,10 @@ impl Debug for Lvs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Lvs '{}' [{}] ({}/{})",
+            "Lvs '{}' [{}/{}] ({}/{})",
             self.name(),
             self.base_bdev().name(),
+            self.base_bdev().uuid(),
             Byte::from(self.available()).get_appropriate_unit(true),
             Byte::from(self.capacity()).get_appropriate_unit(true)
         )

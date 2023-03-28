@@ -142,7 +142,7 @@ impl ReplicaRpc for ReplicaService {
                             Some(lvs) => lvs,
                             None => {
                                 return Err(LvsError::Invalid {
-                                    source: Errno::ENOSYS,
+                                    source: Errno::ENOMEDIUM,
                                     msg: format!("Pool {} not found", args.pooluuid),
                                 })
                             }
@@ -203,22 +203,59 @@ impl ReplicaRpc for ReplicaService {
             let args = request.into_inner();
             info!("{:?}", args);
             let rx = rpc_submit::<_, _, LvsError>(async move {
-                if let Some(b) = Bdev::lookup_by_uuid_str(&args.uuid) {
-                    return if b.driver() == "lvol" {
-                        let lvol = Lvol::try_from(b)?;
-                        lvol.destroy().await?;
-                        Ok(())
-                    } else {
-                        Err(LvsError::RepDestroy {
-                            source: Errno::ENOENT,
-                            name: args.uuid.clone(),
-                        })
-                    };
+                // todo: is there still a race here, can the pool be exported
+                //   right after the check here and before we
+                //   probe for the replica?
+                let lvs = match &args.pool {
+                    Some(destroy_replica_request::Pool::PoolUuid(uuid)) => {
+                        Lvs::lookup_by_uuid(uuid)
+                            .ok_or(LvsError::RepDestroy {
+                                source: Errno::ENOMEDIUM,
+                                name: args.uuid.to_owned(),
+                                msg: format!("Pool uuid={uuid} is not loaded"),
+                            })
+                            .map(Some)
+                    }
+                    Some(destroy_replica_request::Pool::PoolName(name)) => {
+                        Lvs::lookup(name)
+                            .ok_or(LvsError::RepDestroy {
+                                source: Errno::ENOMEDIUM,
+                                name: args.uuid.to_owned(),
+                                msg: format!("Pool name={name} is not loaded"),
+                            })
+                            .map(Some)
+                    }
+                    None => {
+                        // back-compat, we keep existing behaviour.
+                        Ok(None)
+                    }
+                }?;
+
+                let lvol = Bdev::lookup_by_uuid_str(&args.uuid)
+                    .and_then(|b| Lvol::try_from(b).ok())
+                    .ok_or(LvsError::RepDestroy {
+                        source: Errno::ENOENT,
+                        name: args.uuid.to_owned(),
+                        msg: "".into(),
+                    })?;
+
+                if let Some(lvs) = lvs {
+                    if lvs.name() != lvol.pool_name()
+                        || lvs.uuid() != lvol.pool_uuid()
+                    {
+                        let msg = format!(
+                            "Specified {lvs:?} does match the target {lvol:?}!"
+                        );
+                        tracing::error!("{msg}");
+                        return Err(LvsError::RepDestroy {
+                            source: Errno::EMEDIUMTYPE,
+                            name: args.uuid,
+                            msg,
+                        });
+                    }
                 }
-                Err(LvsError::RepDestroy {
-                    source: Errno::ENOENT,
-                    name: args.uuid,
-                })
+                lvol.destroy().await?;
+                Ok(())
             })?;
 
             rx.await
@@ -250,6 +287,10 @@ impl ReplicaRpc for ReplicaService {
                 // perform filtering on lvols
                 if let Some(pool_name) = args.poolname {
                     lvols.retain(|l| l.pool_name() == pool_name);
+                }
+                // perform filtering on lvols
+                if let Some(pool_uuid) = args.pooluuid {
+                    lvols.retain(|l| l.pool_uuid() == pool_uuid);
                 }
 
                 // convert lvols to replicas

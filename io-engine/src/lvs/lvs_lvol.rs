@@ -150,8 +150,9 @@ impl Debug for Lvol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Lvol '{}/{}' [{}{}]",
+            "Lvol '{}/{}/{}' [{}{}]",
             self.pool_name(),
+            self.pool_uuid(),
             self.name(),
             if self.is_thin() { "thin " } else { "" },
             Byte::from(self.size()).get_appropriate_unit(true)
@@ -287,6 +288,7 @@ impl Lvol {
                     Error::RepDestroy {
                         source: Errno::ENXIO,
                         name: self.name(),
+                        msg: "failed to wipe lvol".into(),
                     }
                 })?;
 
@@ -301,6 +303,7 @@ impl Lvol {
                 Error::RepDestroy {
                     source: Errno::ENOMEM,
                     name: self.name(),
+                    msg: "no memory available to allocate zero buffer".into(),
                 }
             })?;
             // write zero to the first 8MB which wipes the metadata and the
@@ -313,6 +316,7 @@ impl Lvol {
                     Error::RepDestroy {
                         source: Errno::EIO,
                         name: self.name(),
+                        msg: "failed to write to lvol".into(),
                     }
                 })?;
             }
@@ -631,6 +635,7 @@ impl LvsLvol for Lvol {
                 Error::RepDestroy {
                     source: Errno::from_i32(e),
                     name: name.clone(),
+                    msg: "error while destroying lvol".into(),
                 }
             })?;
         if let Err(error) = ptpl.destroy() {

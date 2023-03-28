@@ -76,8 +76,7 @@ async fn list_block_devices(
             )
         }
         OutputFormat::Default => {
-            let devices: &Vec<v1rpc::host::BlockDevice> =
-                &response.get_ref().devices;
+            let devices = response.into_inner().devices;
 
             if devices.is_empty() {
                 ctx.v1("No devices found");
@@ -85,25 +84,26 @@ async fn list_block_devices(
             }
 
             let table = devices
-                .iter()
+                .into_iter()
                 .map(|device| {
                     let fstype: String;
                     let uuid: String;
-                    let mountpoint: Vec<String>;
+                    let mountpoints: Vec<String>;
 
-                    if let Some(filesystem) = &device.filesystem {
-                        fstype = filesystem.fstype.clone();
-                        uuid = filesystem.uuid.clone();
-                        mountpoint = filesystem.mountpoints.clone();
+                    let part_type = get_partition_type(&device);
+                    if let Some(filesystem) = device.filesystem {
+                        fstype = filesystem.fstype;
+                        uuid = filesystem.uuid;
+                        mountpoints = filesystem.mountpoints;
                     } else {
                         fstype = String::from("");
                         uuid = String::from("");
-                        mountpoint = vec![];
+                        mountpoints = vec![];
                     }
 
                     vec![
-                        device.devname.clone(),
-                        device.devtype.clone(),
+                        device.devname,
+                        device.devtype,
                         device.devmajor.to_string(),
                         device.devminor.to_string(),
                         device.size.to_string(),
@@ -112,18 +112,22 @@ async fn list_block_devices(
                         } else {
                             "no"
                         }),
-                        device.model.clone(),
-                        get_partition_type(device),
+                        device.model,
+                        part_type,
                         fstype,
                         uuid,
-                        mountpoint[0].clone(),
-                        device.devpath.clone(),
+                        mountpoints
+                            .iter()
+                            .map(|s| format!("\"{s}\""))
+                            .collect::<Vec<String>>()
+                            .join(", "),
+                        device.devpath,
                         device
                             .devlinks
                             .iter()
                             .map(|s| format!("\"{s}\""))
                             .collect::<Vec<String>>()
-                            .join(" "),
+                            .join(", "),
                     ]
                 })
                 .collect();
@@ -140,7 +144,7 @@ async fn list_block_devices(
                     "PARTTYPE",
                     "FSTYPE",
                     "FSUUID",
-                    "MOUNTPOINT",
+                    "MOUNTPOINTS",
                     "DEVPATH",
                     "DEVLINKS",
                 ],

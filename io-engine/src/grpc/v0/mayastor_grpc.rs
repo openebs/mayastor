@@ -225,13 +225,19 @@ impl From<LvsError> for tonic::Status {
             }
             LvsError::RepDestroy {
                 source, ..
-            } => {
-                if source == Errno::ENOENT {
-                    Status::not_found(e.to_string())
-                } else {
-                    Status::internal(e.to_string())
+            } => match source {
+                Errno::ENOENT => {
+                    let mut status = Status::not_found(e.to_string());
+                    status.metadata_mut().insert(
+                        "gtm-602",
+                        tonic::metadata::MetadataValue::from(0),
+                    );
+                    status
                 }
-            }
+                Errno::ENOMEDIUM => Status::failed_precondition(e.to_string()),
+                Errno::EMEDIUMTYPE => Status::aborted(e.to_string()),
+                _ => Status::internal(e.to_string()),
+            },
             LvsError::RepExists {
                 ..
             } => Status::already_exists(e.to_string()),
@@ -242,8 +248,12 @@ impl From<LvsError> for tonic::Status {
                 source, ..
             } => source.into(),
             LvsError::Invalid {
-                ..
-            } => Status::invalid_argument(e.to_string()),
+                source, ..
+            } => match source {
+                Errno::EINVAL => Status::invalid_argument(e.to_string()),
+                Errno::ENOMEDIUM => Status::failed_precondition(e.to_string()),
+                _ => Status::invalid_argument(e.to_string()),
+            },
             LvsError::PoolNotFound {
                 ..
             } => Status::not_found(e.to_string()),
