@@ -20,6 +20,7 @@
 , writeScriptBin
 , xfsprogs
 , runCommand
+, tini
 , img_tag ? ""
 }:
 let
@@ -93,6 +94,6 @@ in
 
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
     name = "openebs/mayastor-fio-spdk";
-    contents = clientImageProps.contents ++ [ fio_wrapper ];
+    contents = clientImageProps.contents ++ [ tini fio_wrapper ];
   });
 }
