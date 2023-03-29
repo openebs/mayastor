@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
 };
 
-use super::{ChildState, FaultReason, Nexus};
+use super::{FaultReason, Nexus};
 
 use crate::core::{BlockDeviceHandle, CoreError, Cores};
 
@@ -81,7 +81,7 @@ impl<'n> NexusChannel<'n> {
                         readers.push(r);
                     }
                     _ => {
-                        c.set_state(ChildState::Faulted(FaultReason::CantOpen));
+                        c.set_faulted_state(FaultReason::CantOpen);
                         error!(
                             "Failed to get I/O handle for {}, \
                                 skipping block device",
@@ -203,7 +203,7 @@ impl<'n> NexusChannel<'n> {
                         readers.push(r);
                     }
                     _ => {
-                        c.set_state(ChildState::Faulted(FaultReason::CantOpen));
+                        c.set_faulted_state(FaultReason::CantOpen);
                         error!("failed to get I/O handle for {}", c.uri());
                     }
                 });
@@ -219,9 +219,7 @@ impl<'n> NexusChannel<'n> {
                         if let Ok(hdl) = c.get_io_handle() {
                             writers.push(hdl);
                         } else {
-                            c.set_state(ChildState::Faulted(
-                                FaultReason::CantOpen,
-                            ));
+                            c.set_faulted_state(FaultReason::CantOpen);
                             error!("failed to get I/O handle for {}", c.uri());
                         }
                     });
