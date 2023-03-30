@@ -114,4 +114,9 @@ pub enum Error {
         source: Errno,
         msg: String,
     },
+
+    #[snafu(display("Flush Failed for replica {}", name))]
+    FlushFailed {
+        name: String,
+    },
 }

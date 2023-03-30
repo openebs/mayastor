@@ -1,3 +1,9 @@
+use async_trait::async_trait;
+use byte_unit::Byte;
+use futures::channel::oneshot;
+use nix::errno::Errno;
+use pin_utils::core_reexport::fmt::Formatter;
+
 use std::{
     convert::TryFrom,
     ffi::{c_void, CStr},
@@ -6,12 +12,6 @@ use std::{
     pin::Pin,
     ptr::NonNull,
 };
-
-use async_trait::async_trait;
-use byte_unit::Byte;
-use futures::channel::oneshot;
-use nix::errno::Errno;
-use pin_utils::core_reexport::fmt::Formatter;
 
 use spdk_rs::libspdk::{
     spdk_blob,
@@ -35,7 +35,7 @@ use spdk_rs::libspdk::{
 use super::{Error, Lvs};
 
 use crate::{
-    bdev::PtplFileOps,
+    bdev::{device_open, PtplFileOps},
     core::{
         logical_volume::LogicalVolume,
         snapshot::SnapshotDescriptor,
@@ -853,7 +853,18 @@ impl SnapshotOps for Lvol {
             }
             s.send(errno).ok();
         }
-
+        let bdev_handle = device_open(self.as_bdev().name(), false)
+            .unwrap()
+            .into_handle()
+            .unwrap();
+        match bdev_handle.flush_io().await {
+            Ok(_) => info!("Flush is Success for lvol: {:?}", self),
+            Err(e) => {
+                return Err(Error::FlushFailed {
+                    name: format!("{self:?}, internal_err {e}"),
+                })
+            }
+        }
         let c_snapshot_name = snap_param.name().unwrap().into_cstring();
         let (s, r) = oneshot::channel::<i32>();
         unsafe {
@@ -874,5 +885,23 @@ impl SnapshotOps for Lvol {
     /// Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> LvolSnapshotIter {
         LvolSnapshotIter::new(self)
+    }
+    /// Prepare Snapshot Config for Block/Nvmf Device, before snapshot create.
+    fn prepare_snap_config(
+        &self,
+        snap_name: &str,
+        txn_id: &str,
+    ) -> SnapshotParams {
+        // Entity Id will be same as lvol uuid for the replica snapshot.
+        let entity_id = Some(self.uuid());
+        // Current Lvol uuid is the parent for the snapshot.
+        let parent_id = Some(self.uuid());
+
+        SnapshotParams::new(
+            entity_id,
+            parent_id,
+            Some(txn_id.to_string()),
+            Some(snap_name.to_string()),
+        )
     }
 }
