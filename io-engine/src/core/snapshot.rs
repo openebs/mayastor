@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 /// Snapshot Captures all the Snapshot information for Lvol.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SnapshotParams {
     entity_id: Option<String>,
     parent_id: Option<String>,
@@ -38,6 +38,13 @@ pub trait SnapshotOps {
 
     // Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> Self::SnapshotIter;
+
+    /// Prepare Snapshot Config for Block/Nvmf Device, before snapshot create.
+    fn prepare_snap_config(
+        &self,
+        snap_name: &str,
+        txn_id: &str,
+    ) -> Option<SnapshotParams>;
 }
 
 /// Traits gives the Snapshots Related Parameters.

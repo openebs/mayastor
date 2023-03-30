@@ -276,6 +276,12 @@ pub enum CoreError {
     InvalidNvmeDeviceHandle {
         msg: String,
     },
+
+    #[snafu(display("errno: {} Device Flush {}", source, name))]
+    DeviceFlush {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display(
         "NVMe persistence through power-loss failure: {}",
         reason
