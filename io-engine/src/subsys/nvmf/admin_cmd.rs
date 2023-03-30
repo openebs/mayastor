@@ -42,6 +42,7 @@ use spdk_rs::{
         spdk_nvmf_subsystem_get_max_nsid,
     },
     nvme_admin_opc,
+    Uuid,
 };
 
 #[warn(unused_variables)]
@@ -161,7 +162,7 @@ pub fn create_snapshot(
     let snap_param = SnapshotParams::new(
         Some(lvol.name()),
         Some(lvol.name()),
-        Some(lvol.name()),
+        Some(Uuid::generate().to_string()),
         Some(snapshot_name),
     );
     // Blobfs operations must be on md_thread

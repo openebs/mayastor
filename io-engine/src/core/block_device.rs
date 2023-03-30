@@ -291,6 +291,12 @@ pub trait BlockDeviceHandle {
             source: Errno::EOPNOTSUPP,
         })
     }
+    /// Flush the io in buffer to disk, for the Local Block Device.
+    async fn flush_io(&self) -> Result<u64, CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::EOPNOTSUPP,
+        })
+    }
 }
 
 /// TODO

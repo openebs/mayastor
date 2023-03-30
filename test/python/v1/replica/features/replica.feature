@@ -104,3 +104,9 @@ Feature: Mayastor replica management
     Given a replica shared over "nvmf"
     When the user reads from the replica
     Then the read operation should succeed
+
+  Scenario: create a snapshot for a standalone replica
+    Given a standalone replica "repl-1" uuid "22ca10d3-4f2b-4b95-9814-9181c025cc1a"
+    When replica snapshot creation request "snap1" "tx-1" is received by I/O Agent
+    Then new snapshot with requested name shall be successfully created for replica
+    And snapshot shall have the same amount of provisioned disk blocks as replica
