@@ -23,6 +23,8 @@ fn create_test_buf(buf_size: BufferSize) -> Vec<u8> {
         .collect()
 }
 
+/// TODO
+#[derive(Debug, Clone)]
 pub enum BufferSize {
     Bytes(u64),
     Mb(u64),
@@ -37,8 +39,17 @@ impl BufferSize {
             BufferSize::Kb(s) => s * 1024,
         }
     }
+
+    pub fn size_str_with_suffix(&self) -> String {
+        match &self {
+            BufferSize::Bytes(s) => s.to_string(),
+            BufferSize::Mb(s) => format!("{s}M"),
+            BufferSize::Kb(s) => format!("{s}K"),
+        }
+    }
 }
 
+/// TODO
 pub async fn test_write_to_file(
     path: impl AsRef<Path>,
     offset: u64,
@@ -166,8 +177,11 @@ pub async fn compare_files(
                 return Err(Error::new(
                     ErrorKind::Other,
                     format!(
-                        "Miscompare at {} ({} blk): {:?} {:#02x} != {:?} {:#02x}",
-                        pos, pos / 512, name_a, buf_a[i], name_b, buf_b[i],
+                        "Miscompare at {pos}: {na:?} {va:#02x} != {nb:?} {vb:#02x}",
+                        na = name_a,
+                        va = buf_a[i],
+                        nb = name_b,
+                        vb = buf_b[i],
                     ),
                 ));
             }

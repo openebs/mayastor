@@ -25,6 +25,7 @@ pub mod cli_tools;
 pub mod compose;
 pub mod error_bdev;
 pub mod file_io;
+pub mod fio;
 pub mod nexus;
 pub mod nvme;
 pub mod nvmf;

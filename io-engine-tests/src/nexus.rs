@@ -16,8 +16,9 @@ use super::{
         Status,
     },
     file_io::BufferSize,
+    fio::Fio,
     generate_uuid,
-    nvmf::{test_write_to_nvmf, NvmfLocation},
+    nvmf::{test_fio_to_nvmf, test_write_to_nvmf, NvmfLocation},
     replica::ReplicaBuilder,
 };
 use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
@@ -96,6 +97,13 @@ impl NexusBuilder {
     pub fn with_replica(self, r: &ReplicaBuilder) -> Self {
         let bdev = self.replica_uri(r);
         self.with_bdev(&bdev)
+    }
+
+    pub fn with_local_replica(self, r: &ReplicaBuilder) -> Self {
+        if r.rpc() != self.rpc() {
+            panic!("Replica is not local");
+        }
+        self.with_bdev(&r.bdev())
     }
 
     fn replica_uri(&self, r: &ReplicaBuilder) -> String {
@@ -329,6 +337,7 @@ impl NexusBuilder {
     }
 }
 
+/// TODO
 pub async fn list_nexuses(rpc: SharedRpcHandle) -> Result<Vec<Nexus>, Status> {
     rpc.borrow_mut()
         .nexus
@@ -340,6 +349,7 @@ pub async fn list_nexuses(rpc: SharedRpcHandle) -> Result<Vec<Nexus>, Status> {
         .map(|r| r.into_inner().nexus_list)
 }
 
+/// TODO
 pub async fn find_nexus_by_uuid(
     rpc: SharedRpcHandle,
     uuid: &str,
@@ -353,6 +363,7 @@ pub async fn find_nexus_by_uuid(
         })
 }
 
+/// TODO
 pub async fn test_write_to_nexus(
     nex: &NexusBuilder,
     offset: u64,
@@ -360,4 +371,12 @@ pub async fn test_write_to_nexus(
     buf_size: BufferSize,
 ) -> std::io::Result<()> {
     test_write_to_nvmf(&nex.nvmf_location(), offset, count, buf_size).await
+}
+
+/// TODO
+pub async fn test_fio_to_nexus(
+    nex: &NexusBuilder,
+    fio: &Fio,
+) -> std::io::Result<()> {
+    test_fio_to_nvmf(&nex.nvmf_location(), fio).await
 }
