@@ -6,6 +6,7 @@ use common::{
         Binary,
         Builder,
     },
+    file_io::BufferSize,
     nexus::{test_write_to_nexus, NexusBuilder},
     pool::{validate_pools_used_space, PoolBuilder},
     replica::{validate_replicas, ReplicaBuilder},
@@ -94,7 +95,9 @@ async fn test_thin_rebuild(cfg: StorConfig) {
     nex_0.create().await.unwrap();
     nex_0.publish().await.unwrap();
 
-    test_write_to_nexus(&nex_0, 14, 1).await.unwrap();
+    test_write_to_nexus(&nex_0, 0, 14, BufferSize::Mb(1))
+        .await
+        .unwrap();
 
     nex_0.add_replica(&repl_2, false).await.unwrap();
 

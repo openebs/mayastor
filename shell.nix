@@ -53,6 +53,7 @@ mkShell {
   PROTOC = io-engine.PROTOC;
   PROTOC_INCLUDE = io-engine.PROTOC_INCLUDE;
   SPDK_PATH = if nospdk then null else "${libspdk-dev}";
+  FIO_SPDK = if nospdk then null else "${libspdk-dev}/fio/spdk_nvme";
   ETCD_BIN = "${etcd}/bin/etcd";
 
   shellHook = ''
