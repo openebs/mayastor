@@ -8,8 +8,8 @@ default-run = "io-engine-client"
 build = "build.rs"
 
 [features]
-# Enables fault injection code.
-fault_injection = []
+io-engine-testing = ["nexus-fault-injection"]
+nexus-fault-injection = [] # Enables nexus-level fault injection code.
 
 [[bin]]
 name = "io-engine"

@@ -230,7 +230,7 @@ pipeline {
             stage('build') {
               steps {
                 sh 'printenv'
-                sh 'nix-shell --run "cargo build --bins" ci.nix'
+                sh 'nix-shell --run "cargo build --bins --features=io-engine-testing" ci.nix'
               }
             }
             stage('python setup') {

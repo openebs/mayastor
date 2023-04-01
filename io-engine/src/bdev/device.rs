@@ -515,7 +515,7 @@ struct IoCtx {
 
 /// TODO
 #[inline]
-fn io_type_to_err(
+pub fn io_type_to_err(
     op: IoType,
     source: Errno,
     offset: u64,

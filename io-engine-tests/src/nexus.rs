@@ -8,9 +8,13 @@ use super::{
             ChildState,
             ChildStateReason,
             CreateNexusRequest,
+            InjectNexusFaultRequest,
+            InjectedFault,
+            ListInjectedNexusFaultsRequest,
             ListNexusOptions,
             Nexus,
             PublishNexusRequest,
+            RemoveInjectedNexusFaultRequest,
         },
         SharedRpcHandle,
         Status,
@@ -245,6 +249,49 @@ impl NexusBuilder {
         r: &ReplicaBuilder,
     ) -> Result<Nexus, Status> {
         self.offline_child_bdev(&self.replica_uri(r)).await
+    }
+
+    pub async fn inject_nexus_fault(
+        &self,
+        inj_uri: &str,
+    ) -> Result<(), Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .inject_nexus_fault(InjectNexusFaultRequest {
+                uuid: self.uuid(),
+                uri: inj_uri.to_owned(),
+            })
+            .await
+            .map(|r| r.into_inner())
+    }
+
+    pub async fn remove_injected_nexus_fault(
+        &self,
+        inj_uri: &str,
+    ) -> Result<(), Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .remove_injected_nexus_fault(RemoveInjectedNexusFaultRequest {
+                uuid: self.uuid(),
+                uri: inj_uri.to_owned(),
+            })
+            .await
+            .map(|r| r.into_inner())
+    }
+
+    pub async fn list_injected_faults(
+        &self,
+    ) -> Result<Vec<InjectedFault>, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .list_injected_nexus_faults(ListInjectedNexusFaultsRequest {
+                uuid: self.uuid(),
+            })
+            .await
+            .map(|r| r.into_inner().injections)
     }
 
     pub async fn get_nexus(&self) -> Result<Nexus, Status> {
