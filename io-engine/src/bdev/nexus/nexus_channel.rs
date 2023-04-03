@@ -25,13 +25,13 @@ impl<'n> Debug for NexusChannel<'n> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Channel '{} @ {}({})' [r:{}/w:{}/c:{}]",
-            self.nexus.nexus_name(),
-            self.core,
-            Cores::current(),
-            self.readers.len(),
-            self.writers.len(),
-            self.nexus.child_count(),
+            "I/O chan '{nex}' core:{core}({cur}) [r:{r}/w:{w}/c:{c}]",
+            nex = self.nexus.nexus_name(),
+            core = self.core,
+            cur = Cores::current(),
+            r = self.readers.len(),
+            w = self.writers.len(),
+            c = self.nexus.child_count(),
         )
     }
 }
@@ -65,7 +65,7 @@ impl Display for DrEvent {
 impl<'n> NexusChannel<'n> {
     /// TODO
     pub(crate) fn new(mut nexus: Pin<&mut Nexus<'n>>) -> Self {
-        debug!("{:?}: new channel on core {}", nexus, Cores::current());
+        debug!("{nexus:?}: new channel on core {c}", c = Cores::current());
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();
@@ -83,9 +83,9 @@ impl<'n> NexusChannel<'n> {
                     _ => {
                         c.set_faulted_state(FaultReason::CantOpen);
                         error!(
-                            "Failed to get I/O handle for {}, \
-                                skipping block device",
-                            c.uri()
+                            "Failed to get I/O handle for {c}, \
+                            skipping block device",
+                            c = c.uri()
                         )
                     }
                 });
@@ -104,8 +104,9 @@ impl<'n> NexusChannel<'n> {
     /// TODO
     pub(crate) fn destroy(mut self) {
         debug!(
-            "{:?}: destroying IO channel on core {}",
-            self.nexus, self.core
+            "{nex:?}: destroying I/O channel on core {core}",
+            nex = self.nexus,
+            core = self.core
         );
         self.writers.clear();
         self.readers.clear();
@@ -169,7 +170,7 @@ impl<'n> NexusChannel<'n> {
         self.writers
             .retain(|c| c.get_device().device_name() != device_name);
 
-        debug!("{:?}: device '{}' disconnected", self, device_name);
+        debug!("{self:?}: device '{device_name}' disconnected");
     }
 
     /// Refreshing our channels simply means that we either have a child going
@@ -177,7 +178,7 @@ impl<'n> NexusChannel<'n> {
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
     pub(crate) fn reconnect_all(&mut self) {
-        debug!("{:?}: reconnecting all children", self);
+        debug!("{self:?}: reconnecting all children");
 
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
@@ -232,7 +233,7 @@ impl<'n> NexusChannel<'n> {
         self.writers = writers;
         self.readers = readers;
 
-        trace!("{:?}: new number of readers/writes", self);
+        trace!("{self:?}: new number of readers/writers");
     }
 
     /// Faults the child by its device, with the given fault reason.

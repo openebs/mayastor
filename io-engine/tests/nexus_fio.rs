@@ -44,7 +44,7 @@ async fn nexus_fio_single_remote() {
             "ms_nex",
             Binary::from_dbg("io-engine").with_args(vec![
                 "-l",
-                "5,6",
+                "3,4",
                 "-F",
                 "compact,color",
             ]),
@@ -131,7 +131,6 @@ async fn nexus_fio_single_remote() {
 /// Create a nexus on two replicas: okay one and overcomitted one, and run FIO.
 /// FIO must succeed as one replica is not overcommited.
 #[tokio::test]
-#[ignore]
 async fn nexus_fio_mixed() {
     common::composer_init();
 
@@ -141,17 +140,17 @@ async fn nexus_fio_mixed() {
         .unwrap()
         .add_container_bin(
             "ms_0",
-            Binary::from_dbg("io-engine").with_args(vec!["-l", "1,2"]),
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1"]),
         )
         .add_container_bin(
             "ms_1",
-            Binary::from_dbg("io-engine").with_args(vec!["-l", "3,4"]),
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "2"]),
         )
         .add_container_bin(
             "ms_nex",
             Binary::from_dbg("io-engine").with_args(vec![
                 "-l",
-                "5,6",
+                "3,4",
                 "-F",
                 "compact,color",
             ]),

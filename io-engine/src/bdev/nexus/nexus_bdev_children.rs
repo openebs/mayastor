@@ -994,6 +994,11 @@ impl<'n> Nexus<'n> {
                     }
                 }
             }).await;
+
+            debug!(
+                "{self:?}: retire device '{device_name}': \
+                persistent store updated"
+            );
         } else {
             error!(
                 "{:?}: child device to retire is not found: '{}'",
