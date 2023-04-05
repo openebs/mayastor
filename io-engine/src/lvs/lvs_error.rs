@@ -119,8 +119,13 @@ pub enum Error {
     FlushFailed {
         name: String,
     },
-    #[snafu(display("Input Parameters for replica: {} is not correct", name))]
-    SnapConfigFailed {
+    #[snafu(display(
+        "Snapshot parameters for replica {} is not correct: {}",
+        name,
+        msg
+    ))]
+    SnapshotConfigFailed {
         name: String,
+        msg: String,
     },
 }

@@ -65,7 +65,12 @@ pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
-pub use snapshot::{SnapshotDescriptor, SnapshotOps, SnapshotParams};
+pub use snapshot::{
+    SnapshotDescriptor,
+    SnapshotOps,
+    SnapshotParams,
+    SnapshotXattrs,
+};
 
 mod bdev;
 mod block_device;
@@ -287,6 +292,10 @@ pub enum CoreError {
         reason
     ))]
     Ptpl {
+        reason: String,
+    },
+    #[snafu(display("Failed to create device snapshot: {}", reason))]
+    SnapshotCreate {
         reason: String,
     },
 }

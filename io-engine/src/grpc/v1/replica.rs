@@ -461,8 +461,9 @@ impl ReplicaRpc for ReplicaService {
                             &args.txn_id
                         ) {
                             Some(snap_config) => snap_config,
-                            None => return Err(LvsError::SnapConfigFailed {
+                            None => return Err(LvsError::SnapshotConfigFailed {
                                 name: args.replica_uuid,
+                                msg: "tx id / snapshot name not provided".to_string(),
                             })
                         };
                     // create snapshot

@@ -1,4 +1,10 @@
-use super::{CoreError, DeviceEventSink, IoCompletionStatus, IoType};
+use super::{
+    CoreError,
+    DeviceEventSink,
+    IoCompletionStatus,
+    IoType,
+    SnapshotParams,
+};
 
 use spdk_rs::{DmaBuf, DmaError, IoVec};
 
@@ -222,7 +228,10 @@ pub trait BlockDeviceHandle {
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
 
     /// TODO
-    async fn create_snapshot(&self) -> Result<u64, CoreError>;
+    async fn create_snapshot(
+        &self,
+        params: SnapshotParams,
+    ) -> Result<u64, CoreError>;
 
     /// TODO
     async fn nvme_resv_register(

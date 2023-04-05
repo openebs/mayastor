@@ -55,6 +55,7 @@ use crate::{
         IoCompletionStatus,
         IoType,
         ReadMode,
+        SnapshotParams,
     },
     ffihelper::{cb_arg, done_cb, FfiResult},
     subsys,
@@ -993,7 +994,10 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
     }
 
-    async fn create_snapshot(&self) -> Result<u64, CoreError> {
+    async fn create_snapshot(
+        &self,
+        _snapshot: SnapshotParams,
+    ) -> Result<u64, CoreError> {
         let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
         let now = subsys::set_snapshot_time(&mut cmd);
