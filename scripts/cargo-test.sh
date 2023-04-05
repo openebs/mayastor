@@ -25,5 +25,5 @@ set -euxo pipefail
 export PATH=$PATH:${HOME}/.cargo/bin
 ( cd jsonrpc && cargo test )
 # test dependencies
-cargo build --bins
-( cd io-engine && cargo test -- --test-threads=1 )
+cargo build --bins --features=io-engine-testing
+( cd io-engine && cargo test --features=io-engine-testing -- --test-threads=1 )
