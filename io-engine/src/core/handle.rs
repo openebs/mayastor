@@ -33,7 +33,7 @@ use spdk_rs::{
 };
 
 use crate::{
-    core::{Bdev, CoreError, DescriptorGuard, ReadMode},
+    core::{Bdev, CoreError, DescriptorGuard, ReadMode, SnapshotParams},
     ffihelper::cb_arg,
     subsys,
 };
@@ -285,7 +285,10 @@ impl<T: BdevOps> BdevHandle<T> {
 
     /// create a snapshot, only works for nvme bdev
     /// returns snapshot time as u64 seconds since Unix epoch
-    pub async fn create_snapshot(&self) -> Result<u64, CoreError> {
+    pub async fn create_snapshot(
+        &self,
+        _snapshot: SnapshotParams,
+    ) -> Result<u64, CoreError> {
         let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
         let now = subsys::set_snapshot_time(&mut cmd);
