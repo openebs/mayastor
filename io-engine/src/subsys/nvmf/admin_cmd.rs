@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    bdev::nexus,
+    bdev::{nexus, nvmx::NvmeSnapshotMessage},
     core::{
         logical_volume::LogicalVolume,
         snapshot::SnapshotOps,
@@ -18,6 +18,7 @@ use crate::{
     },
     lvs::{lvs_lvol::LvsLvol, Lvol},
 };
+
 use spdk_rs::{
     libspdk::{
         nvme_cmd_cdw10_get,
@@ -34,8 +35,10 @@ use spdk_rs::{
         spdk_nvme_status,
         spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
         spdk_nvmf_request,
+        spdk_nvmf_request_complete,
         spdk_nvmf_request_get_bdev,
         spdk_nvmf_request_get_cmd,
+        spdk_nvmf_request_get_data,
         spdk_nvmf_request_get_response,
         spdk_nvmf_request_get_subsystem,
         spdk_nvmf_set_custom_admin_cmd_hdlr,
@@ -59,13 +62,26 @@ impl NvmeCpl {
 pub struct NvmfReq(pub(crate) NonNull<spdk_nvmf_request>);
 impl NvmfReq {
     /// Returns the NVMe completion
-    pub(crate) fn response(&self) -> NvmeCpl {
+    pub fn response(&self) -> NvmeCpl {
         NvmeCpl(
             NonNull::new(unsafe {
                 &mut *spdk_nvmf_request_get_response(self.0.as_ptr())
             })
             .unwrap(),
         )
+    }
+
+    /// Complete NVMf request.
+    pub fn complete(&self, sc: u16) {
+        let mut rsp = self.response();
+        let nvme_status = rsp.status();
+
+        nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
+        nvme_status.set_sc(sc);
+
+        unsafe {
+            spdk_nvmf_request_complete(self.0.as_ptr());
+        }
     }
 }
 
@@ -90,12 +106,54 @@ pub fn set_snapshot_time(cmd: &mut spdk_nvme_cmd) -> u64 {
     now
 }
 
-/// NVMf custom command handler for opcode c0h
+/// Decode snapshot information from incoming NVMe admin command data.
+fn decode_snapshot_params(
+    req: *mut spdk_nvmf_request,
+) -> Option<SnapshotParams> {
+    let encoded_msg = unsafe {
+        let mut val = std::ptr::null_mut();
+        let mut size: u32 = 0;
+
+        spdk_nvmf_request_get_data(
+            req,
+            &mut val as *mut *mut c_void,
+            &mut size as *mut u32,
+        );
+
+        info!(
+            "## length = {}, iov_cnt = {}, size = {}",
+            (*req).length,
+            (*req).iovcnt,
+            size,
+        );
+
+        std::slice::from_raw_parts(val as *const u8, size as usize)
+    };
+
+    // Decode versioned snapshot creation request.
+    let decoded_msg =
+        match bincode::deserialize::<NvmeSnapshotMessage>(encoded_msg) {
+            Err(e) => {
+                error!(
+                    "Failed to deserialize snapshot creation message: {}",
+                    e
+                );
+                return None;
+            }
+            Ok(msg) => msg,
+        };
+
+    let snapshot_params = match decoded_msg {
+        NvmeSnapshotMessage::V1(v1) => v1.params().clone(),
+    };
+
+    Some(snapshot_params)
+}
+
+/// NVMf custom command handler for opcode c1h
 /// Called from nvmf_ctrlr_process_admin_cmd
 /// Return: <0 for any error, caller handles it as unsupported opcode
 extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
-    debug!("nvmf_create_snapshot_hdlr {:?}", req);
-
     let subsys = unsafe { spdk_nvmf_request_get_subsystem(req) };
     if subsys.is_null() {
         debug!("subsystem is null");
@@ -107,6 +165,12 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         debug!("multiple namespaces");
         return -1;
     }
+
+    /* Get snapshot parameters from NVMe request */
+    let snapshot_params = match decode_snapshot_params(req) {
+        None => return -1,
+        Some(v) => v,
+    };
 
     /* Forward to first namespace if it supports NVME admin commands */
     let mut bdev: *mut spdk_bdev = std::ptr::null_mut();
@@ -130,17 +194,12 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         }
     } else if let Ok(lvol) = Lvol::try_from(bd) {
         // Received command on a shared replica (lvol)
-        let cmd = unsafe { spdk_nvmf_request_get_cmd(req) };
-        let snapshot_time = unsafe {
-            nvme_cmd_cdw10_get_val(cmd) as u64
-                | (nvme_cmd_cdw11_get_val(cmd) as u64) << 32
-        };
-        let snapshot_name =
-            Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
         let nvmf_req = NvmfReq(NonNull::new(req).unwrap());
+
         // Blobfs operations must be on md_thread
         Reactors::master().send_future(async move {
-            lvol.create_snapshot_remote(&nvmf_req, &snapshot_name).await;
+            lvol.create_snapshot_remote(&nvmf_req, snapshot_params)
+                .await;
         });
         1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
     } else {
