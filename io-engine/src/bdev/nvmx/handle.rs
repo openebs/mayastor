@@ -42,6 +42,8 @@ use crate::{
         NvmeBlockDevice,
         NvmeIoChannel,
         NvmeNamespace,
+        NvmeSnapshotMessage,
+        NvmeSnapshotMessageV1,
         NVME_CONTROLLERS,
     },
     core::{
@@ -996,13 +998,28 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
     async fn create_snapshot(
         &self,
-        _snapshot: SnapshotParams,
+        snapshot: SnapshotParams,
     ) -> Result<u64, CoreError> {
         let mut cmd = spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
         let now = subsys::set_snapshot_time(&mut cmd);
-        debug!("Creating snapshot at {}", now);
-        self.nvme_admin(&cmd, None).await?;
+
+        let msg = NvmeSnapshotMessage::V1(NvmeSnapshotMessageV1::new(snapshot));
+        let encoded_msg = bincode::serialize(&msg)
+            .expect("Failed to serialize snapshot message");
+
+        let mut payload =
+            self.dma_malloc(encoded_msg.len() as u64).map_err(|_| {
+                CoreError::DmaAllocationFailed {
+                    size: encoded_msg.len() as u64,
+                }
+            })?;
+
+        payload
+            .as_mut_slice()
+            .clone_from_slice(encoded_msg.as_slice());
+        self.nvme_admin(&cmd, Some(&mut payload)).await?;
+
         Ok(now)
     }
 

@@ -1,8 +1,9 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
 /// Snapshot Captures all the Snapshot information for Lvol.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotParams {
     entity_id: Option<String>,
     parent_id: Option<String>,

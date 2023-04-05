@@ -7,7 +7,7 @@ use std::time::Duration;
 /// which is signalled once the sleep completes.
 /// The sleep duration is not exact as it does not account for thread scheduling
 /// but it should be sufficient for most cases.
-pub(crate) fn mayastor_sleep(duration: Duration) -> oneshot::Receiver<()> {
+pub fn mayastor_sleep(duration: Duration) -> oneshot::Receiver<()> {
     let (tx, rx) = oneshot::channel::<()>();
     spawn(async move {
         tokio::time::sleep(duration).await;

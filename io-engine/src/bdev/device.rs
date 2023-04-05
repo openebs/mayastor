@@ -18,7 +18,6 @@ use spdk_rs::{
         iovec,
         spdk_bdev_flush,
         spdk_bdev_free_io,
-        spdk_bdev_has_write_cache,
         spdk_bdev_io,
         spdk_bdev_readv_blocks,
         spdk_bdev_reset,
@@ -536,9 +535,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
     }
     /// Flush the io in buffer to disk, for the Local Block Device.
     async fn flush_io(&self) -> Result<u64, CoreError> {
-        let is_write_cache =
-            unsafe { spdk_bdev_has_write_cache(self.device.0.as_inner_ref()) };
-        if !is_write_cache {
+        if !self.device.0.is_write_cache_enabled() {
             debug!(
                 "No Write Cache, No need of Flush for bdev name: {}, uuid: {}",
                 self.device.device_name(),

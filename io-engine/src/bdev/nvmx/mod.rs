@@ -9,6 +9,7 @@ pub use controller_state::NvmeControllerState;
 pub use device::{lookup_by_name, open_by_name, NvmeBlockDevice};
 pub use handle::{nvme_io_ctx_pool_init, NvmeDeviceHandle};
 pub use namespace::NvmeNamespace;
+pub use snapshot::{NvmeSnapshotMessage, NvmeSnapshotMessageV1};
 pub(crate) use uri::NvmfDeviceTemplate;
 
 use crate::{
@@ -23,6 +24,7 @@ mod controller_state;
 mod device;
 mod handle;
 mod namespace;
+mod snapshot;
 mod uri;
 pub mod utils;
 
