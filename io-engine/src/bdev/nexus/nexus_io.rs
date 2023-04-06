@@ -44,19 +44,74 @@ use crate::core::{
     Reactors,
 };
 
+#[cfg(feature = "nexus-io-tracing")]
+mod debug_nexus_io {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+
+    pub(super) fn new_serial() -> u64 {
+        SERIAL.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+#[cfg(feature = "nexus-io-tracing")]
+macro_rules! trace_nexus_io {
+    ($($arg:tt)*) => {{ trace!($($arg)*); }}
+}
+
+#[cfg(not(feature = "nexus-io-tracing"))]
+macro_rules! trace_nexus_io {
+    ($($arg:tt)*) => {};
+}
+
 /// TODO
 #[repr(C)]
-#[derive(Debug)]
 pub(super) struct NioCtx<'n> {
-    /// number of IO's submitted. Nexus IO's may never be freed until this
+    /// Number of I/O's submitted. Nexus I/O's may never be freed until this
     /// counter drops to zero.
     in_flight: u8,
-    /// intermediate status of the IO
+    /// Intermediate status of the I/O.
     status: IoStatus,
-    /// a reference to  our channel
+    /// Reference to the channel.
     channel: spdk_rs::IoChannel<NexusChannel<'n>>,
-    /// the IO must fail regardless of when it completes
-    must_fail: bool,
+    /// Counter for successfully completed child I/Os.
+    successful: u8,
+    /// Counter for failed child I/Os.
+    failed: u8,
+    /// Number of resubmissions. Incremented with each resubmission.
+    resubmits: u8,
+    /// Debug serial number.
+    #[cfg(feature = "nexus-io-tracing")]
+    serial: u64,
+}
+
+impl<'n> Debug for NioCtx<'n> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        #[cfg(feature = "nexus-io-tracing")]
+        let serial = format!("#{s} {self:p} ", s = self.serial);
+
+        #[cfg(not(feature = "nexus-io-tracing"))]
+        let serial = "";
+
+        write!(
+            f,
+            "{serial}[{re}{status:?} {sc}:{fc}{infl}]",
+            re = if self.resubmits > 0 {
+                format!("re:{}", self.resubmits)
+            } else {
+                "".to_string()
+            },
+            status = self.status,
+            infl = if self.in_flight > 0 {
+                format!(" (infl:{})", self.in_flight)
+            } else {
+                "".to_string()
+            },
+            sc = self.successful,
+            fc = self.failed,
+        )
+    }
 }
 
 /// TODO
@@ -65,7 +120,16 @@ pub(super) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
 
 impl<'n> Debug for NexusBio<'n> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} I/O [{:?}]", self.channel(), self.ctx().status)
+        write!(
+            f,
+            "I/O {type:?} at {eoff}({off})/{num}: {ctx:?} ({chan:?})",
+            type = self.io_type(),
+            eoff = self.effective_offset(),
+            off = self.offset(),
+            num = self.num_blocks(),
+            ctx = self.ctx(),
+            chan = self.channel(),
+        )
     }
 }
 
@@ -89,12 +153,6 @@ impl<'n> From<*mut spdk_bdev_io> for NexusBio<'n> {
     }
 }
 
-impl Clone for NexusBio<'_> {
-    fn clone(&self) -> Self {
-        Self::new(self.ctx().channel.clone(), self.0.clone())
-    }
-}
-
 impl<'n> NexusBio<'n> {
     fn as_ptr(&self) -> *mut spdk_bdev_io {
         self.0.legacy_as_ptr()
@@ -105,12 +163,22 @@ impl<'n> NexusBio<'n> {
         channel: spdk_rs::IoChannel<NexusChannel<'n>>,
         io: BdevIo<Nexus<'n>>,
     ) -> Self {
-        let mut bio = NexusBio(io);
+        let mut bio = Self(io);
         let ctx = bio.ctx_mut();
         ctx.channel = channel;
         ctx.status = IoStatus::Pending;
         ctx.in_flight = 0;
-        ctx.must_fail = false;
+        ctx.resubmits = 0;
+        ctx.successful = 0;
+        ctx.failed = 0;
+
+        #[cfg(feature = "nexus-io-tracing")]
+        {
+            ctx.serial = debug_nexus_io::new_serial();
+        }
+
+        trace_nexus_io!("New: {bio:?}");
+
         bio
     }
 
@@ -141,17 +209,16 @@ impl<'n> NexusBio<'n> {
                 })
             }
         } {
-            //trace!(?e, ?io, "Error during IO submission");
+            trace_nexus_io!("Submission error: {self:?}: {_e}");
         }
     }
 
-    /// assess the IO if we need to mark it failed or ok.
-    /// obtain the Nexus struct embedded within the bdev
+    /// Obtains the Nexus struct embedded within the bdev.
     pub(crate) fn nexus(&self) -> &Nexus<'n> {
         self.bdev_checked(NEXUS_PRODUCT_ID).data()
     }
 
-    /// invoked when a nexus IO completes
+    /// Invoked when a nexus IO completes.
     fn child_completion(
         device: &dyn BlockDevice,
         status: IoCompletionStatus,
@@ -186,53 +253,51 @@ impl<'n> NexusBio<'n> {
         self.ctx_mut().in_flight -= 1;
 
         if status == IoCompletionStatus::Success {
-            self.ok_checked();
+            self.ctx_mut().successful += 1;
         } else {
-            // IO failure, mark the IO failed and take the child out
-            error!(
-                "{:?}: IO completion for '{}' failed: {:?}, ctx={:?}",
-                self,
-                child.device_name(),
-                status,
-                self.ctx()
-            );
             self.ctx_mut().status = IoStatus::Failed;
-            self.ctx_mut().must_fail = true;
-            self.handle_failure(child, status);
-        }
-    }
+            self.ctx_mut().failed += 1;
 
-    /// Complete the IO marking at as successfully when all child IO's have been
-    /// accounted for. Failing to account for all child IO's will result in
-    /// a lockup.
-    #[inline]
-    fn ok_checked(&mut self) {
-        if self.ctx().in_flight == 0 {
-            if self.ctx().must_fail {
-                //warn!(?self, "resubmitted due to must_fail");
-                self.retry_checked();
-                //self.fail();
-            } else {
-                self.ok();
-            }
+            self.completion_error(child, status);
         }
-    }
 
-    /// Complete the IO marking it as failed.
-    #[inline]
-    fn fail_checked(&mut self) {
-        if self.ctx().in_flight == 0 {
+        if self.ctx().in_flight > 0 {
+            // More child I/Os to complete, not yet ready to complete nexus I/O.
+            trace_nexus_io!("Inflight: {self:?}");
+            return;
+        }
+
+        if self.ctx().failed == 0 {
+            // No child failures, complete nexus I/O with success.
+            trace_nexus_io!("Success: {self:?}");
+            self.ok();
+        } else if self.ctx().successful > 0 {
+            // Having some child failures, resubmit the I/O.
+            self.resubmit();
+        } else {
+            error!("{self:?}: failing nexus I/O: all child I/Os failed");
             self.fail();
         }
     }
 
-    /// retry this IO when all other IOs have completed
-    #[inline]
-    fn retry_checked(&mut self) {
-        if self.ctx().in_flight == 0 {
-            debug!(?self, "resubmitting IO");
-            self.clone().submit_request();
-        }
+    /// Resubmits the I/O.
+    fn resubmit(&mut self) {
+        warn!("{self:?}: resubmitting nexus I/O due to a child I/O failure");
+
+        let ctx = self.ctx_mut();
+
+        debug_assert_eq!(ctx.in_flight, 0);
+        debug_assert!(ctx.failed > 0);
+        debug_assert!(ctx.successful > 0);
+
+        ctx.status = IoStatus::Pending;
+        ctx.resubmits += 1;
+        ctx.successful = 0;
+        ctx.failed = 0;
+
+        let bio = Self(self.0.clone());
+        trace_nexus_io!("New resubmit: {bio:?}");
+        bio.submit_request();
     }
 
     /// reference to the channel. The channel contains the specific
@@ -255,6 +320,13 @@ impl<'n> NexusBio<'n> {
         self.nexus().data_ent_offset
     }
 
+    /// Returns the effictive offset in num blocks where the I/O operation
+    /// starts.
+    #[inline]
+    fn effective_offset(&self) -> u64 {
+        self.offset() + self.data_ent_offset()
+    }
+
     /// submit a read operation to one of the children of this nexus
     #[inline]
     fn submit_read(
@@ -267,7 +339,7 @@ impl<'n> NexusBio<'n> {
         hdl.readv_blocks(
             self.iovs(),
             self.iov_count(),
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -405,13 +477,18 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        trace_nexus_io!(
+            "Submitting: {self:?} -> {name}",
+            name = hdl.get_device().device_name()
+        );
+
         #[cfg(feature = "nexus-fault-injection")]
         self.inject_submission_error(hdl)?;
 
         hdl.writev_blocks(
             self.iovs(),
             self.iov_count(),
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -423,8 +500,13 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        trace_nexus_io!(
+            "Submitting: {self:?} -> {name}",
+            name = hdl.get_device().device_name()
+        );
+
         hdl.unmap_blocks(
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -436,11 +518,16 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        trace_nexus_io!(
+            "Submitting: {self:?} -> {name}",
+            name = hdl.get_device().device_name()
+        );
+
         #[cfg(feature = "nexus-fault-injection")]
         self.inject_submission_error(hdl)?;
 
         hdl.write_zeroes(
-            self.offset() + self.data_ent_offset(),
+            self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
             self.as_ptr().cast(),
@@ -452,6 +539,11 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
+        trace_nexus_io!(
+            "Submitting: {self:?} -> {name}",
+            name = hdl.get_device().device_name()
+        );
+
         hdl.reset(Self::child_completion, self.as_ptr().cast())
     }
 
@@ -474,19 +566,21 @@ impl<'n> NexusBio<'n> {
                 // we should never reach here, if we do it is a bug.
                 _ => unreachable!(),
             }
-                .map(|_| {
-                    inflight += 1;
-                })
-                .map_err(|err| {
-                    error!(
-                        "(core: {} thread: {}): IO submission failed with error {:?}, I/Os submitted: {}",
-                        Cores::current(), Mthread::current().unwrap().name(), err, inflight
-                    );
+            .map(|_| {
+                inflight += 1;
+            })
+            .map_err(|err| {
+                error!(
+                    "(core: {core} thread: {thread}): IO submission \
+                        failed with error {err:?}, I/Os submitted: {inflight}",
+                    core = Cores::current(),
+                    thread = Mthread::current().unwrap().name()
+                );
 
-                    // Record the name of the device for immediate retire.
-                    failed_device = Some(h.get_device().device_name());
-                    err
-                })
+                // Record the name of the device for immediate retire.
+                failed_device = Some(h.get_device().device_name());
+                err
+            })
         });
 
         // Submission errors can also trigger device retire.
@@ -496,34 +590,39 @@ impl<'n> NexusBio<'n> {
         // reset all I/O channels are de-initialized, so no I/O
         // submission is possible (spdk returns -6/ENXIO), so we have to
         // start device retire.
-        // TODO: ENOMEM and ENXIO should be handled differently and
+
+        // TODO:
+        // ENOMEM and ENXIO should be handled differently and
         // device should not be retired in case of ENOMEM.
         if result.is_err() {
             let device = failed_device.unwrap();
             // set the IO as failed in the submission stage.
-            self.ctx_mut().must_fail = true;
+            self.ctx_mut().failed += 1;
 
             self.channel_mut().disconnect_device(&device);
 
             self.fault_device(
                 &device,
                 IoCompletionStatus::IoSubmissionError(
-                    IoSubmissionFailure::Read,
+                    IoSubmissionFailure::Write,
                 ),
             );
         }
 
-        // partial submission
-        if inflight != 0 {
-            // An error was experienced during submission. Some IO however, has
-            // been submitted successfully prior to the error condition.
+        if inflight > 0 {
+            // TODO: fix comment:
+            // An error was experienced during submission.
+            // Some IO however, has been submitted successfully
+            // prior to the error condition.
             self.ctx_mut().in_flight = inflight;
             self.ctx_mut().status = IoStatus::Success;
-            self.ok_checked();
-            return result;
+        } else {
+            debug_assert_eq!(self.ctx().in_flight, 0);
+            error!(
+                "{self:?}: failing nexus I/O: all child I/O submissions failed"
+            );
+            self.fail();
         }
-
-        self.fail_checked();
 
         result
     }
@@ -628,8 +727,8 @@ impl<'n> NexusBio<'n> {
         self.channel_mut().fault_device(child_device, reason);
     }
 
-    /// Test handle_failure()
-    fn handle_failure(
+    /// TODO
+    fn completion_error(
         &mut self,
         child: &dyn BlockDevice,
         status: IoCompletionStatus,
@@ -652,10 +751,9 @@ impl<'n> NexusBio<'n> {
                 GenericStatusCode::InvalidOpcode
             ))
         ) {
-            debug!(
-                "Device '{}' experienced invalid opcode error: \
-                retiring skipped",
-                child.device_name()
+            warn!(
+                "{self:?}: invalid opcode error on '{dev}', skipping retire",
+                dev = child.device_name()
             );
             return;
         }
@@ -669,28 +767,32 @@ impl<'n> NexusBio<'n> {
             ))
         ) {
             warn!(
-                nexus = self.channel_mut().nexus_mut().nexus_name(),
-                replica=child.device_name(),
-                "Reservation conflict on replica device, initiating nexus shutdown"
+                "{self:?}: reservation conflict on '{dev}', shutdown nexus",
+                dev = child.device_name()
             );
             self.try_self_shutdown_nexus();
-        } else {
-            self.fault_device(&child.device_name(), status);
-
-            let retry = matches!(
-                status,
-                IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                    GenericStatusCode::AbortedSubmissionQueueDeleted
-                ))
-            );
-
-            // if the IO was failed because of retire, resubmit the IO
-            if retry {
-                return self.ok_checked();
-            }
+            return;
         }
 
-        self.fail_checked();
+        if matches!(
+            status,
+            IoCompletionStatus::NvmeError(NvmeStatus::Generic(
+                GenericStatusCode::AbortedSubmissionQueueDeleted
+            ))
+        ) {
+            warn!(
+                "{self:?}: aborted submission queue deleted on '{dev}'",
+                dev = child.device_name(),
+            );
+        } else {
+            error!(
+                "{self:?}: child I/O failed on '{dev}' with {err:?}",
+                dev = child.device_name(),
+                err = status,
+            );
+        }
+
+        self.fault_device(&child.device_name(), status);
     }
 
     /// Checks if an error is to be injected upon submission.

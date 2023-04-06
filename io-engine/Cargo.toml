@@ -10,6 +10,7 @@ build = "build.rs"
 [features]
 io-engine-testing = ["nexus-fault-injection"]
 nexus-fault-injection = [] # Enables nexus-level fault injection code.
+nexus-io-tracing = [] # Enables nexus I/O tracing code.
 
 [[bin]]
 name = "io-engine"
