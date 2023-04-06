@@ -9,13 +9,16 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_rs::{
     libspdk::{
         iovec,
+        spdk_bdev_flush,
         spdk_bdev_free_io,
+        spdk_bdev_has_write_cache,
         spdk_bdev_io,
         spdk_bdev_readv_blocks,
         spdk_bdev_reset,
@@ -30,27 +33,30 @@ use spdk_rs::{
     IoType,
 };
 
-use crate::core::{
-    mempool::MemoryPool,
-    Bdev,
-    BdevHandle,
-    BlockDevice,
-    BlockDeviceDescriptor,
-    BlockDeviceHandle,
-    BlockDeviceIoStats,
-    CoreError,
-    DeviceEventDispatcher,
-    DeviceEventSink,
-    DeviceEventType,
-    DeviceIoController,
-    IoCompletionCallback,
-    IoCompletionCallbackArg,
-    IoCompletionStatus,
-    NvmeStatus,
-    ReadMode,
-    UntypedBdev,
-    UntypedBdevHandle,
-    UntypedDescriptorGuard,
+use crate::{
+    core::{
+        mempool::MemoryPool,
+        Bdev,
+        BdevHandle,
+        BlockDevice,
+        BlockDeviceDescriptor,
+        BlockDeviceHandle,
+        BlockDeviceIoStats,
+        CoreError,
+        DeviceEventDispatcher,
+        DeviceEventSink,
+        DeviceEventType,
+        DeviceIoController,
+        IoCompletionCallback,
+        IoCompletionCallbackArg,
+        IoCompletionStatus,
+        NvmeStatus,
+        ReadMode,
+        UntypedBdev,
+        UntypedBdevHandle,
+        UntypedDescriptorGuard,
+    },
+    ffihelper::cb_arg,
 };
 
 /// TODO
@@ -504,6 +510,60 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
             source: Errno::ENXIO,
         })
     }
+    /// Flush the io in buffer to disk, for the Local Block Device.
+    async fn flush_io(&self) -> Result<u64, CoreError> {
+        let is_write_cache =
+            unsafe { spdk_bdev_has_write_cache(self.device.0.as_inner_ref()) };
+        if !is_write_cache {
+            debug!(
+                "No Write Cache, No need of Flush for bdev name: {}, uuid: {}",
+                self.device.device_name(),
+                self.device.uuid(),
+            );
+            return Ok(0);
+        }
+        let (desc, chan) = self.handle.io_tuple();
+        let bdev_size = self.device.size_in_bytes();
+        let (s, r) = oneshot::channel::<bool>();
+        let result = unsafe {
+            spdk_bdev_flush(
+                desc,
+                chan,
+                0,
+                bdev_size,
+                Some(bdev_flush_complete_cb),
+                cb_arg(s),
+            )
+        };
+        if result < 0 {
+            return Err(CoreError::DeviceFlush {
+                source: Errno::from_i32(result),
+                name: format!(
+                    "bdev_name: {}, uuid: {}",
+                    self.device.device_name(),
+                    self.device.uuid()
+                ),
+            });
+        }
+        match r.await {
+            Ok(result) => info!(
+                "Bdev Flush Success: uuid: {}, result: {}",
+                self.device.uuid(),
+                result,
+            ),
+            Err(_) => {
+                return Err(CoreError::DeviceFlush {
+                    source: Errno::from_i32(result),
+                    name: format!(
+                        "bdev_name: {}, uuid: {}",
+                        self.device.device_name(),
+                        self.device.uuid()
+                    ),
+                });
+            }
+        };
+        Ok(0)
+    }
 }
 
 /// TODO
@@ -643,4 +703,18 @@ pub fn bdev_event_callback<T: BdevOps>(
 /// Dispatches a special event for loopback device removal.
 pub fn dispatch_loopback_removed(name: &str) {
     dispatch_bdev_event(DeviceEventType::LoopbackRemoved, name);
+}
+
+/// Call back function for the Block Device Flush
+extern "C" fn bdev_flush_complete_cb(
+    bio: *mut spdk_bdev_io,
+    result: bool,
+    arg: *mut c_void,
+) {
+    let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
+    s.send(result).ok();
+    // Free replica's bio.
+    unsafe {
+        spdk_bdev_free_io(bio);
+    }
 }
