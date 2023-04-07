@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use chrono::Utc;
 use futures::channel::oneshot;
@@ -7,7 +7,9 @@ use once_cell::sync::OnceCell;
 use super::{
     HistoryRecord,
     RebuildError,
+    RebuildJobBackend,
     RebuildJobRequest,
+    RebuildLogHandle,
     RebuildState,
     RebuildStates,
     RebuildStats,
@@ -54,6 +56,7 @@ pub struct RebuildJob {
     src_uri: String,
     /// Target URI of the out of sync child in need of a rebuild.
     pub(crate) dst_uri: String,
+    /// Frontend to backend channel.
     comms: RebuildFBendChan,
     /// Current state of the rebuild job.
     states: Arc<parking_lot::RwLock<RebuildStates>>,
@@ -73,12 +76,18 @@ impl RebuildJob {
         nexus_name: &str,
         src_uri: &str,
         dst_uri: &str,
-        range: std::ops::Range<u64>,
+        range: Range<u64>,
+        rebuild_log: Option<RebuildLogHandle>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         // Allocate an instance of the rebuild back-end.
-        let backend = super::RebuildJobBackend::new(
-            nexus_name, src_uri, dst_uri, range, notify_fn,
+        let backend = RebuildJobBackend::new(
+            nexus_name,
+            src_uri,
+            dst_uri,
+            range.clone(),
+            rebuild_log,
+            notify_fn,
         )
         .await?;
 
@@ -92,7 +101,8 @@ impl RebuildJob {
             notify_chan: backend.notify_chan.1.clone(),
         };
 
-        // kick off the rebuild task where it will "live" and await for commands
+        // Kick off the rebuild task where it will "live" and await for
+        // commands.
         backend.schedule().await;
 
         Ok(frontend)

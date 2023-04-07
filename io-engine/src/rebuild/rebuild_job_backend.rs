@@ -12,6 +12,7 @@ use super::{
     rebuild_error::{BdevInvalidUri, BdevNotFound, NoCopyBuffer},
     RebuildDescriptor,
     RebuildError,
+    RebuildLogHandle,
     RebuildState,
     RebuildStates,
     RebuildStats,
@@ -120,6 +121,7 @@ impl RebuildJobBackend {
         src_uri: &str,
         dst_uri: &str,
         range: std::ops::Range<u64>,
+        rebuild_log: Option<RebuildLogHandle>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         let src_descriptor = device_open(
@@ -179,6 +181,7 @@ impl RebuildJobBackend {
                 buffer: copy_buffer,
                 sender: tasks.channel.0.clone(),
                 error: None,
+                rebuild_log: rebuild_log.clone(),
             });
         }
 
@@ -208,6 +211,7 @@ impl RebuildJobBackend {
                 dst_descriptor,
                 nexus_descriptor,
                 start_time: Utc::now(),
+                rebuild_log,
             }),
         })
     }
@@ -376,13 +380,19 @@ impl RebuildJobBackend {
             blocks_total,
         );
 
-        let blocks_remaining = blocks_total - blocks_recovered;
+        let blocks_remaining = self
+            .descriptor
+            .rebuild_log
+            .as_ref()
+            .map_or(blocks_total - blocks_recovered, |log| {
+                log.count_modified_blocks()
+            });
 
         let progress = (blocks_recovered * 100) / blocks_total;
 
         let res = RebuildStats {
             start_time: self.descriptor.start_time,
-            is_partial: false,
+            is_partial: self.descriptor.rebuild_log.is_some(),
             blocks_total,
             blocks_recovered,
             blocks_transferred,

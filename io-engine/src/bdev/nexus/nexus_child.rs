@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use crossbeam::atomic::AtomicCell;
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use nix::errno::Errno;
+use parking_lot::Mutex;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use url::Url;
@@ -28,7 +29,7 @@ use crate::{
         VerboseError,
     },
     persistent_store::PersistentStore,
-    rebuild::RebuildJob,
+    rebuild::{RebuildJob, RebuildLog, RebuildLogHandle},
 };
 
 use crate::{
@@ -285,6 +286,9 @@ pub struct NexusChild<'c> {
     /// TODO
     #[serde(skip_serializing)]
     device_descriptor: Option<Box<dyn BlockDeviceDescriptor>>,
+    /// TODO
+    #[serde(skip_serializing)]
+    rebuild_log: Mutex<Option<RebuildLogHandle>>,
     /// TODO
     #[serde(skip_serializing)]
     _c: PhantomData<&'c ()>,
@@ -1107,6 +1111,7 @@ impl<'c> NexusChild<'c> {
             prev_state: AtomicCell::new(ChildState::Init),
             faulted_at: parking_lot::Mutex::new(None),
             remove_channel: mpsc::channel(0),
+            rebuild_log: Mutex::new(None),
             _c: Default::default(),
         }
     }
@@ -1241,5 +1246,41 @@ impl<'c> NexusChild<'c> {
                 );
             }
         }
+    }
+
+    /// Creates a new rebuild log, or returns an existing one.
+    pub(super) fn get_or_init_rebuild_log(
+        &mut self,
+    ) -> Option<RebuildLogHandle> {
+        let mut lg = self.rebuild_log.lock();
+
+        if lg.is_none() {
+            *lg = self.device.as_ref().map(|d| {
+                RebuildLogHandle::from(RebuildLog::new(
+                    &d.device_name(),
+                    d.num_blocks(),
+                    d.block_len(),
+                ))
+            });
+
+            if lg.is_some() {
+                debug!(
+                    "{self:?}: started new rebuild log: {log:?}",
+                    log = lg.as_ref().unwrap()
+                );
+            }
+        }
+
+        lg.clone()
+    }
+
+    /// Drops the rebuild log.
+    pub(super) fn drop_rebuild_log(&mut self) {
+        *self.rebuild_log.lock() = None;
+    }
+
+    /// Returns child's rebuild log.
+    pub(super) fn rebuild_log(&self) -> Option<RebuildLogHandle> {
+        self.rebuild_log.lock().clone()
     }
 }

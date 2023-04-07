@@ -11,6 +11,7 @@ use super::{
     },
     RebuildDescriptor,
     RebuildError,
+    RebuildLogHandle,
 };
 use crate::core::{CoreError, Reactors, ReadMode, VerboseError};
 use spdk_rs::{DmaBuf, LbaRange};
@@ -41,6 +42,8 @@ pub(super) struct RebuildTask {
     pub(super) sender: mpsc::Sender<TaskResult>,
     /// Last error seen by this particular task.
     pub(super) error: Option<TaskResult>,
+    /// Rebuild log.
+    pub(super) rebuild_log: Option<RebuildLogHandle>,
 }
 
 impl RebuildTask {
@@ -62,6 +65,13 @@ impl RebuildTask {
         blk: u64,
         descriptor: &RebuildDescriptor,
     ) -> Result<bool, RebuildError> {
+        // Check if the block has to be copied.
+        if let Some(ref log) = self.rebuild_log {
+            if !log.is_modified(blk) {
+                return Ok(false);
+            }
+        }
+
         let len = descriptor.get_segment_size_blks(blk);
         // The nexus children have metadata and data partitions, whereas the
         // nexus has a data partition only. Because we are locking the range on
@@ -95,6 +105,13 @@ impl RebuildTask {
                 len,
             })?;
 
+        // In the case of success, mark the segment as already transferred.
+        if result.is_ok() {
+            if let Some(ref log) = self.rebuild_log {
+                log.mark_segment_transferred(blk);
+            }
+        }
+
         result.map(|_| true)
     }
 
@@ -115,7 +132,7 @@ impl RebuildTask {
         } else {
             let segment_size_blks = descriptor.range.end - blk;
 
-            trace!(
+            debug!(
                     "Adjusting last segment size from {} to {}. offset: {}, range: {:?}",
                     descriptor.segment_size_blks, segment_size_blks, blk, descriptor.range,
                 );
@@ -128,7 +145,6 @@ impl RebuildTask {
         };
 
         source_hdl.set_read_mode(ReadMode::UnwrittenFail);
-
         let res = source_hdl
             .read_at(blk * descriptor.block_size, copy_buffer)
             .await;
@@ -234,7 +250,11 @@ impl RebuildTasks {
             };
             task.error = Some(error.clone());
             if let Err(e) = task.sender.send(error).await {
-                error!("Failed to notify job of segment id: {} blk: {} completion, err: {}", id, blk, e.verbose());
+                error!(
+                    "Failed to notify job of segment id: {id} blk: {blk} \
+                    completion, err: {err}",
+                    err = e.verbose()
+                );
             }
         });
     }

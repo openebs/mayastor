@@ -14,6 +14,8 @@ use super::{
             ListNexusOptions,
             Nexus,
             PublishNexusRequest,
+            RebuildHistoryRecord,
+            RebuildHistoryRequest,
             RemoveInjectedNexusFaultRequest,
         },
         SharedRpcHandle,
@@ -78,6 +80,11 @@ impl NexusBuilder {
 
     pub fn with_new_uuid(self) -> Self {
         self.with_uuid(&generate_uuid())
+    }
+
+    pub fn with_size_kb(mut self, size_kb: u64) -> Self {
+        self.size = Some(size_kb * 1024);
+        self
     }
 
     pub fn with_size_mb(mut self, size_mb: u64) -> Self {
@@ -292,6 +299,19 @@ impl NexusBuilder {
             })
             .await
             .map(|r| r.into_inner().injections)
+    }
+
+    pub async fn get_rebuild_history(
+        &self,
+    ) -> Result<Vec<RebuildHistoryRecord>, Status> {
+        self.rpc()
+            .borrow_mut()
+            .nexus
+            .get_rebuild_history(RebuildHistoryRequest {
+                uuid: self.uuid(),
+            })
+            .await
+            .map(|r| r.into_inner().records)
     }
 
     pub async fn get_nexus(&self) -> Result<Nexus, Status> {

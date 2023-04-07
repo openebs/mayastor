@@ -8,13 +8,17 @@ use std::{
 
 use super::{FaultReason, Nexus};
 
-use crate::core::{BlockDeviceHandle, CoreError, Cores};
+use crate::{
+    core::{BlockDeviceHandle, CoreError, Cores},
+    rebuild::RebuildLogHandle,
+};
 
-/// io channel, per core
+/// I/O channel, per core.
 #[repr(C)]
 pub struct NexusChannel<'n> {
     writers: Vec<Box<dyn BlockDeviceHandle>>,
     readers: Vec<Box<dyn BlockDeviceHandle>>,
+    rebuild_logs: Vec<RebuildLogHandle>,
     previous_reader: UnsafeCell<usize>,
     fail_fast: u32,
     nexus: Pin<&'n mut Nexus<'n>>,
@@ -25,12 +29,13 @@ impl<'n> Debug for NexusChannel<'n> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "I/O chan '{nex}' core:{core}({cur}) [r:{r}/w:{w}/c:{c}]",
+            "I/O chan '{nex}' core:{core}({cur}) [R:{r} W:{w} L:{l} C:{c}]",
             nex = self.nexus.nexus_name(),
             core = self.core,
             cur = Cores::current(),
             r = self.readers.len(),
             w = self.writers.len(),
+            l = self.rebuild_logs.len(),
             c = self.nexus.child_count(),
         )
     }
@@ -40,8 +45,6 @@ impl<'n> Debug for NexusChannel<'n> {
 #[allow(clippy::enum_variant_names)]
 /// Dynamic Reconfiguration Events occur when a child is added or removed
 pub enum DrEvent {
-    /// The child is faulted by a client API call.
-    ChildFaultByClient,
     /// Child unplug reconfiguration event.
     ChildUnplug,
     /// Child rebuild event.
@@ -54,7 +57,6 @@ impl Display for DrEvent {
             f,
             "{}",
             match self {
-                Self::ChildFaultByClient => "fault",
                 Self::ChildUnplug => "unplug",
                 Self::ChildRebuild => "rebuild",
             }
@@ -69,6 +71,7 @@ impl<'n> NexusChannel<'n> {
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();
+        let mut rebuild_logs = Vec::new();
 
         unsafe {
             nexus
@@ -91,9 +94,19 @@ impl<'n> NexusChannel<'n> {
                 });
         }
 
+        // Add all active rebuild logs.
+        unsafe {
+            nexus.as_mut().children_iter_mut().for_each(|c| {
+                if let Some(log) = c.rebuild_log() {
+                    rebuild_logs.push(log);
+                }
+            });
+        }
+
         Self {
             writers,
             readers,
+            rebuild_logs,
             previous_reader: UnsafeCell::new(0),
             nexus: unsafe { nexus.pinned_mut() },
             fail_fast: 0,
@@ -110,6 +123,7 @@ impl<'n> NexusChannel<'n> {
         );
         self.writers.clear();
         self.readers.clear();
+        self.rebuild_logs.clear();
     }
 
     /// Returns reference to channel's Nexus.
@@ -130,7 +144,7 @@ impl<'n> NexusChannel<'n> {
         self.readers.len()
     }
 
-    /// TODO
+    /// Calls the given callback for each active writer.
     #[inline(always)]
     pub(super) fn for_each_writer<F>(&self, mut f: F) -> Result<(), CoreError>
     where
@@ -139,7 +153,16 @@ impl<'n> NexusChannel<'n> {
         self.writers.iter().try_for_each(|h| f(h.as_ref()))
     }
 
-    /// very simplistic routine to rotate between children for read operations
+    /// Calls the given callback for each active rebuild log.
+    #[inline(always)]
+    pub(super) fn for_each_rebuild_log<F>(&self, f: F)
+    where
+        F: FnMut(&RebuildLogHandle),
+    {
+        self.rebuild_logs.iter().for_each(f)
+    }
+
+    /// Very simplistic routine to rotate between children for read operations
     /// note that the channels can be None during a reconfigure; this is usually
     /// not the case but a side effect of using the async. As we poll
     /// threads more often depending on what core we are on etc, we might be
@@ -178,8 +201,6 @@ impl<'n> NexusChannel<'n> {
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
     pub(crate) fn reconnect_all(&mut self) {
-        debug!("{self:?}: reconnecting all children");
-
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
@@ -192,6 +213,7 @@ impl<'n> NexusChannel<'n> {
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();
+        let mut rebuild_logs = Vec::new();
 
         // iterate over all our children which are in the healthy state
         unsafe {
@@ -205,7 +227,7 @@ impl<'n> NexusChannel<'n> {
                     }
                     _ => {
                         c.set_faulted_state(FaultReason::CantOpen);
-                        error!("failed to get I/O handle for {}", c.uri());
+                        error!("failed to get I/O handle for {c}", c = c.uri());
                     }
                 });
         }
@@ -221,19 +243,33 @@ impl<'n> NexusChannel<'n> {
                             writers.push(hdl);
                         } else {
                             c.set_faulted_state(FaultReason::CantOpen);
-                            error!("failed to get I/O handle for {}", c.uri());
+                            error!(
+                                "failed to get I/O handle for {c}",
+                                c = c.uri()
+                            );
                         }
                     });
             }
         }
 
+        // add all active rebuild logs.
+        unsafe {
+            self.nexus_mut().children_iter_mut().for_each(|c| {
+                if let Some(log) = c.rebuild_log() {
+                    rebuild_logs.push(log);
+                }
+            });
+        }
+
         self.writers.clear();
         self.readers.clear();
+        self.rebuild_logs.clear();
 
         self.writers = writers;
         self.readers = readers;
+        self.rebuild_logs = rebuild_logs;
 
-        trace!("{self:?}: new number of readers/writers");
+        debug!("{self:?}: child devices reconnected");
     }
 
     /// Faults the child by its device, with the given fault reason.
@@ -242,9 +278,25 @@ impl<'n> NexusChannel<'n> {
         &mut self,
         child_device: &str,
         reason: FaultReason,
-    ) {
+    ) -> Option<RebuildLogHandle> {
         self.nexus_mut()
-            .retire_child_device(child_device, reason, true);
+            .retire_child_device(child_device, reason, true)
+    }
+
+    /// Attaches a new rebuild log to write to.
+    pub(super) fn attach_rebuild_log(&mut self, log: RebuildLogHandle) {
+        if self
+            .rebuild_logs
+            .iter()
+            .all(|i| i.device_name() != log.device_name())
+        {
+            debug!(
+                "{self:?}: attaching rebuild log for '{dev}'",
+                dev = log.device_name()
+            );
+
+            self.rebuild_logs.push(log);
+        }
     }
 
     /// Returns core on which channel was created.

@@ -2,6 +2,7 @@ mod rebuild_descriptor;
 mod rebuild_error;
 mod rebuild_job;
 mod rebuild_job_backend;
+mod rebuild_log;
 mod rebuild_state;
 mod rebuild_stats;
 mod rebuild_task;
@@ -15,6 +16,7 @@ use rebuild_job_backend::{
     RebuildJobBackend,
     RebuildJobRequest,
 };
+pub use rebuild_log::{RebuildLog, RebuildLogHandle};
 pub use rebuild_state::RebuildState;
 use rebuild_state::RebuildStates;
 pub(crate) use rebuild_stats::HistoryRecord;

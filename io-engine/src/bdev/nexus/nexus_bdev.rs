@@ -637,6 +637,7 @@ impl<'n> Nexus<'n> {
         let mut start_blk = 0;
         let mut end_blk = 0;
         let mut blk_size = 0;
+        let mut min_dev_size = u64::MAX;
 
         for child in self.children_iter() {
             let dev = match child.get_device() {
@@ -654,6 +655,8 @@ impl<'n> Nexus<'n> {
 
             let nb = dev.num_blocks();
             let bs = dev.block_len();
+
+            min_dev_size = min(nb, min_dev_size);
 
             if blk_size == 0 {
                 blk_size = bs;
@@ -697,8 +700,13 @@ impl<'n> Nexus<'n> {
         }
 
         info!(
-            "{:?}: nexus device initialized: start_blk={}, end_blk={}, block_len={}",
-            self, start_blk, end_blk, blk_size,
+            "{self:?}: nexus device initialized: \
+            requested={req_blk} blocks ({req} bytes) \
+            start block={start_blk}, end block={end_blk}, \
+            block size={blk_size}, \
+            smallest devices size={min_dev_size} blocks",
+            req_blk = self.req_size() / blk_size,
+            req = self.req_size(),
         );
 
         Ok(())
