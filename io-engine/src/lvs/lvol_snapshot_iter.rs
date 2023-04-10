@@ -2,13 +2,13 @@ use async_trait::async_trait;
 use spdk_rs::libspdk::spdk_blob;
 
 use crate::{
-    core::SnapshotParams,
+    core::ListSnapshotParams,
     lvs::{lvs_lvol::LvsLvol, Lvol},
 };
 #[async_trait(?Send)]
-trait AsyncIterator {
+pub trait AsyncIterator {
     type Item;
-    async fn next(&mut self) -> Option<SnapshotParams>;
+    async fn next(&mut self) -> Option<ListSnapshotParams>;
 }
 
 /// Iterator over Lvol Blobstore for Snapshot.
@@ -29,7 +29,7 @@ impl LvolSnapshotIter {
 #[async_trait(?Send)]
 /// Iterator implementation for LvolSnapshot.
 impl AsyncIterator for LvolSnapshotIter {
-    type Item = SnapshotParams;
+    type Item = ListSnapshotParams;
     async fn next(&mut self) -> Option<Self::Item> {
         if self.inner.is_null() {
             None
@@ -39,7 +39,7 @@ impl AsyncIterator for LvolSnapshotIter {
                 Some(next_blob) => self.inner = next_blob,
                 None => self.inner = std::ptr::null_mut(),
             }
-            Some(self.inner_lvol.build_snapshot_param(current))
+            Some(self.inner_lvol.set_snapshot_params(current))
         }
     }
 }

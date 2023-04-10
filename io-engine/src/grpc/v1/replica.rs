@@ -3,7 +3,11 @@ use crate::{
     bdev_api::BdevError,
     core::{
         logical_volume::LogicalVolume,
-        snapshot::SnapshotDescriptor,
+        snapshot::{
+            ListSnapshotParameters,
+            ListSnapshotParams,
+            SnapshotDescriptor,
+        },
         Bdev,
         Protocol,
         Share,
@@ -103,6 +107,20 @@ impl From<Lvol> for Replica {
 impl Default for ReplicaService {
     fn default() -> Self {
         Self::new()
+    }
+}
+impl From<ListSnapshotParams> for ReplicaSnapshot {
+    fn from(s: ListSnapshotParams) -> Self {
+        Self {
+            snapshot_uuid: s.snapshot_uuid(),
+            snapshot_name: s.snapshot_params().name().unwrap_or_default(),
+            replica_uuid: s.replica_uuid(),
+            bytes_referenced: s.bytes_referenced(),
+            num_clones: s.num_clones(),
+            timestamp: Some(s.timestamp().into()),
+            entity_id: s.snapshot_params().entity_id().unwrap_or_default(),
+            txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
+        }
     }
 }
 
@@ -482,6 +500,49 @@ impl ReplicaRpc for ReplicaService {
                             Err(e)
                         }
                     }
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+    #[named]
+    async fn list_replica_snapshot(
+        &self,
+        request: Request<ListReplicaSnapshotsRequest>,
+    ) -> GrpcResult<ListReplicaSnapshotsResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit(async move {
+                    let lvol = match UntypedBdev::lookup_by_uuid_str(
+                        &args.replica_uuid,
+                    ) {
+                        Some(bdev) => Lvol::try_from(bdev)?,
+                        None => {
+                            return Err(LvsError::Invalid {
+                                source: Errno::ENOENT,
+                                msg: format!(
+                                    "Replica {} not found",
+                                    args.replica_uuid
+                                ),
+                            })
+                        }
+                    };
+                    let snapshots = lvol
+                        .list_snapshot()
+                        .await
+                        .into_iter()
+                        .map(ReplicaSnapshot::from)
+                        .collect();
+                    Ok(ListReplicaSnapshotsResponse {
+                        snapshots,
+                    })
                 })?;
                 rx.await
                     .map_err(|_| Status::cancelled("cancelled"))?

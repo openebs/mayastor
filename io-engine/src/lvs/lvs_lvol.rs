@@ -38,7 +38,7 @@ use crate::{
     bdev::{device_open, PtplFileOps},
     core::{
         logical_volume::LogicalVolume,
-        snapshot::SnapshotDescriptor,
+        snapshot::{ListSnapshotParams, SnapshotDescriptor},
         Bdev,
         Protocol,
         PtplProps,
@@ -57,9 +57,10 @@ use crate::{
         FfiResult,
         IntoCString,
     },
-    lvs::LvolSnapshotIter,
+    lvs::{lvol_snapshot_iter::AsyncIterator, LvolSnapshotIter},
     subsys::NvmfReq,
 };
+use chrono::Utc;
 use spdk_rs::libspdk::spdk_nvmf_request_complete;
 
 // Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
@@ -457,7 +458,7 @@ pub trait LvsLvol: LogicalVolume + Share {
     ) -> Option<*mut spdk_blob>;
 
     /// Build Snapshot Parameters from Blob.
-    fn build_snapshot_param(&self, blob: *mut spdk_blob) -> SnapshotParams;
+    fn set_snapshot_params(&self, blob: *mut spdk_blob) -> ListSnapshotParams;
 }
 
 ///  LogicalVolume implement Generic interface for Lvol
@@ -821,14 +822,21 @@ impl LvsLvol for Lvol {
     }
 
     /// Build Snapshot Parameters from Blob.
-    fn build_snapshot_param(&self, _blob: *mut spdk_blob) -> SnapshotParams {
+    fn set_snapshot_params(&self, _blob: *mut spdk_blob) -> ListSnapshotParams {
         // TODO: need to Integrate with Snapshot Property Enumeration
         // Currently it is stub.
-        SnapshotParams::new(
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
+        ListSnapshotParams::new(
+            SnapshotParams::new(
+                Some(self.name()),
+                Some(self.name()),
+                Some(self.name()),
+                Some(self.name()),
+            ),
+            self.name(),
+            self.name(),
+            0,
+            0,
+            Utc::now(),
         )
     }
 }
@@ -913,5 +921,15 @@ impl SnapshotOps for Lvol {
             Some(txn_id),
             Some(snap_name),
         ))
+    }
+
+    /// List Replica Snapshot.
+    async fn list_snapshot(self) -> Vec<ListSnapshotParams> {
+        let mut snap_params: Vec<ListSnapshotParams> = Vec::new();
+        let mut snap_param_iter = self.snapshot_iter().await;
+        while let Some(snap_param_next) = snap_param_iter.next().await {
+            snap_params.push(snap_param_next);
+        }
+        snap_params
     }
 }
