@@ -144,6 +144,7 @@ impl From<Lvs> for Pool {
             state: PoolState::PoolOnline.into(),
             capacity: l.capacity(),
             used: l.used(),
+            committed: l.committed(),
             pooltype: PoolType::Lvs as i32,
         }
     }

@@ -2,6 +2,7 @@ pub use super::compose::rpc::v1::pool::Pool;
 use super::{
     compose::rpc::v1::{
         pool::{CreatePoolRequest, ListPoolOptions},
+        replica::{ListReplicaOptions, Replica},
         SharedRpcHandle,
         Status,
     },
@@ -90,6 +91,20 @@ impl PoolBuilder {
             .ok_or_else(|| {
                 Status::new(Code::NotFound, format!("Pool '{uuid}' not found"))
             })
+    }
+
+    pub async fn get_replicas(&self) -> Result<Vec<Replica>, Status> {
+        self.rpc()
+            .borrow_mut()
+            .replica
+            .list_replicas(ListReplicaOptions {
+                name: None,
+                poolname: None,
+                uuid: None,
+                pooluuid: self.uuid.clone(),
+            })
+            .await
+            .map(|r| r.into_inner().replicas)
     }
 }
 
