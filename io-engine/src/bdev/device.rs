@@ -36,6 +36,7 @@ use spdk_rs::{
 use crate::{
     core::{
         mempool::MemoryPool,
+        snapshot::SnapshotOps,
         Bdev,
         BdevHandle,
         BlockDevice,
@@ -52,11 +53,13 @@ use crate::{
         IoCompletionStatus,
         NvmeStatus,
         ReadMode,
+        SnapshotParams,
         UntypedBdev,
         UntypedBdevHandle,
         UntypedDescriptorGuard,
     },
     ffihelper::cb_arg,
+    lvs::Lvol,
 };
 
 /// TODO
@@ -505,10 +508,31 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
     }
 
     // NVMe commands are not applicable for non-NVMe devices.
-    async fn create_snapshot(&self) -> Result<u64, CoreError> {
-        Err(CoreError::NotSupported {
-            source: Errno::ENXIO,
-        })
+    async fn create_snapshot(
+        &self,
+        snapshot: SnapshotParams,
+    ) -> Result<u64, CoreError> {
+        let bdev = self.handle.get_bdev();
+
+        // Snapshots are supported only for LVOLs.
+        if bdev.driver() != "lvol" {
+            return Err(CoreError::NotSupported {
+                source: Errno::ENXIO,
+            });
+        }
+
+        let lvol =
+            Lvol::try_from(bdev).map_err(|_e| CoreError::BdevNotFound {
+                name: bdev.name().to_string(),
+            })?;
+
+        lvol.create_snapshot(snapshot).await.map_err(|e| {
+            CoreError::SnapshotCreate {
+                reason: e.to_string(),
+            }
+        })?;
+
+        Ok(0)
     }
     /// Flush the io in buffer to disk, for the Local Block Device.
     async fn flush_io(&self) -> Result<u64, CoreError> {

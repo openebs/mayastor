@@ -6,7 +6,7 @@ use pin_utils::core_reexport::fmt::Formatter;
 
 use std::{
     convert::TryFrom,
-    ffi::{c_void, CStr},
+    ffi::{c_ushort, c_void, CStr, CString},
     fmt::{Debug, Display},
     os::raw::c_char,
     pin::Pin,
@@ -25,7 +25,9 @@ use spdk_rs::libspdk::{
     spdk_bs_get_cluster_size,
     spdk_bs_iter_next,
     spdk_lvol,
+    spdk_xattr_descriptor,
     vbdev_lvol_create_snapshot,
+    vbdev_lvol_create_snapshot_ext,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVS_CLEAR_WITH_UNMAP,
@@ -46,6 +48,7 @@ use crate::{
         ShareProps,
         SnapshotOps,
         SnapshotParams,
+        SnapshotXattrs,
         UntypedBdev,
         UpdateProps,
     },
@@ -61,6 +64,8 @@ use crate::{
     subsys::NvmfReq,
 };
 use spdk_rs::libspdk::spdk_nvmf_request_complete;
+
+use strum::{EnumCount, IntoEnumIterator};
 
 // Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
 pub(crate) const WIPE_SUPER_LEN: u64 = (1 << 20) * 8;
@@ -347,6 +352,59 @@ impl Lvol {
     /// Get a `PtplFileOps` from `&self`.
     pub(crate) fn ptpl(&self) -> impl PtplFileOps {
         LvolPtpl::from(self)
+    }
+
+    /// TODO:
+    fn prepare_snapshot_xattrs(
+        &self,
+        attr_descrs: &mut [spdk_xattr_descriptor; SnapshotXattrs::COUNT],
+        params: SnapshotParams,
+        cstrs: &mut Vec<CString>,
+    ) -> Result<(), Error> {
+        for (idx, attr) in SnapshotXattrs::iter().enumerate() {
+            // Get attribute value from snapshot params.
+            let av = match attr {
+                SnapshotXattrs::TxId => match params.txn_id() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "txn id not provided".to_string(),
+                        })
+                    }
+                },
+                SnapshotXattrs::EntityId => match params.entity_id() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "entity id not provided".to_string(),
+                        })
+                    }
+                },
+                SnapshotXattrs::ParentId => match params.parent_id() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "parent id not provided".to_string(),
+                        })
+                    }
+                },
+            };
+
+            let attr_name = attr.name().to_string().into_cstring();
+            let attr_val = av.into_cstring();
+
+            attr_descrs[idx].name = attr_name.as_ptr() as *mut c_char;
+            attr_descrs[idx].value = attr_val.as_ptr() as *mut c_void;
+            attr_descrs[idx].value_len = attr_val.to_bytes().len() as c_ushort;
+
+            cstrs.push(attr_val);
+            cstrs.push(attr_name);
+        }
+
+        Ok(())
     }
 }
 
@@ -853,6 +911,7 @@ impl SnapshotOps for Lvol {
             }
             s.send(errno).ok();
         }
+
         let bdev_handle = device_open(self.as_bdev().name(), false)
             .unwrap()
             .into_handle()
@@ -865,12 +924,29 @@ impl SnapshotOps for Lvol {
                 })
             }
         }
+
+        let mut attr_descrs: [spdk_xattr_descriptor; SnapshotXattrs::COUNT] =
+            [spdk_xattr_descriptor::default(); SnapshotXattrs::COUNT];
+
+        // Vector to keep allocated CStrings before snapshot  creation
+        // is complete to guarantee validity of attribute buffers
+        // stored inside CStrings.
+        let mut cstrs: Vec<CString> = Vec::new();
+
+        self.prepare_snapshot_xattrs(
+            &mut attr_descrs,
+            snap_param.clone(),
+            &mut cstrs,
+        )?;
+
         let c_snapshot_name = snap_param.name().unwrap().into_cstring();
         let (s, r) = oneshot::channel::<i32>();
         unsafe {
-            vbdev_lvol_create_snapshot(
+            vbdev_lvol_create_snapshot_ext(
                 self.as_inner_ptr(),
                 c_snapshot_name.as_ptr(),
+                attr_descrs.as_mut_ptr(),
+                SnapshotXattrs::COUNT as u32,
                 Some(snapshot_create_done_cb),
                 cb_arg(s),
             )

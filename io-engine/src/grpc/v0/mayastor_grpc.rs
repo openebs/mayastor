@@ -25,6 +25,7 @@ use crate::{
         Protocol,
         Share,
         ShareProps,
+        SnapshotParams,
         UntypedBdev,
     },
     grpc::{
@@ -69,6 +70,7 @@ struct UnixStream(tokio::net::UnixStream);
 use crate::core::{UpdateProps, VerboseError};
 use ::function_name::named;
 use std::{panic::AssertUnwindSafe, pin::Pin};
+use uuid::Uuid;
 use version_info::raw_version_string;
 
 #[derive(Debug)]
@@ -1738,7 +1740,18 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 let uuid = args.uuid.clone();
                 debug!("Creating snapshot on nexus {} ...", uuid);
-                let reply = nexus_lookup(&args.uuid)?.create_snapshot().await?;
+
+                // TODO: fill all the fields properly once nexus-level
+                // snapshots are fully implemented.
+                let snapshot = SnapshotParams::new(
+                    Some(args.uuid.clone()),
+                    Some(args.uuid.clone()),
+                    Some(Uuid::new_v4().to_string()), // unique tx id
+                    Some(Uuid::new_v4().to_string()), // unique snapshot name
+                );
+
+                let reply =
+                    nexus_lookup(&args.uuid)?.create_snapshot(snapshot).await?;
                 info!("Created snapshot on nexus {}", uuid);
                 trace!("{:?}", reply);
                 Ok(reply)

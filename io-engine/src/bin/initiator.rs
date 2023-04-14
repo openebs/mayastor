@@ -22,6 +22,7 @@ use io_engine::{
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
+        SnapshotParams,
         UntypedBdev,
     },
     jsonrpc::print_error_chain,
@@ -30,6 +31,7 @@ use io_engine::{
     subsys::Config,
 };
 use spdk_rs::DmaError;
+use uuid::Uuid;
 use version_info::version_info_str;
 
 unsafe extern "C" fn run_static_initializers() {
@@ -136,7 +138,17 @@ async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
 async fn create_snapshot(uri: &str) -> Result<()> {
     let bdev = device_create(uri).await?;
     let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
-    let t = h.create_snapshot().await?;
+
+    // TODO: fill all the fields properly once nexus-level
+    // snapshots are fully implemented.
+    let snapshot = SnapshotParams::new(
+        Some(bdev.to_string()),
+        Some(bdev.to_string()),
+        Some(Uuid::new_v4().to_string()), // unique tx id
+        Some(Uuid::new_v4().to_string()), // unique snapshot name
+    );
+
+    let t = h.create_snapshot(snapshot).await?;
     info!("snapshot taken at {}", t);
     Ok(())
 }
