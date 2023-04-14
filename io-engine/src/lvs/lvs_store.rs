@@ -187,6 +187,12 @@ impl Lvs {
         self.capacity() - self.available()
     }
 
+    /// returns committed size
+    pub fn committed(&self) -> u64 {
+        self.lvols()
+            .map_or(0, |vols| vols.fold(0, |acc, r| acc + r.size()))
+    }
+
     /// returns the base bdev of this lvs
     pub fn base_bdev(&self) -> UntypedBdev {
         let p =

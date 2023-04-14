@@ -127,4 +127,15 @@ async fn nexus_thin_create_2() {
         .with_replica(&t.repl_1_thin);
 
     nex_0.create().await.unwrap();
+
+    // Check pool committed size.
+    let total_capacity = t
+        .pool_0
+        .get_replicas()
+        .await
+        .unwrap()
+        .into_iter()
+        .fold(0, |acc, r| acc + r.size);
+    let p = t.pool_0.get_pool().await.unwrap();
+    assert_eq!(p.committed, total_capacity);
 }
