@@ -51,12 +51,9 @@ async fn create_compose_test() -> ComposeTest {
         .unwrap()
         .add_container_bin(
             "ms_nex",
-            Binary::from_dbg("io-engine").with_args(vec![
-                "-l",
-                "1,2,3,4",
-                "-Fcompact,color",
-            ]),
-            // Binary::from_dbg("io-engine").with_args(vec!["-l", "1,2,3,4"]),
+            Binary::from_dbg("io-engine")
+                .with_args(vec!["-l", "1,2,3,4", "-Fcompact,color"])
+                .with_env("NEXUS_PARTIAL_REBUILD", "1"),
         )
         .add_container_bin(
             "ms_src_0",

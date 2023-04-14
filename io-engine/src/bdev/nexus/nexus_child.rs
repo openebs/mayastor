@@ -2,6 +2,7 @@ use std::{
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
+    sync::atomic::Ordering,
 };
 
 use chrono::{DateTime, Utc};
@@ -40,6 +41,7 @@ use crate::{
     },
     core::MayastorEnvironment,
 };
+
 use spdk_rs::{
     libspdk::{
         spdk_nvme_registered_ctrlr_extended_data,
@@ -1252,6 +1254,10 @@ impl<'c> NexusChild<'c> {
     pub(super) fn get_or_init_rebuild_log(
         &mut self,
     ) -> Option<RebuildLogHandle> {
+        if super::ENABLE_PARTIAL_REBULD.load(Ordering::SeqCst) == false {
+            return None;
+        }
+
         let mut lg = self.rebuild_log.lock();
 
         if lg.is_none() {
