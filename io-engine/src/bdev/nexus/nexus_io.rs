@@ -12,7 +12,7 @@ use spdk_rs::{
 };
 
 use super::{
-    nexus_lookup_mut,
+    nexus_lookup,
     FaultReason,
     Nexus,
     NexusChannel,
@@ -652,7 +652,7 @@ impl<'n> NexusBio<'n> {
                 self.channel_mut().nexus_mut().nexus_name().to_owned();
 
             Reactors::master().send_future(async move {
-                if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
+                if let Some(nexus) = nexus_lookup(&nexus_name) {
                     // Check against concurrent graceful nexus shutdown
                     // initiated by user and mark nexus as being shutdown.
                     {
@@ -678,15 +678,7 @@ impl<'n> NexusBio<'n> {
                     }
 
                     // 1: Close I/O channels for all children.
-                    let devices = unsafe {
-                        nexus
-                            .as_mut()
-                            .children_iter_mut()
-                            .filter_map(|c| c.get_device_name())
-                            .collect::<Vec<_>>()
-                    };
-
-                    for d in devices {
+                    for d in nexus.child_devices() {
                         if let Err(e) = nexus
                             .disconnect_device_from_channels(d.clone())
                             .await
@@ -706,13 +698,13 @@ impl<'n> NexusBio<'n> {
                     }
 
                     // Step 2: cancel all active rebuild jobs.
-                    let child_uris = nexus.children_uris();
+                    let child_uris = nexus.child_uris();
                     for child in child_uris {
-                        nexus.as_mut().cancel_rebuild_jobs(&child).await;
+                        nexus.cancel_rebuild_jobs(&child).await;
                     }
 
                     // Step 3: close all children.
-                    nexus.as_mut().close_children().await;
+                    nexus.close_children().await;
 
                     // Step 4: Mark nexus as shutdown.
                     // Note: we don't persist nexus's state in ETCd as nexus

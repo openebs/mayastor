@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{work_queue::WorkQueue, Reactor};
-use crate::{bdev::nexus::nexus_lookup_mut, core::VerboseError};
+use crate::{bdev::nexus::nexus_lookup, core::VerboseError};
 
 /// TODO
 #[derive(Debug, Clone)]
@@ -51,10 +51,8 @@ pub async fn device_monitor_loop() {
                     child_device,
                 } => {
                     let rx = Reactor::spawn_at_primary(async move {
-                        if let Some(mut n) = nexus_lookup_mut(&nexus_name) {
-                            if let Err(e) =
-                                n.as_mut().close_child(&child_device).await
-                            {
+                        if let Some(n) = nexus_lookup(&nexus_name) {
+                            if let Err(e) = n.close_child(&child_device).await {
                                 error!(
                                     "{:?}: failed to close child device \
                                         in response to retire: {}",

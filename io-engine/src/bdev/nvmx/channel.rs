@@ -176,7 +176,7 @@ impl IoQpair {
         };
 
         if let Some(q) = NonNull::new(qpair) {
-            debug!(?qpair, ?ctrlr_name, "qpair created for controller");
+            trace!(?qpair, ?ctrlr_name, "qpair created for controller");
             Ok(Self {
                 qpair: q,
                 ctrlr_handle,
@@ -198,7 +198,7 @@ impl IoQpair {
 
     /// Synchronously connect qpair.
     pub(crate) fn connect(&mut self) -> i32 {
-        debug!(?self, "connecting I/O qpair");
+        trace!(?self, "connecting I/O qpair");
 
         // Check if I/O qpair is already connected to provide idempotency for
         // multiple allocations of the same handle for the same thread, to make
@@ -230,7 +230,7 @@ impl IoQpair {
             QPairState::Disconnected
         };
 
-        debug!(?self, ?status, state=?self.state,"I/O qpair connected");
+        trace!(?self, ?status, state=?self.state,"I/O qpair connected");
 
         status
     }
@@ -347,7 +347,7 @@ impl IoQpair {
         if !self.connect_waiters.is_empty() {
             let waiters: Vec<oneshot::Sender<Result<(), CoreError>>> =
                 self.connect_waiters.drain(..).collect();
-            debug!(
+            trace!(
                 ?qpair,
                 waiters = waiters.len(),
                 "Notifying connection waiters"
@@ -356,7 +356,7 @@ impl IoQpair {
                 w.send(r.clone())
                     .expect("Failed to notify a connection waiter");
             }
-            debug!(?qpair, "All connection waiters are notified");
+            trace!(?qpair, "All connection waiters are notified");
         }
 
         // Drop context object transformed previously into a raw pointer.
@@ -377,7 +377,7 @@ extern "C" fn qpair_connect_cb(
     qpair: *mut spdk_nvme_qpair,
     cb_ctx: *mut c_void,
 ) {
-    debug!(?qpair, "I/O qpair successfully connected");
+    trace!(?qpair, "I/O qpair successfully connected");
 
     let connect_ctx =
         unsafe { &mut *(cb_ctx as *const _ as *mut IoQpairConnectContext) };
@@ -430,12 +430,12 @@ impl PollGroup {
 
 impl Drop for PollGroup {
     fn drop(&mut self) {
-        debug!("dropping poll group {:p}", self.0.as_ptr());
+        trace!("dropping poll group {:p}", self.0.as_ptr());
         let rc = unsafe { spdk_nvme_poll_group_destroy(self.0.as_ptr()) };
         if rc < 0 {
             error!("Error on poll group destroy: {}", rc);
         }
-        debug!("poll group {:p} successfully dropped", self.0.as_ptr());
+        trace!("poll group {:p} successfully dropped", self.0.as_ptr());
     }
 }
 
@@ -450,16 +450,16 @@ impl Drop for IoQpair {
 
         unsafe {
             nvme_qpair_abort_all_queued_reqs(qpair, 1);
-            debug!(?qpair, "I/O requests successfully aborted,");
+            trace!(?qpair, "I/O requests successfully aborted,");
             nvme_transport_qpair_abort_reqs(qpair, 1);
-            debug!(?qpair, "transport requests successfully aborted,");
+            trace!(?qpair, "transport requests successfully aborted,");
             spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
-            debug!(?qpair, "qpair successfully disconnected,");
+            trace!(?qpair, "qpair successfully disconnected,");
             spdk_nvme_ctrlr_free_io_qpair(qpair);
-            debug!(?qpair, "qpair successfully freed,");
+            trace!(?qpair, "qpair successfully freed,");
         }
 
-        debug!(?qpair, "qpair successfully dropped,");
+        trace!(?qpair, "qpair successfully dropped,");
     }
 }
 
@@ -504,7 +504,7 @@ impl NvmeIoChannelInner<'_> {
         if self.qpair.is_some() {
             // Remove qpair and trigger its deallocation via drop().
             let qpair = self.qpair.take().unwrap();
-            debug!(
+            trace!(
                 "dropping qpair {:p} ({}) I/O requests pending)",
                 qpair.as_ptr(),
                 self.num_pending_ios
@@ -596,7 +596,7 @@ impl NvmeIoChannelInner<'_> {
             return rc;
         }
 
-        debug!("{} I/O channel successfully reinitialized", ctrlr_name);
+        trace!("{} I/O channel successfully reinitialized", ctrlr_name);
         self.qpair = Some(qpair);
         0
     }
@@ -709,7 +709,7 @@ impl NvmeControllerIoChannel {
     pub extern "C" fn create(device: *mut c_void, ctx: *mut c_void) -> i32 {
         let id = device as u64;
 
-        debug!("Creating IO channel for controller ID 0x{:X}", id);
+        trace!("Creating IO channel for controller ID 0x{:X}", id);
 
         let carc = match NVME_CONTROLLERS.lookup_by_name(id.to_string()) {
             None => {
@@ -769,7 +769,7 @@ impl NvmeControllerIoChannel {
                 return 1;
             }
         };
-        debug!(?cname, "I/O qpair successfully created");
+        trace!(?cname, "I/O qpair successfully created");
 
         // Create poll group.
         let mut poll_group = match PollGroup::create(ctx, &cname) {
@@ -807,14 +807,14 @@ impl NvmeControllerIoChannel {
         });
 
         nvme_channel.inner = Box::into_raw(inner);
-        debug!(?cname, ?ctx, "I/O channel successfully initialized");
+        trace!(?cname, ?ctx, "I/O channel successfully initialized");
         0
     }
 
     /// Callback function to be invoked by SPDK to deinitialize I/O channel for
     /// NVMe controller.
     pub extern "C" fn destroy(device: *mut c_void, ctx: *mut c_void) {
-        debug!(
+        trace!(
             "Destroying IO channel for controller ID 0x{:X}",
             device as u64
         );
@@ -833,7 +833,7 @@ impl NvmeControllerIoChannel {
             }
         }
 
-        debug!(
+        trace!(
             "IO channel for controller ID 0x{:X} successfully destroyed",
             device as u64
         );

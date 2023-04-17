@@ -261,7 +261,7 @@ pub struct Nexus<'n> {
     /// TODO
     event_sink: Option<DeviceEventSink>,
     /// Rebuild history of all children of this nexus instance.
-    pub(super) rebuild_history: Vec<HistoryRecord>,
+    pub(super) rebuild_history: parking_lot::Mutex<Vec<HistoryRecord>>,
     /// TODO
     #[allow(dead_code)]
     pub(super) injections: Injections,
@@ -373,7 +373,7 @@ impl<'n> Nexus<'n> {
             io_subsystem: None,
             nexus_uuid: Default::default(),
             event_sink: None,
-            rebuild_history: Vec::new(),
+            rebuild_history: parking_lot::Mutex::new(Vec::new()),
             injections: Injections::new(),
             shutdown_requested: AtomicCell::new(false),
             _pin: Default::default(),
@@ -394,7 +394,7 @@ impl<'n> Nexus<'n> {
             let n = bdev.data_mut().get_unchecked_mut();
             n.bdev = Some(Bdev::new(bdev.clone()));
 
-            n.event_sink = Some(DeviceEventSink::new(bdev.data_mut()));
+            n.event_sink = Some(DeviceEventSink::new(bdev.data()));
 
             // Set the nexus UUID to be the specified nexus UUID, otherwise
             // inherit the bdev UUID.
@@ -549,6 +549,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
+    #[allow(dead_code)]
     pub(super) unsafe fn child_at_mut(
         self: Pin<&mut Self>,
         idx: usize,
@@ -596,8 +597,8 @@ impl<'n> Nexus<'n> {
     /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
         info!(
-            "{:?}: dynamic reconfiguration event: {} started...",
-            self, event
+            "{self:?}: dynamic reconfiguration event: {event}, \
+            reconfiguring I/O channels...",
         );
 
         let (sender, recv) = oneshot::channel::<ChannelTraverseStatus>();
@@ -608,7 +609,7 @@ impl<'n> Nexus<'n> {
                 ChannelTraverseStatus::Ok
             },
             |status, sender| {
-                debug!("{:?}: reconfigure completed", self);
+                debug!("{self:?}: all I/O channels reconfigured");
                 sender.send(status).expect("reconfigure channel gone");
             },
             sender,
@@ -617,8 +618,8 @@ impl<'n> Nexus<'n> {
         let result = recv.await.expect("reconfigure sender already dropped");
 
         info!(
-            "{:?}: dynamic reconfiguration event: {} completed: {:?}",
-            self, event, result
+            "{self:?}: dynamic reconfiguration event: {event}, \
+            reconfiguring I/O channels completed with result: {result:?}",
         );
     }
 
@@ -784,22 +785,19 @@ impl<'n> Nexus<'n> {
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
-        let child_uris = self.children_uris();
+        let child_uris = self.child_uris();
         for child in child_uris {
             self.as_mut().cancel_rebuild_jobs(&child).await;
         }
 
         info!("{:?}: closing {} children...", self, self.children.len());
-        unsafe {
-            for child in self.as_mut().children_iter_mut() {
-                if let Err(e) = child.close().await {
-                    // TODO: should an error be returned here?
-                    error!(
-                        "{:?}: child failed to close: {}",
-                        child,
-                        e.verbose()
-                    );
-                }
+        for child in self.children_iter() {
+            if let Err(e) = child.close().await {
+                // TODO: should an error be returned here?
+                error!(
+                    "{child:?}: child failed to close: {e}",
+                    e = e.verbose()
+                );
             }
         }
         info!("{:?}: children closed", self);
@@ -808,10 +806,9 @@ impl<'n> Nexus<'n> {
         self.persist(PersistOp::Shutdown).await;
         if !sigterm {
             if let Err(error) = self.ptpl().destroy() {
-                tracing::error!(
-                    "{:?}: Failed to clean up persistence through power loss for nexus: {}",
-                    self,
-                    error
+                error!(
+                    "{self:?}: Failed to clean up persistence through \
+                    power loss for nexus: {error}",
                 );
             }
         }
@@ -822,14 +819,13 @@ impl<'n> Nexus<'n> {
             // After calling unregister_bdev_async(), Nexus is gone.
             match self.as_mut().bdev_mut().unregister_bdev_async().await {
                 Ok(_) => {
-                    info!("Nexus '{}': nexus destroyed ok", name);
+                    info!("Nexus '{name}': nexus destroyed ok");
                     Ok(())
                 }
                 Err(err) => {
                     error!(
-                        "Nexus '{}': failed to destroy: {}",
-                        name,
-                        err.verbose()
+                        "Nexus '{name}': failed to destroy: {e}",
+                        e = err.verbose()
                     );
                     Err(Error::NexusDestroy {
                         name,
@@ -944,13 +940,13 @@ impl<'n> Nexus<'n> {
         );
 
         // Step 2: cancel all active rebuild jobs.
-        let child_uris = self.children_uris();
+        let child_uris = self.child_uris();
         for child in child_uris {
             self.as_mut().cancel_rebuild_jobs(&child).await;
         }
 
         // Step 3: Close all nexus children.
-        self.as_mut().close_children().await;
+        self.close_children().await;
 
         // Step 4: Mark nexus as being properly shutdown in ETCd.
         self.persist(PersistOp::Shutdown).await;
@@ -1194,7 +1190,7 @@ impl<'n> BdevOps for Nexus<'n> {
                     self_ref, n
                 );
 
-                for child in self_ref.children.iter_mut() {
+                for child in self_ref.children.iter() {
                     if child.is_healthy() {
                         if let Err(e) = child.close().await {
                             error!(
@@ -1427,12 +1423,11 @@ async fn nexus_create_internal(
     for uri in children {
         if let Err(error) = nexus_bdev.data_mut().new_child(uri).await {
             error!(
-                "{:?}: failed to add child '{}': {}",
-                nexus_bdev.data(),
-                uri,
-                error.verbose()
+                "{n:?}: failed to add child '{uri}': {e}",
+                n = nexus_bdev.data(),
+                e = error.verbose()
             );
-            nexus_bdev.data_mut().close_children().await;
+            nexus_bdev.data().close_children().await;
 
             error!(
                 "{:?}: nexus creation failed: failed to create child '{}'",
@@ -1493,7 +1488,7 @@ async fn nexus_create_internal(
                 nexus_bdev.data(),
                 error.verbose()
             );
-            nexus_bdev.data_mut().close_children().await;
+            nexus_bdev.data().close_children().await;
             Err(error)
         }
         Ok(_) => {

@@ -1,8 +1,10 @@
 use std::{
-    fmt::{Debug, Error, Formatter},
-    pin::Pin,
-    sync::{Arc, Mutex, Weak},
+    fmt::Debug,
+    ops::Deref,
+    sync::{Arc, Weak},
 };
+
+use parking_lot::Mutex;
 
 /// TODO
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -24,11 +26,7 @@ pub enum DeviceEventType {
 /// TODO
 pub trait DeviceEventListener {
     /// TODO
-    fn handle_device_event(
-        self: Pin<&mut Self>,
-        evt: DeviceEventType,
-        dev_name: &str,
-    );
+    fn handle_device_event(&self, evt: DeviceEventType, dev_name: &str);
 
     /// TODO
     fn get_listener_name(&self) -> String {
@@ -37,45 +35,46 @@ pub trait DeviceEventListener {
 }
 
 /// TODO
-struct ListenerPtr(*mut dyn DeviceEventListener);
+struct DeviceEventListenerRef(&'static dyn DeviceEventListener);
 
-unsafe impl Send for ListenerPtr {}
+unsafe impl Send for DeviceEventListenerRef {}
+
+impl Deref for DeviceEventListenerRef {
+    type Target = dyn DeviceEventListener;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
 
 /// TODO
 struct SinkInner {
-    cell: Mutex<ListenerPtr>,
+    cell: Mutex<DeviceEventListenerRef>,
 }
 
 impl SinkInner {
     /// TODO
-    fn new(lst: Pin<&mut dyn DeviceEventListener>) -> Self {
-        let p = unsafe { Pin::into_inner_unchecked(lst) };
+    fn new(p: &dyn DeviceEventListener) -> Self {
         let p = unsafe {
             std::mem::transmute::<
-                &mut dyn DeviceEventListener,
-                &'static mut dyn DeviceEventListener,
+                &dyn DeviceEventListener,
+                &'static dyn DeviceEventListener,
             >(p)
         };
 
         Self {
-            cell: Mutex::new(ListenerPtr(p)),
+            cell: Mutex::new(DeviceEventListenerRef(p)),
         }
     }
 
     /// TODO
     fn dispatch_event(&self, evt: DeviceEventType, dev_name: &str) {
-        unsafe {
-            let mut cell = self.cell.lock().unwrap();
-            Pin::new_unchecked(&mut *cell.0).handle_device_event(evt, dev_name);
-        }
+        self.cell.lock().handle_device_event(evt, dev_name);
     }
 
     /// TODO
     fn get_listener_name(&self) -> String {
-        unsafe {
-            let cell = self.cell.lock().unwrap();
-            (*cell.0).get_listener_name()
-        }
+        self.cell.lock().get_listener_name()
     }
 }
 
@@ -87,16 +86,9 @@ pub struct DeviceEventSink {
     inner: Arc<SinkInner>,
 }
 
-impl Debug for DeviceEventSink {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        // TODO
-        write!(f, "--device event sink--")
-    }
-}
-
 impl DeviceEventSink {
     /// TODO
-    pub fn new(lst: Pin<&mut dyn DeviceEventListener>) -> Self {
+    pub fn new(lst: &dyn DeviceEventListener) -> Self {
         Self {
             inner: Arc::new(SinkInner::new(lst)),
         }
@@ -136,7 +128,7 @@ impl DeviceEventDispatcher {
     ///
     /// * `listener`: Reference to an event listener.
     pub fn add_listener(&self, listener: DeviceEventSink) {
-        self.listeners.lock().unwrap().push(listener.into_weak());
+        self.listeners.lock().push(listener.into_weak());
         self.purge();
     }
 
@@ -152,7 +144,7 @@ impl DeviceEventDispatcher {
         // To avoid potential deadlocks we never call the listeners with the
         // mutex held, just find all suitable listeners and save them
         // for further invocation.
-        self.listeners.lock().unwrap().iter_mut().for_each(|dst| {
+        self.listeners.lock().iter_mut().for_each(|dst| {
             if let Some(p) = dst.upgrade() {
                 listeners.push(Arc::clone(&p));
             }
@@ -171,7 +163,7 @@ impl DeviceEventDispatcher {
 
     /// Returns the number of registered listeners.
     pub fn count(&self) -> usize {
-        self.listeners.lock().unwrap().iter().fold(0, |acc, x| {
+        self.listeners.lock().iter().fold(0, |acc, x| {
             if x.strong_count() > 0 {
                 acc + 1
             } else {
@@ -182,9 +174,6 @@ impl DeviceEventDispatcher {
 
     /// Removes all dropped listeners.
     fn purge(&self) {
-        self.listeners
-            .lock()
-            .unwrap()
-            .retain(|x| x.strong_count() > 0);
+        self.listeners.lock().retain(|x| x.strong_count() > 0);
     }
 }

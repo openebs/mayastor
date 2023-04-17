@@ -6,7 +6,6 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use crossbeam::atomic::AtomicCell;
-use futures::{channel::mpsc, SinkExt, StreamExt};
 use nix::errno::Errno;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -264,7 +263,7 @@ pub struct NexusChild<'c> {
     pub state: AtomicCell<ChildState>,
     /// indicates that the child device is ok, but needs to be rebuilt.
     #[serde(skip_serializing)]
-    pub(super) sync_state: ChildSyncState,
+    sync_state: AtomicCell<ChildSyncState>,
     /// previous state of the child
     #[serde(skip_serializing)]
     prev_state: AtomicCell<ChildState>,
@@ -273,7 +272,7 @@ pub struct NexusChild<'c> {
     pub faulted_at: parking_lot::Mutex<Option<DateTime<Utc>>>,
     /// TODO
     #[serde(skip_serializing)]
-    remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
+    remove_channel: (async_channel::Sender<()>, async_channel::Receiver<()>),
     /// Name of the child is the URI used to create it.
     /// Name of the underlying block device can differ from it.
     ///
@@ -315,6 +314,7 @@ impl<'c> NexusChild<'c> {
         self.prev_state.store(prev_state);
     }
 
+    /// Unconditionally sets child's state as faulted with the given reason.
     pub(crate) fn set_faulted_state(&self, reason: FaultReason) {
         self.set_state(ChildState::Faulted(reason));
         *self.faulted_at.lock() = Some(Utc::now());
@@ -385,7 +385,7 @@ impl<'c> NexusChild<'c> {
         self.device_descriptor = Some(desc);
 
         self.set_state(ChildState::Open);
-        self.sync_state = sync_state;
+        self.set_sync_state(sync_state);
 
         info!("{:?}: opened successfully", self);
         Ok(self.name.clone())
@@ -425,8 +425,15 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Returns the sync state of the child.
+    #[inline]
     pub fn sync_state(&self) -> ChildSyncState {
-        self.sync_state
+        self.sync_state.load()
+    }
+
+    /// Returns the sync state of the child.
+    #[inline]
+    pub fn set_sync_state(&self, s: ChildSyncState) {
+        self.sync_state.store(s)
     }
 
     /// Return the last fault timestamp of the child.
@@ -436,18 +443,21 @@ impl<'c> NexusChild<'c> {
 
     /// Determines if the child is opened but out-of-sync (needs rebuild or
     /// being rebuilt).
+    #[inline]
     pub fn is_opened_unsync(&self) -> bool {
         self.state() == ChildState::Open
-            && self.sync_state == ChildSyncState::OutOfSync
+            && self.sync_state() == ChildSyncState::OutOfSync
     }
 
     /// Determines if the child is opened and fully synced.
+    #[inline]
     pub fn is_healthy(&self) -> bool {
         self.state() == ChildState::Open
-            && self.sync_state == ChildSyncState::Synced
+            && self.sync_state() == ChildSyncState::Synced
     }
 
     /// Determines if the child is being rebuilt.
+    #[inline]
     pub(crate) fn is_rebuilding(&self) -> bool {
         self.rebuild_job().is_some() && self.is_opened_unsync()
     }
@@ -896,9 +906,9 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Closes the child and forces a faulted state.
-    pub(crate) async fn close_faulted(&mut self, reason: FaultReason) {
+    pub(crate) async fn close_faulted(&self, reason: FaultReason) {
         if let Err(e) = self.close().await {
-            error!("{:?}: failed to close: {}", self, e.verbose());
+            error!("{self:?}: failed to close: {e}", e = e.verbose());
         }
 
         self.set_faulted_state(reason);
@@ -980,11 +990,11 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Closes the nexus child.
-    pub(crate) async fn close(&mut self) -> Result<(), BdevError> {
-        info!("{:?}: closing child...", self);
+    pub(crate) async fn close(&self) -> Result<(), BdevError> {
+        info!("{self:?}: closing child...");
 
         if self.device.is_none() {
-            warn!("{:?}: no block device: appears to be already closed", self);
+            warn!("{self:?}: no block device: appears to be already closed");
             return Ok(());
         }
 
@@ -1002,10 +1012,10 @@ impl<'c> NexusChild<'c> {
         if self.state.load() != ChildState::Init
             && self.prev_state.load() != ChildState::Init
         {
-            self.remove_channel.1.next().await;
+            self.remove_channel.1.recv().await.ok();
         }
 
-        info!("{:?}: child closed successfully", self);
+        info!("{self:?}: child closed successfully");
 
         destroyed
     }
@@ -1078,7 +1088,7 @@ impl<'c> NexusChild<'c> {
 
     /// Signal that the child unplug is complete.
     fn unplug_complete(&self) {
-        let mut sender = self.remove_channel.0.clone();
+        let sender = self.remove_channel.0.clone();
         let name = self.name.clone();
         Reactors::current().send_future(async move {
             if let Err(e) = sender.send(()).await {
@@ -1107,10 +1117,10 @@ impl<'c> NexusChild<'c> {
             parent,
             device_descriptor: None,
             state: AtomicCell::new(ChildState::Init),
-            sync_state: ChildSyncState::Synced,
+            sync_state: AtomicCell::new(ChildSyncState::Synced),
             prev_state: AtomicCell::new(ChildState::Init),
             faulted_at: parking_lot::Mutex::new(None),
-            remove_channel: mpsc::channel(0),
+            remove_channel: async_channel::bounded(1),
             rebuild_log: Mutex::new(None),
             _c: Default::default(),
         }
@@ -1153,7 +1163,7 @@ impl<'c> NexusChild<'c> {
 
     /// TODO
     pub(super) fn remove_rebuild_job(
-        &mut self,
+        &self,
     ) -> Option<std::sync::Arc<RebuildJob>> {
         RebuildJob::remove(&self.name).ok()
     }
@@ -1224,7 +1234,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// TODO
-    pub(crate) fn set_event_listener(&mut self, listener: DeviceEventSink) {
+    pub(crate) fn set_event_listener(&self, listener: DeviceEventSink) {
         let dev = self
             .get_device()
             .expect("No block device associated with a Nexus child");
@@ -1249,9 +1259,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Creates a new rebuild log, or returns an existing one.
-    pub(super) fn get_or_init_rebuild_log(
-        &mut self,
-    ) -> Option<RebuildLogHandle> {
+    pub(super) fn get_or_init_rebuild_log(&self) -> Option<RebuildLogHandle> {
         let mut lg = self.rebuild_log.lock();
 
         if lg.is_none() {
@@ -1275,7 +1283,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Drops the rebuild log.
-    pub(super) fn drop_rebuild_log(&mut self) {
+    pub(super) fn drop_rebuild_log(&self) {
         *self.rebuild_log.lock() = None;
     }
 

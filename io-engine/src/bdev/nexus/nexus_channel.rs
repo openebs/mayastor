@@ -66,42 +66,40 @@ impl Display for DrEvent {
 
 impl<'n> NexusChannel<'n> {
     /// TODO
-    pub(crate) fn new(mut nexus: Pin<&mut Nexus<'n>>) -> Self {
+    pub(crate) fn new(nexus: Pin<&mut Nexus<'n>>) -> Self {
         debug!("{nexus:?}: new channel on core {c}", c = Cores::current());
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();
         let mut rebuild_logs = Vec::new();
 
-        unsafe {
-            nexus
-                .as_mut()
-                .children_iter_mut()
-                .filter(|c| c.is_healthy())
-                .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
-                    (Ok(w), Ok(r)) => {
-                        writers.push(w);
-                        readers.push(r);
-                    }
-                    _ => {
-                        c.set_faulted_state(FaultReason::CantOpen);
-                        error!(
-                            "Failed to get I/O handle for {c}, \
-                            skipping block device",
-                            c = c.uri()
-                        )
-                    }
-                });
-        }
+        nexus
+            .children_iter()
+            .filter(|c| c.is_healthy())
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
+                (Ok(w), Ok(r)) => {
+                    writers.push(w);
+                    readers.push(r);
+                }
+                _ => {
+                    c.set_faulted_state(FaultReason::CantOpen);
+                    error!(
+                        "Failed to get I/O handle for {c}, \
+                        skipping block device",
+                        c = c.uri()
+                    )
+                }
+            });
 
         // Add all active rebuild logs.
-        unsafe {
-            nexus.as_mut().children_iter_mut().for_each(|c| {
+        nexus
+            .children_iter()
+            .filter(|c| !c.is_rebuilding())
+            .for_each(|c| {
                 if let Some(log) = c.rebuild_log() {
                     rebuild_logs.push(log);
                 }
             });
-        }
 
         Self {
             writers,
@@ -206,7 +204,7 @@ impl<'n> NexusChannel<'n> {
         // channel
         self.previous_reader = UnsafeCell::new(0);
 
-        // nvmx will drop the IO qpairs which is different from all other
+        // nvmx will drop the I/O qpairs which is different from all other
         // bdevs we might be dealing with. So instead of clearing and refreshing
         // which had no side effects before, we create a new vector and
         // swap them out later
@@ -216,50 +214,52 @@ impl<'n> NexusChannel<'n> {
         let mut rebuild_logs = Vec::new();
 
         // iterate over all our children which are in the healthy state
-        unsafe {
-            self.nexus_mut()
-                .children_iter_mut()
-                .filter(|c| c.is_healthy())
-                .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
-                    (Ok(w), Ok(r)) => {
-                        writers.push(w);
-                        readers.push(r);
+        self.nexus()
+            .children_iter()
+            .filter(|c| c.is_healthy())
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
+                (Ok(w), Ok(r)) => {
+                    writers.push(w);
+                    readers.push(r);
+                }
+                _ => {
+                    c.set_faulted_state(FaultReason::CantOpen);
+                    error!("{self:?}: failed to get I/O handle for {c:?}");
+                }
+            });
+
+        // then add write-only children
+        if !self.readers.is_empty() {
+            self.nexus()
+                .children_iter()
+                .filter(|c| c.is_rebuilding())
+                .for_each(|c| match c.get_io_handle() {
+                    Ok(hdl) => {
+                        debug!(
+                            "{self:?}: connecting child device \
+                                in write-only mode: {c:?}"
+                        );
+                        writers.push(hdl);
                     }
-                    _ => {
+                    Err(e) => {
                         c.set_faulted_state(FaultReason::CantOpen);
-                        error!("failed to get I/O handle for {c}", c = c.uri());
+                        error!(
+                            "{self:?}: failed to get I/O handle \
+                                for {c:?}: {e}"
+                        );
                     }
                 });
         }
 
-        // then add write-only children
-        if !self.readers.is_empty() {
-            unsafe {
-                self.nexus_mut()
-                    .children_iter_mut()
-                    .filter(|c| c.is_rebuilding())
-                    .for_each(|c| {
-                        if let Ok(hdl) = c.get_io_handle() {
-                            writers.push(hdl);
-                        } else {
-                            c.set_faulted_state(FaultReason::CantOpen);
-                            error!(
-                                "failed to get I/O handle for {c}",
-                                c = c.uri()
-                            );
-                        }
-                    });
-            }
-        }
-
         // add all active rebuild logs.
-        unsafe {
-            self.nexus_mut().children_iter_mut().for_each(|c| {
+        self.nexus()
+            .children_iter()
+            .filter(|c| !c.is_rebuilding())
+            .for_each(|c| {
                 if let Some(log) = c.rebuild_log() {
                     rebuild_logs.push(log);
                 }
             });
-        }
 
         self.writers.clear();
         self.readers.clear();

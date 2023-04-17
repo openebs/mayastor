@@ -25,7 +25,6 @@ use io_engine::{
 
 use std::{
     alloc::Layout,
-    pin::Pin,
     slice,
     str,
     sync::{
@@ -197,11 +196,7 @@ async fn nvmf_device_events() {
     struct TestEventListener {}
 
     impl DeviceEventListener for TestEventListener {
-        fn handle_device_event(
-            self: Pin<&mut Self>,
-            event: DeviceEventType,
-            device: &str,
-        ) {
+        fn handle_device_event(&self, event: DeviceEventType, device: &str) {
             // Check event type and device name.
             assert_eq!(event, DeviceEventType::DeviceRemoved);
             assert_eq!(
@@ -213,8 +208,8 @@ async fn nvmf_device_events() {
         }
     }
 
-    let mut listener = Box::pin(TestEventListener {});
-    let sink = DeviceEventSink::new(listener.as_mut());
+    let listener = TestEventListener {};
+    let sink = DeviceEventSink::new(&listener);
     let sink_clone = sink.clone();
 
     ms.spawn(async move {
@@ -1822,11 +1817,7 @@ async fn nvmf_device_hot_remove() {
     struct TestEventListener {}
 
     impl DeviceEventListener for TestEventListener {
-        fn handle_device_event(
-            self: Pin<&mut Self>,
-            event: DeviceEventType,
-            device: &str,
-        ) {
+        fn handle_device_event(&self, event: DeviceEventType, device: &str) {
             // Check event type and device name.
             assert_eq!(event, DeviceEventType::DeviceRemoved);
             assert_eq!(
@@ -1838,8 +1829,8 @@ async fn nvmf_device_hot_remove() {
         }
     }
 
-    let mut listener = Box::pin(TestEventListener {});
-    let sink = DeviceEventSink::new(listener.as_mut());
+    let listener = TestEventListener {};
+    let sink = DeviceEventSink::new(&listener);
     let sink_clone = sink.clone();
 
     // Create device and register a listener.

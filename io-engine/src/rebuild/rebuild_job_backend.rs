@@ -1,3 +1,11 @@
+use std::{
+    fmt::Display,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+
 use chrono::Utc;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::{
@@ -6,7 +14,6 @@ use futures::{
     StreamExt,
 };
 use snafu::ResultExt;
-use std::sync::Arc;
 
 use super::{
     rebuild_error::{BdevInvalidUri, BdevNotFound, NoCopyBuffer},
@@ -99,6 +106,8 @@ pub(super) struct RebuildJobBackend {
     pub(super) info_chan: RebuildFBendChan,
     /// All the rebuild related descriptors.
     pub(super) descriptor: Arc<RebuildDescriptor>,
+    /// Job serial number.
+    serial: u64,
 }
 
 impl std::fmt::Debug for RebuildJobBackend {
@@ -107,7 +116,24 @@ impl std::fmt::Debug for RebuildJobBackend {
             .field("nexus", &self.nexus_name)
             .field("source", &self.src_uri)
             .field("destination", &self.dst_uri)
+            .field("serial", &self.serial)
             .finish()
+    }
+}
+
+impl Display for RebuildJobBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Rebuild job #{s} ({state}{done}) '{src}' -> '{dst}' \
+            on nexus '{nex}'",
+            s = self.serial,
+            state = self.state(),
+            done = if self.state().done() { ": done" } else { "" },
+            src = self.src_uri,
+            dst = self.dst_uri,
+            nex = self.nexus_name
+        )
     }
 }
 
@@ -190,7 +216,12 @@ impl RebuildJobBackend {
                 bdev: nexus_name.to_string(),
             })?;
 
-        Ok(Self {
+        // Job serial numbers.
+        static SERIAL: AtomicU64 = AtomicU64::new(1);
+
+        let serial = SERIAL.fetch_add(1, Ordering::SeqCst);
+
+        let be = Self {
             nexus_name: nexus_name.to_string(),
             src_uri: src_uri.to_string(),
             dst_uri: dst_uri.to_string(),
@@ -213,7 +244,12 @@ impl RebuildJobBackend {
                 start_time: Utc::now(),
                 rebuild_log,
             }),
-        })
+            serial,
+        };
+
+        info!("{be}: backend created");
+
+        Ok(be)
     }
 
     /// State of the rebuild job
@@ -226,7 +262,9 @@ impl RebuildJobBackend {
         &mut self,
         requester: oneshot::Sender<RebuildStats>,
     ) -> Result<(), RebuildStats> {
-        requester.send(self.stats())?;
+        let s = self.stats();
+        trace!("{self}: current stats: {s:?}");
+        requester.send(s)?;
         Ok(())
     }
 
@@ -299,7 +337,12 @@ impl RebuildJobBackend {
                         }
                     }
                     Some(e) => {
-                        error!("Failed to rebuild segment id {} block {} with error: {}", r.id, r.blk, e);
+                        error!(
+                            "{self}: failed to rebuild segment \
+                            id={sid} block={blk} with error: {e}",
+                            sid = r.id,
+                            blk = r.blk
+                        );
                         self.fail_with(e);
                         self.await_all_tasks().await;
                         break;
@@ -314,18 +357,15 @@ impl RebuildJobBackend {
         }
     }
 
-    /// Log the statistics and send a notification to the listeners.
-    fn notify(&mut self) {
-        self.stats();
-        self.send_notify();
-    }
-
     /// Calls the job's registered notify fn callback and notify sender channel
     fn send_notify(&mut self) {
         // should this return a status before we notify the sender channel?
         (self.notify_fn)(self.nexus_name.clone(), self.dst_uri.clone());
         if let Err(e) = self.notify_chan.0.send(self.state()) {
-            error!("Rebuild Job {} of nexus {} failed to send complete via the unbound channel with err {}", self.dst_uri, self.nexus_name, e);
+            error!(
+                "{self}: failed to send complete via the unbound channel \
+                with error: {e}"
+            );
         }
     }
 
@@ -353,11 +393,13 @@ impl RebuildJobBackend {
         };
 
         if old != new {
+            // Log the statistics and send a notification to the listeners.
+            let s = self.stats();
             info!(
-                "Rebuild job {}: changing state from {:?} to {:?}",
-                self.dst_uri, old, new
+                "{self}: changing state from {old:?} to {new:?}; \
+                current stats: {s:?}"
             );
-            self.notify();
+            self.send_notify();
         }
 
         new
@@ -389,8 +431,9 @@ impl RebuildJobBackend {
             });
 
         let progress = (blocks_recovered * 100) / blocks_total;
+        assert!(progress < 100 || blocks_remaining == 0);
 
-        let res = RebuildStats {
+        RebuildStats {
             start_time: self.descriptor.start_time,
             is_partial: self.descriptor.rebuild_log.is_some(),
             blocks_total,
@@ -402,17 +445,7 @@ impl RebuildJobBackend {
             block_size: self.descriptor.block_size,
             tasks_total: self.task_pool.total as u64,
             tasks_active: self.task_pool.active as u64,
-        };
-
-        info!(
-            "State: {state}, Nexus: {nex}, Src: {src}, Dst: {dst}: {res:?}",
-            state = self.state(),
-            nex = self.nexus_name,
-            src = self.src_uri,
-            dst = self.dst_uri,
-        );
-
-        res
+        }
     }
 
     /// Fails the job, overriding any pending client operation
@@ -429,8 +462,8 @@ impl RebuildJobBackend {
     fn task_sync_fail(&mut self) {
         let active = self.task_pool.active;
         error!(
-            "Failed to wait for {} rebuild tasks due to task channel failure",
-            active
+            "{self}: failed to wait for {active} rebuild tasks \
+            due to task channel failure"
         );
         self.fail_with(RebuildError::RebuildTasksChannel {
             active,
@@ -465,12 +498,15 @@ impl RebuildJobBackend {
                 break;
             }
         }
+
         // Nothing to rebuild, in case we paused but the rebuild is complete
         if self.task_pool.active == 0 {
             self.complete();
         }
 
-        self.stats();
+        let s = self.stats();
+
+        debug!("{self}: started all tasks; current stats: {s:?}");
     }
 
     /// Tries to kick off a task by its identifier and returns result.
@@ -500,8 +536,8 @@ impl RebuildJobBackend {
     /// Awaits for all active rebuild tasks to complete.
     async fn await_all_tasks(&mut self) {
         debug!(
-            "Awaiting all active tasks({}) for rebuild {}",
-            self.task_pool.active, self.dst_uri
+            "{self}: awaiting all active tasks ({})",
+            self.task_pool.active
         );
 
         while self.task_pool.active > 0 {
@@ -511,7 +547,7 @@ impl RebuildJobBackend {
                 return;
             }
         }
-        debug!("Finished awaiting all tasks for rebuild {}", self.dst_uri);
+        debug!("{self}: finished awaiting all tasks");
     }
 
     /// Sends one segment worth of data in a reactor future and notifies the
@@ -537,12 +573,7 @@ impl RebuildJobBackend {
 impl Drop for RebuildJobBackend {
     fn drop(&mut self) {
         let stats = self.stats();
+        info!("{self}: backend dropped; final stats: {stats:?}");
         self.states.write().set_final_stats(stats);
-
-        tracing::info!(
-            rebuild.target = self.dst_uri,
-            "RebuildJobBackend being dropped with done({})",
-            self.state().done()
-        );
     }
 }
