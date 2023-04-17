@@ -109,13 +109,13 @@ impl<'n> Nexus<'n> {
         let status = self.as_mut().add_child_only(uri).await?;
 
         if !norebuild {
-            if let Err(e) = self.as_mut().start_rebuild(uri).await {
+            if let Err(e) = self.start_rebuild(uri).await {
                 // todo: CAS-253 retry starting the rebuild again when ready
                 error!(
                     "Child added but rebuild failed to start: {}",
                     e.verbose()
                 );
-                match self.child_mut(uri) {
+                match self.child(uri) {
                     Ok(child) => {
                         child.close_faulted(FaultReason::RebuildFailed).await
                     }
@@ -273,15 +273,15 @@ impl<'n> Nexus<'n> {
             Some(val) => val,
         };
 
-        let res = unsafe {
-            self.as_mut().child_at_mut(idx).close().await.map_err(|e| {
-                Error::CloseChild {
+        let res =
+            self.child_at(idx)
+                .close()
+                .await
+                .map_err(|e| Error::CloseChild {
                     name: self.name.clone(),
                     child: self.child_at(idx).uri().to_string(),
                     source: e,
-                }
-            })
-        };
+                });
 
         if res.is_ok() {
             let healthy = self.child_at(idx).is_healthy();
@@ -408,7 +408,7 @@ impl<'n> Nexus<'n> {
         child.set_event_listener(self.get_event_sink());
 
         // Start rebuild.
-        if let Err(e) = self.as_mut().start_rebuild(child_uri).await {
+        if let Err(e) = self.start_rebuild(child_uri).await {
             let _ = child.close().await;
             return Err(e);
         }
@@ -417,12 +417,11 @@ impl<'n> Nexus<'n> {
     }
 
     /// Close each child that belongs to this nexus.
-    pub(crate) async fn close_children(mut self: Pin<&mut Self>) {
-        let futures =
-            unsafe { self.as_mut().children_iter_mut().map(|c| c.close()) };
+    pub(crate) async fn close_children(&self) {
+        let futures = self.children_iter().map(|c| c.close());
         let results = join_all(futures).await;
         if results.iter().any(|c| c.is_err()) {
-            error!("{:?}: failed to close children", self);
+            error!("{self:?}: failed to close children");
         }
     }
 
@@ -463,16 +462,14 @@ impl<'n> Nexus<'n> {
         // completed yet so we fail the registration all together for now.
         if let Some(error) = error {
             // Close any children that WERE succesfully opened.
-            unsafe {
-                for child in self.as_mut().children_iter_mut() {
-                    if child.is_healthy() {
-                        if let Err(error) = child.close().await {
-                            error!(
-                                "{:?}: child failed to close: {}",
-                                child,
-                                error.verbose()
-                            );
-                        }
+            for child in self.children_iter() {
+                if child.is_healthy() {
+                    if let Err(error) = child.close().await {
+                        error!(
+                            "{:?}: child failed to close: {}",
+                            child,
+                            error.verbose()
+                        );
                     }
                 }
             }
@@ -500,15 +497,13 @@ impl<'n> Nexus<'n> {
         }
 
         if let Err(error) = write_ex_err {
-            unsafe {
-                for child in self.as_mut().children_iter_mut() {
-                    if let Err(error) = child.close().await {
-                        error!(
-                            "{:?}: child failed to close: {}",
-                            child,
-                            error.verbose()
-                        );
-                    }
+            for child in self.children_iter() {
+                if let Err(error) = child.close().await {
+                    error!(
+                        "{:?}: child failed to close: {}",
+                        child,
+                        error.verbose()
+                    );
                 }
             }
             return Err(error);
@@ -542,14 +537,10 @@ impl<'n> Nexus<'n> {
     }
 
     /// Closes a child by its device name.
-    pub async fn close_child(
-        mut self: Pin<&mut Self>,
-        device_name: &str,
-    ) -> Result<(), Error> {
-        info!("{:?}: destroying child device: '{}'", self, device_name);
+    pub async fn close_child(&self, device_name: &str) -> Result<(), Error> {
+        info!("{self:?}: destroying child device: '{device_name}'");
 
-        self.as_mut()
-            .child_by_device_mut(device_name)?
+        self.child_by_device(device_name)?
             .close()
             .await
             .map_err(|source| Error::CloseChild {
@@ -593,7 +584,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// Looks up a child by device name and returns a mutable reference.
-    pub fn lookup_child_by_device_mut(
+    pub(crate) fn lookup_child_by_device_mut(
         self: Pin<&mut Self>,
         device_name: &str,
     ) -> Option<&mut NexusChild<'n>> {
@@ -605,7 +596,8 @@ impl<'n> Nexus<'n> {
 
     /// Looks up a child by device name and returns a mutable reference.
     /// Returns an error if child is not found.
-    pub fn child_by_device_mut(
+    #[allow(dead_code)]
+    pub(crate) fn child_by_device_mut(
         self: Pin<&mut Self>,
         device_name: &str,
     ) -> Result<&mut NexusChild<'n>, Error> {
@@ -683,18 +675,21 @@ impl<'n> Nexus<'n> {
         })
     }
 
-    /// TODO
-    pub fn children_uris(&self) -> Vec<String> {
+    /// Returns the list of URIs of all children.
+    pub(crate) fn child_devices(&self) -> Vec<String> {
+        self.children_iter()
+            .filter_map(|c| c.get_device_name())
+            .collect()
+    }
+
+    /// Returns the list of URIs of all children.
+    pub(crate) fn child_uris(&self) -> Vec<String> {
         self.children_iter().map(|c| c.uri().to_owned()).collect()
     }
 }
 
 impl<'n> DeviceEventListener for Nexus<'n> {
-    fn handle_device_event(
-        self: Pin<&mut Self>,
-        evt: DeviceEventType,
-        dev_name: &str,
-    ) {
+    fn handle_device_event(&self, evt: DeviceEventType, dev_name: &str) {
         match evt {
             DeviceEventType::DeviceRemoved
             | DeviceEventType::LoopbackRemoved => {
@@ -756,14 +751,14 @@ impl<'n> Nexus<'n> {
     /// Faults the device by its name, with the given fault reason.
     /// The faulted device is scheduled to be retired.
     pub(crate) fn retire_child_device(
-        mut self: Pin<&mut Self>,
+        &self,
         child_device: &str,
         reason: FaultReason,
         retry: bool,
     ) -> Option<RebuildLogHandle> {
         let name = self.name.clone();
 
-        let Some(c) = self.as_mut().lookup_child_by_device_mut(child_device) else {
+        let Some(c) = self.lookup_child_by_device(child_device) else {
             error!(
                 "{self:?}: trying to retire a child device which \
                 cannot be not found '{child_device}'"
@@ -801,10 +796,8 @@ impl<'n> Nexus<'n> {
             warn!("{c:?}: faulted with {reason}, already retired/retiring");
         }
 
-        // Attach the rebuild log all the channels. It is done asynchronously
-        // via `traverse_io_channels`. That implies that other I/O requests
-        // may arrive to other channel(s) in parallel before the log
-        // is attached to that channel(s).
+        // Here, we tell all the channels to reconnect all the I/O logs,
+        // including the newly created one.
         //
         // If that happens and a write I/O to another channel succeeds
         // (e.g. the condition causing I/O failure is erratic),

@@ -224,7 +224,7 @@ async fn rebuild_replica() {
                 .any(|_| panic!("Should not have found any jobs!"));
         }
 
-        let _ = nexus.as_mut().start_rebuild(&get_dev(NUM_CHILDREN)).await;
+        let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN)).await;
 
         for child in 0 .. NUM_CHILDREN {
             RebuildJob::lookup(&get_dev(child))
