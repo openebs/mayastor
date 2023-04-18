@@ -5,7 +5,7 @@ use common::{
     pool::PoolBuilder,
     replica::ReplicaBuilder,
 };
-use io_engine_tests::{file_io::BufferSize, nvmf::test_write_to_nvmf};
+use io_engine_tests::{file_io::DataSize, nvmf::test_write_to_nvmf};
 
 #[tokio::test]
 async fn replica_thin_used_space() {
@@ -71,9 +71,14 @@ async fn replica_thin_used_space() {
     assert_eq!(u_1_before.num_allocated_clusters, u_1_before.num_clusters);
     assert_eq!(u_1_before.allocated_bytes, u_1_before.capacity_bytes);
 
-    test_write_to_nvmf(&repl_0.nvmf_location(), 0, 30, BufferSize::Mb(1))
-        .await
-        .unwrap();
+    test_write_to_nvmf(
+        &repl_0.nvmf_location(),
+        DataSize::from_bytes(0),
+        30,
+        DataSize::from_mb(1),
+    )
+    .await
+    .unwrap();
 
     let p_after = pool.get_pool().await.unwrap();
     let u_0_after = repl_0.get_replica().await.unwrap().usage.unwrap();

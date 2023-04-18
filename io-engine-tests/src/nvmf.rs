@@ -1,5 +1,5 @@
 use super::{
-    file_io::{compare_files, test_write_to_file, BufferSize},
+    file_io::{compare_files, test_write_to_file, DataSize},
     fio::{run_fio_jobs, Fio},
     nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
 };
@@ -33,9 +33,9 @@ impl NvmfLocation {
 
 pub async fn test_write_to_nvmf(
     nvmf: &NvmfLocation,
-    offset: u64,
+    offset: DataSize,
     count: usize,
-    buf_size: BufferSize,
+    buf_size: DataSize,
 ) -> std::io::Result<()> {
     let _cg = NmveConnectGuard::connect_addr(&nvmf.addr, &nvmf.nqn);
     let path = find_mayastor_nvme_device_path(&nvmf.serial)?;

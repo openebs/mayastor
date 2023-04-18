@@ -1,4 +1,4 @@
-use super::file_io::BufferSize;
+use super::file_io::DataSize;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// TODO
@@ -19,6 +19,9 @@ pub struct FioJob {
     direct: bool,
     /// Block size for I/O units. Default: 4k.
     blocksize: Option<u32>,
+    /// Offset in the file to start I/O. Data before the offset will not be
+    /// touched.
+    offset: Option<DataSize>,
     /// Number of I/O units to keep in flight against the file.
     iodepth: Option<u32>,
     /// Number of clones (processes/threads performing the same workload) of
@@ -27,7 +30,7 @@ pub struct FioJob {
     /// Terminate processing after the specified number of seconds.
     runtime: Option<u32>,
     /// Total size of I/O for this job.
-    size: Option<BufferSize>,
+    size: Option<DataSize>,
 }
 
 impl Default for FioJob {
@@ -50,6 +53,7 @@ impl FioJob {
             rw: "write".to_string(),
             direct: true,
             blocksize: None,
+            offset: None,
             iodepth: None,
             numjobs: 1,
             runtime: None,
@@ -75,6 +79,10 @@ impl FioJob {
             r.push(format!("--bs={v}"));
         }
 
+        if let Some(ref v) = self.offset {
+            r.push(format!("--offset={v}"));
+        }
+
         if let Some(v) = self.iodepth {
             r.push(format!("--iodepth={v}"));
         }
@@ -84,7 +92,7 @@ impl FioJob {
         }
 
         if let Some(ref v) = self.size {
-            r.push(format!("--size={}", v.size_str_with_suffix()));
+            r.push(format!("--size={v}"));
         }
 
         r
@@ -110,6 +118,11 @@ impl FioJob {
         self
     }
 
+    pub fn with_offset(mut self, v: DataSize) -> Self {
+        self.offset = Some(v);
+        self
+    }
+
     pub fn with_iodepth(mut self, v: u32) -> Self {
         self.iodepth = Some(v);
         self
@@ -125,7 +138,7 @@ impl FioJob {
         self
     }
 
-    pub fn with_size(mut self, v: BufferSize) -> Self {
+    pub fn with_size(mut self, v: DataSize) -> Self {
         self.size = Some(v);
         self
     }

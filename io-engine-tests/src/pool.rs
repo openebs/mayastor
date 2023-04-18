@@ -70,7 +70,8 @@ impl PoolBuilder {
 
     pub async fn create(&mut self) -> Result<Pool, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .pool
             .create_pool(CreatePoolRequest {
                 name: self.name(),
@@ -95,7 +96,8 @@ impl PoolBuilder {
 
     pub async fn get_replicas(&self) -> Result<Vec<Replica>, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .replica
             .list_replicas(ListReplicaOptions {
                 name: None,
@@ -109,7 +111,8 @@ impl PoolBuilder {
 }
 
 pub async fn list_pools(rpc: SharedRpcHandle) -> Result<Vec<Pool>, Status> {
-    rpc.borrow_mut()
+    rpc.lock()
+        .await
         .pool
         .list_pools(ListPoolOptions {
             name: None,

@@ -1,7 +1,11 @@
 use once_cell::sync::OnceCell;
 use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use std::{io::SeekFrom, path::Path};
+use std::{
+    fmt::{Display, Formatter},
+    io::SeekFrom,
+    path::Path,
+};
 use tokio::{
     fs::OpenOptions,
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
@@ -13,48 +17,78 @@ pub fn set_test_buf_rng_seed(seed: u64) {
     RNG_SEED.set(ChaCha8Rng::seed_from_u64(seed)).unwrap();
 }
 
-fn create_test_buf(buf_size: BufferSize) -> Vec<u8> {
+fn create_test_buf(buf_size: DataSize) -> Vec<u8> {
     let rng = RNG_SEED.get_or_init(ChaCha8Rng::from_entropy).clone();
 
     let range = Uniform::new_inclusive(0, u8::MAX);
 
-    rng.sample_iter(&range)
-        .take(buf_size.size_bytes() as usize)
-        .collect()
+    rng.sample_iter(&range).take(buf_size.into()).collect()
 }
 
 /// TODO
 #[derive(Debug, Clone)]
-pub enum BufferSize {
-    Bytes(u64),
-    Mb(u64),
-    Kb(u64),
+pub struct DataSize(u64);
+
+impl Display for DataSize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
-impl BufferSize {
-    pub fn size_bytes(&self) -> u64 {
-        match &self {
-            BufferSize::Bytes(s) => *s,
-            BufferSize::Mb(s) => s * 1024 * 1024,
-            BufferSize::Kb(s) => s * 1024,
-        }
+impl From<DataSize> for u64 {
+    fn from(value: DataSize) -> Self {
+        value.0
+    }
+}
+
+impl From<DataSize> for usize {
+    fn from(value: DataSize) -> Self {
+        value.0 as usize
+    }
+}
+
+impl Default for DataSize {
+    fn default() -> Self {
+        Self::from_bytes(0)
+    }
+}
+
+impl DataSize {
+    pub fn bytes(&self) -> u64 {
+        self.0
     }
 
-    pub fn size_str_with_suffix(&self) -> String {
-        match &self {
-            BufferSize::Bytes(s) => s.to_string(),
-            BufferSize::Mb(s) => format!("{s}M"),
-            BufferSize::Kb(s) => format!("{s}K"),
-        }
+    pub fn from_bytes(s: u64) -> Self {
+        Self(s)
+    }
+
+    pub fn from_kb(s: u64) -> Self {
+        Self(s * 1024)
+    }
+
+    pub fn from_mb(s: u64) -> Self {
+        Self(s * 1024 * 1024)
+    }
+
+    pub fn from_gb(s: u64) -> Self {
+        Self(s * 1024 * 1024 * 1024)
+    }
+
+    pub fn from_blocks(s: u64, blk_size: u64) -> Self {
+        Self(s * blk_size)
+    }
+
+    pub fn from_kb_blocks(s: u64, blk_size_kb: u64) -> Self {
+        Self(s * blk_size_kb * 1024)
     }
 }
 
 /// TODO
 pub async fn test_write_to_file(
     path: impl AsRef<Path>,
-    offset: u64,
+    offset: DataSize,
     count: usize,
-    buf_size: BufferSize,
+    buf_size: DataSize,
 ) -> std::io::Result<()> {
     let src_buf = create_test_buf(buf_size);
 
@@ -69,7 +103,7 @@ pub async fn test_write_to_file(
         .open(&path)
         .await?;
 
-    f.seek(SeekFrom::Start(offset)).await?;
+    f.seek(SeekFrom::Start(offset.bytes())).await?;
 
     // Write.
     for _i in 0 .. count {
@@ -77,8 +111,8 @@ pub async fn test_write_to_file(
     }
 
     // Validate.
-    f.seek(SeekFrom::Start(offset)).await?;
-    let mut pos = offset;
+    f.seek(SeekFrom::Start(offset.bytes())).await?;
+    let mut pos: u64 = offset.bytes();
     for _i in 0 .. count {
         f.read_exact(&mut dst_buf).await?;
 

@@ -2,7 +2,7 @@ pub mod common;
 
 use common::{
     compose::{rpc::v1::GrpcConnect, Binary, Builder},
-    file_io::BufferSize,
+    file_io::DataSize,
     fio::{Fio, FioJob},
     nexus::{test_fio_to_nexus, NexusBuilder},
     pool::PoolBuilder,
@@ -103,7 +103,7 @@ async fn nexus_fio_single_remote() {
                     .with_runtime(10)
                     .with_bs(4096)
                     .with_iodepth(8)
-                    .with_size(BufferSize::Mb(DATA_SIZE_OK)),
+                    .with_size(DataSize::from_mb(DATA_SIZE_OK)),
             )
             .with_verbose_err(true),
     )
@@ -118,7 +118,7 @@ async fn nexus_fio_single_remote() {
                 .with_runtime(10)
                 .with_bs(4096)
                 .with_iodepth(8)
-                .with_size(BufferSize::Mb(DATA_SIZE_OVER)),
+                .with_size(DataSize::from_mb(DATA_SIZE_OVER)),
         ),
     )
     .await
@@ -228,7 +228,7 @@ async fn nexus_fio_mixed() {
                     .with_runtime(10)
                     .with_bs(4096)
                     .with_iodepth(8)
-                    .with_size(BufferSize::Mb(DATA_SIZE_OK)),
+                    .with_size(DataSize::from_mb(DATA_SIZE_OK)),
             )
             .with_verbose_err(true),
     )
@@ -245,7 +245,7 @@ async fn nexus_fio_mixed() {
                 .with_runtime(10)
                 .with_bs(4096)
                 .with_iodepth(8)
-                .with_size(BufferSize::Mb(DATA_SIZE_OVER)),
+                .with_size(DataSize::from_mb(DATA_SIZE_OVER)),
         ),
     )
     .await

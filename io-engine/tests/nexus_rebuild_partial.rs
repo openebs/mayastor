@@ -10,7 +10,7 @@ use common::{
         Builder,
         ComposeTest,
     },
-    file_io::BufferSize,
+    file_io::DataSize,
     nexus::{test_write_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::{validate_replicas, ReplicaBuilder},
@@ -182,18 +182,28 @@ async fn nexus_partial_rebuild_io_fault() {
     nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
 
     // This write must be okay as the injection is not triggered yet.
-    test_write_to_nexus(&nex_0, 2 * SEG - 1, 65, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(2 * SEG - 1),
+        65,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children.len(), 2);
     assert_eq!(children[1].state, ChildState::Online as i32);
 
     // Chunk A.
-    test_write_to_nexus(&nex_0, 8 * SEG - 1, 95, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(8 * SEG - 1),
+        95,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     // Check that the nexus child is now faulted, with I/O failure reason.
     let children = nex_0.get_nexus().await.unwrap().children;
@@ -202,19 +212,34 @@ async fn nexus_partial_rebuild_io_fault() {
     assert_eq!(children[1].state_reason, ChildStateReason::IoFailure as i32);
 
     // Chunk B.
-    test_write_to_nexus(&nex_0, 2 * SEG - 1, 65, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(2 * SEG - 1),
+        65,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     // Chunk C.
-    test_write_to_nexus(&nex_0, 13 * SEG - 1, 129, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(13 * SEG - 1),
+        129,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     // Chunk D.
-    test_write_to_nexus(&nex_0, 110 * SEG, 111, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(110 * SEG),
+        111,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     // Remove injection.
     nex_0.remove_injected_nexus_fault(&inj_uri).await.unwrap();
@@ -263,9 +288,14 @@ async fn nexus_partial_rebuild_offline_online() {
     assert_eq!(children.len(), 2);
 
     // Write 10 x 16 KiB buffers.
-    test_write_to_nexus(&nex_0, 0, 10, BufferSize::Kb(16))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        10,
+        DataSize::from_kb(16),
+    )
+    .await
+    .unwrap();
 
     // Offline the replica.
     nex_0.offline_child_replica(&repl_0).await.unwrap();
@@ -290,9 +320,14 @@ async fn nexus_partial_rebuild_offline_online() {
     // We write 9 x 16-KiB buffers = 147456 bytes = 288 blocks = 2.25 rebuild
     // segments after previously written 10 x 16 KiB buffers.
     // That rounds to 3 segments = 384 blocks.
-    test_write_to_nexus(&nex_0, 10, 9, BufferSize::Kb(16))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_kb_blocks(10, 16),
+        9,
+        DataSize::from_kb(16),
+    )
+    .await
+    .unwrap();
 
     // Bring the child online. That will trigger partial rebuild.
     nex_0.online_child_replica(&repl_0).await.unwrap();

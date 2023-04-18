@@ -21,7 +21,7 @@ use super::{
         SharedRpcHandle,
         Status,
     },
-    file_io::BufferSize,
+    file_io::DataSize,
     fio::Fio,
     generate_uuid,
     nvmf::{test_fio_to_nvmf, test_write_to_nvmf, NvmfLocation},
@@ -149,7 +149,7 @@ impl NexusBuilder {
 
     pub fn nvmf_location(&self) -> NvmfLocation {
         NvmfLocation {
-            addr: self.rpc().borrow().endpoint,
+            addr: self.rpc().endpoint(),
             nqn: self.nqn(),
             serial: self.serial(),
         }
@@ -157,7 +157,8 @@ impl NexusBuilder {
 
     pub async fn create(&mut self) -> Result<Nexus, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .create_nexus(CreateNexusRequest {
                 name: self.name(),
@@ -178,7 +179,8 @@ impl NexusBuilder {
 
     pub async fn publish(&self) -> Result<Nexus, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .publish_nexus(PublishNexusRequest {
                 uuid: self.uuid(),
@@ -196,7 +198,8 @@ impl NexusBuilder {
         norebuild: bool,
     ) -> Result<Nexus, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .add_child_nexus(AddChildNexusRequest {
                 uuid: self.uuid(),
@@ -217,7 +220,8 @@ impl NexusBuilder {
 
     pub async fn online_child_bdev(&self, bdev: &str) -> Result<Nexus, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .child_operation(ChildOperationRequest {
                 nexus_uuid: self.uuid(),
@@ -240,7 +244,8 @@ impl NexusBuilder {
         bdev: &str,
     ) -> Result<Nexus, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .child_operation(ChildOperationRequest {
                 nexus_uuid: self.uuid(),
@@ -263,7 +268,8 @@ impl NexusBuilder {
         inj_uri: &str,
     ) -> Result<(), Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .inject_nexus_fault(InjectNexusFaultRequest {
                 uuid: self.uuid(),
@@ -278,7 +284,8 @@ impl NexusBuilder {
         inj_uri: &str,
     ) -> Result<(), Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .remove_injected_nexus_fault(RemoveInjectedNexusFaultRequest {
                 uuid: self.uuid(),
@@ -292,7 +299,8 @@ impl NexusBuilder {
         &self,
     ) -> Result<Vec<InjectedFault>, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .list_injected_nexus_faults(ListInjectedNexusFaultsRequest {
                 uuid: self.uuid(),
@@ -305,7 +313,8 @@ impl NexusBuilder {
         &self,
     ) -> Result<Vec<RebuildHistoryRecord>, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .nexus
             .get_rebuild_history(RebuildHistoryRequest {
                 uuid: self.uuid(),
@@ -406,7 +415,8 @@ impl NexusBuilder {
 
 /// TODO
 pub async fn list_nexuses(rpc: SharedRpcHandle) -> Result<Vec<Nexus>, Status> {
-    rpc.borrow_mut()
+    rpc.lock()
+        .await
         .nexus
         .list_nexus(ListNexusOptions {
             name: None,
@@ -433,9 +443,9 @@ pub async fn find_nexus_by_uuid(
 /// TODO
 pub async fn test_write_to_nexus(
     nex: &NexusBuilder,
-    offset: u64,
+    offset: DataSize,
     count: usize,
-    buf_size: BufferSize,
+    buf_size: DataSize,
 ) -> std::io::Result<()> {
     test_write_to_nvmf(&nex.nvmf_location(), offset, count, buf_size).await
 }

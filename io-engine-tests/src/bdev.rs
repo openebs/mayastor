@@ -5,7 +5,8 @@ use super::compose::rpc::v1::{
 };
 
 pub async fn list_bdevs(rpc: &SharedRpcHandle) -> Result<Vec<Bdev>, Status> {
-    rpc.borrow_mut()
+    rpc.lock()
+        .await
         .bdev
         .list(ListBdevOptions {
             name: None,

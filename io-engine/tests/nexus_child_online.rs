@@ -10,7 +10,7 @@ use common::{
         Builder,
         ComposeTest,
     },
-    file_io::BufferSize,
+    file_io::DataSize,
     nexus::{test_write_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
@@ -127,9 +127,14 @@ async fn nexus_child_online() {
         nex_0,
     } = create_test_storage(&test).await;
 
-    test_write_to_nexus(&nex_0, 0, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     nex_0.offline_child_replica(&repl_0).await.unwrap();
     nex_0
