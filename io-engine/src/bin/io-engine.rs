@@ -1,13 +1,13 @@
 #[macro_use]
 extern crate tracing;
 
-use std::{env, path::Path};
+use std::{env, path::Path, sync::atomic::Ordering};
 
 use futures::future::FutureExt;
 use structopt::StructOpt;
 
 use io_engine::{
-    bdev::util::uring,
+    bdev::{nexus::ENABLE_PARTIAL_REBUILD, util::uring},
     core::{
         device_monitor_loop,
         diagnostics::process_diagnostics_cli,
@@ -45,6 +45,15 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     let reactor_freeze_detection = args.reactor_freeze_detection;
     let reactor_freeze_timeout = args.reactor_freeze_timeout;
+
+    // Enable partial rebuild.
+    if let Ok(v) = std::env::var("NEXUS_PARTIAL_REBUILD") {
+        ENABLE_PARTIAL_REBUILD.store(v == "1", Ordering::SeqCst);
+    }
+
+    if !ENABLE_PARTIAL_REBUILD.load(Ordering::SeqCst) {
+        warn!("Partial rebuild is disabled");
+    }
 
     // Initialize Lock manager.
     let cfg = ResourceLockManagerConfig::default()

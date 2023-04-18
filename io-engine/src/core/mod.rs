@@ -59,6 +59,7 @@ pub use lock::{
     ResourceSubsystem,
 };
 pub use runtime::spawn;
+pub(crate) use segment_map::SegmentMap;
 pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
 pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
@@ -83,6 +84,7 @@ mod nic;
 pub mod partition;
 mod reactor;
 pub mod runtime;
+pub(crate) mod segment_map;
 mod share;
 pub mod snapshot;
 pub(crate) mod thread;
@@ -194,13 +196,25 @@ pub enum CoreError {
         source: Errno,
         opcode: u16,
     },
-    #[snafu(display("Write failed at offset {} length {}", offset, len))]
+    #[snafu(display(
+        "Write failed at offset {} length {} with status {:?}",
+        offset,
+        len,
+        status
+    ))]
     WriteFailed {
+        status: NvmeStatus,
         offset: u64,
         len: u64,
     },
-    #[snafu(display("Read failed at offset {} length {}", offset, len))]
+    #[snafu(display(
+        "Read failed at offset {} length {} with status {:?}",
+        offset,
+        len,
+        status
+    ))]
     ReadFailed {
+        status: NvmeStatus,
         offset: u64,
         len: u64,
     },

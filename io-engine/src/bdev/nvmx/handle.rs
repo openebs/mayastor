@@ -536,7 +536,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         if rc != 0 && rc != -libc::ENOMEM {
             error!("{} read failed: rc = {}", self.name, rc);
-            return Err(CoreError::ReadFailed {
+            return Err(CoreError::ReadDispatch {
+                source: Errno::from_i32(-rc),
                 offset,
                 len: buffer.len(),
             });
@@ -558,7 +559,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 offset,
                 len: buffer.len(),
             }),
-            _ => Err(CoreError::ReadFailed {
+            status => Err(CoreError::ReadFailed {
+                status,
                 offset,
                 len: buffer.len(),
             }),
@@ -624,7 +626,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         if rc != 0 && rc != -libc::ENOMEM {
             error!("{} write failed: rc = {}", self.name, rc);
-            return Err(CoreError::WriteFailed {
+            return Err(CoreError::WriteDispatch {
+                source: Errno::from_i32(-rc),
                 offset,
                 len: buffer.len(),
             });
@@ -640,7 +643,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 );
                 Ok(buffer.len())
             }
-            _ => Err(CoreError::WriteFailed {
+            status => Err(CoreError::WriteFailed {
+                status,
                 offset,
                 len: buffer.len(),
             }),

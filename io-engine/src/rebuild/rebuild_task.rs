@@ -11,7 +11,6 @@ use super::{
     },
     RebuildDescriptor,
     RebuildError,
-    RebuildLogHandle,
 };
 use crate::core::{CoreError, Reactors, ReadMode, VerboseError};
 use spdk_rs::{DmaBuf, LbaRange};
@@ -42,8 +41,6 @@ pub(super) struct RebuildTask {
     pub(super) sender: mpsc::Sender<TaskResult>,
     /// Last error seen by this particular task.
     pub(super) error: Option<TaskResult>,
-    /// Rebuild log.
-    pub(super) rebuild_log: Option<RebuildLogHandle>,
 }
 
 impl RebuildTask {
@@ -65,11 +62,8 @@ impl RebuildTask {
         blk: u64,
         descriptor: &RebuildDescriptor,
     ) -> Result<bool, RebuildError> {
-        // Check if the block has to be copied.
-        if let Some(ref log) = self.rebuild_log {
-            if !log.is_modified(blk) {
-                return Ok(false);
-            }
+        if descriptor.is_blk_sync(blk) {
+            return Ok(false);
         }
 
         let len = descriptor.get_segment_size_blks(blk);
@@ -107,9 +101,7 @@ impl RebuildTask {
 
         // In the case of success, mark the segment as already transferred.
         if result.is_ok() {
-            if let Some(ref log) = self.rebuild_log {
-                log.mark_segment_transferred(blk);
-            }
+            descriptor.blk_synced(blk);
         }
 
         result.map(|_| true)

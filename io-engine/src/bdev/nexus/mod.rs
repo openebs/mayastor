@@ -1,8 +1,9 @@
 #![allow(clippy::vec_box)]
 
+use std::{pin::Pin, sync::atomic::AtomicBool};
+
 use crate::core::VerboseError;
 use futures::{future::Future, FutureExt};
-use std::pin::Pin;
 
 mod nexus_bdev;
 mod nexus_bdev_children;
@@ -13,6 +14,7 @@ mod nexus_channel;
 mod nexus_child;
 mod nexus_injection;
 mod nexus_io;
+mod nexus_io_log;
 mod nexus_io_subsystem;
 mod nexus_iter;
 mod nexus_module;
@@ -46,6 +48,7 @@ pub use nexus_child::{
     NexusChild,
 };
 use nexus_io::{NexusBio, NioCtx};
+use nexus_io_log::{IOLog, IOLogChannel};
 use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};
 pub use nexus_iter::{
     nexus_iter,
@@ -163,3 +166,6 @@ pub async fn shutdown_nexuses() {
 
     info!("All nexus have been shutdown.");
 }
+
+/// Enables/disables partial rebuild.
+pub static ENABLE_PARTIAL_REBUILD: AtomicBool = AtomicBool::new(true);

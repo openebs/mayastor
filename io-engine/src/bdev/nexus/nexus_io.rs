@@ -14,6 +14,7 @@ use spdk_rs::{
 use super::{
     nexus_lookup,
     FaultReason,
+    IOLogChannel,
     Nexus,
     NexusChannel,
     NexusState,
@@ -26,25 +27,22 @@ use super::{
     nexus_injection::InjectionOp,
 };
 
-use crate::{
-    core::{
-        device_cmd_queue,
-        BlockDevice,
-        BlockDeviceHandle,
-        CoreError,
-        Cores,
-        DeviceCommand,
-        GenericStatusCode,
-        IoCompletionStatus,
-        IoStatus,
-        IoSubmissionFailure,
-        IoType,
-        LvolFailure,
-        Mthread,
-        NvmeStatus,
-        Reactors,
-    },
-    rebuild::RebuildLogHandle,
+use crate::core::{
+    device_cmd_queue,
+    BlockDevice,
+    BlockDeviceHandle,
+    CoreError,
+    Cores,
+    DeviceCommand,
+    GenericStatusCode,
+    IoCompletionStatus,
+    IoStatus,
+    IoSubmissionFailure,
+    IoType,
+    LvolFailure,
+    Mthread,
+    NvmeStatus,
+    Reactors,
 };
 
 #[cfg(feature = "nexus-io-tracing")]
@@ -101,7 +99,7 @@ impl<'n> Debug for NioCtx<'n> {
             f,
             "{serial}[{re}{status:?} {sc}:{fc}{infl}]",
             re = if self.resubmits > 0 {
-                format!("re:{}", self.resubmits)
+                format!("re:{} ", self.resubmits)
             } else {
                 "".to_string()
             },
@@ -608,12 +606,11 @@ impl<'n> NexusBio<'n> {
                     IoSubmissionFailure::Write,
                 ),
             ) {
-                self.log_operation(&log);
+                self.log_io(&log);
             }
         }
 
-        self.channel()
-            .for_each_rebuild_log(|log| self.log_operation(log));
+        self.channel().for_each_io_log(|log| self.log_io(log));
 
         if inflight > 0 {
             // TODO: fix comment:
@@ -635,8 +632,8 @@ impl<'n> NexusBio<'n> {
 
     /// Logs all write-like operation in the rebuild logs, if any exist.
     #[inline]
-    fn log_operation(&self, log: &RebuildLogHandle) {
-        log.log_op(self.io_type(), self.effective_offset(), self.num_blocks());
+    fn log_io(&self, log: &IOLogChannel) {
+        log.log_io(self.io_type(), self.effective_offset(), self.num_blocks());
     }
 
     /// Initiate shutdown of the nexus associated with this BIO request.
@@ -721,7 +718,7 @@ impl<'n> NexusBio<'n> {
         &mut self,
         child_device: &str,
         io_status: IoCompletionStatus,
-    ) -> Option<RebuildLogHandle> {
+    ) -> Option<IOLogChannel> {
         let reason = match io_status {
             IoCompletionStatus::LvolError(LvolFailure::NoSpace) => {
                 FaultReason::NoSpace
@@ -798,7 +795,7 @@ impl<'n> NexusBio<'n> {
         }
 
         if let Some(log) = self.fault_device(&child.device_name(), status) {
-            self.log_operation(&log);
+            self.log_io(&log);
         }
     }
 

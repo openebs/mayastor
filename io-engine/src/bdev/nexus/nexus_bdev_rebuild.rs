@@ -19,7 +19,6 @@ use crate::{
         HistoryRecord,
         RebuildError,
         RebuildJob,
-        RebuildLogHandle,
         RebuildState,
         RebuildStats,
     },
@@ -115,11 +114,8 @@ impl<'n> Nexus<'n> {
             }),
         }?;
 
-        // Get child' rebuild log.
-        let log = self.lookup_child(child_uri).and_then(|c| c.rebuild_log());
-
         // Create a rebuild job for the child.
-        self.create_rebuild_job(&src_child_uri, &dst_child_uri, log)
+        self.create_rebuild_job(&src_child_uri, &dst_child_uri)
             .await?;
 
         // We're now rebuilding the `dst_child` which means it HAS to become an
@@ -132,17 +128,21 @@ impl<'n> Nexus<'n> {
         // rebuilt ranges in sync with the other children.
         self.reconfigure(DrEvent::ChildRebuild).await;
 
-        // Drop rebuild log from the child.
-        if let Ok(c) = self.child(&dst_child_uri) {
-            c.drop_rebuild_log()
-        };
+        // Stop the I/O log and create a rebuild map from it.
+        // As this is done after the reconfiguraion, any new write I/Os will
+        // now reach the destionation child, and no rebuild will be required
+        // for them.
+        let map = self
+            .lookup_child(&dst_child_uri)
+            .and_then(|c| c.stop_io_log());
 
-        self.rebuild_job_mut(&dst_child_uri)?.start().context(
-            nexus_err::RebuildOperation {
+        self.rebuild_job_mut(&dst_child_uri)?
+            .start(map)
+            .await
+            .context(nexus_err::RebuildOperation {
                 job: child_uri.to_owned(),
                 name: name.clone(),
-            },
-        )
+            })
     }
 
     /// TODO
@@ -150,7 +150,6 @@ impl<'n> Nexus<'n> {
         &self,
         src_child_uri: &str,
         dst_child_uri: &str,
-        rebuild_log: Option<RebuildLogHandle>,
     ) -> Result<(), Error> {
         RebuildJob::new(
             &self.name,
@@ -160,7 +159,6 @@ impl<'n> Nexus<'n> {
                 start: self.data_ent_offset,
                 end: self.num_blocks() + self.data_ent_offset,
             },
-            rebuild_log,
             |nexus, job| {
                 Reactors::current().send_future(async move {
                     Nexus::notify_rebuild(nexus, job).await;

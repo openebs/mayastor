@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
 use snafu::ResultExt;
 
 use super::{
     rebuild_error::{NoBdevHandle, RebuildError},
-    RebuildLogHandle,
+    RebuildMap,
 };
 use crate::core::{BlockDeviceDescriptor, BlockDeviceHandle, DescriptorGuard};
-use chrono::{DateTime, Utc};
 
 /// Contains all descriptors and their associated information which allows the
 /// tasks to copy/rebuild data from source to destination.
@@ -32,8 +34,8 @@ pub(super) struct RebuildDescriptor {
     pub(super) nexus_descriptor: DescriptorGuard<()>,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
-    /// Rebuild log.
-    pub(super) rebuild_log: Option<RebuildLogHandle>,
+    /// Rebuild map.
+    pub(super) rebuild_map: Arc<parking_lot::Mutex<Option<RebuildMap>>>,
 }
 
 impl RebuildDescriptor {
@@ -45,12 +47,14 @@ impl RebuildDescriptor {
         }
         self.segment_size_blks
     }
+
     /// Get a `BlockDeviceHandle` for the source.
     pub(super) async fn src_io_handle(
         &self,
     ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
         Self::io_handle(&*self.src_descriptor).await
     }
+
     /// Get a `BlockDeviceHandle` for the destination.
     pub(super) async fn dst_io_handle(
         &self,
@@ -68,5 +72,22 @@ impl RebuildDescriptor {
             .context(NoBdevHandle {
                 bdev: descriptor.get_device().device_name(),
             })
+    }
+
+    /// Checks if the block has to be transferred.
+    /// If no rebuild map is present, all blocks are considered unsynced.
+    pub(super) fn is_blk_sync(&self, blk: u64) -> bool {
+        self.rebuild_map
+            .lock()
+            .as_ref()
+            .map_or(false, |m| m.is_blk_clean(blk))
+    }
+
+    /// Marks the rebuild segment starting from the given logical block as
+    /// already transferred.
+    pub(super) fn blk_synced(&self, blk: u64) {
+        if let Some(map) = self.rebuild_map.lock().as_mut() {
+            map.blk_clean(blk);
+        }
     }
 }

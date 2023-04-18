@@ -6,19 +6,16 @@ use std::{
     pin::Pin,
 };
 
-use super::{FaultReason, Nexus};
+use super::{FaultReason, IOLogChannel, Nexus};
 
-use crate::{
-    core::{BlockDeviceHandle, CoreError, Cores},
-    rebuild::RebuildLogHandle,
-};
+use crate::core::{BlockDeviceHandle, CoreError, Cores};
 
 /// I/O channel, per core.
 #[repr(C)]
 pub struct NexusChannel<'n> {
     writers: Vec<Box<dyn BlockDeviceHandle>>,
     readers: Vec<Box<dyn BlockDeviceHandle>>,
-    rebuild_logs: Vec<RebuildLogHandle>,
+    io_logs: Vec<IOLogChannel>,
     previous_reader: UnsafeCell<usize>,
     fail_fast: u32,
     nexus: Pin<&'n mut Nexus<'n>>,
@@ -35,7 +32,7 @@ impl<'n> Debug for NexusChannel<'n> {
             cur = Cores::current(),
             r = self.readers.len(),
             w = self.writers.len(),
-            l = self.rebuild_logs.len(),
+            l = self.io_logs.len(),
             c = self.nexus.child_count(),
         )
     }
@@ -71,7 +68,6 @@ impl<'n> NexusChannel<'n> {
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();
-        let mut rebuild_logs = Vec::new();
 
         nexus
             .children_iter()
@@ -91,20 +87,10 @@ impl<'n> NexusChannel<'n> {
                 }
             });
 
-        // Add all active rebuild logs.
-        nexus
-            .children_iter()
-            .filter(|c| !c.is_rebuilding())
-            .for_each(|c| {
-                if let Some(log) = c.rebuild_log() {
-                    rebuild_logs.push(log);
-                }
-            });
-
         Self {
             writers,
             readers,
-            rebuild_logs,
+            io_logs: nexus.io_log_channels(),
             previous_reader: UnsafeCell::new(0),
             nexus: unsafe { nexus.pinned_mut() },
             fail_fast: 0,
@@ -121,7 +107,7 @@ impl<'n> NexusChannel<'n> {
         );
         self.writers.clear();
         self.readers.clear();
-        self.rebuild_logs.clear();
+        self.io_logs.clear();
     }
 
     /// Returns reference to channel's Nexus.
@@ -151,13 +137,13 @@ impl<'n> NexusChannel<'n> {
         self.writers.iter().try_for_each(|h| f(h.as_ref()))
     }
 
-    /// Calls the given callback for each active rebuild log.
+    /// Calls the given callback for each active I/O log.
     #[inline(always)]
-    pub(super) fn for_each_rebuild_log<F>(&self, f: F)
+    pub(super) fn for_each_io_log<F>(&self, f: F)
     where
-        F: FnMut(&RebuildLogHandle),
+        F: FnMut(&IOLogChannel),
     {
-        self.rebuild_logs.iter().for_each(f)
+        self.io_logs.iter().for_each(f)
     }
 
     /// Very simplistic routine to rotate between children for read operations
@@ -211,7 +197,6 @@ impl<'n> NexusChannel<'n> {
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();
-        let mut rebuild_logs = Vec::new();
 
         // iterate over all our children which are in the healthy state
         self.nexus()
@@ -229,7 +214,7 @@ impl<'n> NexusChannel<'n> {
             });
 
         // then add write-only children
-        if !self.readers.is_empty() {
+        if !readers.is_empty() {
             self.nexus()
                 .children_iter()
                 .filter(|c| c.is_rebuilding())
@@ -251,25 +236,17 @@ impl<'n> NexusChannel<'n> {
                 });
         }
 
-        // add all active rebuild logs.
-        self.nexus()
-            .children_iter()
-            .filter(|c| !c.is_rebuilding())
-            .for_each(|c| {
-                if let Some(log) = c.rebuild_log() {
-                    rebuild_logs.push(log);
-                }
-            });
-
-        self.writers.clear();
-        self.readers.clear();
-        self.rebuild_logs.clear();
-
         self.writers = writers;
         self.readers = readers;
-        self.rebuild_logs = rebuild_logs;
+
+        self.reconnect_io_logs();
 
         debug!("{self:?}: child devices reconnected");
+    }
+
+    /// Reconnects all active I/O logs.
+    pub(super) fn reconnect_io_logs(&mut self) {
+        self.io_logs = self.nexus().io_log_channels();
     }
 
     /// Faults the child by its device, with the given fault reason.
@@ -278,25 +255,9 @@ impl<'n> NexusChannel<'n> {
         &mut self,
         child_device: &str,
         reason: FaultReason,
-    ) -> Option<RebuildLogHandle> {
+    ) -> Option<IOLogChannel> {
         self.nexus_mut()
             .retire_child_device(child_device, reason, true)
-    }
-
-    /// Attaches a new rebuild log to write to.
-    pub(super) fn attach_rebuild_log(&mut self, log: RebuildLogHandle) {
-        if self
-            .rebuild_logs
-            .iter()
-            .all(|i| i.device_name() != log.device_name())
-        {
-            debug!(
-                "{self:?}: attaching rebuild log for '{dev}'",
-                dev = log.device_name()
-            );
-
-            self.rebuild_logs.push(log);
-        }
     }
 
     /// Returns core on which channel was created.

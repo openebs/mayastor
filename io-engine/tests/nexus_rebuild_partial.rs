@@ -15,6 +15,16 @@ use common::{
     pool::PoolBuilder,
     replica::{validate_replicas, ReplicaBuilder},
 };
+
+#[cfg(feature = "nexus-fault-injection")]
+use io_engine_tests::{
+    fio::{Fio, FioJob},
+    nexus::test_fio_to_nexus,
+};
+
+#[cfg(feature = "nexus-fault-injection")]
+use common::compose::rpc::v1::nexus::RebuildJobState;
+
 use std::time::Duration;
 
 /// Pool size.
@@ -346,4 +356,253 @@ async fn nexus_partial_rebuild_offline_online() {
 
     // check that 3 segments were rebuilt.
     assert_eq!(hist[0].blocks_transferred, 3 * SEG_BLK);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg(feature = "nexus-fault-injection")]
+/// I/O failure during rebuild.
+/// Initiate a (partial) rebuild, and force a replica to fail with I/O error
+/// while the rebuild job is running.
+/// Now, if the replica is onlined again, a full rebuild must start.
+///
+/// Steps:
+/// 1) Offline replica #0.
+/// 2) Write some data to nexus, ending at < FAULT_POS.
+/// 3) Create injection that will fail at offset == FAULT_POS.
+/// 4a) Online r0 so it rebuilds in background.
+/// 4b) Write new data to the nexus: data start < FAULT_POS < data end.
+/// 5) I/O must fail _before_ rebuild finishes. This will prevent creartion of
+///    a rebuild log.
+/// 6) Remove the injection.
+/// 7) Online r0: a full rebuild must now run.
+/// 8) Offline, write and online again to have a successfull partial rebuild.
+async fn nexus_partial_rebuild_double_fault() {
+    const POOL_SIZE: u64 = 1000;
+    const REPL_SIZE: u64 = 900;
+    const NEXUS_SIZE: u64 = REPL_SIZE;
+    const BLK_SIZE: u64 = 512;
+    const DATA_A_POS: u64 = 0;
+    const DATA_A_SIZE: u64 = 400;
+    const DATA_B_POS: u64 = 410;
+    const DATA_B_SIZE: u64 = 400;
+    const FAULT_POS: u64 = 450;
+
+    common::composer_init();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1"]),
+        )
+        .add_container_bin(
+            "ms_1",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "2"]),
+        )
+        .add_container_bin(
+            "ms_nex",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "3,4"]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+
+    let ms_0 = conn.grpc_handle_shared("ms_0").await.unwrap();
+    let ms_1 = conn.grpc_handle_shared("ms_1").await.unwrap();
+    let ms_nex = conn.grpc_handle_shared("ms_nex").await.unwrap();
+
+    // Node #0
+    let mut pool_0 = PoolBuilder::new(ms_0.clone())
+        .with_name("pool0")
+        .with_new_uuid()
+        .with_malloc("mem0", POOL_SIZE);
+
+    let mut repl_0 = ReplicaBuilder::new(ms_0.clone())
+        .with_pool(&pool_0)
+        .with_name("r0")
+        .with_new_uuid()
+        .with_thin(false)
+        .with_size_mb(REPL_SIZE);
+
+    pool_0.create().await.unwrap();
+    repl_0.create().await.unwrap();
+    repl_0.share().await.unwrap();
+
+    // Node #1
+    let mut pool_1 = PoolBuilder::new(ms_1.clone())
+        .with_name("pool1")
+        .with_new_uuid()
+        .with_malloc("mem1", POOL_SIZE);
+
+    let mut repl_1 = ReplicaBuilder::new(ms_1.clone())
+        .with_pool(&pool_1)
+        .with_name("r1")
+        .with_new_uuid()
+        .with_thin(false)
+        .with_size_mb(REPL_SIZE);
+
+    pool_1.create().await.unwrap();
+    repl_1.create().await.unwrap();
+    repl_1.share().await.unwrap();
+
+    // Nexus
+    let mut nex_0 = NexusBuilder::new(ms_nex.clone())
+        .with_name("nexus0")
+        .with_new_uuid()
+        .with_size_mb(NEXUS_SIZE)
+        .with_replica(&repl_0)
+        .with_replica(&repl_1);
+
+    nex_0.create().await.unwrap();
+    nex_0.publish().await.unwrap();
+
+    let children = nex_0.get_nexus().await.unwrap().children;
+    let child_0_dev_name = children[0].device_name.as_ref().unwrap();
+
+    // Offline the replica again.
+    nex_0.offline_child_replica(&repl_0).await.unwrap();
+    nex_0
+        .wait_replica_state(
+            &repl_0,
+            ChildState::Degraded,
+            None,
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    let children = nex_0.get_nexus().await.unwrap().children;
+    assert_eq!(children[0].state, ChildState::Degraded as i32);
+    assert_eq!(children[0].state_reason, ChildStateReason::ByClient as i32);
+
+    // Write some data to have something to rebuild.
+    test_fio_to_nexus(
+        &nex_0,
+        &Fio::new().with_job(
+            FioJob::new()
+                .with_bs(4096)
+                .with_iodepth(16)
+                .with_offset(DataSize::from_mb(DATA_A_POS))
+                .with_size(DataSize::from_mb(DATA_A_SIZE)),
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Inject a failure at FAULT_POS.
+    let inj_uri = format!(
+        "inject://{child_0_dev_name}?op=write&offset={offset}&num_blk=1",
+        offset = FAULT_POS * 1024 * 1024 / BLK_SIZE
+    );
+    nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
+
+    // Online the replica, triggering the rebuild.
+    let j0 = tokio::spawn({
+        let nex_0 = nex_0.clone();
+        let repl_0 = repl_0.clone();
+        async move {
+            nex_0.online_child_replica(&repl_0).await.unwrap();
+        }
+    });
+
+    // In parallel, write some data to trigger injected fault at FAULT_POS.
+    let j1 = tokio::spawn({
+        let nex_0 = nex_0.clone();
+        async move {
+            test_fio_to_nexus(
+                &nex_0,
+                &Fio::new().with_job(
+                    FioJob::new()
+                        .with_bs(4096)
+                        .with_iodepth(16)
+                        .with_offset(DataSize::from_mb(DATA_B_POS))
+                        .with_size(DataSize::from_mb(DATA_B_SIZE)),
+                ),
+            )
+            .await
+            .unwrap();
+        }
+    });
+
+    let _ = tokio::join!(j0, j1);
+
+    // Replica must now be faulted with I/O failure.
+    let children = nex_0.get_nexus().await.unwrap().children;
+    assert_eq!(children[0].state, ChildState::Faulted as i32);
+    assert_eq!(children[0].state_reason, ChildStateReason::IoFailure as i32);
+
+    // [6]
+    nex_0.online_child_replica(&repl_0).await.unwrap();
+    nex_0
+        .wait_children_online(std::time::Duration::from_secs(20))
+        .await
+        .unwrap();
+
+    // Offline the replica again.
+    nex_0.offline_child_replica(&repl_0).await.unwrap();
+    nex_0
+        .wait_replica_state(
+            &repl_0,
+            ChildState::Degraded,
+            None,
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    let children = nex_0.get_nexus().await.unwrap().children;
+    assert_eq!(children[0].state, ChildState::Degraded as i32);
+    assert_eq!(children[0].state_reason, ChildStateReason::ByClient as i32);
+
+    // Write some data to have something to rebuild.
+    test_fio_to_nexus(
+        &nex_0,
+        &Fio::new().with_job(
+            FioJob::new()
+                .with_bs(4096)
+                .with_iodepth(16)
+                .with_offset(DataSize::from_mb(DATA_A_POS))
+                .with_size(DataSize::from_mb(DATA_A_SIZE)),
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Now online the replica and wait until rebuild completes.
+    nex_0.online_child_replica(&repl_0).await.unwrap();
+    nex_0
+        .wait_children_online(std::time::Duration::from_secs(20))
+        .await
+        .unwrap();
+
+    // Check rebuild history.
+    let hist = nex_0.get_rebuild_history().await.unwrap();
+    assert_eq!(hist.len(), 3);
+
+    // First rebuild must have been stopped, because I/O failed while the job
+    // was running.
+    assert_eq!(hist[0].state, RebuildJobState::Stopped as i32);
+    assert_eq!(hist[0].is_partial, true);
+    assert!(hist[0].blocks_transferred < hist[0].blocks_total);
+
+    // 3rd rebuid job must have been a successfully full rebuild.
+    assert_eq!(hist[1].state, RebuildJobState::Completed as i32);
+    assert_eq!(hist[1].is_partial, false);
+    assert_eq!(hist[1].blocks_transferred, hist[1].blocks_total);
+
+    // 3rd rebuid job must have been a successfully partial rebuild.
+    assert_eq!(hist[2].state, RebuildJobState::Completed as i32);
+    assert_eq!(hist[2].is_partial, true);
+    assert!(hist[2].blocks_transferred < hist[2].blocks_total);
+
+    // First rebuild job must have been prematurely stopped, so the amount of
+    // bytes transferreed must be lesser then the partial rebuild that finished
+    // successfully.
+    assert!(hist[0].blocks_transferred < hist[2].blocks_transferred);
+
+    // Verify replicas.
+    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
 }
