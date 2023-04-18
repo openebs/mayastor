@@ -110,3 +110,4 @@ Feature: Mayastor replica management
     When replica snapshot creation request "snap1" "tx-1" is received by I/O Agent
     Then new snapshot with requested name shall be successfully created for replica
     And snapshot shall have the same amount of provisioned disk blocks as replica
+

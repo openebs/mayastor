@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use byte_unit::Byte;
+use chrono::Utc;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
@@ -39,7 +40,7 @@ use crate::{
     bdev::{device_open, PtplFileOps},
     core::{
         logical_volume::LogicalVolume,
-        snapshot::SnapshotDescriptor,
+        snapshot::{SnapshotDescriptor, VolumeSnapshotDescriptor},
         Bdev,
         Protocol,
         PtplProps,
@@ -404,7 +405,6 @@ impl Lvol {
 
         Ok(())
     }
-
     async fn do_create_snapshot(
         &self,
         snap_param: SnapshotParams,
@@ -463,6 +463,90 @@ impl Lvol {
                     msg: c_snapshot_name.into_string().unwrap(),
                 }),
         }
+    }
+    /// List All Snapshot.
+    pub fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor> {
+        let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
+        let bdev =
+            UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+        let lvol_devices = bdev
+            .into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .collect::<Vec<Lvol>>();
+        // return empty snapshot parameter list, if no snapshot found.
+        if lvol_devices.len() <= 1 {
+            return snapshot_list;
+        }
+        for lvol in lvol_devices {
+            // skip lvol if it is not snapshot.
+            if !lvol.is_snapshot() {
+                continue;
+            }
+            let blob = lvol.bs_iter_first();
+            let mut skip_lvol = false;
+            let mut snapshot_param: SnapshotParams = Default::default();
+            for attr in SnapshotXattrs::iter() {
+                let mut val = std::ptr::null();
+                let mut size: u64 = 0;
+                let attr_id = attr.name().to_string().into_cstring();
+                let curr_attr_val;
+                unsafe {
+                    let r = spdk_blob_get_xattr_value(
+                        blob,
+                        attr_id.as_ptr(),
+                        &mut val as *mut *const c_void,
+                        &mut size as *mut u64,
+                    );
+                    // skip current lvol if any of the snapshot attribute not
+                    // found.
+                    if r != 0 {
+                        skip_lvol = true;
+                        warn!(
+                            "Snapshot attribute {:?} not found, skip Lvol{:?}",
+                            attr_id, lvol
+                        );
+                        break;
+                    }
+                    curr_attr_val = String::from_raw_parts(
+                        val as *mut u8,
+                        size as usize,
+                        size as usize,
+                    );
+                }
+                match attr {
+                    SnapshotXattrs::ParentId => {
+                        snapshot_param.set_parent_id(curr_attr_val);
+                    }
+                    SnapshotXattrs::EntityId => {
+                        snapshot_param.set_entity_id(curr_attr_val);
+                    }
+                    SnapshotXattrs::TxId => {
+                        snapshot_param.set_txn_id(curr_attr_val);
+                    }
+                }
+            }
+            // skip current lvol if any of the snapshot attribute not found.
+            if skip_lvol {
+                continue;
+            }
+            // set remaning snapshot parameters for snapshot list
+            snapshot_param.set_name(lvol.name());
+            let parent_id = snapshot_param.parent_id().unwrap();
+            let snapshot = VolumeSnapshotDescriptor::new(
+                snapshot_param,
+                lvol.uuid(),
+                parent_id,
+                lvol.size(),
+                0, /* TODO: It will updated as part of snapshot clone
+                    * implementation */
+                Utc::now(), /* TODO: Need to take from xAttr Snapshot
+                             * Parameter. */
+            );
+            snapshot_list.push(snapshot);
+        }
+        snapshot_list
     }
 }
 
@@ -1014,5 +1098,93 @@ impl SnapshotOps for Lvol {
             Some(txn_id),
             Some(snap_name),
         ))
+    }
+    /// List Replica Snapshot.
+    fn list_snapshot(self) -> Vec<VolumeSnapshotDescriptor> {
+        let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
+        let bdev =
+            UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+        let lvol_devices = bdev
+            .into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .collect::<Vec<Lvol>>();
+        // return empty snapshot parameter list, if no snapshot found.
+        if lvol_devices.len() <= 1 {
+            return snapshot_list;
+        }
+        for lvol in lvol_devices {
+            // skip lvol if it is not snapshot.
+            if !lvol.is_snapshot() {
+                continue;
+            }
+            let blob = lvol.bs_iter_first();
+            let mut skip_lvol = false;
+            let mut snapshot_param: SnapshotParams = Default::default();
+            for attr in SnapshotXattrs::iter() {
+                let mut val = std::ptr::null();
+                let mut size: u64 = 0;
+                let attr_id = attr.name().to_string().into_cstring();
+                let curr_attr_val;
+                unsafe {
+                    let r = spdk_blob_get_xattr_value(
+                        blob,
+                        attr_id.as_ptr(),
+                        &mut val as *mut *const c_void,
+                        &mut size as *mut u64,
+                    );
+                    // skip current lvol if any of the snapshot attribute not
+                    // found.
+                    if r != 0 {
+                        skip_lvol = true;
+                        warn!(
+                            "Snapshot attribute {:?} not found, skip Lvol{:?}",
+                            attr_id, lvol
+                        );
+                        break;
+                    }
+                    curr_attr_val = String::from_raw_parts(
+                        val as *mut u8,
+                        size as usize,
+                        size as usize,
+                    );
+                }
+                match attr {
+                    SnapshotXattrs::ParentId => {
+                        // Skip snapshots if it's parent is not current lvol.
+                        if curr_attr_val != self.uuid() {
+                            skip_lvol = true;
+                            break;
+                        }
+                        snapshot_param.set_parent_id(curr_attr_val);
+                    }
+                    SnapshotXattrs::EntityId => {
+                        snapshot_param.set_entity_id(curr_attr_val);
+                    }
+                    SnapshotXattrs::TxId => {
+                        snapshot_param.set_txn_id(curr_attr_val);
+                    }
+                }
+            }
+            // skip the lvol if any of snapshot attr not found
+            if skip_lvol {
+                continue;
+            }
+            // set remaining snapshot parameters for snapshot list
+            snapshot_param.set_name(lvol.name());
+            let snapshot = VolumeSnapshotDescriptor::new(
+                snapshot_param,
+                lvol.uuid(),
+                self.uuid(),
+                lvol.size(),
+                0, /* TODO: It will updated as part of snapshot clone
+                    * implementation */
+                Utc::now(), /* TODO: Need to take from xAttr Snapshot
+                             * Parameter. */
+            );
+            snapshot_list.push(snapshot);
+        }
+        snapshot_list
     }
 }

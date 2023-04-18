@@ -3,7 +3,11 @@ use crate::{
     bdev_api::BdevError,
     core::{
         logical_volume::LogicalVolume,
-        snapshot::SnapshotDescriptor,
+        snapshot::{
+            SnapshotDescriptor,
+            VolumeSnapshotDescriptor,
+            VolumeSnapshotDescriptors,
+        },
         Bdev,
         Protocol,
         Share,
@@ -103,6 +107,21 @@ impl From<Lvol> for Replica {
 impl Default for ReplicaService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<VolumeSnapshotDescriptor> for ReplicaSnapshot {
+    fn from(s: VolumeSnapshotDescriptor) -> Self {
+        Self {
+            snapshot_uuid: s.snapshot_uuid().to_string(),
+            snapshot_name: s.snapshot_params().name().unwrap_or_default(),
+            replica_uuid: s.replica_uuid().to_string(),
+            bytes_referenced: s.bytes_referenced(),
+            num_clones: s.num_clones(),
+            timestamp: None, //TODO: Need to update xAttr to track timestamp
+            entity_id: s.snapshot_params().entity_id().unwrap_or_default(),
+            txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
+        }
     }
 }
 
@@ -469,7 +488,7 @@ impl ReplicaRpc for ReplicaService {
                     // create snapshot
                     match lvol.create_snapshot(snap_config.clone()).await {
                         Ok(()) => {
-                            info!("Create Snapshot Success for lvol: {lvol:?}");
+                            info!("Create Snapshot Success for {lvol:?}");
                             Ok(CreateReplicaSnapshotResponse {
                                 snapshot_uuid: snap_config
                                     .txn_id()
@@ -483,6 +502,101 @@ impl ReplicaRpc for ReplicaService {
                             Err(e)
                         }
                     }
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+    #[named]
+    async fn list_replica_snapshot(
+        &self,
+        request: Request<ListReplicaSnapshotsRequest>,
+    ) -> GrpcResult<ListReplicaSnapshotsResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit(async move {
+                    // if replica_uuid is valid, filter snapshot based on
+                    // replica_uuid
+                    if !args.replica_uuid.is_empty() {
+                        let lvol = match UntypedBdev::lookup_by_uuid_str(
+                            &args.replica_uuid,
+                        ) {
+                            Some(bdev) => Lvol::try_from(bdev)?,
+                            None => {
+                                return Err(LvsError::Invalid {
+                                    source: Errno::ENOENT,
+                                    msg: format!(
+                                        "Replica {} not found",
+                                        args.replica_uuid
+                                    ),
+                                })
+                            }
+                        };
+                        let snapshots = lvol
+                            .list_snapshot()
+                            .into_iter()
+                            .map(ReplicaSnapshot::from)
+                            .collect();
+                        Ok(ListReplicaSnapshotsResponse {
+                            snapshots,
+                        })
+                    } else {
+                        let snapshots = Lvol::list_all_snapshots()
+                            .into_iter()
+                            .map(ReplicaSnapshot::from)
+                            .collect();
+                        Ok(ListReplicaSnapshotsResponse {
+                            snapshots,
+                        })
+                    }
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn delete_replica_snapshot(
+        &self,
+        request: Request<DeleteReplicaSnapshotRequest>,
+    ) -> GrpcResult<()> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit(async move {
+                    let bdev = UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+                    let mut devices = bdev
+                        .into_iter()
+                        .filter(|b| b.driver() == "lvol" && b.uuid_as_string() == args.snapshot_uuid)
+                        .map(|b| Lvol::try_from(b).unwrap())
+                        .collect::<Vec<Lvol>>();
+                    // Fail operation if snapshot not found or multiple instance
+                    // found
+                    if devices.len() > 1 || devices.is_empty() {
+                        return Err(LvsError::Invalid {
+                                source: Errno::ENOENT,
+                                msg: format!(
+                                    "Snapshot {} not found or multiple instance of snapshot with same name present",
+                                    args.snapshot_uuid
+                                ),
+                        })
+                    }
+                    devices.remove(0).destroy().await?;
+                    Ok(())
                 })?;
                 rx.await
                     .map_err(|_| Status::cancelled("cancelled"))?
