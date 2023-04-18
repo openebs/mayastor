@@ -227,8 +227,8 @@ pub fn create_snapshot(
     // Blobfs operations must be on md_thread
     Reactors::master().send_future(async move {
         match lvol.create_snapshot(snap_param).await {
-            Ok(()) => {
-                info!("Create Snapshot Success!!!");
+            Ok(lvol) => {
+                info!("Create Snapshot {:?} Success!", lvol);
             }
             Err(e) => {
                 error!("Create Snapshot Failed with Error: {:?}", e);

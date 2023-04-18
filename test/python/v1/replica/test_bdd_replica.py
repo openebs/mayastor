@@ -115,11 +115,6 @@ def test_unsharing_a_non_shared_replica():
     """Unsharing a replica that is not shared."""
 
 
-@scenario("features/replica.feature", "create a snapshot for a standalone replica")
-def test_create_a_snapshot_for_a_standalone_replica():
-    """create a snapshot for a standalone replica."""
-
-
 @pytest.mark.skip(reason="todo")
 @scenario("features/replica.feature", "reading from a shared replica")
 def test_reading_from_a_shared_replica():
@@ -244,14 +239,6 @@ def get_shared_replica(
     create_lvs_replica(
         replica_name, replica_uuid, replica_size, share=share_protocol(share)
     )
-
-
-@given(
-    parsers.parse('a standalone replica "{name}" uuid "{uuid}"'),
-    target_fixture="get_replica_for_snapshot",
-)
-def get_replica_for_snapshot(create_lvs_replica, name, uuid, replica_size):
-    create_lvs_replica(name, uuid, replica_size, share=share_protocol("none"))
 
 
 @when(
@@ -430,22 +417,6 @@ def write_to_replica():
     raise NotImplementedError
 
 
-@when(
-    parsers.parse(
-        'replica snapshot creation request "{snapshot_name}" "{txn_id}" is received by I/O Agent'
-    ),
-    target_fixture="create_replica_snapshot",
-)
-def create_replica_snapshot(mayastor_instance, replica_uuid, snapshot_name, txn_id):
-    """replica snapshot creation request is received by I/O Agent."""
-    mayastor_instance.replica_rpc.CreateReplicaSnapshot(
-        replica_pb.CreateReplicaSnapshotRequest(
-            replica_uuid=replica_uuid, snapshot_name=snapshot_name, txn_id=txn_id
-        )
-    )
-    pass
-
-
 @then("replica should not be created")
 @then("the replica should be destroyed")
 def replica_should_not_be_present(find_replica, replica_name, replica_uuid):
@@ -544,15 +515,3 @@ def read_operation_should_succeed():
 @then("the write operation should succeed")
 def write_operation_should_succeed():
     raise NotImplementedError
-
-
-@then("new snapshot with requested name shall be successfully created for replica")
-def check_replica_snapshot():
-    """new snapshot with requested name shall be successfully created for replica."""
-    pass
-
-
-@then("snapshot shall have the same amount of provisioned disk blocks as replica")
-def check_snapshot_size():
-    """snapshot shall have the same amount of provisioned disk blocks as replica."""
-    pass

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use byte_unit::Byte;
+use chrono::Utc;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
@@ -39,7 +40,7 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         logical_volume::LogicalVolume,
-        snapshot::SnapshotDescriptor,
+        snapshot::{SnapshotDescriptor, VolumeSnapshotDescriptor},
         Bdev,
         Protocol,
         PtplProps,
@@ -62,7 +63,6 @@ use crate::{
     lvs::LvolSnapshotIter,
     subsys::NvmfReq,
 };
-
 use strum::{EnumCount, IntoEnumIterator};
 
 // Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
@@ -122,7 +122,6 @@ pub struct LvolSpaceUsage {
     /// Number of actually allocated clusters.
     pub num_allocated_clusters: u64,
 }
-
 /// struct representing an lvol
 pub struct Lvol {
     inner: NonNull<spdk_lvol>,
@@ -404,13 +403,13 @@ impl Lvol {
 
         Ok(())
     }
-
-    async fn do_create_snapshot(
+    /// create replica snapshot inner function to call spdk snapshot create
+    /// function.
+    fn create_snapshot_inner(
         &self,
-        snap_param: SnapshotParams,
+        snap_param: &SnapshotParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
         done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: Option<oneshot::Receiver<i32>>,
     ) -> Result<(), Error> {
         let mut attr_descrs: [spdk_xattr_descriptor; SnapshotXattrs::COUNT] =
             [spdk_xattr_descriptor::default(); SnapshotXattrs::COUNT];
@@ -440,18 +439,159 @@ impl Lvol {
                 done_cb_arg,
             )
         };
+        Ok(())
+    }
+    async fn do_create_snapshot(
+        &self,
+        snap_param: SnapshotParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+        receiver: oneshot::Receiver<(i32, Lvol)>,
+    ) -> Result<Lvol, Error> {
+        self.create_snapshot_inner(&snap_param, done_cb, done_cb_arg)?;
 
         // Wait till operation succeeds, if requested.
-        match receiver {
-            None => Ok(()),
-            Some(r) => r
-                .await
-                .expect("Snapshot done callback disappeared")
-                .to_result(|error| Error::SnapshotCreate {
-                    source: Errno::from_i32(error),
-                    msg: c_snapshot_name.into_string().unwrap(),
-                }),
+        let (error, lvol) =
+            receiver.await.expect("Snapshot done callback disappeared");
+        match error {
+            0 => Ok(lvol),
+            _ => Err(Error::SnapshotCreate {
+                source: Errno::from_i32(error),
+                msg: snap_param.name().unwrap(),
+            }),
         }
+    }
+    async fn do_create_snapshot_remote(
+        &self,
+        snap_param: SnapshotParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+    ) -> Result<(), Error> {
+        self.create_snapshot_inner(&snap_param, done_cb, done_cb_arg)?;
+        Ok(())
+    }
+    /// Common API to get the xattr from blob.
+    pub fn get_blob_xattr(
+        snapshot: &Lvol,
+        attr: &SnapshotXattrs,
+    ) -> Option<String> {
+        let mut val = std::ptr::null();
+        let mut size: u64 = 0;
+        let attr_id = attr.name().to_string().into_cstring();
+        let curr_attr_val = unsafe {
+            let blob = snapshot.bs_iter_first();
+            let r = spdk_blob_get_xattr_value(
+                blob,
+                attr_id.as_ptr(),
+                &mut val as *mut *const c_void,
+                &mut size as *mut u64,
+            );
+            // mark snapshot invalid, if any attribute not found
+            if r != 0 {
+                warn!(
+                    "Snapshot attribute {:?} not found, snapshot{:?}",
+                    attr_id, snapshot
+                );
+                return None;
+            }
+            String::from_raw_parts(val as *mut u8, size as usize, size as usize)
+        };
+        Some(curr_attr_val)
+    }
+    /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.
+    pub fn snapshot_descriptor(
+        &self,
+        parent: Option<&Lvol>,
+    ) -> Option<VolumeSnapshotDescriptor> {
+        let mut valid_snapshot = true;
+        let mut snapshot_param: SnapshotParams = Default::default();
+        for attr in SnapshotXattrs::iter() {
+            let curr_attr_val = match Self::get_blob_xattr(self, &attr) {
+                Some(val) => val,
+                None => {
+                    valid_snapshot = false;
+                    continue;
+                }
+            };
+            match attr {
+                SnapshotXattrs::ParentId => {
+                    if let Some(parent_lvol) = parent {
+                        // Skip snapshots if it's parent is not matched.
+                        if curr_attr_val != parent_lvol.uuid() {
+                            return None;
+                        }
+                    }
+                    snapshot_param.set_parent_id(curr_attr_val);
+                }
+                SnapshotXattrs::EntityId => {
+                    snapshot_param.set_entity_id(curr_attr_val);
+                }
+                SnapshotXattrs::TxId => {
+                    snapshot_param.set_txn_id(curr_attr_val);
+                }
+            }
+        }
+        // set remaining snapshot parameters for snapshot list
+        snapshot_param.set_name(self.name());
+        // set parent replica uuid and size of the snapshot
+        let (parent_uuid, parent_size) = if let Some(parent_lvol) = parent {
+            (parent_lvol.uuid(), parent_lvol.size())
+        } else {
+            match Bdev::lookup_by_uuid_str(
+                snapshot_param.parent_id().unwrap_or_default().as_str(),
+            )
+            .and_then(|b| Lvol::try_from(b).ok())
+            {
+                Some(parent) => (parent.uuid(), parent.size()),
+                None => {
+                    warn!("Invalid snapshot{:?}, parent not proper", self);
+                    valid_snapshot = false;
+                    (String::default(), 0)
+                }
+            }
+        };
+
+        let snapshot_descriptor = VolumeSnapshotDescriptor::new(
+            self,
+            0, /* TODO: It will updated as part of snapshot clone
+                * implementation */
+            Utc::now(), /* TODO: Need to take from xAttr Snapshot
+                         * Parameter. */
+            parent_uuid,
+            parent_size,
+            snapshot_param,
+            valid_snapshot,
+        );
+        Some(snapshot_descriptor)
+    }
+    /// List All Snapshot.
+    pub fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor> {
+        let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
+        let bdev =
+            UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+        let lvol_devices = bdev
+            .into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .collect::<Vec<Lvol>>();
+        // return empty snapshot parameter list, if no snapshot found.
+        if lvol_devices.len() <= 1 {
+            return snapshot_list;
+        }
+        for snapshot_lvol in lvol_devices {
+            // skip lvol if it is not snapshot.
+            if !snapshot_lvol.is_snapshot() {
+                continue;
+            }
+            match snapshot_lvol.snapshot_descriptor(None) {
+                Some(snapshot_descriptor) => {
+                    snapshot_list.push(snapshot_descriptor)
+                }
+                None => continue,
+            }
+        }
+        snapshot_list
     }
 }
 
@@ -872,11 +1012,10 @@ impl LvsLvol for Lvol {
         );
 
         if let Err(error) = self
-            .do_create_snapshot(
+            .do_create_snapshot_remote(
                 snapshot_params,
                 snapshot_done_cb,
                 nvmf_req.0.as_ptr().cast(),
-                None,
             )
             .await
         {
@@ -949,28 +1088,33 @@ impl SnapshotOps for Lvol {
     async fn create_snapshot(
         &self,
         snap_param: SnapshotParams,
-    ) -> Result<(), Error> {
+    ) -> Result<Lvol, Error> {
         extern "C" fn snapshot_create_done_cb(
             arg: *mut c_void,
-            _lvol_ptr: *mut spdk_lvol,
+            lvol_ptr: *mut spdk_lvol,
             errno: i32,
         ) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
+            let s = unsafe {
+                Box::from_raw(arg as *mut oneshot::Sender<(i32, Lvol)>)
+            };
             if errno != 0 {
                 error!("vbdev_lvol_create_snapshot failed errno {}", errno);
             }
-            s.send(errno).ok();
+            let lvol = Lvol::from_inner_ptr(lvol_ptr);
+            s.send((errno, lvol)).ok();
         }
 
-        let (s, r) = oneshot::channel::<i32>();
+        let (s, r) = oneshot::channel::<(i32, Lvol)>();
 
-        self.do_create_snapshot(
-            snap_param,
-            snapshot_create_done_cb,
-            cb_arg(s),
-            Some(r),
-        )
-        .await
+        let create_snapshot = self
+            .do_create_snapshot(
+                snap_param,
+                snapshot_create_done_cb,
+                cb_arg(s),
+                r,
+            )
+            .await;
+        create_snapshot
     }
     /// Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> LvolSnapshotIter {
@@ -980,28 +1124,64 @@ impl SnapshotOps for Lvol {
     fn prepare_snap_config(
         &self,
         snap_name: &str,
+        entity_id: &str,
         txn_id: &str,
     ) -> Option<SnapshotParams> {
+        // snap_name
         let snap_name = if snap_name.is_empty() {
             return None;
         } else {
             snap_name.to_string()
         };
+        let entity_id = if entity_id.is_empty() {
+            return None;
+        } else {
+            entity_id.to_string()
+        };
+
+        // txn_id
         let txn_id = if txn_id.is_empty() {
             return None;
         } else {
             txn_id.to_string()
         };
-        // Entity Id will be same as lvol uuid for the replica snapshot.
-        let entity_id = Some(self.uuid());
         // Current Lvol uuid is the parent for the snapshot.
         let parent_id = Some(self.uuid());
 
         Some(SnapshotParams::new(
-            entity_id,
+            Some(entity_id),
             parent_id,
             Some(txn_id),
             Some(snap_name),
         ))
+    }
+    /// List Replica Snapshot.
+    fn list_snapshot(&self) -> Vec<VolumeSnapshotDescriptor> {
+        let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
+        let bdev =
+            UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+        let lvol_devices = bdev
+            .into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .collect::<Vec<Lvol>>();
+        // return empty snapshot parameter list, if no snapshot found.
+        if lvol_devices.len() <= 1 {
+            return snapshot_list;
+        }
+        for snapshot_lvol in lvol_devices {
+            // skip lvol if it is not snapshot.
+            if !snapshot_lvol.is_snapshot() {
+                continue;
+            }
+            match snapshot_lvol.snapshot_descriptor(Some(self)) {
+                Some(snapshot_descriptor) => {
+                    snapshot_list.push(snapshot_descriptor)
+                }
+                None => continue,
+            }
+        }
+        snapshot_list
     }
 }

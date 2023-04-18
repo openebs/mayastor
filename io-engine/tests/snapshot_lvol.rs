@@ -6,7 +6,13 @@ use common::compose::MayastorTest;
 
 use io_engine::{
     bdev::device_open,
-    core::{MayastorCliArgs, SnapshotParams, SnapshotXattrs, UntypedBdev},
+    core::{
+        LogicalVolume,
+        MayastorCliArgs,
+        SnapshotParams,
+        SnapshotXattrs,
+        UntypedBdev,
+    },
     ffihelper::IntoCString,
     lvs::{Lvol, Lvs},
     pool_backend::PoolArgs,
@@ -16,11 +22,10 @@ use io_engine::lvs::LvsLvol;
 use std::convert::TryFrom;
 
 use io_engine::core::{SnapshotDescriptor, SnapshotOps};
+use log::info;
+use spdk_rs::libspdk::spdk_blob_get_xattr_value;
 use std::{ffi::c_void, str};
 use uuid::Uuid;
-
-use spdk_rs::libspdk::spdk_blob_get_xattr_value;
-
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
 /// Get the global Mayastor test suite instance.
@@ -192,6 +197,173 @@ async fn test_lvol_handle_snapshot() {
             .expect("Failed to create snapshot");
 
         check_snapshot(snapshot_params).await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_lvol_list_snapshot() {
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool =
+            create_test_pool("pool3", "malloc:///disk3?size_mb=64".to_string())
+                .await;
+        let lvol = pool
+            .create_lvol(
+                "lvol3",
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("e13");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("snap13");
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("e14");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("snap14");
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        let snapshot_list = lvol.list_snapshot();
+        info!("Total number of snapshots: {}", snapshot_list.len());
+        assert_eq!(2, snapshot_list.len(), "Snapshot Count not matched!!");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_list_all_snapshots() {
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool4",
+            "malloc:///disk4?size_mb=128".to_string(),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                "lvol4",
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("lvol4_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol4_snap1");
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("lvol4_e2");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol4_snap2");
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // create another lvol and snapshots
+        let lvol = pool
+            .create_lvol(
+                "lvol5",
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("lvol5_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol5_snap1");
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("lvol5_e2");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol5_snap2");
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        let snapshot_list = Lvol::list_all_snapshots();
+        info!("Total number of snapshots: {}", snapshot_list.len());
+        assert_eq!(4, snapshot_list.len(), "Snapshot Count not matched!!");
     })
     .await;
 }
