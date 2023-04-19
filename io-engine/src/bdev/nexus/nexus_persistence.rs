@@ -53,6 +53,8 @@ pub(crate) enum PersistOp<'a> {
     Create,
     /// Add a child to an existing persistent entry.
     AddChild { child_uri: String, healthy: bool },
+    /// Remove a child from an existing persistent entry.
+    RemoveChild { child_uri: String },
     /// Update a persistent entry.
     Update { child_uri: String, healthy: bool },
     /// Update a persistent entry only when a precondition on this NexusInfo
@@ -118,6 +120,14 @@ impl<'n> Nexus<'n> {
                     Some(idx) => nexus_info.children[idx] = child_info,
                     None => nexus_info.children.push(child_info),
                 }
+            }
+            PersistOp::RemoveChild {
+                child_uri,
+            } => {
+                let uuid = NexusChild::uuid(&child_uri)
+                    .expect("Failed to get child UUID.");
+
+                nexus_info.children.retain(|child| child.uuid != uuid);
             }
             PersistOp::Update {
                 child_uri,

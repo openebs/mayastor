@@ -284,15 +284,11 @@ impl<'n> Nexus<'n> {
                 });
 
         if res.is_ok() {
-            let healthy = self.child_at(idx).is_healthy();
-
             unsafe {
                 self.as_mut().child_remove_at_unsafe(idx);
             }
-
-            self.persist(PersistOp::Update {
+            self.persist(PersistOp::RemoveChild {
                 child_uri: uri.to_string(),
-                healthy,
             })
             .await;
         }

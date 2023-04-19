@@ -300,8 +300,8 @@ async fn persist_io_failure() {
     let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
     let value = response.kvs().first().unwrap().value();
     let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
-    let child = child_info(&nexus_info, &uuid(&child3));
-    assert!(!child.healthy);
+    // Since child3 is removed, it shouldn't be in the persisted entry as well.
+    no_child_info(&nexus_info, &uuid(&child3));
 }
 
 /// This test checks the behaviour when a connection to the persistent store is
@@ -527,6 +527,15 @@ fn child_info(nexus: &NexusInfo, uuid: &str) -> ChildInfo {
         }
     }
     panic!("Child info not found for {}", uuid);
+}
+/// Verifies that the child info for the child with given UUID
+/// shouldn't be present in the persisted nexus info.
+fn no_child_info(nexus: &NexusInfo, uuid: &str) {
+    for child in &nexus.children {
+        if child.uuid == uuid {
+            panic!("Child info not expected for {}", uuid);
+        }
+    }
 }
 /// Extract UUID from uri.
 pub(crate) fn uuid(uri: &str) -> String {
