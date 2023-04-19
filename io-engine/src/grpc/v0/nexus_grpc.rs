@@ -56,6 +56,7 @@ fn map_child_state(child: &NexusChild) -> (ChildState, ChildStateReason) {
         ChildStateClient::Closed => (Degraded, Closed),
         ChildStateClient::Faulted(r) => (
             match r {
+                FaultReason::AdminCommandFailed => Faulted,
                 FaultReason::IoError => Faulted,
                 s if s.is_recoverable() => Degraded,
                 _ => Faulted,

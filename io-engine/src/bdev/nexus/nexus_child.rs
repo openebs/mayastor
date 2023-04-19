@@ -161,7 +161,11 @@ impl FaultReason {
     pub fn is_recoverable(&self) -> bool {
         matches!(
             self,
-            Self::NoSpace | Self::TimedOut | Self::IoError | Self::Offline
+            Self::NoSpace
+                | Self::TimedOut
+                | Self::IoError
+                | Self::Offline
+                | Self::AdminCommandFailed
         )
     }
 }
