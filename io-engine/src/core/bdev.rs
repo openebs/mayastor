@@ -122,6 +122,14 @@ where
         spdk_rs::Bdev::<T>::lookup_by_name(name).map(Self::new)
     }
 
+    /// Looks up a Bdev by its name, returing CoreError if the Bdev does not
+    /// exist.
+    pub fn get_by_name(name: &str) -> Result<Self, CoreError> {
+        Self::lookup_by_name(name).ok_or_else(|| CoreError::BdevNotFound {
+            name: name.to_string(),
+        })
+    }
+
     /// Looks up a Bdev by its uuid.
     pub fn lookup_by_uuid_str(uuid: &str) -> Option<Self> {
         match Self::bdev_first() {

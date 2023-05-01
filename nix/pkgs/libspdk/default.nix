@@ -32,6 +32,8 @@
 , pkgs
 , gcc
 , zlib
+, autoconf
+, automake
 , with-fio
 , multi-outputs ? false
 }:
@@ -54,13 +56,13 @@ let
   # 7. Copy SHA256 from 'got' of the error message to 'sha256' field.
   # 8. 'nix-shell' build must now succeed.
   drvAttrs = rec {
-    version = "22.05-0761ff891";
+    version = "23.01-0d43921e8";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "59b05ddf56554c82e51b3899c401a18a7d2ac7ab";
-      sha256 = "sha256-iEpwjjECIldQrphZ7rQFd6XQN+8RKqaxoArc3CxVLKE=";
+      rev = "0d43921e8aa281d3298fcfa714c2672371b073f2";
+      sha256 = "sha256-zwugrWrtawZzFbOpEFjMEIXoXKKROTRAM+bYftYDpNs=";
       fetchSubmodules = true;
     };
 
@@ -75,6 +77,8 @@ let
     ];
 
     buildInputs = [
+      autoconf
+      automake
       binutils
       jansson
       libaio
@@ -91,13 +95,15 @@ let
       numactl
       openssl
       (python3.withPackages (ps: with ps; [ pyelftools ]))
+      yasm
       zlib
     ];
 
     configureFlags = (if (targetPlatform.config == "x86_64-unknown-linux-gnu") then
       [
         "--target-arch=nehalem"
-        "--with-crypto"
+        "--without-shared"
+        "--without-crypto"
       ]
     else if (targetPlatform.config == "aarch64-unknown-linux-gnu") then
       [
@@ -109,14 +115,15 @@ let
     (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else [ ]) ++
     (if with-fio then [ "--with-fio=${fio-include}" ] else [ ]) ++
     [
-      "--without-isal"
       "--with-uring"
+      "--without-uring-zns"
       "--disable-unit-tests"
       "--disable-tests"
     ];
 
     configurePhase = ''
       patchShebangs ./. > /dev/null
+      export AS=yasm
       ./configure ${builtins.concatStringsSep " " configureFlags}
     '';
     enableParallelBuilding = true;
@@ -160,7 +167,10 @@ let
       install -v dpdk/build/lib/*.a              $out/lib/
       install -v dpdk/build/lib/pkgconfig/*.pc   $out/lib/pkgconfig/
     '' + lib.optionalString targetPlatform.isx86_64 ''
-      install -v intel-ipsec-mb/lib/*.a          $out/lib/
+      install -v isa-l/.libs/*.a                 $out/lib/
+      install -v isa-l/*.pc                      $out/lib/pkgconfig/
+      install -v isa-l-crypto/.libs/*.a          $out/lib/
+      install -v isa-l-crypto/*.pc               $out/lib/pkgconfig/
 
       # fix paths in pkg config files
       build_dir=`pwd`
@@ -194,6 +204,7 @@ in
     buildInputs = drvAttrs.buildInputs ++ [ cunit lcov ];
     configurePhase = ''
       patchShebangs ./. > /dev/null
+      export AS=yasm
       ./configure ${builtins.concatStringsSep " " (drvAttrs.configureFlags ++
       [
         "--enable-debug"

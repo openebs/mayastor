@@ -457,6 +457,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// Add new initiator to the Nexus
+    #[allow(dead_code)]
     pub(crate) unsafe fn add_initiator(self: Pin<&mut Self>, initiator: &str) {
         self.unpin_mut()
             .initiators
@@ -465,11 +466,13 @@ impl<'n> Nexus<'n> {
     }
 
     /// Remove initiator from the Nexus
+    #[allow(dead_code)]
     pub(crate) unsafe fn rm_initiator(self: Pin<&mut Self>, initiator: &str) {
         self.unpin_mut().initiators.lock().remove(initiator);
     }
 
     /// initiator count from the Nexus
+    #[allow(dead_code)]
     pub(crate) fn initiator_cnt(&self) -> usize {
         self.initiators.lock().len()
     }

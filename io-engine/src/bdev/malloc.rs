@@ -16,7 +16,13 @@ use snafu::ResultExt;
 use url::Url;
 
 use spdk_rs::{
-    libspdk::{create_malloc_disk, delete_malloc_disk, spdk_bdev},
+    libspdk::{
+        create_malloc_disk,
+        delete_malloc_disk,
+        malloc_bdev_opts,
+        spdk_bdev,
+        SPDK_DIF_DISABLE,
+    },
     UntypedBdev,
 };
 
@@ -162,14 +168,19 @@ impl CreateDestroy for Malloc {
 
         let errno = unsafe {
             let mut bdev: *mut spdk_bdev = std::ptr::null_mut();
-            create_malloc_disk(
-                &mut bdev,
-                cname.as_ptr(),
-                std::ptr::null_mut(),
-                self.num_blocks,
-                self.blk_size,
-                0,
-            )
+            let opts = malloc_bdev_opts {
+                name: cname.as_ptr() as *mut i8,
+                uuid: Default::default(),
+                num_blocks: self.num_blocks,
+                block_size: self.blk_size,
+                optimal_io_boundary: 0,
+                md_size: 0,
+                md_interleave: false,
+                dif_type: SPDK_DIF_DISABLE,
+                dif_is_head_of_md: false,
+            };
+
+            create_malloc_disk(&mut bdev, &opts)
         };
 
         if errno != 0 {

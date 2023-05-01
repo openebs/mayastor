@@ -123,13 +123,12 @@ struct ResetCtx {
 }
 
 impl NvmeDeviceHandle {
-    pub fn create(
+    fn create_handle(
         name: &str,
         id: u64,
         ctrlr: SpdkNvmeController,
         ns: Arc<NvmeNamespace>,
         prchk_flags: u32,
-        connect: bool,
     ) -> Result<NvmeDeviceHandle, CoreError> {
         // Obtain SPDK I/O channel for NVMe controller.
         let io_channel = NvmeControllerIoChannel::from_null_checked(unsafe {
@@ -139,7 +138,7 @@ impl NvmeDeviceHandle {
             name: name.to_string(),
         })?;
 
-        let mut handle = NvmeDeviceHandle {
+        Ok(NvmeDeviceHandle {
             name: name.to_string(),
             io_channel: ManuallyDrop::new(io_channel),
             ctrlr,
@@ -147,12 +146,37 @@ impl NvmeDeviceHandle {
             block_len: ns.block_len(),
             prchk_flags,
             ns,
-        };
+        })
+    }
 
-        // If requested, perform synchronous connect.
-        if connect {
-            handle.connect_sync();
-        }
+    // Create and perform a synchronous connect.
+    pub fn create(
+        name: &str,
+        id: u64,
+        ctrlr: SpdkNvmeController,
+        ns: Arc<NvmeNamespace>,
+        prchk_flags: u32,
+    ) -> Result<NvmeDeviceHandle, CoreError> {
+        let mut handle = Self::create_handle(name, id, ctrlr, ns, prchk_flags)?;
+        handle.connect_sync();
+        Ok(handle)
+    }
+
+    // Create and perform an asynchronous connect.
+    pub async fn create_async(
+        name: &str,
+        id: u64,
+        ctrlr: SpdkNvmeController,
+        ns: Arc<NvmeNamespace>,
+        prchk_flags: u32,
+    ) -> Result<NvmeDeviceHandle, CoreError> {
+        let mut handle = Self::create_handle(name, id, ctrlr, ns, prchk_flags)?;
+
+        #[cfg(feature = "spdk-async-qpair-connect")]
+        handle.connect_async().await?;
+
+        #[cfg(not(feature = "spdk-async-qpair-connect"))]
+        handle.connect_sync();
 
         Ok(handle)
     }
@@ -169,6 +193,7 @@ impl NvmeDeviceHandle {
         };
     }
 
+    #[cfg(feature = "spdk-async-qpair-connect")]
     /// TODO:
     pub(crate) async fn connect_async(&mut self) -> Result<(), CoreError> {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());

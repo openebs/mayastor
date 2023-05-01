@@ -47,6 +47,9 @@ mkShell {
     utillinux
     gnuplot
     libunwind
+    autoconf
+    automake
+    yasm
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
 
   LIBCLANG_PATH = io-engine.LIBCLANG_PATH;

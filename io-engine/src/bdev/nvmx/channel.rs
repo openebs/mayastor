@@ -15,11 +15,9 @@ use spdk_rs::{
         spdk_io_channel,
         spdk_nvme_ctrlr_alloc_io_qpair,
         spdk_nvme_ctrlr_connect_io_qpair,
-        spdk_nvme_ctrlr_connect_io_qpair_async,
         spdk_nvme_ctrlr_disconnect_io_qpair,
         spdk_nvme_ctrlr_free_io_qpair,
         spdk_nvme_ctrlr_get_default_io_qpair_opts,
-        spdk_nvme_ctrlr_io_qpair_connect_poll_async,
         spdk_nvme_io_qpair_opts,
         spdk_nvme_poll_group,
         spdk_nvme_poll_group_add,
@@ -34,6 +32,15 @@ use spdk_rs::{
     PollerBuilder,
 };
 
+#[cfg(feature = "spdk-async-qpair-connect")]
+use spdk_rs::libspdk::{
+    spdk_nvme_ctrlr_connect_io_qpair_async,
+    spdk_nvme_ctrlr_io_qpair_connect_poll_async,
+};
+
+#[cfg(feature = "spdk-async-qpair-connect")]
+use nix::errno::Errno;
+
 use crate::{
     bdev::{
         device_lookup,
@@ -45,11 +52,9 @@ use crate::{
         },
     },
     core::{BlockDevice, BlockDeviceIoStats, CoreError, IoType},
-    ffihelper::ErrnoResult,
 };
 
 use futures::channel::oneshot;
-use nix::errno::Errno;
 
 #[repr(C)]
 pub struct NvmeIoChannel<'a> {
@@ -126,9 +131,14 @@ impl ToString for QPairState {
 
 #[derive(Debug)]
 pub struct IoQpair {
+    /// TODO
     qpair: NonNull<spdk_nvme_qpair>,
+    /// TODO
     ctrlr_handle: SpdkNvmeController,
+    /// TODO
     state: QPairState,
+    /// Connection waiters for async qpair connection support.
+    #[allow(dead_code)]
     connect_waiters: Vec<oneshot::Sender<Result<(), CoreError>>>,
 }
 
@@ -235,6 +245,7 @@ impl IoQpair {
         status
     }
 
+    #[cfg(feature = "spdk-async-qpair-connect")]
     /// Asynchronously connect qpair.
     pub(crate) async fn connect_async(&mut self) -> Result<(), CoreError> {
         // Check if I/O qpair is already connected to provide idempotency for
@@ -266,7 +277,8 @@ impl IoQpair {
             }
         }
 
-        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
+        let (sender, receiver) =
+            oneshot::channel::<crate::ffihelper::ErrnoResult<()>>();
 
         let connect_arg = Box::into_raw(Box::new(IoQpairConnectContext {
             sender: Some(sender),
@@ -368,11 +380,13 @@ impl IoQpair {
     }
 }
 
+#[cfg(feature = "spdk-async-qpair-connect")]
 struct IoQpairConnectContext<'poller> {
     sender: Option<oneshot::Sender<Result<(), Errno>>>,
     poller: Option<Poller<'poller>>,
 }
 
+#[cfg(feature = "spdk-async-qpair-connect")]
 extern "C" fn qpair_connect_cb(
     qpair: *mut spdk_nvme_qpair,
     cb_ctx: *mut c_void,
