@@ -464,6 +464,7 @@ impl Lvol {
                 }),
         }
     }
+
     /// List All Snapshot.
     pub fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor> {
         let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
@@ -1067,6 +1068,7 @@ impl SnapshotOps for Lvol {
         )
         .await
     }
+
     /// Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> LvolSnapshotIter {
         LvolSnapshotIter::new(self)
