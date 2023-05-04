@@ -37,6 +37,7 @@ Options:
   --skip-publish             Don't publish built images.
   --image           <image>  Specify what image to build.
   --alias-tag       <tag>    Explicit alias for short commit hash tag.
+  --tag             <tag>    Explicit tag (overrides the git tag).
 
 Examples:
   $(basename $0) --registry 127.0.0.1:5000
@@ -96,6 +97,14 @@ while [ "$#" -gt 0 ]; do
       ALIAS=$1
       shift
       ;;
+    --tag)
+      shift
+      if [ "$TAG" != "" ]; then
+        echo "Overriding $TAG with $1"
+      fi
+      TAG=$1
+      shift
+      ;;
     --image)
       shift
       IMAGES="$IMAGES $1"
@@ -134,14 +143,19 @@ fi
 alias_tag=
 if [ -n "$ALIAS" ]; then
   alias_tag=$ALIAS
+  # when alias is created from branch-name we want to keep the hash and have it pushed to CI because
+  # the alias will change daily.
+  OVERRIDE_COMMIT_HASH="true"
 elif [ "$BRANCH" == "develop" ]; then
   alias_tag="$BRANCH"
 elif [ "${BRANCH#release-}" != "${BRANCH}" ]; then
   alias_tag="${BRANCH}"
 fi
 
-if [ -z "$CI" ] && [ -z "$TAG" ] && [ -n "$alias_tag" ]; then
-  OVERRIDE_COMMIT_HASH="true"
+if [ -n "$TAG" ] && [ "$TAG" != "$(get_tag)" ]; then
+  # Set the TAG which basically allows building the binaries as if it were a git tag
+  NIX_TAG_ARGS="--argstr tag $TAG"
+  NIX_BUILD="$NIX_BUILD $NIX_TAG_ARGS"
 fi
 TAG=${TAG:-$HASH}
 if [ -n "$OVERRIDE_COMMIT_HASH" ]; then
@@ -178,7 +192,7 @@ done
 if [ -n "$UPLOAD" ] && [ -z "$SKIP_PUBLISH" ]; then
   # Upload them
   for img in $UPLOAD; do
-    if [ -z "$REGISTRY" ] && [ -z "$OVERRIDE_COMMIT_HASH" ] && dockerhub_tag_exists $image $TAG; then
+    if [ -z "$REGISTRY" ] && [ -n "$CI" ] && dockerhub_tag_exists $image $TAG; then
       echo "Skipping $image:$TAG that already exists"
       continue
     fi

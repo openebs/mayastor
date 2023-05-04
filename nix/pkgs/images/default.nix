@@ -24,8 +24,7 @@
 , img_tag ? ""
 }:
 let
-  versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
-  version = if pkgs.lib.stringLength img_tag == 0 then builtins.readFile "${versionDrv}" else img_tag;
+  version = if img_tag != "" then img_tag else io-engine.version;
   path = lib.makeBinPath [ "/" busybox utillinux ];
 
   # common props for all io-engine images

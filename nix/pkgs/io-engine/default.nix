@@ -23,10 +23,17 @@
 , buildPackages
 , targetPlatform
 , pkgs
+, git
+, tag
 }:
 let
-  version = (builtins.fromTOML (builtins.readFile ../../../io-engine/Cargo.toml)).package.version;
-  project-builder = pkgs.callPackage ./cargo-package.nix { inherit version; };
+  versionDrv = import ../../lib/version.nix { inherit lib stdenv git tag; };
+  versions = {
+    "version" = builtins.readFile "${versionDrv}";
+    "long" = builtins.readFile "${versionDrv.long}";
+    "tag_or_long" = builtins.readFile "${versionDrv.tag_or_long}";
+  };
+  project-builder = pkgs.callPackage ./cargo-package.nix { inherit versions; };
 in
 {
   release = project-builder.release;
