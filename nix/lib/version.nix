@@ -1,4 +1,4 @@
-{ lib, stdenv, git }:
+{ lib, stdenv, git, tag ? "" }:
 let
   whitelistSource = src: allowedPrefixes:
     builtins.filterSource
@@ -12,6 +12,7 @@ in
 stdenv.mkDerivation {
   name = "io-engine-version";
   src = whitelistSource ../../. [ ".git" ];
+  outputs = [ "out" "long" "tag_or_long" ];
 
   # Newer git versions check directory ownership when executing commands.
   # Nix builds in directories with user/group different from the login user,
@@ -25,10 +26,27 @@ stdenv.mkDerivation {
 
   buildCommand = ''
     cd $src
-    vers=$(${git}/bin/git -c safe.directory=$src describe --exact-match 2>/dev/null || echo "")
+    vers=${tag}
+    if [ -z "$vers" ]; then
+      vers=$(${git}/bin/git -c safe.directory=$src describe --exact-match 2>/dev/null || echo "")
+    fi
     if [ -z "$vers" ]; then
       vers=`${git}/bin/git -c safe.directory=$src rev-parse --short=12 HEAD`
     fi
     echo -n $vers >$out
+
+    if [ "${tag}" != "" ]; then
+      vers="${tag}-0-g$(${git}/bin/git -c safe.directory=$src rev-parse --short=12 HEAD)"
+    else
+      vers=$(${git}/bin/git -c safe.directory=$src describe --abbrev=12 --always --long)
+    fi
+    echo -n $vers >$long
+
+    # when we point to a tag, it's just the tag
+    vers=${tag}
+    if [ -z "$vers" ]; then
+        vers=$(${git}/bin/git -c safe.directory=$src describe --abbrev=12 --always)
+    fi
+    echo -n $vers >$tag_or_long
   '';
 }

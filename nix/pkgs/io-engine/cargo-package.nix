@@ -24,10 +24,11 @@
 , targetPackages
 , buildPackages
 , targetPlatform
-, version
+, versions
 , cargoBuildFlags ? [ ]
 }:
 let
+  version = versions.version;
   channel = import ../../lib/rust.nix { inherit sources; };
   rustPlatform = makeRustPlatform {
     rustc = channel.stable;
@@ -41,7 +42,6 @@ let
           allowedPrefixes)
       src;
   src_list = [
-    ".git"
     "Cargo.lock"
     "Cargo.toml"
     "cli"
@@ -61,6 +61,9 @@ let
     LIBCLANG_PATH = "${llvmPackages_11.libclang.lib}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
+
+    GIT_VERSION_LONG = "${versions.long}";
+    GIT_VERSION = "${versions.tag_or_long}";
 
     nativeBuildInputs = [ pkg-config protobuf llvmPackages_11.clang ];
     buildInputs = [
