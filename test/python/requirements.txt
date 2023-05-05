@@ -10,3 +10,4 @@ pytest-testconfig
 pytest-timeout
 pytest-variables
 retrying
+requests==2.25.0
