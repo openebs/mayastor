@@ -158,15 +158,13 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting write IO")
-            == NvmeStatus::Generic(GenericStatusCode::Success)
-        {
-            Ok(buffer.len())
-        } else {
-            Err(CoreError::WriteFailed {
+        match r.await.expect("Failed awaiting write IO") {
+            NvmeStatus::Generic(GenericStatusCode::Success) => Ok(buffer.len()),
+            status => Err(CoreError::WriteFailed {
+                status,
                 offset,
                 len: buffer.len(),
-            })
+            }),
         }
     }
 
@@ -206,7 +204,8 @@ impl<T: BdevOps> BdevHandle<T> {
                 offset,
                 len: buffer.len(),
             }),
-            _ => Err(CoreError::ReadFailed {
+            status => Err(CoreError::ReadFailed {
+                status,
                 offset,
                 len: buffer.len(),
             }),

@@ -2,6 +2,7 @@ use std::{
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
+    sync::atomic::Ordering,
 };
 
 use chrono::{DateTime, Utc};
@@ -12,7 +13,7 @@ use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
-use super::{nexus_lookup_mut, DrEvent};
+use super::{nexus_lookup_mut, DrEvent, IOLog, IOLogChannel};
 
 use crate::{
     bdev::{device_create, device_destroy, device_lookup},
@@ -28,7 +29,7 @@ use crate::{
         VerboseError,
     },
     persistent_store::PersistentStore,
-    rebuild::{RebuildJob, RebuildLog, RebuildLogHandle},
+    rebuild::{RebuildJob, RebuildMap},
 };
 
 use crate::{
@@ -39,6 +40,7 @@ use crate::{
     },
     core::MayastorEnvironment,
 };
+
 use spdk_rs::{
     libspdk::{
         spdk_nvme_registered_ctrlr_extended_data,
@@ -166,6 +168,7 @@ impl FaultReason {
                 | Self::IoError
                 | Self::Offline
                 | Self::AdminCommandFailed
+                | Self::RebuildFailed
         )
     }
 }
@@ -273,7 +276,7 @@ pub struct NexusChild<'c> {
     prev_state: AtomicCell<ChildState>,
     /// last fault timestamp if this child went faulted
     #[serde(skip_serializing)]
-    pub faulted_at: parking_lot::Mutex<Option<DateTime<Utc>>>,
+    faulted_at: parking_lot::Mutex<Option<DateTime<Utc>>>,
     /// TODO
     #[serde(skip_serializing)]
     remove_channel: (async_channel::Sender<()>, async_channel::Receiver<()>),
@@ -289,9 +292,9 @@ pub struct NexusChild<'c> {
     /// TODO
     #[serde(skip_serializing)]
     device_descriptor: Option<Box<dyn BlockDeviceDescriptor>>,
-    /// TODO
+    /// I/O log.
     #[serde(skip_serializing)]
-    rebuild_log: Mutex<Option<RebuildLogHandle>>,
+    io_log: Mutex<Option<IOLog>>,
     /// TODO
     #[serde(skip_serializing)]
     _c: PhantomData<&'c ()>,
@@ -299,13 +302,22 @@ pub struct NexusChild<'c> {
 
 impl Debug for NexusChild<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Determine if the child has an I/O log without locking it.
+        let has_log = unsafe { (*self.io_log.data_ptr()).is_some() };
+
         write!(
             f,
-            "Child '{} @ {}' [{} {}]",
-            self.name,
-            self.parent,
-            self.state(),
-            self.sync_state(),
+            "Child '{name} @ {nexus}' [{st} {sync}{re}{io_log}]",
+            name = self.name,
+            nexus = self.parent,
+            st = self.state(),
+            sync = self.sync_state(),
+            re = if self.is_rebuilding() {
+                "; rebuilding"
+            } else {
+                ""
+            },
+            io_log = if has_log { "; I/O log" } else { "" }
         )
     }
 }
@@ -313,7 +325,7 @@ impl Debug for NexusChild<'_> {
 impl<'c> NexusChild<'c> {
     /// TODO
     fn set_state(&self, state: ChildState) {
-        debug!("{:?}: changing state to '{}'", self, state);
+        debug!("{self:?}: changing state to '{state}'");
         let prev_state = self.state.swap(state);
         self.prev_state.store(prev_state);
     }
@@ -321,7 +333,7 @@ impl<'c> NexusChild<'c> {
     /// Unconditionally sets child's state as faulted with the given reason.
     pub(crate) fn set_faulted_state(&self, reason: FaultReason) {
         self.set_state(ChildState::Faulted(reason));
-        *self.faulted_at.lock() = Some(Utc::now());
+        self.set_fault_timestamp();
     }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
@@ -443,6 +455,11 @@ impl<'c> NexusChild<'c> {
     /// Return the last fault timestamp of the child.
     pub fn fault_timestamp(&self) -> Option<DateTime<Utc>> {
         *self.faulted_at.lock()
+    }
+
+    /// Sets the timestamp of this child fault to `now`.
+    pub(super) fn set_fault_timestamp(&self) {
+        *self.faulted_at.lock() = Some(Utc::now());
     }
 
     /// Determines if the child is opened but out-of-sync (needs rebuild or
@@ -1125,7 +1142,7 @@ impl<'c> NexusChild<'c> {
             prev_state: AtomicCell::new(ChildState::Init),
             faulted_at: parking_lot::Mutex::new(None),
             remove_channel: async_channel::bounded(1),
-            rebuild_log: Mutex::new(None),
+            io_log: Mutex::new(None),
             _c: Default::default(),
         }
     }
@@ -1262,37 +1279,46 @@ impl<'c> NexusChild<'c> {
         }
     }
 
-    /// Creates a new rebuild log, or returns an existing one.
-    pub(super) fn get_or_init_rebuild_log(&self) -> Option<RebuildLogHandle> {
-        let mut lg = self.rebuild_log.lock();
+    /// Creates a new I/O log, if none existed.
+    /// Returns true if a log has been created or already exists, false if I/O
+    /// log is disabled for this child for whatever reason.
+    ///
+    /// I/O log is never created if the child is not fully synced.
+    pub(super) fn start_io_log(&self) -> bool {
+        if !super::ENABLE_PARTIAL_REBUILD.load(Ordering::SeqCst) {
+            return false;
+        }
 
-        if lg.is_none() {
-            *lg = self.device.as_ref().map(|d| {
-                RebuildLogHandle::from(RebuildLog::new(
+        if self.sync_state() == ChildSyncState::OutOfSync {
+            assert!(self.io_log.lock().is_none());
+            return false;
+        }
+
+        let mut io_log = self.io_log.lock();
+
+        if io_log.is_none() {
+            if let Some(d) = &self.device {
+                *io_log = Some(IOLog::new(
                     &d.device_name(),
                     d.num_blocks(),
                     d.block_len(),
-                ))
-            });
+                ));
 
-            if lg.is_some() {
-                debug!(
-                    "{self:?}: started new rebuild log: {log:?}",
-                    log = lg.as_ref().unwrap()
-                );
+                debug!("{self:?}: started new I/O log: {log:?}", log = *io_log);
             }
         }
 
-        lg.clone()
+        io_log.is_some()
     }
 
-    /// Drops the rebuild log.
-    pub(super) fn drop_rebuild_log(&self) {
-        *self.rebuild_log.lock() = None;
+    /// Stops the I/O log and returns a map of segments to be rebuilt.
+    pub(super) fn stop_io_log(&self) -> Option<RebuildMap> {
+        debug!("{self:?}: stopping I/O log and creating rebuild map");
+        self.io_log.lock().take().map(|log| log.finalize())
     }
 
-    /// Returns child's rebuild log.
-    pub(super) fn rebuild_log(&self) -> Option<RebuildLogHandle> {
-        self.rebuild_log.lock().clone()
+    /// Returns I/O log channel for the current core.
+    pub(super) fn io_log_channel(&self) -> Option<IOLogChannel> {
+        self.io_log.lock().as_ref().map(|log| log.current_channel())
     }
 }

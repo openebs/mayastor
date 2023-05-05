@@ -14,7 +14,7 @@ use common::{
         Builder,
         ComposeTest,
     },
-    file_io::BufferSize,
+    file_io::DataSize,
     nexus::{test_write_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
@@ -147,9 +147,14 @@ async fn test_injection_uri(inj_part: &str) {
     assert_eq!(&lst[0].device_name, dev_name);
 
     // Write less than pool size.
-    test_write_to_nexus(&nex_0, 0, 30, BufferSize::Mb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        30,
+        DataSize::from_mb(1),
+    )
+    .await
+    .unwrap();
 
     //
     let children = nex_0.get_nexus().await.unwrap().children;
@@ -206,9 +211,14 @@ async fn nexus_fault_injection_time_based() {
     assert_eq!(&lst[0].device_name, dev_name);
 
     // Write some data. Injection is not yet active.
-    test_write_to_nexus(&nex_0, 0, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Online as i32);
 
@@ -216,9 +226,14 @@ async fn nexus_fault_injection_time_based() {
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Write again. Now the child must fail.
-    test_write_to_nexus(&nex_0, 0, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Faulted as i32);
 
@@ -233,9 +248,14 @@ async fn nexus_fault_injection_time_based() {
         .unwrap();
 
     // Write again. Now since the injection time ended, it must not fail.
-    test_write_to_nexus(&nex_0, 0, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Online as i32);
 }
@@ -269,16 +289,26 @@ async fn nexus_fault_injection_range_based() {
     assert_eq!(&lst[0].device_name, dev_name);
 
     // Write two blocks from 0 offset. It must not fail.
-    test_write_to_nexus(&nex_0, 0, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_bytes(0),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Online as i32);
 
     // Write at offset 128. Now the child must fail.
-    test_write_to_nexus(&nex_0, 128 * 512, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_blocks(128, 512),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Faulted as i32);
 
@@ -294,16 +324,26 @@ async fn nexus_fault_injection_range_based() {
     tokio::time::sleep(Duration::from_millis(4000)).await;
 
     // Write at offset 128 + 16. It must not fail.
-    test_write_to_nexus(&nex_0, 144 * 512, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_blocks(144, 512),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Online as i32);
 
     // Write at offset 128 + 15. It must fail.
-    test_write_to_nexus(&nex_0, 143 * 512, 1, BufferSize::Kb(1))
-        .await
-        .unwrap();
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_blocks(143, 512),
+        1,
+        DataSize::from_kb(1),
+    )
+    .await
+    .unwrap();
 
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Faulted as i32);

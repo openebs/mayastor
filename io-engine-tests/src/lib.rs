@@ -522,3 +522,22 @@ where
 pub fn generate_uuid() -> String {
     spdk_rs::Uuid::generate().to_string()
 }
+
+/// Diagnostics println! that prints timestamp and thread ID.
+#[macro_export]
+macro_rules! test_diag {
+    ($($arg:tt)*) => {{
+        const PREFIX: &str = "ThreadId(";
+        let ts = format!("{:?}", std::thread::current().id());
+        let ts = if ts.len() > PREFIX.len() && ts.starts_with(PREFIX) {
+            &ts[PREFIX.len()..ts.len() - 1]
+        } else {
+            &ts
+        };
+        print!(
+            "[{ts}] {n} :: ",
+            n = chrono::Utc::now().format("%T%.6f")
+        );
+        println!($($arg)*);
+    }}
+}

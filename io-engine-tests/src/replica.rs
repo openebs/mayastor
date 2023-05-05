@@ -120,7 +120,7 @@ impl ReplicaBuilder {
 
     pub fn nvmf_location(&self) -> NvmfLocation {
         NvmfLocation {
-            addr: self.rpc().borrow().endpoint,
+            addr: self.rpc().endpoint(),
             nqn: self.nqn(),
             serial: self.serial(),
         }
@@ -128,7 +128,8 @@ impl ReplicaBuilder {
 
     pub async fn create(&mut self) -> Result<Replica, Status> {
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .replica
             .create_replica(CreateReplicaRequest {
                 name: self.name(),
@@ -149,7 +150,8 @@ impl ReplicaBuilder {
             .clone()
             .map(destroy_replica_request::Pool::PoolUuid);
         self.rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .replica
             .destroy_replica(DestroyReplicaRequest {
                 uuid: self.uuid(),
@@ -162,7 +164,8 @@ impl ReplicaBuilder {
     pub async fn share(&mut self) -> Result<Replica, Status> {
         let r = self
             .rpc()
-            .borrow_mut()
+            .lock()
+            .await
             .replica
             .share_replica(ShareReplicaRequest {
                 uuid: self.uuid(),
@@ -193,7 +196,8 @@ impl ReplicaBuilder {
 pub async fn list_replicas(
     rpc: SharedRpcHandle,
 ) -> Result<Vec<Replica>, Status> {
-    rpc.borrow_mut()
+    rpc.lock()
+        .await
         .replica
         .list_replicas(ListReplicaOptions {
             name: None,
@@ -203,6 +207,28 @@ pub async fn list_replicas(
         })
         .await
         .map(|r| r.into_inner().replicas)
+}
+
+pub async fn find_replica_by_uuid(
+    rpc: SharedRpcHandle,
+    uuid: &str,
+) -> Result<Replica, Status> {
+    rpc.lock()
+        .await
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: Some(uuid.to_owned()),
+            pooluuid: None,
+        })
+        .await
+        .map(|r| r.into_inner().replicas)?
+        .into_iter()
+        .find(|n| n.uuid == uuid)
+        .ok_or_else(|| {
+            Status::new(Code::NotFound, format!("Replica '{uuid}' not found"))
+        })
 }
 
 /// Reads all given replicas and checks if all them contain the same data.

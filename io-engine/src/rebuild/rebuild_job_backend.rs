@@ -19,7 +19,7 @@ use super::{
     rebuild_error::{BdevInvalidUri, BdevNotFound, NoCopyBuffer},
     RebuildDescriptor,
     RebuildError,
-    RebuildLogHandle,
+    RebuildMap,
     RebuildState,
     RebuildStates,
     RebuildStats,
@@ -42,7 +42,9 @@ pub(super) enum RebuildJobRequest {
     /// Wake up the rebuild backend to check for latest state information.
     WakeUp,
     /// Get the rebuild stats from the backend.
-    Stats(oneshot::Sender<RebuildStats>),
+    GetStats(oneshot::Sender<RebuildStats>),
+    /// Set rebuild map for this job.
+    SetRebuildMap((RebuildMap, oneshot::Sender<()>)),
 }
 
 /// Channel to share information between frontend and backend.
@@ -147,7 +149,6 @@ impl RebuildJobBackend {
         src_uri: &str,
         dst_uri: &str,
         range: std::ops::Range<u64>,
-        rebuild_log: Option<RebuildLogHandle>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         let src_descriptor = device_open(
@@ -207,7 +208,6 @@ impl RebuildJobBackend {
                 buffer: copy_buffer,
                 sender: tasks.channel.0.clone(),
                 error: None,
-                rebuild_log: rebuild_log.clone(),
             });
         }
 
@@ -242,7 +242,7 @@ impl RebuildJobBackend {
                 dst_descriptor,
                 nexus_descriptor,
                 start_time: Utc::now(),
-                rebuild_log,
+                rebuild_map: Arc::new(parking_lot::Mutex::new(None)),
             }),
             serial,
         };
@@ -268,6 +268,26 @@ impl RebuildJobBackend {
         Ok(())
     }
 
+    /// Sets rebuild map for this job.
+    async fn set_rebuild_map(
+        &mut self,
+        map: RebuildMap,
+        s: oneshot::Sender<()>,
+    ) -> Result<(), RebuildError> {
+        {
+            let mut g = self.descriptor.rebuild_map.lock();
+            if g.is_some() {
+                error!("{self}: rebuild map is already set");
+            } else {
+                *g = Some(map);
+                debug!("{self}: set rebuild map");
+            }
+        }
+
+        s.send(()).ok();
+        Ok(())
+    }
+
     /// Moves the rebuild job runner and runs until completion.
     pub(super) async fn schedule(self) {
         let mut job = self;
@@ -281,8 +301,11 @@ impl RebuildJobBackend {
             if !self.state().running() {
                 match self.info_chan.recv().await {
                     Ok(RebuildJobRequest::WakeUp) => {}
-                    Ok(RebuildJobRequest::Stats(reply)) => {
+                    Ok(RebuildJobRequest::GetStats(reply)) => {
                         self.reply_stats(reply).await.ok();
+                    }
+                    Ok(RebuildJobRequest::SetRebuildMap((map, s))) => {
+                        self.set_rebuild_map(map, s).await.ok();
                     }
                     Err(error) => {
                         self.fail_with(error);
@@ -298,8 +321,11 @@ impl RebuildJobBackend {
                 futures::select! {
                     message = recv.next() => match message {
                         Some(RebuildJobRequest::WakeUp) => { }
-                        Some(RebuildJobRequest::Stats(reply)) => {
+                        Some(RebuildJobRequest::GetStats(reply)) => {
                             self.reply_stats(reply).await.ok();
+                        }
+                        Some(RebuildJobRequest::SetRebuildMap((map, s))) => {
+                            self.set_rebuild_map(map, s).await.ok();
                         }
                         None => {
                             // The frontend is gone (dropped), this should not happen, but let's
@@ -424,10 +450,11 @@ impl RebuildJobBackend {
 
         let blocks_remaining = self
             .descriptor
-            .rebuild_log
+            .rebuild_map
+            .lock()
             .as_ref()
             .map_or(blocks_total - blocks_recovered, |log| {
-                log.count_modified_blocks()
+                log.count_dirty_blks()
             });
 
         let progress = (blocks_recovered * 100) / blocks_total;
@@ -435,7 +462,7 @@ impl RebuildJobBackend {
 
         RebuildStats {
             start_time: self.descriptor.start_time,
-            is_partial: self.descriptor.rebuild_log.is_some(),
+            is_partial: self.descriptor.rebuild_map.lock().is_some(),
             blocks_total,
             blocks_recovered,
             blocks_transferred,
@@ -547,6 +574,7 @@ impl RebuildJobBackend {
                 return;
             }
         }
+
         debug!("{self}: finished awaiting all tasks");
     }
 

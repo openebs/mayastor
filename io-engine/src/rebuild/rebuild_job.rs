@@ -1,21 +1,25 @@
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Range,
+    sync::{Arc, Weak},
+};
 
 use chrono::Utc;
 use futures::channel::oneshot;
 use once_cell::sync::OnceCell;
+use spdk_rs::Thread;
 
 use super::{
     HistoryRecord,
     RebuildError,
     RebuildJobBackend,
     RebuildJobRequest,
-    RebuildLogHandle,
+    RebuildMap,
     RebuildState,
     RebuildStates,
     RebuildStats,
 };
 use crate::core::{Reactors, VerboseError};
-use spdk_rs::Thread;
 
 /// Operations used to control the state of the job.
 #[derive(Debug)]
@@ -63,8 +67,7 @@ pub struct RebuildJob {
     /// Channel used to Notify rebuild updates when the state changes.
     notify_chan: crossbeam::channel::Receiver<RebuildState>,
     /// Channel used to Notify when rebuild completes.
-    complete_chan:
-        std::sync::Weak<parking_lot::Mutex<Vec<oneshot::Sender<RebuildState>>>>,
+    complete_chan: Weak<parking_lot::Mutex<Vec<oneshot::Sender<RebuildState>>>>,
 }
 
 impl RebuildJob {
@@ -77,7 +80,6 @@ impl RebuildJob {
         src_uri: &str,
         dst_uri: &str,
         range: Range<u64>,
-        rebuild_log: Option<RebuildLogHandle>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         // Allocate an instance of the rebuild back-end.
@@ -86,7 +88,6 @@ impl RebuildJob {
             src_uri,
             dst_uri,
             range.clone(),
-            rebuild_log,
             notify_fn,
         )
         .await?;
@@ -164,9 +165,24 @@ impl RebuildJob {
 
     /// Schedules the job to start in a future and returns a complete channel
     /// which can be waited on.
-    pub fn start(
+    pub(crate) async fn start(
         &self,
+        map: Option<RebuildMap>,
     ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
+        if let Some(map) = map {
+            let (s, r) = oneshot::channel();
+            self.comms
+                .send(RebuildJobRequest::SetRebuildMap((map, s)))
+                .await
+                .ok();
+            if let Err(e) = r.await {
+                error!(
+                    "{uri}: failed to set rebuild map: {e}",
+                    uri = self.dst_uri
+                );
+            }
+        }
+
         self.exec_client_op(RebuildOperation::Start)?;
         self.add_completion_listener()
     }
@@ -199,7 +215,7 @@ impl RebuildJob {
     /// Get the rebuild stats.
     pub async fn stats(&self) -> RebuildStats {
         let (s, r) = oneshot::channel::<RebuildStats>();
-        self.comms.send(RebuildJobRequest::Stats(s)).await.ok();
+        self.comms.send(RebuildJobRequest::GetStats(s)).await.ok();
         match r.await {
             Ok(stats) => stats,
             Err(_) => match self.final_stats() {
