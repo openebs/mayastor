@@ -1,5 +1,5 @@
+use crate::lvs::Lvol;
 use async_trait::async_trait;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
@@ -83,11 +83,12 @@ impl SnapshotXattrs {
 pub trait SnapshotOps {
     type Error;
     type SnapshotIter;
+
     /// Create Snapshot Common API.
     async fn create_snapshot(
         &self,
         snap_param: SnapshotParams,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<Option<Lvol>, Self::Error>;
 
     // Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> Self::SnapshotIter;

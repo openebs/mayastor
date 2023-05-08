@@ -405,13 +405,14 @@ impl Lvol {
 
         Ok(())
     }
+
     async fn do_create_snapshot(
         &self,
         snap_param: SnapshotParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
         done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: Option<oneshot::Receiver<i32>>,
-    ) -> Result<(), Error> {
+        receiver: Option<oneshot::Receiver<(i32, Lvol)>>,
+    ) -> Result<Option<Lvol>, Error> {
         let bdev_handle = device_open(self.as_bdev().name(), false)
             .unwrap()
             .into_handle()
@@ -454,17 +455,20 @@ impl Lvol {
 
         // Wait till operation succeeds, if requested.
         match receiver {
-            None => Ok(()),
-            Some(r) => r
-                .await
-                .expect("Snapshot done callback disappeared")
-                .to_result(|error| Error::SnapshotCreate {
-                    source: Errno::from_i32(error),
-                    msg: c_snapshot_name.into_string().unwrap(),
-                }),
+            None => Ok(None),
+            Some(receiver) => {
+                let (error, lvol) =
+                    receiver.await.expect("Snapshot done callback disappeared");
+                match error {
+                    0 => Ok(Some(lvol)),
+                    _ => Err(Error::SnapshotCreate {
+                        source: Errno::from_i32(error),
+                        msg: c_snapshot_name.into_string().unwrap(),
+                    }),
+                }
+            }
         }
     }
-
     /// List All Snapshot.
     pub fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor> {
         let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
@@ -1041,34 +1045,39 @@ impl LvsLvol for Lvol {
 impl SnapshotOps for Lvol {
     type Error = Error;
     type SnapshotIter = LvolSnapshotIter;
+
     /// Create Snapshot Common API for Local Device.
     async fn create_snapshot(
         &self,
         snap_param: SnapshotParams,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Lvol>, Error> {
         extern "C" fn snapshot_create_done_cb(
             arg: *mut c_void,
-            _lvol_ptr: *mut spdk_lvol,
+            lvol_ptr: *mut spdk_lvol,
             errno: i32,
         ) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
+            let s = unsafe {
+                Box::from_raw(arg as *mut oneshot::Sender<(i32, Lvol)>)
+            };
             if errno != 0 {
                 error!("vbdev_lvol_create_snapshot failed errno {}", errno);
             }
-            s.send(errno).ok();
+            let lvol = Lvol::from_inner_ptr(lvol_ptr);
+            s.send((errno, lvol)).ok();
         }
 
-        let (s, r) = oneshot::channel::<i32>();
+        let (s, r) = oneshot::channel::<(i32, Lvol)>();
 
-        self.do_create_snapshot(
-            snap_param,
-            snapshot_create_done_cb,
-            cb_arg(s),
-            Some(r),
-        )
-        .await
+        let create_snap_result = self
+            .do_create_snapshot(
+                snap_param,
+                snapshot_create_done_cb,
+                cb_arg(s),
+                Some(r),
+            )
+            .await;
+        create_snap_result
     }
-
     /// Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> LvolSnapshotIter {
         LvolSnapshotIter::new(self)

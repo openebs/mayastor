@@ -487,13 +487,15 @@ impl ReplicaRpc for ReplicaService {
                         };
                     // create snapshot
                     match lvol.create_snapshot(snap_config.clone()).await {
-                        Ok(()) => {
-                            info!("Create Snapshot Success for {lvol:?}");
+                        Ok(Some(snap_lvol)) => {
+                            info!("Create Snapshot Success for {lvol:?}, {snap_lvol:?}");
                             Ok(CreateReplicaSnapshotResponse {
-                                snapshot_uuid: snap_config
-                                    .txn_id()
-                                    .unwrap_or_default(),
+                                replica: Some(lvol.into()),
+                                snapshot_uuid: snap_lvol.uuid()
                             })
+                        }
+                        Ok(None) => {
+                            todo!("Replica Snapshot will not hit this path");
                         }
                         Err(e) => {
                             error!(
