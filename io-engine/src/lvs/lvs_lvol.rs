@@ -1,17 +1,17 @@
-use std::{
-    convert::TryFrom,
-    ffi::{c_void, CStr},
-    fmt::{Debug, Display},
-    os::raw::c_char,
-    pin::Pin,
-    ptr::NonNull,
-};
-
 use async_trait::async_trait;
 use byte_unit::Byte;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
+
+use std::{
+    convert::TryFrom,
+    ffi::{c_ushort, c_void, CStr, CString},
+    fmt::{Debug, Display},
+    os::raw::c_char,
+    pin::Pin,
+    ptr::NonNull,
+};
 
 use spdk_rs::libspdk::{
     spdk_blob,
@@ -25,7 +25,8 @@ use spdk_rs::libspdk::{
     spdk_bs_get_cluster_size,
     spdk_bs_iter_next,
     spdk_lvol,
-    vbdev_lvol_create_snapshot,
+    spdk_xattr_descriptor,
+    vbdev_lvol_create_snapshot_ext,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVS_CLEAR_WITH_UNMAP,
@@ -35,7 +36,7 @@ use spdk_rs::libspdk::{
 use super::{Error, Lvs};
 
 use crate::{
-    bdev::PtplFileOps,
+    bdev::{device_open, PtplFileOps},
     core::{
         logical_volume::LogicalVolume,
         snapshot::SnapshotDescriptor,
@@ -46,6 +47,7 @@ use crate::{
         ShareProps,
         SnapshotOps,
         SnapshotParams,
+        SnapshotXattrs,
         UntypedBdev,
         UpdateProps,
     },
@@ -60,7 +62,8 @@ use crate::{
     lvs::LvolSnapshotIter,
     subsys::NvmfReq,
 };
-use spdk_rs::libspdk::spdk_nvmf_request_complete;
+
+use strum::{EnumCount, IntoEnumIterator};
 
 // Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
 pub(crate) const WIPE_SUPER_LEN: u64 = (1 << 20) * 8;
@@ -348,6 +351,119 @@ impl Lvol {
     pub(crate) fn ptpl(&self) -> impl PtplFileOps {
         LvolPtpl::from(self)
     }
+
+    /// TODO:
+    fn prepare_snapshot_xattrs(
+        &self,
+        attr_descrs: &mut [spdk_xattr_descriptor; SnapshotXattrs::COUNT],
+        params: SnapshotParams,
+        cstrs: &mut Vec<CString>,
+    ) -> Result<(), Error> {
+        for (idx, attr) in SnapshotXattrs::iter().enumerate() {
+            // Get attribute value from snapshot params.
+            let av = match attr {
+                SnapshotXattrs::TxId => match params.txn_id() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "txn id not provided".to_string(),
+                        })
+                    }
+                },
+                SnapshotXattrs::EntityId => match params.entity_id() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "entity id not provided".to_string(),
+                        })
+                    }
+                },
+                SnapshotXattrs::ParentId => match params.parent_id() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "parent id not provided".to_string(),
+                        })
+                    }
+                },
+            };
+
+            let attr_name = attr.name().to_string().into_cstring();
+            let attr_val = av.into_cstring();
+
+            attr_descrs[idx].name = attr_name.as_ptr() as *mut c_char;
+            attr_descrs[idx].value = attr_val.as_ptr() as *mut c_void;
+            attr_descrs[idx].value_len = attr_val.to_bytes().len() as c_ushort;
+
+            cstrs.push(attr_val);
+            cstrs.push(attr_name);
+        }
+
+        Ok(())
+    }
+
+    async fn do_create_snapshot(
+        &self,
+        snap_param: SnapshotParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+        receiver: Option<oneshot::Receiver<i32>>,
+    ) -> Result<(), Error> {
+        let bdev_handle = device_open(self.as_bdev().name(), false)
+            .unwrap()
+            .into_handle()
+            .unwrap();
+        match bdev_handle.flush_io().await {
+            Ok(_) => info!("Flush is Success for lvol: {:?}", self),
+            Err(e) => {
+                return Err(Error::FlushFailed {
+                    name: format!("{self:?}, internal_err {e}"),
+                })
+            }
+        }
+
+        let mut attr_descrs: [spdk_xattr_descriptor; SnapshotXattrs::COUNT] =
+            [spdk_xattr_descriptor::default(); SnapshotXattrs::COUNT];
+
+        // Vector to keep allocated CStrings before snapshot  creation
+        // is complete to guarantee validity of attribute buffers
+        // stored inside CStrings.
+        let mut cstrs: Vec<CString> = Vec::new();
+
+        self.prepare_snapshot_xattrs(
+            &mut attr_descrs,
+            snap_param.clone(),
+            &mut cstrs,
+        )?;
+
+        let c_snapshot_name = snap_param.name().unwrap().into_cstring();
+
+        unsafe {
+            vbdev_lvol_create_snapshot_ext(
+                self.as_inner_ptr(),
+                c_snapshot_name.as_ptr(),
+                attr_descrs.as_mut_ptr(),
+                SnapshotXattrs::COUNT as u32,
+                Some(done_cb),
+                done_cb_arg,
+            )
+        };
+
+        // Wait till operation succeeds, if requested.
+        match receiver {
+            None => Ok(()),
+            Some(r) => r
+                .await
+                .expect("Snapshot done callback disappeared")
+                .to_result(|error| Error::SnapshotCreate {
+                    source: Errno::from_i32(error),
+                    msg: c_snapshot_name.into_string().unwrap(),
+                }),
+        }
+    }
 }
 
 struct LvolPtpl {
@@ -438,7 +554,7 @@ pub trait LvsLvol: LogicalVolume + Share {
     async fn create_snapshot_remote(
         &self,
         nvmf_req: &NvmfReq,
-        snapshot_name: &str,
+        snapshot_params: SnapshotParams,
     );
     /// Callback is executed when blobstore fetching is done using spdk api.
     extern "C" fn blob_op_complete_cb(
@@ -741,7 +857,7 @@ impl LvsLvol for Lvol {
     async fn create_snapshot_remote(
         &self,
         nvmf_req: &NvmfReq,
-        snapshot_name: &str,
+        snapshot_params: SnapshotParams,
     ) {
         extern "C" fn snapshot_done_cb(
             nvmf_req_ptr: *mut c_void,
@@ -749,35 +865,38 @@ impl LvsLvol for Lvol {
             errno: i32,
         ) {
             let nvmf_req = NvmfReq::from(nvmf_req_ptr);
-            let mut rsp = nvmf_req.response();
-            let nvme_status = rsp.status();
 
-            nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
-            nvme_status.set_sc(match errno {
+            let sc = match errno {
                 0 => 0,
                 _ => {
-                    error!("vbdev_lvol_create_snapshot errno {}", errno);
+                    error!("vbdev_lvol_create_snapshot_ext errno {}", errno);
                     0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
                 }
-            });
-
-            // From nvmf_bdev_ctrlr_complete_cmd
-            unsafe {
-                spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
-            }
+            };
+            nvmf_req.complete(sc);
         }
 
-        let c_snapshot_name = snapshot_name.into_cstring();
-        unsafe {
-            vbdev_lvol_create_snapshot(
-                self.as_inner_ptr(),
-                c_snapshot_name.as_ptr(),
-                Some(snapshot_done_cb),
-                nvmf_req.0.as_ptr().cast(),
-            )
-        };
+        info!(
+            volume = self.name(),
+            ?snapshot_params,
+            "Creating a remote snapshot"
+        );
 
-        info!("{:?}: creating snapshot '{}'", self, snapshot_name);
+        if let Err(error) = self
+            .do_create_snapshot(
+                snapshot_params,
+                snapshot_done_cb,
+                nvmf_req.0.as_ptr().cast(),
+                None,
+            )
+            .await
+        {
+            error!(
+                ?error,
+                volume = self.name(),
+                "Failed to create remote snapshot"
+            );
+        }
     }
 
     /// Blobstore Common Callback function.
@@ -854,25 +973,46 @@ impl SnapshotOps for Lvol {
             s.send(errno).ok();
         }
 
-        let c_snapshot_name = snap_param.name().unwrap().into_cstring();
         let (s, r) = oneshot::channel::<i32>();
-        unsafe {
-            vbdev_lvol_create_snapshot(
-                self.as_inner_ptr(),
-                c_snapshot_name.as_ptr(),
-                Some(snapshot_create_done_cb),
-                cb_arg(s),
-            )
-        };
-        r.await
-            .expect("snapshot_create_done_cb")
-            .to_result(|error| Error::SnapshotCreate {
-                source: Errno::from_i32(error),
-                msg: c_snapshot_name.into_string().unwrap(),
-            })
+
+        self.do_create_snapshot(
+            snap_param,
+            snapshot_create_done_cb,
+            cb_arg(s),
+            Some(r),
+        )
+        .await
     }
     /// Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> LvolSnapshotIter {
         LvolSnapshotIter::new(self)
+    }
+    /// Prepare Snapshot Config for Block/Nvmf Device, before snapshot create.
+    fn prepare_snap_config(
+        &self,
+        snap_name: &str,
+        txn_id: &str,
+    ) -> Option<SnapshotParams> {
+        let snap_name = if snap_name.is_empty() {
+            return None;
+        } else {
+            snap_name.to_string()
+        };
+        let txn_id = if txn_id.is_empty() {
+            return None;
+        } else {
+            txn_id.to_string()
+        };
+        // Entity Id will be same as lvol uuid for the replica snapshot.
+        let entity_id = Some(self.uuid());
+        // Current Lvol uuid is the parent for the snapshot.
+        let parent_id = Some(self.uuid());
+
+        Some(SnapshotParams::new(
+            entity_id,
+            parent_id,
+            Some(txn_id),
+            Some(snap_name),
+        ))
     }
 }

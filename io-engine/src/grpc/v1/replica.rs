@@ -3,10 +3,12 @@ use crate::{
     bdev_api::BdevError,
     core::{
         logical_volume::LogicalVolume,
+        snapshot::SnapshotDescriptor,
         Bdev,
         Protocol,
         Share,
         ShareProps,
+        SnapshotOps,
         UntypedBdev,
         UpdateProps,
     },
@@ -417,6 +419,69 @@ impl ReplicaRpc for ReplicaService {
                             },
                             name: args.uuid,
                         }),
+                    }
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+    #[named]
+    async fn create_replica_snapshot(
+        &self,
+        request: Request<CreateReplicaSnapshotRequest>,
+    ) -> GrpcResult<CreateReplicaSnapshotResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit(async move {
+                    let lvol = match UntypedBdev::lookup_by_uuid_str(
+                        &args.replica_uuid,
+                    ) {
+                        Some(bdev) => Lvol::try_from(bdev)?,
+                        None => {
+                            return Err(LvsError::Invalid {
+                                source: Errno::ENOENT,
+                                msg: format!(
+                                    "Replica {} not found",
+                                    args.replica_uuid
+                                ),
+                            })
+                        }
+                    };
+                    // prepare snap config and flush IO before taking snapshot.
+                    let snap_config =
+                        match lvol.prepare_snap_config(
+                            &args.snapshot_name,
+                            &args.txn_id
+                        ) {
+                            Some(snap_config) => snap_config,
+                            None => return Err(LvsError::SnapshotConfigFailed {
+                                name: args.replica_uuid,
+                                msg: "tx id / snapshot name not provided".to_string(),
+                            })
+                        };
+                    // create snapshot
+                    match lvol.create_snapshot(snap_config.clone()).await {
+                        Ok(()) => {
+                            info!("Create Snapshot Success for lvol: {lvol:?}");
+                            Ok(CreateReplicaSnapshotResponse {
+                                snapshot_uuid: snap_config
+                                    .txn_id()
+                                    .unwrap_or_default(),
+                            })
+                        }
+                        Err(e) => {
+                            error!(
+                                "Create Snapshot Failed for lvol: {lvol:?} with Error: {e:?}",
+                            );
+                            Err(e)
+                        }
                     }
                 })?;
                 rx.await

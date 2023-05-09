@@ -1,10 +1,11 @@
 use io_engine::{
     bdev::nexus::nexus_create,
-    core::{CoreError, MayastorCliArgs, UntypedBdevHandle},
+    core::{CoreError, MayastorCliArgs, SnapshotParams, UntypedBdevHandle},
     lvs::{Lvol, Lvs},
     pool_backend::PoolArgs,
 };
 use tracing::info;
+use uuid::Uuid;
 
 pub mod common;
 use common::{
@@ -171,9 +172,18 @@ async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
 }
 
 async fn create_snapshot() -> Result<u64, CoreError> {
+    // TODO: fill all the fields properly once nexus-level
+    // snapshots are fully implemented.
+    let snapshot = SnapshotParams::new(
+        Some(NXNAME.to_string()),
+        Some(NXNAME.to_string()),
+        Some(Uuid::new_v4().to_string()), // unique tx id
+        Some(Uuid::new_v4().to_string()), // unique snapshot name
+    );
+
     let h = UntypedBdevHandle::open(NXNAME, true, false).unwrap();
     let t = h
-        .create_snapshot()
+        .create_snapshot(snapshot)
         .await
         .expect("failed to create snapshot");
     Ok(t)

@@ -114,4 +114,18 @@ pub enum Error {
         source: Errno,
         msg: String,
     },
+
+    #[snafu(display("Flush Failed for replica {}", name))]
+    FlushFailed {
+        name: String,
+    },
+    #[snafu(display(
+        "Snapshot parameters for replica {} is not correct: {}",
+        name,
+        msg
+    ))]
+    SnapshotConfigFailed {
+        name: String,
+        msg: String,
+    },
 }

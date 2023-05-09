@@ -1,13 +1,16 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
 /// Snapshot Captures all the Snapshot information for Lvol.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotParams {
     entity_id: Option<String>,
     parent_id: Option<String>,
     txn_id: Option<String>,
     snap_name: Option<String>,
 }
+
 /// Implement Snapshot Common Function.
 impl SnapshotParams {
     pub fn new(
@@ -25,6 +28,24 @@ impl SnapshotParams {
     }
 }
 
+/// Snapshot attributes used to store its properties.
+#[derive(Debug, EnumCountMacro, EnumIter)]
+pub enum SnapshotXattrs {
+    TxId,
+    EntityId,
+    ParentId,
+}
+
+impl SnapshotXattrs {
+    pub fn name(&self) -> &'static str {
+        match *self {
+            Self::TxId => "mayastor.tx_id",
+            Self::EntityId => "mayastor.entity_id",
+            Self::ParentId => "mayastor.parent_id",
+        }
+    }
+}
+
 ///  Traits gives the common snapshot/clone interface for Local/Remote Lvol.
 #[async_trait(?Send)]
 pub trait SnapshotOps {
@@ -38,6 +59,13 @@ pub trait SnapshotOps {
 
     // Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> Self::SnapshotIter;
+
+    /// Prepare Snapshot Config for Block/Nvmf Device, before snapshot create.
+    fn prepare_snap_config(
+        &self,
+        snap_name: &str,
+        txn_id: &str,
+    ) -> Option<SnapshotParams>;
 }
 
 /// Traits gives the Snapshots Related Parameters.
