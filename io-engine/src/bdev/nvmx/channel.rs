@@ -646,7 +646,7 @@ impl IoStatsController {
                 self.io_stats.num_unmap_ops += num_ops;
                 self.io_stats.bytes_unmapped += num_blocks;
             }
-            IoType::WriteZeros => {}
+            IoType::WriteZeros | IoType::Flush => {}
             _ => {
                 warn!("Unsupported I/O type for I/O statistics: {:?}", op);
             }

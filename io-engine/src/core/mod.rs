@@ -163,6 +163,10 @@ pub enum CoreError {
     ResetDispatch {
         source: Errno,
     },
+    #[snafu(display("Failed to dispatch flush: {}", source))]
+    FlushDispatch {
+        source: Errno,
+    },
     #[snafu(display(
         "Failed to dispatch NVMe Admin command {:x}h: {}",
         opcode,

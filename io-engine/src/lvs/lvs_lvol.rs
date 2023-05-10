@@ -36,7 +36,7 @@ use spdk_rs::libspdk::{
 use super::{Error, Lvs};
 
 use crate::{
-    bdev::{device_open, PtplFileOps},
+    bdev::PtplFileOps,
     core::{
         logical_volume::LogicalVolume,
         snapshot::SnapshotDescriptor,
@@ -412,19 +412,6 @@ impl Lvol {
         done_cb_arg: *mut ::std::os::raw::c_void,
         receiver: Option<oneshot::Receiver<i32>>,
     ) -> Result<(), Error> {
-        let bdev_handle = device_open(self.as_bdev().name(), false)
-            .unwrap()
-            .into_handle()
-            .unwrap();
-        match bdev_handle.flush_io().await {
-            Ok(_) => info!("Flush is Success for lvol: {:?}", self),
-            Err(e) => {
-                return Err(Error::FlushFailed {
-                    name: format!("{self:?}, internal_err {e}"),
-                })
-            }
-        }
-
         let mut attr_descrs: [spdk_xattr_descriptor; SnapshotXattrs::COUNT] =
             [spdk_xattr_descriptor::default(); SnapshotXattrs::COUNT];
 
@@ -441,6 +428,8 @@ impl Lvol {
 
         let c_snapshot_name = snap_param.name().unwrap().into_cstring();
 
+        // No need to flush blob's buffers explicitly as SPDK always
+        // synchronizes blob when taking a snapshot.
         unsafe {
             vbdev_lvol_create_snapshot_ext(
                 self.as_inner_ptr(),

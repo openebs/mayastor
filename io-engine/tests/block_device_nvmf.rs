@@ -311,6 +311,70 @@ fn check_io_stats(reads: u64, writes: u64) {
 }
 
 #[tokio::test]
+async fn nvmf_flush_io() {
+    let ms = get_ms();
+    let (_test, url) = launch_instance().await;
+    let u = url.clone();
+
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
+    fn flush_completion_callback(
+        device: &dyn BlockDevice,
+        status: IoCompletionStatus,
+        _ctx: *mut c_void,
+    ) {
+        assert_eq!(
+            status,
+            IoCompletionStatus::Success,
+            "Flush operation failed"
+        );
+
+        flag_callback_invocation();
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+    }
+
+    clear_callback_invocation_flag();
+
+    let _ptr = ms
+        .spawn(async move {
+            let name = device_create(&url).await.unwrap();
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
+
+            let descr = device_open(&name, false).unwrap();
+            let handle = descr.into_handle().unwrap();
+
+            handle
+                .flush_io(
+                    flush_completion_callback,
+                    MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
+                )
+                .unwrap();
+
+            AtomicPtr::new(Box::into_raw(Box::new(handle)))
+        })
+        .await;
+
+    // Sleep for a few seconds to let I/O operation complete.
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    // Check that flush operation has been performed and destroy the device
+    ms.spawn(async move {
+        check_callback_invocation();
+
+        device_destroy(&u).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn nvmf_io_stats() {
     let ms = get_ms();
     let (_test, url) = launch_instance().await;

@@ -9,7 +9,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -57,7 +56,6 @@ use crate::{
         UntypedBdevHandle,
         UntypedDescriptorGuard,
     },
-    ffihelper::cb_arg,
     lvs::Lvol,
 };
 
@@ -533,57 +531,43 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
         Ok(0)
     }
-    /// Flush the io in buffer to disk, for the Local Block Device.
-    async fn flush_io(&self) -> Result<u64, CoreError> {
-        if !self.device.0.is_write_cache_enabled() {
-            debug!(
-                "No Write Cache, No need of Flush for bdev name: {}, uuid: {}",
-                self.device.device_name(),
-                self.device.uuid(),
-            );
-            return Ok(0);
-        }
+    // Flush the io in buffer to disk, for the Local Block Device.
+    fn flush_io(
+        &self,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        let ctx = alloc_bdev_io_ctx(
+            IoType::Flush,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+            },
+            0,
+            0,
+        )?;
+
         let (desc, chan) = self.handle.io_tuple();
         let bdev_size = self.device.size_in_bytes();
-        let (s, r) = oneshot::channel::<bool>();
-        let result = unsafe {
+        let rc = unsafe {
             spdk_bdev_flush(
                 desc,
                 chan,
                 0,
                 bdev_size,
-                Some(bdev_flush_complete_cb),
-                cb_arg(s),
+                Some(bdev_io_completion),
+                ctx as *mut c_void,
             )
         };
-        if result < 0 {
-            return Err(CoreError::DeviceFlush {
-                source: Errno::from_i32(result),
-                name: format!(
-                    "bdev_name: {}, uuid: {}",
-                    self.device.device_name(),
-                    self.device.uuid()
-                ),
-            });
+
+        if rc < 0 {
+            Err(CoreError::FlushDispatch {
+                source: Errno::ENOMEM,
+            })
+        } else {
+            Ok(())
         }
-        match r.await {
-            Ok(result) => info!(
-                "Bdev Flush Success: uuid: {}, result: {}",
-                self.device.uuid(),
-                result,
-            ),
-            Err(_) => {
-                return Err(CoreError::DeviceFlush {
-                    source: Errno::from_i32(result),
-                    name: format!(
-                        "bdev_name: {}, uuid: {}",
-                        self.device.device_name(),
-                        self.device.uuid()
-                    ),
-                });
-            }
-        };
-        Ok(0)
     }
 }
 
@@ -724,18 +708,4 @@ pub fn bdev_event_callback<T: BdevOps>(
 /// Dispatches a special event for loopback device removal.
 pub fn dispatch_loopback_removed(name: &str) {
     dispatch_bdev_event(DeviceEventType::LoopbackRemoved, name);
-}
-
-/// Call back function for the Block Device Flush
-extern "C" fn bdev_flush_complete_cb(
-    bio: *mut spdk_bdev_io,
-    result: bool,
-    arg: *mut c_void,
-) {
-    let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
-    s.send(result).ok();
-    // Free replica's bio.
-    unsafe {
-        spdk_bdev_free_io(bio);
-    }
 }

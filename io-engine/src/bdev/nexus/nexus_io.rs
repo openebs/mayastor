@@ -191,11 +191,8 @@ impl<'n> NexusBio<'n> {
             IoType::Write
             | IoType::WriteZeros
             | IoType::Reset
-            | IoType::Unmap => self.submit_all(),
-            IoType::Flush => {
-                self.ok();
-                Ok(())
-            }
+            | IoType::Unmap
+            | IoType::Flush => self.submit_all(),
             IoType::NvmeAdmin => {
                 self.fail();
                 Err(CoreError::NotSupported {
@@ -546,6 +543,19 @@ impl<'n> NexusBio<'n> {
         hdl.reset(Self::child_completion, self.as_ptr().cast())
     }
 
+    #[inline]
+    fn submit_flush(
+        &self,
+        hdl: &dyn BlockDeviceHandle,
+    ) -> Result<(), CoreError> {
+        trace_nexus_io!(
+            "Submitting: {self:?} -> {name}",
+            name = hdl.get_device().device_name()
+        );
+
+        hdl.flush_io(Self::child_completion, self.as_ptr().cast())
+    }
+
     /// Submit the IO to all underlying children, failing on the first error we
     /// find. When an IO is partially submitted -- we must wait until all
     /// the child IOs have completed before we mark the whole IO failed to
@@ -562,6 +572,7 @@ impl<'n> NexusBio<'n> {
                 IoType::Unmap => self.submit_unmap(h),
                 IoType::WriteZeros => self.submit_write_zeroes(h),
                 IoType::Reset => self.submit_reset(h),
+                IoType::Flush => self.submit_flush(h),
                 // we should never reach here, if we do it is a bug.
                 _ => unreachable!(),
             }
