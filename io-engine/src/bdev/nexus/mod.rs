@@ -64,6 +64,12 @@ pub(crate) use nexus_persistence::PersistOp;
 pub use nexus_persistence::{ChildInfo, NexusInfo};
 pub(crate) use nexus_share::NexusPtpl;
 
+pub use nexus_bdev_snapshot::{
+    NexusReplicaSnapshotDescriptor,
+    NexusReplicaSnapshotStatus,
+    NexusSnapshotStatus,
+};
+
 /// TODO
 #[derive(Deserialize)]
 struct NexusShareArgs {

@@ -42,8 +42,6 @@ use crate::{
     core::{
         partition,
         Bdev,
-        BdevHandle,
-        CoreError,
         DeviceEventSink,
         IoType,
         Protocol,
@@ -86,6 +84,7 @@ pub enum NexusOperation {
     ReplicaRemove,
     ReplicaOnline,
     ReplicaFault,
+    NexusSnapshot,
 }
 
 /// TODO
@@ -1112,14 +1111,6 @@ impl<'n> Nexus<'n> {
     /// TODO
     pub(crate) unsafe fn set_data_ent_offset(self: Pin<&mut Self>, val: u64) {
         self.get_unchecked_mut().data_ent_offset = val;
-    }
-
-    /// Open Bdev handle for the Nexus.
-    pub(crate) unsafe fn open_bdev_handle(
-        &self,
-        read_write: bool,
-    ) -> Result<BdevHandle<Self>, CoreError> {
-        BdevHandle::open_with_bdev(self.bdev(), read_write)
     }
 }
 

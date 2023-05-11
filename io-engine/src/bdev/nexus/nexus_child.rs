@@ -940,6 +940,11 @@ impl<'c> NexusChild<'c> {
         &self.name
     }
 
+    /// Get UUID of this nexus child, if available.
+    pub fn get_uuid(&self) -> Option<String> {
+        Self::uuid(self.uri())
+    }
+
     /// Get name of the nexus this child belongs to.
     pub fn nexus_name(&self) -> &str {
         &self.parent

@@ -204,8 +204,12 @@ pub enum Error {
     },
     #[snafu(display("Failed to get BdevHandle for snapshot operation"))]
     FailedGetHandle,
-    #[snafu(display("Failed to create snapshot on nexus {}", name))]
-    FailedCreateSnapshot { name: String, source: CoreError },
+    #[snafu(display(
+        "Failed to create snapshot on nexus {}: {}",
+        name,
+        reason
+    ))]
+    FailedCreateSnapshot { name: String, reason: String },
     #[snafu(display("NVMf subsystem error: {}", e))]
     SubsysNvmf { e: String },
     #[snafu(display("failed to pause {} current state {:?}", name, state))]

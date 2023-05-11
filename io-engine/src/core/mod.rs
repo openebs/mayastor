@@ -304,6 +304,18 @@ pub enum CoreError {
     },
 }
 
+/// Transform error into errno code.
+pub trait IntoErrno {
+    fn into_errno(self) -> u32;
+}
+
+/// Map CoreError to errno code. For now assume any error is EIO
+impl IntoErrno for CoreError {
+    fn into_errno(self) -> u32 {
+        libc::EIO as u32
+    }
+}
+
 /// Logical volume layer failure.
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum LvolFailure {
