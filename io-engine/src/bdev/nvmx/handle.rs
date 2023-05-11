@@ -17,6 +17,7 @@ use spdk_rs::{
         spdk_nvme_ctrlr_cmd_io_raw,
         spdk_nvme_dsm_range,
         spdk_nvme_ns_cmd_dataset_management,
+        spdk_nvme_ns_cmd_flush,
         spdk_nvme_ns_cmd_read,
         spdk_nvme_ns_cmd_readv,
         spdk_nvme_ns_cmd_write,
@@ -283,8 +284,12 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
         stats_controller.account_block_io(io_ctx.op, 1, io_ctx.num_blocks);
     }
 
-    // Adjust the number of active I/O.
-    inner.discard_io();
+    // Adjust the number of active I/O operations in case operation is
+    // accountable.
+    match io_ctx.op {
+        IoType::Flush => {}
+        _ => inner.discard_io(),
+    }
 
     // Invoke caller's callback and free I/O context.
     let status = if op_succeeded {
@@ -338,6 +343,15 @@ extern "C" fn nvme_unmap_completion(
 ) {
     let nvme_io_ctx = ctx as *mut NvmeIoCtx;
     trace!("Async unmap completed");
+    complete_nvme_command(nvme_io_ctx, cpl);
+}
+
+extern "C" fn nvme_flush_completion(
+    ctx: *mut c_void,
+    cpl: *const spdk_nvme_cpl,
+) {
+    let nvme_io_ctx = ctx as *mut NvmeIoCtx;
+    trace!("Async flush completed");
     complete_nvme_command(nvme_io_ctx, cpl);
 }
 
@@ -831,6 +845,54 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             Box::into_raw(ctx) as *mut c_void,
             false,
         )
+    }
+
+    fn flush_io(
+        &self,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
+        let num_blocks = self.block_device.num_blocks();
+
+        // Make sure channel allows I/O.
+        check_channel_for_io(IoType::Flush, inner, 0, num_blocks)?;
+
+        let bio = alloc_nvme_io_ctx(
+            IoType::Flush,
+            NvmeIoCtx {
+                cb,
+                cb_arg,
+                iov: std::ptr::null_mut() as *mut iovec, // No I/O vec involved.
+                iovcnt: 0,
+                iovpos: 0,
+                iov_offset: 0,
+                channel,
+                op: IoType::Flush,
+                num_blocks,
+            },
+            0,
+            num_blocks, // Flush all device blocks.
+        )?;
+
+        // Setup range that describes the remaining blocks and schedule unmap.
+        let rc = unsafe {
+            spdk_nvme_ns_cmd_flush(
+                self.ns.as_ptr(),
+                inner.qpair.as_mut().unwrap().as_ptr(),
+                Some(nvme_flush_completion),
+                bio as *mut c_void,
+            )
+        };
+
+        if rc < 0 {
+            Err(CoreError::FlushDispatch {
+                source: Errno::from_i32(-rc),
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn unmap_blocks(
