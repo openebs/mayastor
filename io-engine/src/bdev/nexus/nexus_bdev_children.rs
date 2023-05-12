@@ -262,37 +262,65 @@ impl<'n> Nexus<'n> {
 
         self.check_child_remove_operation(uri)?;
 
-        let paused = self.as_mut().pause_rebuild_jobs(uri).await;
+        if self.lookup_child(uri).is_none() {
+            return Ok(());
+        }
 
-        let idx = match self.children_iter().position(|c| c.uri() == uri) {
-            None => {
-                paused.resume().await;
-                return Ok(());
-            }
-            Some(val) => val,
-        };
+        // Pause subsystem and rebuild jobs.
+        debug!("{self:?}: remove child {uri}: pausing...");
+        let paused = self.pause_rebuild_jobs(uri).await;
+        if let Err(e) = self.as_mut().pause().await {
+            error!(
+                "{self:?}: remove child {uri}: failed to pause subsystem: {e}"
+            );
+            paused.resume().await;
+            return Ok(());
+        }
+        debug!("{self:?}: remove child {uri}: pausing ok");
 
-        let res =
-            self.child_at(idx)
-                .close()
-                .await
-                .map_err(|e| Error::CloseChild {
+        // Update persistent store.
+        self.persist(PersistOp::RemoveChild {
+            child_uri: uri.to_string(),
+        })
+        .await;
+
+        // Close and remove the child.
+        let res = match self.lookup_child(uri) {
+            Some(child) => {
+                // Remove child from the I/O path.
+                if let Some(device) = child.get_device_name() {
+                    self.disconnect_device_from_channels(device).await;
+                }
+
+                // Close child's device.
+                let res = child.close().await.map_err(|e| Error::CloseChild {
                     name: self.name.clone(),
-                    child: self.child_at(idx).uri().to_string(),
+                    child: uri.to_owned(),
                     source: e,
                 });
 
-        if res.is_ok() {
-            unsafe {
-                self.as_mut().child_remove_at_unsafe(idx);
-            }
-            self.persist(PersistOp::RemoveChild {
-                child_uri: uri.to_string(),
-            })
-            .await;
-        }
+                // Remove the child from the child list.
+                unsafe {
+                    self.as_mut()
+                        .unpin_mut()
+                        .children
+                        .retain(|c| c.uri() != uri);
+                }
 
+                res
+            }
+            None => Ok(()),
+        };
+
+        // Resume subsystem and paused rebuild jobs.
+        debug!("{self:?}: remove child {uri}: resuming...");
+        if let Err(e) = self.as_mut().resume().await {
+            error!(
+                "{self:?}: remove child {uri}: failed to resume subsystem: {e}"
+            );
+        }
         paused.resume().await;
+        debug!("{self:?}: remove child {uri}: resuming ok");
 
         res
     }
@@ -917,7 +945,7 @@ impl<'n> Nexus<'n> {
         warn!("{self:?}: retiring child device '{device_name}'...");
 
         self.disconnect_device_from_channels(device_name.clone())
-            .await?;
+            .await;
 
         debug!("{self:?}: retire: pausing...");
         self.as_mut().pause().await?;
@@ -1003,7 +1031,7 @@ impl<'n> Nexus<'n> {
     pub(crate) async fn disconnect_device_from_channels(
         &self,
         child_device: String,
-    ) -> Result<(), Error> {
+    ) {
         let (sender, r) = oneshot::channel::<bool>();
 
         let ctx = UpdateFailFastCtx {
@@ -1031,7 +1059,5 @@ impl<'n> Nexus<'n> {
                 self, child_device
             );
         }
-
-        Ok(())
     }
 }
