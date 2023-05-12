@@ -16,6 +16,7 @@ use super::{
             PublishNexusRequest,
             RebuildHistoryRecord,
             RebuildHistoryRequest,
+            RemoveChildNexusRequest,
             RemoveInjectedNexusFaultRequest,
         },
         SharedRpcHandle,
@@ -216,6 +217,26 @@ impl NexusBuilder {
         norebuild: bool,
     ) -> Result<Nexus, Status> {
         self.add_child(&self.replica_uri(r), norebuild).await
+    }
+
+    pub async fn remove_child_bdev(&self, bdev: &str) -> Result<Nexus, Status> {
+        self.rpc()
+            .lock()
+            .await
+            .nexus
+            .remove_child_nexus(RemoveChildNexusRequest {
+                uuid: self.uuid(),
+                uri: bdev.to_owned(),
+            })
+            .await
+            .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn remove_child_replica(
+        &self,
+        r: &ReplicaBuilder,
+    ) -> Result<Nexus, Status> {
+        self.remove_child_bdev(&self.replica_uri(r)).await
     }
 
     pub async fn online_child_bdev(&self, bdev: &str) -> Result<Nexus, Status> {
