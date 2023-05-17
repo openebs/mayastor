@@ -1147,4 +1147,13 @@ impl NexusRpc for NexusService {
         })
         .await
     }
+
+    #[named]
+    async fn create_snapshot(
+        &self,
+        request: Request<NexusCreateSnapshotRequest>,
+    ) -> GrpcResult<NexusCreateSnapshotResponse> {
+        let _ctx = GrpcClientContext::new(&request, function_name!());
+        Err(Status::unimplemented(""))
+    }
 }
