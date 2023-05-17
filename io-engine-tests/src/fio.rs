@@ -73,6 +73,7 @@ impl FioJob {
             format!("--norandommap=1"),
             format!("--rw={}", self.rw),
             format!("--numjobs={}", self.numjobs),
+            format!("--random_generator=tausworthe64"),
         ];
 
         if let Some(v) = self.blocksize {
@@ -98,46 +99,57 @@ impl FioJob {
         r
     }
 
+    /// I/O engine to use. Default: spdk.
     pub fn with_ioengine(mut self, v: &str) -> Self {
         self.ioengine = v.to_string();
         self
     }
 
+    /// Filename.
     pub fn with_filename(mut self, v: &str) -> Self {
         self.filename = v.to_string();
         self
     }
 
+    /// If true, use non-buffered I/O (usually O_DIRECT). Default: true.
     pub fn with_direct(mut self, v: bool) -> Self {
         self.direct = v;
         self
     }
 
+    /// Block size for I/O units. Default: 4k.
     pub fn with_bs(mut self, v: u32) -> Self {
         self.blocksize = Some(v);
         self
     }
 
+    /// Offset in the file to start I/O. Data before the offset will not be
+    /// touched.
     pub fn with_offset(mut self, v: DataSize) -> Self {
         self.offset = Some(v);
         self
     }
 
+    /// Number of I/O units to keep in flight against the file.
     pub fn with_iodepth(mut self, v: u32) -> Self {
         self.iodepth = Some(v);
         self
     }
 
+    /// Number of clones (processes/threads performing the same workload) of
+    /// this job. Default: 1.
     pub fn with_numjobs(mut self, v: u32) -> Self {
         self.numjobs = v;
         self
     }
 
+    /// Terminate processing after the specified number of seconds.
     pub fn with_runtime(mut self, v: u32) -> Self {
         self.runtime = Some(v);
         self
     }
 
+    /// Total size of I/O for this job.
     pub fn with_size(mut self, v: DataSize) -> Self {
         self.size = Some(v);
         self

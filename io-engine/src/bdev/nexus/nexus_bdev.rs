@@ -239,7 +239,7 @@ pub struct Nexus<'n> {
     /// capabilities of the underlying child devices.
     req_size: u64,
     /// Vector of nexus children.
-    children: Vec<NexusChild<'n>>,
+    pub(super) children: Vec<NexusChild<'n>>,
     /// NVMe parameters
     pub(crate) nvme_params: NexusNvmeParams,
     /// uuid of the nexus (might not be the same as the nexus bdev!)
@@ -527,20 +527,6 @@ impl<'n> Nexus<'n> {
         child: NexusChild<'n>,
     ) {
         self.unpin_mut().children.push(child)
-    }
-
-    /// TODO
-    pub(super) unsafe fn child_remove_at_unsafe(
-        self: Pin<&mut Self>,
-        idx: usize,
-    ) {
-        debug!(
-            "{:?}: removing child at index: {}: '{}'",
-            self,
-            idx,
-            self.children[idx].uri()
-        );
-        self.unpin_mut().children.remove(idx);
     }
 
     /// TODO
@@ -1066,7 +1052,7 @@ impl<'n> Nexus<'n> {
     /// Returns a mutable reference to the Nexus with the lifetime as the Nexus
     /// itself.
     #[inline(always)]
-    unsafe fn unpin_mut(self: Pin<&mut Self>) -> &'n mut Nexus<'n> {
+    pub(super) unsafe fn unpin_mut(self: Pin<&mut Self>) -> &'n mut Nexus<'n> {
         &mut *(self.get_unchecked_mut() as *mut _)
     }
 
