@@ -268,7 +268,7 @@ pub struct Nexus<'n> {
     pub(crate) shutdown_requested: AtomicCell<bool>,
     /// Prevent auto-Unpin.
     _pin: PhantomPinned,
-    /// Initiators
+    /// Initiators.
     initiators: parking_lot::Mutex<HashSet<String>>,
 }
 
@@ -457,17 +457,16 @@ impl<'n> Nexus<'n> {
 
     /// Add new initiator to the Nexus
     #[allow(dead_code)]
-    pub(crate) unsafe fn add_initiator(self: Pin<&mut Self>, initiator: &str) {
-        self.unpin_mut()
-            .initiators
-            .lock()
-            .insert(initiator.to_string());
+    pub(crate) fn add_initiator(&self, initiator: &str) {
+        debug!("{self:?}: adding initiator '{initiator}'");
+        self.initiators.lock().insert(initiator.to_string());
     }
 
     /// Remove initiator from the Nexus
     #[allow(dead_code)]
-    pub(crate) unsafe fn rm_initiator(self: Pin<&mut Self>, initiator: &str) {
-        self.unpin_mut().initiators.lock().remove(initiator);
+    pub(crate) fn rm_initiator(&self, initiator: &str) {
+        debug!("{self:?}: removing initiator '{initiator}'");
+        self.initiators.lock().remove(initiator);
     }
 
     /// initiator count from the Nexus
@@ -836,7 +835,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// Set the Nexus state to 'reset'
-    pub fn set_reset_state(self: Pin<&mut Self>) -> bool {
+    pub fn set_reset_state(&self) -> bool {
         let mut state = self.state.lock();
         match *state {
             // Reset operation is allowed only when the Nexus is Open state
@@ -844,19 +843,12 @@ impl<'n> Nexus<'n> {
                 *state = NexusState::Reconfiguring;
                 true
             }
-            _ => {
-                info!(
-                    nexus=%self.name,
-                    "Transition from {:?} is not permitted to NexusState::Reconfiguring",
-                    state
-                );
-                false
-            }
+            _ => false,
         }
     }
 
     /// Set the Nexus state to 'open'
-    pub fn set_open_state(self: Pin<&mut Self>) -> bool {
+    pub fn set_open_state(&self) -> bool {
         let mut state = self.state.lock();
         match *state {
             // Open operation is allowed only when the Nexus is
@@ -865,14 +857,7 @@ impl<'n> Nexus<'n> {
                 *state = NexusState::Open;
                 true
             }
-            _ => {
-                info!(
-                    nexus=%self.name,
-                    "Transition from {:?} is not permitted to NexusState::Open",
-                    state
-                );
-                false
-            }
+            _ => false,
         }
     }
 
