@@ -3,12 +3,16 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     mem::size_of,
     ptr::{self, NonNull},
+    sync::atomic::Ordering,
 };
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
 
-use crate::bdev::{nexus::nexus_lookup_mut, nvmx::NVME_CONTROLLERS};
+use crate::bdev::{
+    nexus::{nexus_lookup, nexus_lookup_mut},
+    nvmx::NVME_CONTROLLERS,
+};
 use spdk_rs::libspdk::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
@@ -54,6 +58,7 @@ use spdk_rs::libspdk::{
 };
 
 use crate::{
+    bdev::nexus::ENABLE_NEXUS_RESET,
     constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{Bdev, Reactors, UntypedBdev},
     ffihelper::{cb_arg, done_cb, AsStr, FfiResult, IntoCString},
@@ -208,98 +213,110 @@ impl NvmfSubsystem {
         done_cb(ctx, success);
     }
 
-    /// reset one nvme child
+    /// Resets one NVMe child.
     pub async fn reset_one_child(dev_name: &str, ctx: *mut c_void) {
         let ctrlr = match NVME_CONTROLLERS.lookup_by_name(dev_name) {
             Some(ctrlr) => ctrlr,
             None => {
-                debug!("device name {dev_name} not a valid NVMe controller");
+                debug!(
+                    "Reset nexus child '{dev_name}': device name \
+                    is not a valid NVMe controller"
+                );
                 Self::reset_cb(false, ctx);
                 return;
             }
         };
-        debug!("nvmf_event_handler: nvme controller {:?}", ctrlr);
+
+        debug!("Reset nexus child '{dev_name}': NVMe controller {ctrlr:?}");
+
         let mut ctrlr = ctrlr.lock();
+
         match ctrlr.reset(NvmfSubsystem::reset_cb, ctx, false) {
             Ok(_) => {
-                debug!("nvmf_event_handler: Reset initiated for {:?} ", ctrlr)
-            }
-            Err(error) => {
-                error!(
-                    "nvmf_event_handler: Failed to initiate reset for {ctrlr:?} with error: {error:?}"
+                debug!(
+                    "Reset nexus child '{dev_name}': \
+                    reset initiated for {ctrlr:?}"
                 );
+            }
+            Err(e) => {
+                error!(
+                    "Reset nexus child '{dev_name}': \
+                    failed to initiate reset for {ctrlr:?}: {e}"
+                );
+
                 Self::reset_cb(false, ctx);
             }
         }
     }
 
-    /// reset nexus nvme children in case of initiator timeout
-    pub async fn reset_nexus(nexus_name: String) {
-        let mut nexus = match nexus_lookup_mut(&nexus_name) {
+    /// Resets nexus nvme children in case of initiator timeout.
+    async fn reset_nexus(nexus_name: String) {
+        let mut nex = match nexus_lookup_mut(&nexus_name) {
             Some(v) => v,
             None => {
-                debug!("nqn {nexus_name} does not contain a valid nexus");
+                warn!("Reset nexus request: '{nexus_name}' not found");
                 return;
             }
         };
 
-        //Pause the Nexus
-        match nexus.as_mut().pause().await {
-            Ok(_) => info!("nexus {nexus_name} paused for reset"),
-            Err(error) => {
-                error!("Failed to pause Nexus {nexus:?} with error {error:?}");
-                return;
-            }
+        info!("{nex:?}: resetting nexus ...");
+
+        // Pause the nexus.
+        if let Err(e) = nex.as_mut().pause().await {
+            error!("{nex:?}: failed to pause: {e}");
+            return;
         }
 
-        for child in nexus.children_iter() {
-            debug!("Found a {:?} for nexus {nexus_name}", child);
+        debug!("{nex:?}: paused for reset");
+
+        for child in nex.children_iter() {
             if !(child.is_healthy() || child.is_opened_unsync()) {
                 continue;
             }
+
             let dev = match child.get_device() {
                 Ok(dev) => dev,
-                Err(error) => {
-                    error!(
-                        "Nexus {nexus_name} get_device failed for {:?} with Error {:?}",
-                         child, error
-                    );
+                Err(e) => {
+                    error!("{child:?}: failed to get device: {e:?}");
                     continue;
                 }
             };
-            let dev_name = dev.device_name();
+
             if dev.driver_name() != "nvme" {
-                debug!("Device {dev_name} is not NVMe-oF, reset is not needed");
+                debug!("{child:?}: driver is not NVMe-oF, skipping reset");
                 continue;
             }
+
             debug!(
-                "nvmf_event_handler: device name {dev_name} - nexus_name {nexus_name},
-                driver {:?}, product {:?}",
-                dev.driver_name(),
-                dev.product_name(),
+                "{child:?}: resetting child: {drv}/{prod}",
+                drv = dev.driver_name(),
+                prod = dev.product_name(),
             );
-            let (sender, receiver) = oneshot::channel::<bool>();
-            Self::reset_one_child(&dev_name, cb_arg(sender)).await;
-            if !receiver.await.expect("Reset completed") {
-                error!(
-                    "Failed to reset {:?} for nexus_name {:?}",
-                    child, nexus_name
-                );
+
+            let (s, r) = oneshot::channel::<bool>();
+
+            let dev_name = dev.device_name();
+            Self::reset_one_child(&dev_name, cb_arg(s)).await;
+
+            if let Ok(res) = r.await {
+                if !res {
+                    error!("{child:?}: failed to reset");
+                }
             }
         }
 
-        //Resume the Nexus
-        match nexus.as_mut().resume().await {
-            Ok(_) => info!("nexus {nexus_name} resumed after reset"),
-            Err(error) => {
-                error!("Failed to resume Nexus {nexus:?} with error {error:?}");
-                return;
-            }
+        // Resume the nexus.
+        if let Err(e) = nex.as_mut().resume().await {
+            error!("{nex:?}: failed to resume: {e}");
+        } else {
+            debug!("{nex:?}: resumed after reset");
         }
 
-        if !nexus.as_mut().set_open_state() {
-            error!("Failed to set Nexus status open {:?}", nexus);
+        if !nex.as_mut().set_open_state() {
+            error!("{nex:?}: failed to set nexus status open");
         }
+
+        info!("{nex:?}: resetting nexus done");
     }
 
     extern "C" fn nvmf_event_handler(
@@ -308,71 +325,94 @@ impl NvmfSubsystem {
         event: spdk_nvmf_subsystem_events,
     ) {
         let ss = NvmfSubsystem::from(subsystem);
+
         let subsys_nqn = unsafe {
             spdk_nvmf_subsystem_get_nqn(ss.0.as_ptr())
                 .as_str()
                 .to_string()
         };
-        debug!(
-            "nvmf_event_handler called {:?} for subsys {subsys_nqn}",
-            event
-        );
+
         let spdk_ctrlr =
             SpdkNvmfController::from(cb_arg as *mut spdk_nvmf_ctrlr);
 
-        debug!("host controler nqn {:?} ", spdk_ctrlr);
+        debug!(
+            "NVMF event handler: {event:?} for subsys '{subsys_nqn}'; \
+            host controler: {spdk_ctrlr:?}"
+        );
 
         let nexus_name = match extract_nexus_name(&subsys_nqn) {
             Some(value) => value,
             None => {
-                debug!("subsys {subsys_nqn} is not a valid nexus");
-                return;
-            }
-        };
-
-        let mut nexus = match nexus_lookup_mut(&nexus_name) {
-            Some(v) => v,
-            None => {
-                debug!(
-                    "subsys {subsys_nqn} does not contain a valid nexus name"
+                warn!(
+                    "NVMF event handler: subsys '{subsys_nqn}' is not a nexus"
                 );
                 return;
             }
         };
-        debug!("Nexus found for subsys {subsys_nqn}");
+
+        let Some(nex) = nexus_lookup(&nexus_name) else {
+            return;
+        };
+
         let hostnqn = spdk_ctrlr.hostnqn();
         match event {
             SPDK_NVMF_SS_INIATOR_TIMEOUT => {
-                unsafe {
-                    nexus.as_mut().rm_initiator(&hostnqn);
-                }
-                if nexus.initiator_cnt() > 0 {
-                    error!(
-                        "Reset operation is not supported - initiator(s) present for {:?}", nexus
+                info!(
+                    "NVMF event handler: {nex:?}: \
+                    initiator timed out: '{hostnqn}'"
+                );
+
+                nex.rm_initiator(&hostnqn);
+
+                if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
+                    debug!(
+                        "NVMF event handler: {nex:?}: \
+                        nexus reset support is disabled"
                     );
                     return;
                 }
-                if !nexus.as_mut().set_reset_state() {
-                    error!("Reset operation is not permitted for {:?}", nexus);
+
+                if nex.initiator_cnt() > 0 {
+                    error!(
+                        "NVMF event handler: {nex:?}: cannot reset nexus: \
+                        other initiator(s) exist"
+                    );
                     return;
                 }
+
+                if !nex.set_reset_state() {
+                    error!(
+                        "NVMF event handler: {nex:?}: reset operation \
+                        is not permitted"
+                    );
+                    return;
+                }
+
                 Reactors::master().send_future(Self::reset_nexus(nexus_name));
             }
-            SPDK_NVMF_SS_INIATOR_CONNECT => unsafe {
-                nexus.as_mut().add_initiator(&hostnqn);
-            },
-            SPDK_NVMF_SS_INIATOR_DISCONNECT => unsafe {
-                nexus.as_mut().rm_initiator(&hostnqn);
-            },
+            SPDK_NVMF_SS_INIATOR_CONNECT => {
+                info!(
+                    "NVMF event handler: {nex:?}: \
+                    initiator connected: '{hostnqn}'"
+                );
+                nex.add_initiator(&hostnqn);
+            }
+            SPDK_NVMF_SS_INIATOR_DISCONNECT => {
+                info!(
+                    "NVMF event handler: {nex:?}: \
+                    initiator disconnected: '{hostnqn}'"
+                );
+                nex.rm_initiator(&hostnqn);
+            }
             _ => {
-                debug!("event {:?} is not handled ", event);
+                warn!("NVMF event handler: unsupported event: {event:?}");
             }
         }
     }
 
     /// create a new subsystem where the NQN is based on the UUID
     pub fn new(uuid: &str) -> Result<Self, Error> {
-        let nqn = gen_nqn(uuid).into_cstring();
+        let nqn = make_nqn(uuid).into_cstring();
         let ss = NVMF_TGT
             .with(|t| {
                 let tgt = t.borrow().tgt.as_ptr();
@@ -958,7 +998,7 @@ impl NvmfSubsystem {
 
     /// lookup a subsystem by its UUID
     pub fn nqn_lookup(uuid: &str) -> Option<NvmfSubsystem> {
-        let nqn = gen_nqn(uuid);
+        let nqn = make_nqn(uuid);
         NvmfSubsystem::first()
             .unwrap()
             .into_iter()
@@ -1029,10 +1069,12 @@ impl NvmfSubsystem {
     }
 }
 
-fn gen_nqn(id: &str) -> String {
+/// Makes an NQN froma UUID.
+fn make_nqn(id: &str) -> String {
     format!("{NVME_NQN_PREFIX}:{id}")
 }
 
+/// Extracts nexus name from an NQN.
 fn extract_nexus_name(nqn: &str) -> Option<String> {
     let vec: Vec<&str> = nqn.split(':').collect();
 

@@ -169,3 +169,6 @@ pub async fn shutdown_nexuses() {
 
 /// Enables/disables partial rebuild.
 pub static ENABLE_PARTIAL_REBUILD: AtomicBool = AtomicBool::new(true);
+
+/// Enables/disables nexus reset logic.
+pub static ENABLE_NEXUS_RESET: AtomicBool = AtomicBool::new(false);

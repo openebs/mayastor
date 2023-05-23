@@ -7,7 +7,10 @@ use futures::future::FutureExt;
 use structopt::StructOpt;
 
 use io_engine::{
-    bdev::{nexus::ENABLE_PARTIAL_REBUILD, util::uring},
+    bdev::{
+        nexus::{ENABLE_NEXUS_RESET, ENABLE_PARTIAL_REBUILD},
+        util::uring,
+    },
     core::{
         device_monitor_loop,
         diagnostics::process_diagnostics_cli,
@@ -53,6 +56,15 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     if !ENABLE_PARTIAL_REBUILD.load(Ordering::SeqCst) {
         warn!("Partial rebuild is disabled");
+    }
+
+    // Enable nexus reset.
+    if let Ok(v) = std::env::var("NEXUS_RESET") {
+        ENABLE_NEXUS_RESET.store(v == "1", Ordering::SeqCst);
+    }
+
+    if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
+        warn!("Nexus reset is disabled");
     }
 
     // Initialize Lock manager.
