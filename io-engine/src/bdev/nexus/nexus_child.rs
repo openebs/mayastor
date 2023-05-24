@@ -1321,4 +1321,9 @@ impl<'c> NexusChild<'c> {
     pub(super) fn io_log_channel(&self) -> Option<IOLogChannel> {
         self.io_log.lock().as_ref().map(|log| log.current_channel())
     }
+
+    /// Determines if the child has an active I/O log.
+    pub(crate) fn has_io_log(&self) -> bool {
+        self.io_log.lock().is_some()
+    }
 }

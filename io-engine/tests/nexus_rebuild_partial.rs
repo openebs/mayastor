@@ -220,6 +220,7 @@ async fn nexus_partial_rebuild_io_fault() {
     assert_eq!(children.len(), 2);
     assert_eq!(children[1].state, ChildState::Faulted as i32);
     assert_eq!(children[1].state_reason, ChildStateReason::IoFailure as i32);
+    assert_eq!(children[1].has_io_log, true);
 
     // Chunk B.
     test_write_to_nexus(
