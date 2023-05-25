@@ -475,28 +475,43 @@ impl Lvol {
         snapshot: &Lvol,
         attr: &SnapshotXattrs,
     ) -> Option<String> {
-        let mut val = std::ptr::null();
+        let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
         let mut size: u64 = 0;
-        let attr_id = attr.name().to_string().into_cstring();
-        let curr_attr_val = unsafe {
+        let attr_id = attr.name().into_cstring();
+
+        unsafe {
             let blob = snapshot.bs_iter_first();
             let r = spdk_blob_get_xattr_value(
                 blob,
                 attr_id.as_ptr(),
-                &mut val as *mut *const c_void,
+                &mut val as *mut *const c_char as *mut *const c_void,
                 &mut size as *mut u64,
             );
-            // mark snapshot invalid, if any attribute not found
-            if r != 0 {
+
+            // mark snapshot invalid, if any attribute not found or if attribute
+            // is empty.
+            if r != 0 || size == 0 {
                 warn!(
                     "Snapshot attribute {:?} not found, snapshot{:?}",
                     attr_id, snapshot
                 );
                 return None;
             }
-            String::from_raw_parts(val as *mut u8, size as usize, size as usize)
-        };
-        Some(curr_attr_val)
+
+            // Parse snapshot attribute into a string.
+            let sl =
+                std::slice::from_raw_parts(val as *const u8, size as usize);
+            std::str::from_utf8(sl).map_or_else(|error| {
+                    warn!(
+                        ?snapshot,
+                        attribute=attr.name(),
+                        ?error,
+                        "Failed to parse snapshot attribute, default to empty string"
+                    );
+                    None
+                },
+                |v| Some(v.to_string()))
+        }
     }
     /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.
     pub fn snapshot_descriptor(

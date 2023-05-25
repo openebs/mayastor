@@ -23,7 +23,7 @@ use crate::{
     spdk_rs::ffihelper::IntoCString,
 };
 use ::function_name::named;
-use core::ffi::c_void;
+use core::ffi::{c_char, c_void};
 use futures::FutureExt;
 use mayastor_api::v1::replica::*;
 use nix::errno::Errno;
@@ -157,21 +157,29 @@ impl From<ReplicaSnapshotDescriptor> for ReplicaSnapshot {
         let blob = snap_lvol.bs_iter_first();
         let mut snapshot_param: SnapshotParams = Default::default();
         for attr in SnapshotXattrs::iter() {
-            let mut val = std::ptr::null();
+            let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
             let mut size: u64 = 0;
             let attr_id = attr.name().to_string().into_cstring();
             let curr_attr_val = unsafe {
                 let _r = spdk_blob_get_xattr_value(
                     blob,
                     attr_id.as_ptr(),
-                    &mut val as *mut *const c_void,
+                    &mut val as *mut *const c_char as *mut *const c_void,
                     &mut size as *mut u64,
                 );
-                String::from_raw_parts(
-                    val as *mut u8,
-                    size as usize,
-                    size as usize,
-                )
+
+                let sl =
+                    std::slice::from_raw_parts(val as *const u8, size as usize);
+                std::str::from_utf8(sl).map_or_else(|error| {
+                    warn!(
+                        snapshot=snap_lvol.name(),
+                        attribute=attr.name(),
+                        ?error,
+                        "Failed to parse snapshot attribute, default to empty string"
+                    );
+                    String::default()
+                },
+                |v| v.to_string())
             };
             match attr {
                 SnapshotXattrs::ParentId => {

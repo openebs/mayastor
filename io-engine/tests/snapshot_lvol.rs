@@ -24,7 +24,10 @@ use std::convert::TryFrom;
 use io_engine::core::{SnapshotDescriptor, SnapshotOps};
 use log::info;
 use spdk_rs::libspdk::spdk_blob_get_xattr_value;
-use std::{ffi::c_void, str};
+use std::{
+    ffi::{c_char, c_void},
+    str,
+};
 use uuid::Uuid;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -83,14 +86,14 @@ async fn check_snapshot(params: SnapshotParams) {
 
     for (attr_name, attr_value) in attrs {
         unsafe {
-            let mut val = std::ptr::null();
+            let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
             let mut size: u64 = 0;
             let attr_id = attr_name.name().to_string().into_cstring();
 
             let r = spdk_blob_get_xattr_value(
                 blob,
                 attr_id.as_ptr(),
-                &mut val as *mut *const c_void,
+                &mut val as *mut *const c_char as *mut *const c_void,
                 &mut size as *mut u64,
             );
 
@@ -101,11 +104,11 @@ async fn check_snapshot(params: SnapshotParams) {
                 attr_name.name()
             );
 
-            let s = String::from_raw_parts(
-                val as *mut u8,
-                size as usize,
-                size as usize,
-            );
+            let sl =
+                std::slice::from_raw_parts(val as *const u8, size as usize);
+            let s = std::str::from_utf8(sl)
+                .expect("Failed to parse snapshot attribute")
+                .to_string();
 
             assert_eq!(s, attr_value, "Snapshot attr doesn't match");
         }
