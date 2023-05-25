@@ -158,9 +158,8 @@ fn map_child_state(child: &NexusChild) -> (ChildState, ChildStateReason) {
         ChildStateClient::Closed => (Degraded, Closed),
         ChildStateClient::Faulted(r) => (
             match r {
-                FaultReason::AdminCommandFailed => Faulted,
-                FaultReason::IoError => Faulted,
-                s if s.is_recoverable() => Degraded,
+                FaultReason::NoSpace => Degraded,
+                FaultReason::Offline => Degraded,
                 _ => Faulted,
             },
             map_fault_reason(r),
@@ -317,6 +316,7 @@ impl<'c> NexusChild<'c> {
             rebuild_progress: self.get_rebuild_progress().await,
             device_name: self.get_device_name(),
             fault_timestamp: self.fault_timestamp().map(|d| d.into()),
+            has_io_log: self.has_io_log(),
         }
     }
 }

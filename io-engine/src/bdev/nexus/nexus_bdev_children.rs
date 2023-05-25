@@ -927,8 +927,10 @@ impl<'n> Nexus<'n> {
             // Cancel rebuild job for this child, if any.
             if let Some(job) = child.rebuild_job() {
                 debug!("{self:?}: retire: stopping rebuild job...");
-                job.terminate().await.ok();
-                debug!("{self:?}: retire: rebuild job stopped");
+                let terminated = job.terminate();
+                Reactors::master().send_future(async move {
+                    terminated.await.ok();
+                });
             }
 
             let uri = child.uri();
