@@ -687,15 +687,7 @@ impl<'n> NexusBio<'n> {
 
                     // 1: Close I/O channels for all children.
                     for d in nexus.child_devices() {
-                        if let Err(e) = nexus
-                            .disconnect_device_from_channels(d.clone())
-                            .await
-                        {
-                            error!(
-                                "{}: failed to disconnect I/O channels: {:?}",
-                                d, e
-                            );
-                        }
+                        nexus.disconnect_device_from_channels(d.clone()).await;
 
                         device_cmd_queue().enqueue(
                             DeviceCommand::RetireDevice {

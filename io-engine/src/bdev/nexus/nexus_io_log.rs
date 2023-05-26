@@ -160,6 +160,8 @@ impl IOLog {
         num_blocks: u64,
         block_len: u64,
     ) -> Self {
+        assert!(!device_name.is_empty() && num_blocks > 0 && block_len > 0);
+
         let mut channels = HashMap::new();
 
         for i in Cores::list_cores() {
