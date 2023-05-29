@@ -9,7 +9,6 @@ use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
 use mayastor_api::{v0 as rpc, v1 as v1_rpc};
 use snafu::ResultExt;
-use spdk_rs::Uuid;
 use tonic::{Code, Status};
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
@@ -136,6 +135,12 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .required(true)
                 .index(4)
                 .help("Transaction id"),
+        )
+        .arg(
+            Arg::with_name("snapshot_uuid")
+                .required(true)
+                .index(5)
+                .help("Snapshot uuid"),
         );
     let snapshot_list = SubCommand::with_name("snapshot_list")
         .about("List Replica Snapshot")
@@ -534,7 +539,13 @@ async fn replica_snapshot_create(
             field: "txn_id".to_string(),
         })?
         .to_owned();
-    let snapshot_uuid = Uuid::generate().to_string();
+    let snapshot_uuid = matches
+        .value_of("snapshot_uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "snapshot_uuid".to_string(),
+        })?
+        .to_owned();
+    // let snapshot_uuid = Uuid::generate().to_string();
     let request = v1_rpc::replica::CreateReplicaSnapshotRequest {
         replica_uuid,
         snapshot_uuid,

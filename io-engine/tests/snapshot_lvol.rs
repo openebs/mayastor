@@ -139,12 +139,14 @@ async fn test_lvol_bdev_snapshot() {
         let parent_id = String::from("p1");
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("snap11");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -186,12 +188,14 @@ async fn test_lvol_handle_snapshot() {
         let parent_id = String::from("p1");
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("snap21");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         handle
@@ -228,12 +232,14 @@ async fn test_lvol_list_snapshot() {
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("snap13");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -245,12 +251,14 @@ async fn test_lvol_list_snapshot() {
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("snap14");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -290,12 +298,14 @@ async fn test_list_all_snapshots() {
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("lvol4_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -307,12 +317,14 @@ async fn test_list_all_snapshots() {
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("lvol4_snap2");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -335,12 +347,14 @@ async fn test_list_all_snapshots() {
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("lvol5_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -352,12 +366,14 @@ async fn test_list_all_snapshots() {
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("lvol5_snap2");
+        let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snapshot_uuid),
         );
 
         lvol.create_snapshot(snapshot_params.clone())

@@ -388,6 +388,15 @@ impl Lvol {
                         })
                     }
                 },
+                SnapshotXattrs::SnapshotUuid => match params.snapshot_uuid() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::SnapshotConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "snapshot_uuid not provided".to_string(),
+                        })
+                    }
+                },
             };
 
             let attr_name = attr.name().to_string().into_cstring();
@@ -543,6 +552,9 @@ impl Lvol {
                 }
                 SnapshotXattrs::TxId => {
                     snapshot_param.set_txn_id(curr_attr_val);
+                }
+                SnapshotXattrs::SnapshotUuid => {
+                    snapshot_param.set_snapshot_uuid(curr_attr_val);
                 }
             }
         }
@@ -1091,6 +1103,7 @@ impl LvsLvol for Lvol {
             Some(self.name()),
             Some(self.name()),
             Some(self.name()),
+            Some(self.name()),
         )
     }
 }
@@ -1141,6 +1154,7 @@ impl SnapshotOps for Lvol {
         snap_name: &str,
         entity_id: &str,
         txn_id: &str,
+        snap_uuid: &str,
     ) -> Option<SnapshotParams> {
         // snap_name
         let snap_name = if snap_name.is_empty() {
@@ -1160,6 +1174,12 @@ impl SnapshotOps for Lvol {
         } else {
             txn_id.to_string()
         };
+        // snapshot_uuid
+        let snap_uuid: Option<String> = if snap_uuid.is_empty() {
+            None
+        } else {
+            Some(snap_uuid.to_string())
+        };
         // Current Lvol uuid is the parent for the snapshot.
         let parent_id = Some(self.uuid());
 
@@ -1168,6 +1188,7 @@ impl SnapshotOps for Lvol {
             parent_id,
             Some(txn_id),
             Some(snap_name),
+            snap_uuid,
         ))
     }
     /// List Replica Snapshot.

@@ -1748,6 +1748,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     Some(args.uuid.clone()),
                     Some(Uuid::new_v4().to_string()), // unique tx id
                     Some(Uuid::new_v4().to_string()), // unique snapshot name
+                    Some(Uuid::new_v4().to_string()), // unique snapshot uuid
                 );
 
                 let reply =
