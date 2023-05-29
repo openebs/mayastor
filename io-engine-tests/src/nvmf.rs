@@ -1,9 +1,11 @@
+use std::{net::SocketAddr, path::PathBuf};
+
 use super::{
     file_io::{compare_files, test_write_to_file, DataSize},
     fio::{run_fio_jobs, Fio},
+    nexus::{make_nexus_nqn, make_nexus_serial},
     nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
 };
-use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct NvmfLocation {
@@ -13,6 +15,18 @@ pub struct NvmfLocation {
 }
 
 impl NvmfLocation {
+    pub fn from_nexus_info(
+        addr: &str,
+        nexus_name: &str,
+        nexus_uuid: &str,
+    ) -> Self {
+        Self {
+            addr: addr.parse().unwrap(),
+            nqn: make_nexus_nqn(nexus_name),
+            serial: make_nexus_serial(nexus_uuid),
+        }
+    }
+
     pub fn open(&self) -> std::io::Result<(NmveConnectGuard, PathBuf)> {
         let cg = NmveConnectGuard::connect_addr(&self.addr, &self.nqn);
         let path = find_mayastor_nvme_device_path(&self.serial)?;
@@ -61,17 +75,38 @@ pub async fn test_devices_identical(
 /// TODO
 pub async fn test_fio_to_nvmf(
     nvmf: &NvmfLocation,
-    fio: &Fio,
+    mut fio: Fio,
 ) -> std::io::Result<()> {
     let tgt = nvmf.as_args().join(" ");
 
-    let mut fio = fio.clone();
     fio.jobs = fio
         .jobs
         .into_iter()
         .map(|j| {
             j.with_filename(&tgt)
                 .with_ioengine("spdk")
+                .with_direct(true)
+        })
+        .collect();
+
+    run_fio_jobs(&fio).await
+}
+
+/// TODO
+pub async fn test_fio_to_nvmf_aio(
+    nvmf: &NvmfLocation,
+    mut fio: Fio,
+) -> std::io::Result<()> {
+    let _cg = NmveConnectGuard::connect_addr(&nvmf.addr, &nvmf.nqn);
+    let path = find_mayastor_nvme_device_path(&nvmf.serial)?;
+    let path_str = path.to_str().unwrap();
+
+    fio.jobs = fio
+        .jobs
+        .into_iter()
+        .map(|j| {
+            j.with_filename(path_str)
+                .with_ioengine("libaio")
                 .with_direct(true)
         })
         .collect();

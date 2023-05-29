@@ -47,6 +47,7 @@ pub use nexus_child::{
     FaultReason,
     NexusChild,
 };
+pub use nexus_injection::{Injection, InjectionOp};
 use nexus_io::{NexusBio, NioCtx};
 use nexus_io_log::{IOLog, IOLogChannel};
 use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};

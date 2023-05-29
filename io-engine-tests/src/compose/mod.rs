@@ -4,7 +4,7 @@ use crossbeam::channel::bounded;
 use std::future::Future;
 use tokio::sync::oneshot::channel;
 
-use crate::mayastor_test_init;
+use crate::mayastor_test_init_ex;
 use io_engine::core::{
     mayastor_env_stop,
     MayastorCliArgs,
@@ -71,7 +71,7 @@ impl<'a> MayastorTest<'a> {
 
     pub fn new(args: MayastorCliArgs) -> MayastorTest<'static> {
         let (tx, rx) = bounded(1);
-        mayastor_test_init();
+        mayastor_test_init_ex(args.log_format.unwrap_or_default());
         let thdl = std::thread::Builder::new()
             .name("mayastor_master".into())
             .spawn(move || {

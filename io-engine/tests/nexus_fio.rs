@@ -97,7 +97,7 @@ async fn nexus_fio_single_remote() {
     // Run FIO with okay data size.
     test_fio_to_nexus(
         &nex_0,
-        &Fio::new()
+        Fio::new()
             .with_job(
                 FioJob::new()
                     .with_runtime(10)
@@ -113,7 +113,7 @@ async fn nexus_fio_single_remote() {
     // Run FIO with data size exceeding pool capacity.
     let err = test_fio_to_nexus(
         &nex_0,
-        &Fio::new().with_job(
+        Fio::new().with_job(
             FioJob::new()
                 .with_runtime(10)
                 .with_bs(4096)
@@ -222,7 +222,7 @@ async fn nexus_fio_mixed() {
     // Run FIO with okay data size.
     test_fio_to_nexus(
         &nex_0,
-        &Fio::new()
+        Fio::new()
             .with_job(
                 FioJob::new()
                     .with_runtime(10)
@@ -240,7 +240,7 @@ async fn nexus_fio_mixed() {
     // this run must succeed.
     test_fio_to_nexus(
         &nex_0,
-        &Fio::new().with_job(
+        Fio::new().with_job(
             FioJob::new()
                 .with_runtime(10)
                 .with_bs(4096)
