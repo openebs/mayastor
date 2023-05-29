@@ -558,20 +558,42 @@ impl ReplicaRpc for ReplicaService {
                             })
                         }
                     };
+                    // validate snapshot name
+                    if let Some(_r) = UntypedBdev::lookup_by_name(&args.snapshot_name) {
+                        return Err(LvsError::Invalid {
+                            source: Errno::EEXIST,
+                            msg: format!(
+                                "Snapshot name {} already exist",
+                                args.snapshot_name
+                            ),
+                        })
+                    }
+                    // validate snapshot uuid
+                    if let Some(_r) = UntypedBdev::lookup_by_uuid_str(&args.snapshot_uuid) {
+                        return Err(LvsError::Invalid {
+                            source: Errno::EEXIST,
+                            msg: format!(
+                                "Snapshot uuid {} already exist",
+                                args.snapshot_uuid
+                            ),
+                        })
+                    }
                     // prepare snap config and flush IO before taking snapshot.
-                    let snap_config =
-                        match lvol.prepare_snap_config(
+                    let Some(snap_config) =
+                        lvol.prepare_snap_config(
                             &args.snapshot_name,
                             &args.entity_id,
                             &args.txn_id,
                             &args.snapshot_uuid
-                        ) {
-                            Some(snap_config) => snap_config,
-                            None => return Err(LvsError::SnapshotConfigFailed {
-                                name: args.replica_uuid,
-                                msg: "tx id / snapshot name not provided".to_string(),
-                            })
-                        };
+                        ) else {
+                            return Err(LvsError::Invalid {
+                                source: Errno::EINVAL,
+                                msg: format!(
+                                    "tx id / snapshot name not provided for replica {}",
+                                    args.replica_uuid
+                                ),
+                            });
+                    };
                     let replica_uuid = lvol.uuid();
                     let replica_size = lvol.size();
                     // create snapshot
