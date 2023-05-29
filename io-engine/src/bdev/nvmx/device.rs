@@ -86,7 +86,6 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
             self.ctrlr,
             self.ns,
             self.prchk_flags,
-            true,
         )?))
     }
 
@@ -97,24 +96,20 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
             self.ctrlr,
             self.ns.clone(),
             self.prchk_flags,
-            true,
         )?))
     }
 
     async fn get_io_handle_nonblock(
         &self,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
-        let mut h = NvmeDeviceHandle::create(
+        let h = NvmeDeviceHandle::create_async(
             &self.name,
             self.io_device_id,
             self.ctrlr,
             self.ns.clone(),
             self.prchk_flags,
-            false,
-        )?;
-
-        h.connect_async().await?;
-
+        )
+        .await?;
         Ok(Box::new(h))
     }
 

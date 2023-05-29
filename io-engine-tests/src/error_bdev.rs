@@ -2,6 +2,7 @@ use spdk_rs::libspdk::{
     create_aio_bdev,
     vbdev_error_create,
     vbdev_error_inject_error,
+    vbdev_error_inject_opts,
 };
 pub use spdk_rs::libspdk::{SPDK_BDEV_IO_TYPE_READ, SPDK_BDEV_IO_TYPE_WRITE};
 
@@ -15,7 +16,7 @@ pub fn create_error_bdev(error_device: &str, backing_device: &str) {
 
     unsafe {
         // this allows us to create a bdev without its name being a uri
-        retval = create_aio_bdev(cname.as_ptr(), filename.as_ptr(), 512)
+        retval = create_aio_bdev(cname.as_ptr(), filename.as_ptr(), 512, false)
     };
     assert_eq!(retval, 0);
 
@@ -35,8 +36,16 @@ pub fn inject_error(error_device: &str, op: u32, mode: u32, count: u32) {
         .expect("Failed to create name string");
     let raw = err_bdev_name_str.into_raw();
 
+    let opts = vbdev_error_inject_opts {
+        io_type: op,
+        error_type: mode,
+        error_num: count,
+        corrupt_offset: 0,
+        corrupt_value: 0,
+    };
+
     unsafe {
-        retval = vbdev_error_inject_error(raw, op, mode, count);
+        retval = vbdev_error_inject_error(raw, &opts);
     }
     assert_eq!(retval, 0);
 }

@@ -114,20 +114,17 @@ impl BdevRpc for BdevSvc {
         let bdev_name = r.name.clone();
         let proto = &r.proto;
 
-        if UntypedBdev::lookup_by_name(&bdev_name).is_none() {
-            return Err(Status::not_found(bdev_name));
-        }
-
         if proto != "nvmf" {
             return Err(Status::invalid_argument(proto));
         }
+
         let rx = match proto.as_str() {
             "nvmf" => rpc_submit::<_, String, CoreError>(async move {
-                let mut bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                let mut bdev = UntypedBdev::get_by_name(&bdev_name)?;
                 let props =
                     ShareProps::new().with_allowed_hosts(r.allowed_hosts);
                 let share = Pin::new(&mut bdev).share_nvmf(Some(props)).await?;
-                let bdev = UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                let bdev = UntypedBdev::get_by_name(&bdev_name)?;
                 Ok(bdev.share_uri().unwrap_or(share))
             }),
 
@@ -136,7 +133,12 @@ impl BdevRpc for BdevSvc {
 
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(|e| Status::internal(e.to_string()))
+            .map_err(|e| match e {
+                CoreError::BdevNotFound {
+                    name,
+                } => Status::not_found(name),
+                e => Status::internal(e.to_string()),
+            })
             .map(|uri| {
                 Ok(Response::new(BdevShareReply {
                     uri,

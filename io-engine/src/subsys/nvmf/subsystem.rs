@@ -9,6 +9,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 
 use crate::bdev::{nexus::nexus_lookup_mut, nvmx::NVME_CONTROLLERS};
+
 use spdk_rs::libspdk::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
@@ -24,7 +25,6 @@ use spdk_rs::libspdk::{
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_destroy,
     spdk_nvmf_subsystem_disconnect_host,
-    spdk_nvmf_subsystem_events,
     spdk_nvmf_subsystem_get_first,
     spdk_nvmf_subsystem_get_first_host,
     spdk_nvmf_subsystem_get_first_listener,
@@ -35,7 +35,6 @@ use spdk_rs::libspdk::{
     spdk_nvmf_subsystem_get_nqn,
     spdk_nvmf_subsystem_listener_get_trid,
     spdk_nvmf_subsystem_pause,
-    spdk_nvmf_subsystem_register_for_event,
     spdk_nvmf_subsystem_remove_host,
     spdk_nvmf_subsystem_resume,
     spdk_nvmf_subsystem_set_allow_any_host,
@@ -46,11 +45,17 @@ use spdk_rs::libspdk::{
     spdk_nvmf_subsystem_state_change_done,
     spdk_nvmf_subsystem_stop,
     spdk_nvmf_tgt,
+    SPDK_NVMF_SUBTYPE_DISCOVERY,
+    SPDK_NVMF_SUBTYPE_NVME,
+};
+
+#[cfg(feature = "spdk-subsystem-events")]
+use spdk_rs::libspdk::{
+    spdk_nvmf_subsystem_events,
+    spdk_nvmf_subsystem_register_for_event,
     SPDK_NVMF_SS_INIATOR_CONNECT,
     SPDK_NVMF_SS_INIATOR_DISCONNECT,
     SPDK_NVMF_SS_INIATOR_TIMEOUT,
-    SPDK_NVMF_SUBTYPE_DISCOVERY,
-    SPDK_NVMF_SUBTYPE_NVME,
 };
 
 use crate::{
@@ -302,6 +307,7 @@ impl NvmfSubsystem {
         }
     }
 
+    #[cfg(feature = "spdk-subsystem-events")]
     extern "C" fn nvmf_event_handler(
         subsystem: *mut spdk_nvmf_subsystem,
         cb_arg: *mut c_void,
@@ -391,6 +397,8 @@ impl NvmfSubsystem {
                 msg: "ss ptr is null".into(),
             })?;
 
+        // Register subsystem event handler.
+        #[cfg(feature = "spdk-subsystem-events")]
         unsafe {
             spdk_nvmf_subsystem_register_for_event(
                 ss.as_ptr(),
@@ -1033,6 +1041,7 @@ fn gen_nqn(id: &str) -> String {
     format!("{NVME_NQN_PREFIX}:{id}")
 }
 
+#[cfg(feature = "spdk-subsystem-events")]
 fn extract_nexus_name(nqn: &str) -> Option<String> {
     let vec: Vec<&str> = nqn.split(':').collect();
 

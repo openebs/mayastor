@@ -378,6 +378,7 @@ impl Lvs {
                     // lvols tend to be small so there the overhead is
                     // acceptable.
                     LVS_CLEAR_WITH_NONE,
+                    0, // num_md_pages_per_cluster_ratio
                     Some(Self::lvs_cb),
                     cb_arg(sender),
                 )
@@ -393,6 +394,7 @@ impl Lvs {
                     // lvols tend to be small so there the overhead is
                     // acceptable.
                     LVS_CLEAR_WITH_NONE,
+                    0, // num_md_pages_per_cluster_ratio
                     Some(Self::lvs_cb),
                     cb_arg(sender),
                 )

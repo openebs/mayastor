@@ -135,20 +135,14 @@ impl BdevRpc for BdevService {
         let bdev_name = r.name.clone();
         let protocol = r.protocol;
 
-        if core::UntypedBdev::lookup_by_name(&bdev_name).is_none() {
-            return Err(Status::not_found(bdev_name));
-        }
-
         let rx = match Protocol::try_from(protocol) {
             Ok(Protocol::Nvmf) => {
                 rpc_submit::<_, Bdev, CoreError>(async move {
-                    let mut bdev =
-                        core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                    let mut bdev = core::UntypedBdev::get_by_name(&bdev_name)?;
                     let props =
                         ShareProps::new().with_allowed_hosts(r.allowed_hosts);
                     Pin::new(&mut bdev).share_nvmf(Some(props)).await?;
-                    let bdev =
-                        core::UntypedBdev::lookup_by_name(&bdev_name).unwrap();
+                    let bdev = core::UntypedBdev::get_by_name(&bdev_name)?;
                     Ok(bdev.into())
                 })
             }
@@ -158,7 +152,12 @@ impl BdevRpc for BdevService {
 
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(|e| Status::internal(e.to_string()))
+            .map_err(|e| match e {
+                CoreError::BdevNotFound {
+                    name,
+                } => Status::not_found(name),
+                e => Status::internal(e.to_string()),
+            })
             .map(|bdev| {
                 Ok(Response::new(BdevShareResponse {
                     bdev: Some(bdev),

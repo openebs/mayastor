@@ -8,9 +8,12 @@ default-run = "io-engine-client"
 build = "build.rs"
 
 [features]
+default = ["spdk-async-qpair-connect", "spdk-subsystem-events"]
 io-engine-testing = ["nexus-fault-injection"]
 nexus-fault-injection = [] # Enables nexus-level fault injection code.
 nexus-io-tracing = [] # Enables nexus I/O tracing code.
+spdk-async-qpair-connect = []
+spdk-subsystem-events = []
 
 [[bin]]
 name = "io-engine"
