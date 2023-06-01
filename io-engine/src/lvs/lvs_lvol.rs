@@ -122,6 +122,7 @@ pub struct LvolSpaceUsage {
     /// Number of actually allocated clusters.
     pub num_allocated_clusters: u64,
 }
+#[derive(Clone)]
 /// struct representing an lvol
 pub struct Lvol {
     inner: NonNull<spdk_lvol>,
@@ -602,22 +603,22 @@ impl Lvol {
             {
                 Some(parent) => (parent.uuid(), parent.size()),
                 None => {
-                    warn!("Invalid snapshot{:?}, parent not proper", self);
-                    valid_snapshot = false;
+                    warn!("Snapshot{:?}, parent not proper", self);
+                    // valid_snapshot = false;
                     (String::default(), 0)
                 }
             }
         };
 
         let snapshot_descriptor = VolumeSnapshotDescriptor::new(
-            self,
+            self.to_owned(),
+            parent_uuid,
+            parent_size,
+            snapshot_param,
             0, /* TODO: It will updated as part of snapshot clone
                 * implementation */
             Utc::now(), /* TODO: Need to take from xAttr Snapshot
                          * Parameter. */
-            parent_uuid,
-            parent_size,
-            snapshot_param,
             valid_snapshot,
         );
         Some(snapshot_descriptor)
@@ -1227,35 +1228,51 @@ impl SnapshotOps for Lvol {
             snap_uuid,
         ))
     }
-    /// List Replica Snapshot.
-    fn list_snapshot(&self) -> Vec<VolumeSnapshotDescriptor> {
+    /// List Snapshot details based on source UUID from which snapshot is
+    /// created.
+    fn list_snapshot_by_source_uuid(&self) -> Vec<VolumeSnapshotDescriptor> {
         let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
-
-        let bdev = match UntypedBdev::bdev_first() {
-            Some(b) => b,
-            None => return Vec::new(), /* No devices available, provide no
-                                       snapshots. */
-        };
-
-        let lvol_devices = bdev
-            .into_iter()
-            .filter(|b| b.driver() == "lvol")
-            .map(|b| Lvol::try_from(b).unwrap())
-            .collect::<Vec<Lvol>>();
-        // return empty snapshot parameter list, if no snapshot found.
-        if lvol_devices.len() <= 1 {
-            return snapshot_list;
-        }
-        for snapshot_lvol in lvol_devices {
-            // skip lvol if it is not snapshot.
-            if !snapshot_lvol.is_snapshot() {
-                continue;
+        if let Some(bdev) = UntypedBdev::bdev_first() {
+            let lvol_devices = bdev
+                .into_iter()
+                .filter(|b| b.driver() == "lvol")
+                .map(|b| Lvol::try_from(b).unwrap())
+                .collect::<Vec<Lvol>>();
+            // return empty snapshot parameter list, if no snapshot found.
+            if lvol_devices.len() <= 1 {
+                return snapshot_list;
             }
-            match snapshot_lvol.snapshot_descriptor(Some(self)) {
-                Some(snapshot_descriptor) => {
-                    snapshot_list.push(snapshot_descriptor)
+            for snapshot_lvol in lvol_devices {
+                // skip lvol if it is not snapshot.
+                if !snapshot_lvol.is_snapshot() {
+                    continue;
                 }
-                None => continue,
+                match snapshot_lvol.snapshot_descriptor(Some(self)) {
+                    Some(snapshot_descriptor) => {
+                        snapshot_list.push(snapshot_descriptor)
+                    }
+                    None => continue,
+                }
+            }
+        }
+        snapshot_list
+    }
+    /// List Single snapshot details based on snapshot UUID.
+    fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor> {
+        let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
+        if let Some(bdev) = UntypedBdev::bdev_first() {
+            if let Some(lvol) = bdev
+                .into_iter()
+                .find(|b| {
+                    b.driver() == "lvol" && b.uuid_as_string() == self.uuid()
+                })
+                .map(|b| Lvol::try_from(b).unwrap())
+            {
+                if let Some(snapshot_descriptor) =
+                    lvol.snapshot_descriptor(None)
+                {
+                    snapshot_list.push(snapshot_descriptor);
+                }
             }
         }
         snapshot_list

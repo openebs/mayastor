@@ -52,6 +52,7 @@ pub mod v1 {
     pub mod nexus;
     pub mod pool;
     pub mod replica;
+    pub mod snapshot;
 }
 
 /// Default timeout for gRPC calls, in seconds. Should be enforced in case

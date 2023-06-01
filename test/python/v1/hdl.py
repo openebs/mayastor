@@ -6,11 +6,13 @@ import common_pb2 as common_pb
 import nexus_pb2 as nexus_pb
 import pool_pb2 as pool_pb
 import replica_pb2 as replica_pb
+import snapshot_pb2 as snapshot_pb
 import host_pb2 as host_pb
 import bdev_pb2_grpc as bdev_rpc
 import nexus_pb2_grpc as nexus_rpc
 import pool_pb2_grpc as pool_rpc
 import replica_pb2_grpc as replica_rpc
+import snapshot_pb2_grpc as snapshot_rpc
 import host_pb2_grpc as host_rpc
 from pytest_testconfig import config
 from functools import partial
@@ -31,6 +33,7 @@ class MayastorHandle(object):
         self.bdev_rpc = bdev_rpc.BdevRpcStub(self.channel)
         self.pool_rpc = pool_rpc.PoolRpcStub(self.channel)
         self.replica_rpc = replica_rpc.ReplicaRpcStub(self.channel)
+        self.snapshot_rpc = snapshot_rpc.SnapshotRpcStub(self.channel)
         self.host_rpc = host_rpc.HostRpcStub(self.channel)
         self.nexus_rpc = nexus_rpc.NexusRpcStub(self.channel)
         self._readiness_check()
@@ -44,6 +47,7 @@ class MayastorHandle(object):
             "HostRpcStub": getattr(host_rpc, "HostRpcStub")(self.channel),
             "PoolRpcStub": getattr(pool_rpc, "PoolRpcStub")(self.channel),
             "ReplicaRpcStub": getattr(replica_rpc, "ReplicaRpcStub")(self.channel),
+            "SnapshotRpcStub": getattr(snapshot_rpc, "SnapshotRpcStub")(self.channel),
             "NexusRpcStub": getattr(nexus_rpc, "NexusRpcStub")(self.channel),
         }
         stub = switcher[name]
@@ -68,6 +72,7 @@ class MayastorHandle(object):
         self.bdev_rpc = self.install_stub("BdevRpcStub")
         self.pool_rpc = self.install_stub("PoolRpcStub")
         self.replica_rpc = self.install_stub("ReplicaRpcStub")
+        self.snapshot_rpc = self.install_stub("SnapshotRpcStub")
         self.host_rpc = self.install_stub("HostRpcStub")
         self.nexus_rpc = self.install_stub("NexusRpcStub")
         self._readiness_check()
@@ -199,21 +204,21 @@ class MayastorHandle(object):
 
         for (r_uuid, s_uuid) in replicas:
             active_replicas.append(
-                nexus_pb.NexusCreateSnapshotReplicaDescriptor(
+                snapshot_pb.NexusCreateSnapshotReplicaDescriptor(
                     replica_uuid=r_uuid,
                     snapshot_uuid=s_uuid,
                     skip=False,
                 )
             )
 
-        args = nexus_pb.NexusCreateSnapshotRequest(
+        args = snapshot_pb.NexusCreateSnapshotRequest(
             nexus_uuid=nexus_uuid,
             entity_id=entity_id,
             txn_id=txn_id,
             snapshot_name=snapshot_name,
             replicas=active_replicas,
         )
-        return self.nexus_rpc.CreateSnapshot(args)
+        return self.snapshot_rpc.CreateNexusSnapshot(args)
 
     def nexus_destroy(self, uuid):
         """Destroy the nexus."""
@@ -260,6 +265,4 @@ class MayastorHandle(object):
         return uris
 
     def list_snapshots(self):
-        return self.replica_rpc.ListReplicaSnapshot(
-            replica_pb.ListReplicaSnapshotsRequest()
-        )
+        return self.snapshot_rpc.ListSnapshot(snapshot_pb.ListSnapshotsRequest())
