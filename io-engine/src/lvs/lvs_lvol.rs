@@ -455,15 +455,15 @@ impl Lvol {
         snap_param: SnapshotParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
         done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: oneshot::Receiver<(i32, Lvol)>,
+        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
     ) -> Result<Lvol, Error> {
         self.create_snapshot_inner(&snap_param, done_cb, done_cb_arg)?;
 
         // Wait till operation succeeds, if requested.
-        let (error, lvol) =
+        let (error, lvol_ptr) =
             receiver.await.expect("Snapshot done callback disappeared");
         match error {
-            0 => Ok(lvol),
+            0 => Ok(Lvol::from_inner_ptr(lvol_ptr)),
             _ => Err(Error::SnapshotCreate {
                 source: Errno::from_i32(error),
                 msg: snap_param.name().unwrap(),
@@ -1123,16 +1123,17 @@ impl SnapshotOps for Lvol {
             errno: i32,
         ) {
             let s = unsafe {
-                Box::from_raw(arg as *mut oneshot::Sender<(i32, Lvol)>)
+                Box::from_raw(
+                    arg as *mut oneshot::Sender<(i32, *mut spdk_lvol)>,
+                )
             };
             if errno != 0 {
                 error!("vbdev_lvol_create_snapshot failed errno {}", errno);
             }
-            let lvol = Lvol::from_inner_ptr(lvol_ptr);
-            s.send((errno, lvol)).ok();
+            s.send((errno, lvol_ptr)).ok();
         }
 
-        let (s, r) = oneshot::channel::<(i32, Lvol)>();
+        let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
 
         let create_snapshot = self
             .do_create_snapshot(
