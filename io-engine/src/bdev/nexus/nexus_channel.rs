@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
 };
 
-use super::{FaultReason, IOLogChannel, Nexus};
+use super::{FaultReason, IOLogChannel, Nexus, NexusBio};
 
 use crate::core::{BlockDeviceHandle, CoreError, Cores};
 
@@ -18,6 +18,8 @@ pub struct NexusChannel<'n> {
     io_logs: Vec<IOLogChannel>,
     previous_reader: UnsafeCell<usize>,
     fail_fast: u32,
+    io_mode: IoMode,
+    frozen_ios: Vec<NexusBio<'n>>,
     nexus: Pin<&'n mut Nexus<'n>>,
     core: u32,
 }
@@ -36,6 +38,15 @@ impl<'n> Debug for NexusChannel<'n> {
             c = self.nexus.child_count(),
         )
     }
+}
+
+/// Channel I/O disposition.
+#[derive(Debug, Copy, Clone)]
+pub enum IoMode {
+    /// I/Os are running normally.
+    Normal,
+    /// I/O submissions are frozen.
+    Freeze,
 }
 
 #[derive(Debug)]
@@ -94,6 +105,8 @@ impl<'n> NexusChannel<'n> {
             previous_reader: UnsafeCell::new(0),
             nexus: unsafe { nexus.pinned_mut() },
             fail_fast: 0,
+            io_mode: IoMode::Normal,
+            frozen_ios: Vec::new(),
             core: Cores::current(),
         }
     }
@@ -263,5 +276,38 @@ impl<'n> NexusChannel<'n> {
     /// Returns core on which channel was created.
     pub fn core(&self) -> u32 {
         self.core
+    }
+
+    /// Sets the current I/O mode for this channel.
+    pub(super) fn set_io_mode(&mut self, io_mode: IoMode) {
+        self.io_mode = io_mode;
+        debug!("{self:?}: setting I/O mode to {io_mode:?}");
+        if matches!(self.io_mode, IoMode::Normal) {
+            self.resubmit_frozen();
+        }
+    }
+
+    /// Determines if I/Os are frozen.
+    pub(super) fn is_frozen(&self) -> bool {
+        matches!(self.io_mode, IoMode::Freeze)
+    }
+
+    /// Resubmits all frozen I/Os.
+    fn resubmit_frozen(&mut self) {
+        debug!(
+            "{self:?}: resubmitting {n} frozen I/Os ...",
+            n = self.frozen_ios.len()
+        );
+
+        self.frozen_ios.drain(..).for_each(|io| {
+            trace!("{io:?}: resubmitting a frozen I/O");
+            io.submit_request();
+        });
+    }
+
+    /// Freezes submission of the given Nexus I/O.
+    pub(super) fn freeze_io_submission(&mut self, io: NexusBio<'n>) {
+        trace!("{io:?}: freezing I/O");
+        self.frozen_ios.push(io)
     }
 }

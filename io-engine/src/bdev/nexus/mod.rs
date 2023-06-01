@@ -38,7 +38,7 @@ pub use nexus_bdev::{
     NvmeReservation,
 };
 pub(crate) use nexus_bdev_error::{nexus_err, Error};
-pub(crate) use nexus_channel::{DrEvent, NexusChannel};
+pub(crate) use nexus_channel::{DrEvent, IoMode, NexusChannel};
 pub use nexus_child::{
     ChildError,
     ChildState,

@@ -936,7 +936,7 @@ impl<'c> NexusChild<'c> {
     }
 
     /// Get URI of this Nexus child.
-    pub(crate) fn uri(&self) -> &str {
+    pub fn uri(&self) -> &str {
         &self.name
     }
 

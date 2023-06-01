@@ -117,6 +117,7 @@ impl<'n> Debug for NioCtx<'n> {
 
 /// TODO
 #[repr(transparent)]
+#[derive(Clone)]
 pub(super) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
 
 impl<'n> Debug for NexusBio<'n> {
@@ -185,6 +186,12 @@ impl<'n> NexusBio<'n> {
 
     /// TODO
     pub(super) fn submit_request(mut self) {
+        if self.channel().is_frozen() {
+            let s = self.clone();
+            self.channel_mut().freeze_io_submission(s);
+            return;
+        }
+
         if let Err(_e) = match self.io_type() {
             IoType::Read => self.readv(),
             // these IOs are submitted to all the underlying children
@@ -293,7 +300,7 @@ impl<'n> NexusBio<'n> {
         ctx.successful = 0;
         ctx.failed = 0;
 
-        let bio = Self(self.0.clone());
+        let bio = self.clone();
         trace_nexus_io!("New resubmit: {bio:?}");
         bio.submit_request();
     }
@@ -686,13 +693,13 @@ impl<'n> NexusBio<'n> {
                     }
 
                     // 1: Close I/O channels for all children.
-                    for d in nexus.child_devices() {
-                        nexus.disconnect_device_from_channels(d.clone()).await;
+                    for dev in nexus.child_devices() {
+                        nexus.disconnect_device(&dev).await;
 
                         device_cmd_queue().enqueue(
                             DeviceCommand::RetireDevice {
                                 nexus_name: nexus.name.clone(),
-                                child_device: d.clone(),
+                                child_device: dev.clone(),
                             },
                         );
                     }
