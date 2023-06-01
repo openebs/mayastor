@@ -179,6 +179,7 @@ async fn create_snapshot() -> Result<u64, CoreError> {
         Some(NXNAME.to_string()),
         Some(Uuid::new_v4().to_string()), // unique tx id
         Some(Uuid::new_v4().to_string()), // unique snapshot name
+        Some(Uuid::new_v4().to_string()), // unique snapshot uuid
     );
 
     let h = UntypedBdevHandle::open(NXNAME, true, false).unwrap();

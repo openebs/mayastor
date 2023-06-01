@@ -142,12 +142,13 @@ async fn test_replica_handle_snapshot() {
         let parent_id = String::from("p1");
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from(SNAP_NAME);
-
+        let snap_uuid = Uuid::new_v4().to_string();
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
+            Some(snap_uuid),
         );
 
         handle

@@ -191,6 +191,9 @@ impl From<ReplicaSnapshotDescriptor> for ReplicaSnapshot {
                 SnapshotXattrs::TxId => {
                     snapshot_param.set_txn_id(curr_attr_val);
                 }
+                SnapshotXattrs::SnapshotUuid => {
+                    snapshot_param.set_snapshot_uuid(curr_attr_val);
+                }
             }
         }
         Self {
@@ -199,8 +202,8 @@ impl From<ReplicaSnapshotDescriptor> for ReplicaSnapshot {
             snapshot_size: snap_lvol.size(),
             num_clones: 0, //TODO: Need to implement along with clone
             timestamp: None, //TODO: Need to update xAttr to track timestamp
-            replica_uuid: snap_lvol.uuid(),
-            replica_size: snap_lvol.size(),
+            replica_uuid: r.replica_uuid,
+            replica_size: r.replica_size,
             entity_id: snapshot_param.entity_id().unwrap_or_default(),
             txn_id: snapshot_param.txn_id().unwrap_or_default(),
             valid_snapshot: true,
@@ -560,7 +563,8 @@ impl ReplicaRpc for ReplicaService {
                         match lvol.prepare_snap_config(
                             &args.snapshot_name,
                             &args.entity_id,
-                            &args.txn_id
+                            &args.txn_id,
+                            &args.snapshot_uuid
                         ) {
                             Some(snap_config) => snap_config,
                             None => return Err(LvsError::SnapshotConfigFailed {
@@ -568,12 +572,14 @@ impl ReplicaRpc for ReplicaService {
                                 msg: "tx id / snapshot name not provided".to_string(),
                             })
                         };
+                    let replica_uuid = lvol.uuid();
+                    let replica_size = lvol.size();
                     // create snapshot
                     match lvol.create_snapshot(snap_config.clone()).await {
                         Ok(snap_lvol) => {
                             info!("Create Snapshot Success for {lvol:?}, {snap_lvol:?}");
                             let snapshot_descriptor =
-                                ReplicaSnapshotDescriptor::new(snap_lvol, lvol.uuid(), lvol.size());
+                                ReplicaSnapshotDescriptor::new(snap_lvol, replica_uuid, replica_size);
                             Ok(CreateReplicaSnapshotResponse {
                                 replica_uuid: lvol.uuid(),
                                 snapshot: Some(ReplicaSnapshot::from(snapshot_descriptor)),

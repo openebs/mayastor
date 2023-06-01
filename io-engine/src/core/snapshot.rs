@@ -10,6 +10,7 @@ pub struct SnapshotParams {
     parent_id: Option<String>,
     txn_id: Option<String>,
     snap_name: Option<String>,
+    snapshot_uuid: Option<String>,
 }
 
 /// Implement Snapshot Common Function.
@@ -19,12 +20,14 @@ impl SnapshotParams {
         parent_id: Option<String>,
         txn_id: Option<String>,
         snap_name: Option<String>,
+        snapshot_uuid: Option<String>,
     ) -> SnapshotParams {
         SnapshotParams {
             entity_id,
             parent_id,
             txn_id,
             snap_name,
+            snapshot_uuid,
         }
     }
 }
@@ -71,14 +74,16 @@ pub enum SnapshotXattrs {
     TxId,
     EntityId,
     ParentId,
+    SnapshotUuid,
 }
 
 impl SnapshotXattrs {
     pub fn name(&self) -> &'static str {
         match *self {
-            Self::TxId => "mayastor.tx_id",
-            Self::EntityId => "mayastor.entity_id",
-            Self::ParentId => "mayastor.parent_id",
+            Self::TxId => "io-engine.tx_id",
+            Self::EntityId => "io-engine.entity_id",
+            Self::ParentId => "io-engine.parent_id",
+            Self::SnapshotUuid => "uuid",
         }
     }
 }
@@ -103,6 +108,7 @@ pub trait SnapshotOps {
         snap_name: &str,
         entity_id: &str,
         txn_id: &str,
+        snap_uuid: &str,
     ) -> Option<SnapshotParams>;
 
     /// List Snapshots.
@@ -134,6 +140,12 @@ pub trait SnapshotDescriptor {
 
     /// Set Snapshot Name.
     fn set_name(&mut self, name: String);
+
+    /// Get snapshot uuid of the snapshot.
+    fn snapshot_uuid(&self) -> Option<String>;
+
+    /// Set snapshot uuid of the snapshot.
+    fn set_snapshot_uuid(&mut self, snapshot_uuid: String);
 }
 
 /// Traits gives VolumeSnapshot Descriptor.
@@ -200,6 +212,14 @@ impl SnapshotDescriptor for SnapshotParams {
     /// Set Snapshot Name.
     fn set_name(&mut self, name: String) {
         self.snap_name = Some(name);
+    }
+    /// Get snapshot uuid of the snapshot.
+    fn snapshot_uuid(&self) -> Option<String> {
+        self.snapshot_uuid.clone()
+    }
+    /// Set snapshot uuid of the snapshot.
+    fn set_snapshot_uuid(&mut self, snapshot_uuid: String) {
+        self.snapshot_uuid = Some(snapshot_uuid);
     }
 }
 

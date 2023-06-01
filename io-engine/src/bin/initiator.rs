@@ -146,6 +146,7 @@ async fn create_snapshot(uri: &str) -> Result<()> {
         Some(bdev.to_string()),
         Some(Uuid::new_v4().to_string()), // unique tx id
         Some(Uuid::new_v4().to_string()), // unique snapshot name
+        Some(Uuid::new_v4().to_string()), // unique snapshot uuid
     );
 
     let t = h.create_snapshot(snapshot).await?;
