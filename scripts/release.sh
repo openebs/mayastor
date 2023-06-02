@@ -156,9 +156,10 @@ if [ -n "$TAG" ] && [ "$TAG" != "$(get_tag)" ]; then
   # Set the TAG which basically allows building the binaries as if it were a git tag
   NIX_TAG_ARGS="--argstr tag $TAG"
   NIX_BUILD="$NIX_BUILD $NIX_TAG_ARGS"
+  alias_tag=
 fi
 TAG=${TAG:-$HASH}
-if [ -n "$OVERRIDE_COMMIT_HASH" ]; then
+if [ -n "$OVERRIDE_COMMIT_HASH" ] && [ -n "$alias_tag" ]; then
   # Set the TAG to the alias and remove the alias
   NIX_TAG_ARGS="--argstr img_tag $alias_tag"
   NIX_BUILD="$NIX_BUILD $NIX_TAG_ARGS"
@@ -169,8 +170,12 @@ fi
 for name in $IMAGES; do
   image_basename="openebs/${name}"
   image=$image_basename
-  if [ -n "$REGISTRY" ]; then
-    image="${REGISTRY}/${image}"
+    if [ -n "$REGISTRY" ]; then
+    if [[ "${REGISTRY}" =~ '/' ]]; then
+      image="${REGISTRY}/$(echo ${image} | cut -d'/' -f2)"
+    else
+      image="${REGISTRY}/${image}"
+    fi
   fi
   # If we're skipping the build, then we just want to upload
   # the images we already have locally.
