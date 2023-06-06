@@ -52,6 +52,7 @@ use crate::{
         NvmeStatus,
         ReadMode,
         SnapshotParams,
+        ToErrno,
         UntypedBdev,
         UntypedBdevHandle,
         UntypedDescriptorGuard,
@@ -526,6 +527,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         lvol.create_snapshot(snapshot).await.map_err(|e| {
             CoreError::SnapshotCreate {
                 reason: e.to_string(),
+                source: e.to_errno(),
             }
         })?;
 
