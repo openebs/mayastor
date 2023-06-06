@@ -486,28 +486,59 @@ impl Lvol {
     ) -> Option<String> {
         let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
         let mut size: u64 = 0;
-        let attr_id = attr.name().into_cstring();
+        let attribute = attr.name().into_cstring();
 
         unsafe {
             let blob = snapshot.bs_iter_first();
             let r = spdk_blob_get_xattr_value(
                 blob,
-                attr_id.as_ptr(),
+                attribute.as_ptr(),
                 &mut val as *mut *const c_char as *mut *const c_void,
                 &mut size as *mut u64,
             );
 
-            // mark snapshot invalid, if any attribute not found or if attribute
+            // Mark snapshot invalid, if any attribute not found or if attribute
             // is empty.
             if r != 0 || size == 0 {
-                warn!(
-                    "Snapshot attribute {:?} not found, snapshot{:?}",
-                    attr_id, snapshot
-                );
+                warn!(?snapshot, ?attribute, "Snapshot attribute not found",);
                 return None;
             }
 
-            // Parse snapshot attribute into a string.
+            // Parse snapshot attribute into a string, transparently removing
+            // null-terminating character for SPDK system attributes like UUID,
+            // which are stored in C-string format.
+            let mut last_char = val.offset((size as isize) - 1);
+
+            // Attribute contains null-terminated string, so remove all zero
+            // characters from it. Always assume there can potentially be more
+            // then one null terminating character (by mistake), so
+            // skip them all.
+            if *last_char == 0 {
+                size -= 1; // account the first null terminator.
+
+                while size > 0 {
+                    last_char = val.offset((size as isize) - 1);
+
+                    if *last_char != 0 {
+                        break;
+                    }
+
+                    size -= 1;
+                }
+
+                // Make sure attribute still contains non-null terminating
+                // characters (assume malformed attribute value
+                // contains only zeroes).
+                if size == 0 {
+                    warn!(
+                        ?snapshot,
+                        ?attribute,
+                        "Snapshot attribute contains no value",
+                    );
+                    return None;
+                }
+            }
+
             let sl =
                 std::slice::from_raw_parts(val as *const u8, size as usize);
             std::str::from_utf8(sl).map_or_else(|error| {

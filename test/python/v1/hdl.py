@@ -132,7 +132,7 @@ class MayastorHandle(object):
         """Destroy  the pool."""
         return self.pool_rpc.DestroyPool(pool_pb.DestroyPoolRequest(name=name))
 
-    def pool_list(self, opts):
+    def pool_list(self, opts=None):
         """Only list pools"""
         if opts == None:
             opts = pool_pb.ListPoolOptions()
@@ -191,6 +191,30 @@ class MayastorHandle(object):
             )
         )
 
+    def nexus_create_snapshot(
+        self, nexus_uuid, entity_id, txn_id, snapshot_name, replicas, skip_replicas
+    ):
+        """Create nexus snapshot"""
+        active_replicas = []
+
+        for (r_uuid, s_uuid) in replicas:
+            active_replicas.append(
+                nexus_pb.NexusCreateSnapshotReplicaDescriptor(
+                    replica_uuid=r_uuid,
+                    snapshot_uuid=s_uuid,
+                    skip=False,
+                )
+            )
+
+        args = nexus_pb.NexusCreateSnapshotRequest(
+            nexus_uuid=nexus_uuid,
+            entity_id=entity_id,
+            txn_id=txn_id,
+            snapshot_name=snapshot_name,
+            replicas=active_replicas,
+        )
+        return self.nexus_rpc.CreateSnapshot(args)
+
     def nexus_destroy(self, uuid):
         """Destroy the nexus."""
         return self.nexus_rpc.DestroyNexus(nexus_pb.DestroyNexusRequest(uuid=uuid))
@@ -234,3 +258,8 @@ class MayastorHandle(object):
             uri = "pool://{0}/{1}".format(self.ip_v4, p.name)
             uris.append(uri)
         return uris
+
+    def list_snapshots(self):
+        return self.replica_rpc.ListReplicaSnapshot(
+            replica_pb.ListReplicaSnapshotsRequest()
+        )

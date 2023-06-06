@@ -13,21 +13,15 @@ use io_engine::{
         SnapshotXattrs,
         UntypedBdev,
     },
-    ffihelper::IntoCString,
     lvs::{Lvol, Lvs},
     pool_backend::PoolArgs,
 };
 
-use io_engine::lvs::LvsLvol;
 use std::convert::TryFrom;
 
 use io_engine::core::{SnapshotDescriptor, SnapshotOps};
 use log::info;
-use spdk_rs::libspdk::spdk_blob_get_xattr_value;
-use std::{
-    ffi::{c_char, c_void},
-    str,
-};
+use std::str;
 use uuid::Uuid;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -75,6 +69,10 @@ async fn check_snapshot(params: SnapshotParams) {
         (SnapshotXattrs::TxId, params.txn_id().unwrap()),
         (SnapshotXattrs::EntityId, params.entity_id().unwrap()),
         (SnapshotXattrs::ParentId, params.parent_id().unwrap()),
+        (
+            SnapshotXattrs::SnapshotUuid,
+            params.snapshot_uuid().unwrap(),
+        ),
     ];
 
     // Locate snapshot device.
@@ -82,36 +80,10 @@ async fn check_snapshot(params: SnapshotParams) {
         .await
         .expect("Can't find target snapshot device");
 
-    let blob = lvol.bs_iter_first();
-
     for (attr_name, attr_value) in attrs {
-        unsafe {
-            let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
-            let mut size: u64 = 0;
-            let attr_id = attr_name.name().to_string().into_cstring();
-
-            let r = spdk_blob_get_xattr_value(
-                blob,
-                attr_id.as_ptr(),
-                &mut val as *mut *const c_char as *mut *const c_void,
-                &mut size as *mut u64,
-            );
-
-            assert_eq!(
-                r,
-                0,
-                "No attribute {} exists in snapshot",
-                attr_name.name()
-            );
-
-            let sl =
-                std::slice::from_raw_parts(val as *const u8, size as usize);
-            let s = std::str::from_utf8(sl)
-                .expect("Failed to parse snapshot attribute")
-                .to_string();
-
-            assert_eq!(s, attr_value, "Snapshot attr doesn't match");
-        }
+        let v = Lvol::get_blob_xattr(&lvol, &attr_name)
+            .expect("Failed to get snapshot attribute");
+        assert_eq!(v, attr_value, "Snapshot attr doesn't match");
     }
 }
 
@@ -139,21 +111,28 @@ async fn test_lvol_bdev_snapshot() {
         let parent_id = String::from("p1");
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("snap11");
-        let snapshot_uuid = Uuid::new_v4().to_string();
+        let snap_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
-            Some(snap_name),
-            Some(snapshot_uuid),
+            Some(snap_name.clone()),
+            Some(snap_uuid.clone()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
             .await
             .expect("Failed to create a snapshot");
 
+        // Check blob attributes for snapshot.
         check_snapshot(snapshot_params).await;
+
+        // Check the device UUID mathches requested snapshot UUID.
+        let lvol = find_snapshot_device(&snap_name)
+            .await
+            .expect("Can't find target snapshot device");
+        assert_eq!(snap_uuid, lvol.uuid(), "Snapshot UUID doesn't match");
     })
     .await;
 }
@@ -188,14 +167,14 @@ async fn test_lvol_handle_snapshot() {
         let parent_id = String::from("p1");
         let txn_id = Uuid::new_v4().to_string();
         let snap_name = String::from("snap21");
-        let snapshot_uuid = Uuid::new_v4().to_string();
+        let snap_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
             Some(entity_id),
             Some(parent_id),
             Some(txn_id),
             Some(snap_name),
-            Some(snapshot_uuid),
+            Some(snap_uuid),
         );
 
         handle

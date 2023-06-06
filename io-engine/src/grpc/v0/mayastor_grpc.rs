@@ -11,7 +11,11 @@
 use crate::{
     bdev::{
         nexus,
-        nexus::FaultReason,
+        nexus::{
+            Error as NexusError,
+            FaultReason,
+            NexusReplicaSnapshotDescriptor,
+        },
         NvmeControllerState as ControllerState,
         PtplFileOps,
     },
@@ -1743,18 +1747,51 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 let uuid = args.uuid.clone();
                 debug!("Creating snapshot on nexus {} ...", uuid);
 
-                // TODO: fill all the fields properly once nexus-level
-                // snapshots are fully implemented.
+                let nexus = nexus_lookup(&args.uuid)?;
+                let name = Uuid::new_v4().to_string(); // unique snapshot name
+
                 let snapshot = SnapshotParams::new(
                     Some(args.uuid.clone()),
                     Some(args.uuid.clone()),
                     Some(Uuid::new_v4().to_string()), // unique tx id
-                    Some(Uuid::new_v4().to_string()), // unique snapshot name
-                    Some(Uuid::new_v4().to_string()), // unique snapshot uuid
+                    Some(name.clone()),
+                    None, // snapshot UUID will be handled on per-replica base.
                 );
 
-                let reply =
-                    nexus_lookup(&args.uuid)?.create_snapshot(snapshot).await?;
+                let mut replicas = Vec::new();
+                for r in nexus.children() {
+                    match r.get_uuid() {
+                        Some(u) => {
+                            replicas.push(
+                                NexusReplicaSnapshotDescriptor {
+                                    replica_uuid: u.to_string(),
+                                    snapshot_uuid: Some(Uuid::new_v4().to_string()), // unique snapshot UUID.
+                                    skip: false,
+                                }
+                            )
+                        }
+                        None => {
+                            let emsg =
+                                format!("Replica {} has no UUID", r.uri());
+                            error!(
+                                nexus = uuid,
+                                error = emsg,
+                                "Failed to create a snapshot for nexus"
+                            );
+                            return Err(NexusError::FailedCreateSnapshot {
+                                name,
+                                reason: emsg,
+                            });
+                        }
+                    };
+                }
+
+                let reply = nexus
+                    .create_snapshot(snapshot, replicas)
+                    .await
+                    .map(|_r| CreateSnapshotReply {
+                        name,
+                    })?;
                 info!("Created snapshot on nexus {}", uuid);
                 trace!("{:?}", reply);
                 Ok(reply)
