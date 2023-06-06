@@ -7,6 +7,7 @@ use crate::{
             FaultReason,
             NexusChild,
             NexusReplicaSnapshotDescriptor,
+            NexusReplicaSnapshotStatus,
             NexusStatus,
         },
     },
@@ -48,6 +49,15 @@ pub struct NexusService {
 impl Default for NexusService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<NexusReplicaSnapshotStatus> for NexusCreateSnapshotReplicaStatus {
+    fn from(status: NexusReplicaSnapshotStatus) -> Self {
+        Self {
+            replica_uuid: status.replica_uuid,
+            status_code: status.status,
+        }
     }
 }
 
@@ -1192,10 +1202,16 @@ impl NexusRpc for NexusService {
                 let res =
                     nexus.as_mut().create_snapshot(snapshot, replicas).await?;
 
+                let replicas_done = res
+                    .replicas_done
+                    .into_iter()
+                    .map(NexusCreateSnapshotReplicaStatus::from)
+                    .collect::<Vec<_>>();
+
                 Ok(NexusCreateSnapshotResponse {
                     nexus: Some(nexus.into_grpc().await),
                     snapshot_timestamp: Some(res.snapshot_timestamp.into()),
-                    replicas_done: Vec::new(),
+                    replicas_done,
                     replicas_skipped: res.replicas_skipped,
                 })
             })?;
