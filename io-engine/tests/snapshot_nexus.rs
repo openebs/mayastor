@@ -7,6 +7,7 @@ use common::compose::MayastorTest;
 
 use common::compose::{
     rpc::v1::{
+        bdev::ListBdevOptions,
         pool::CreatePoolRequest,
         replica::{
             CreateReplicaRequest,
@@ -76,7 +77,7 @@ fn nexus_uuid() -> String {
 }
 
 /// Launch a containerized I/O agent with 2 shared volumes on it.
-async fn launch_instance() -> (ComposeTest, Vec<String>) {
+async fn launch_instance(create_replicas: bool) -> (ComposeTest, Vec<String>) {
     common::composer_init();
 
     Config::get_or_init(|| Config {
@@ -99,6 +100,10 @@ async fn launch_instance() -> (ComposeTest, Vec<String>) {
         .build()
         .await
         .unwrap();
+
+    if !create_replicas {
+        return (test, Vec::new());
+    }
 
     let conn = GrpcConnect::new(&test);
 
@@ -212,7 +217,7 @@ fn check_replica_snapshot(params: &SnapshotParams, snapshot: &ReplicaSnapshot) {
 #[tokio::test]
 async fn test_replica_handle_snapshot() {
     let ms = get_ms();
-    let (test, urls) = launch_instance().await;
+    let (test, urls) = launch_instance(true).await;
     let conn = GrpcConnect::new(&test);
     static SNAP_NAME: &str = "snap21";
 
@@ -282,7 +287,7 @@ async fn test_replica_handle_snapshot() {
 #[tokio::test]
 async fn test_multireplica_nexus_snapshot() {
     let ms = get_ms();
-    let (_test, urls) = launch_instance().await;
+    let (_test, urls) = launch_instance(true).await;
 
     ms.spawn(async move {
         let nexus = create_nexus(&urls).await;
@@ -319,9 +324,43 @@ async fn test_multireplica_nexus_snapshot() {
 }
 
 #[tokio::test]
+async fn test_list_no_snapshots() {
+    let (test, _urls) = launch_instance(false).await;
+
+    let conn = GrpcConnect::new(&test);
+    let mut ms1 = conn.grpc_handle("ms1").await.unwrap();
+
+    // Make sure no devices exist.
+    let bdevs = ms1
+        .bdev
+        .list(ListBdevOptions {
+            name: None,
+        })
+        .await
+        .expect("Failed to list existing devices")
+        .into_inner()
+        .bdevs;
+
+    assert_eq!(bdevs.len(), 0, "Some devices still present");
+
+    // Make sure snapshots can be properly enumerated when no devices exist.
+    let snapshots = ms1
+        .replica
+        .list_replica_snapshot(ListReplicaSnapshotsRequest {
+            replica_uuid: None,
+        })
+        .await
+        .expect("Failed to list snapshots on replica node")
+        .into_inner()
+        .snapshots;
+
+    assert_eq!(snapshots.len(), 0, "Some snapshots present");
+}
+
+#[tokio::test]
 async fn test_nexus_snapshot() {
     let ms = get_ms();
-    let (test, urls) = launch_instance().await;
+    let (test, urls) = launch_instance(true).await;
     let conn = GrpcConnect::new(&test);
     static SNAP_NAME: &str = "snap31";
     static ENTITY_ID: &str = "e1";

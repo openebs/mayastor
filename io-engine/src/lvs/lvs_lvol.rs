@@ -625,8 +625,12 @@ impl Lvol {
     /// List All Snapshot.
     pub fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor> {
         let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
-        let bdev =
-            UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+        let bdev = match UntypedBdev::bdev_first() {
+            Some(b) => b,
+            None => return Vec::new(), /* No devices available, provide no
+                                       snapshots */
+        };
 
         let lvol_devices = bdev
             .into_iter()
@@ -1226,8 +1230,12 @@ impl SnapshotOps for Lvol {
     /// List Replica Snapshot.
     fn list_snapshot(&self) -> Vec<VolumeSnapshotDescriptor> {
         let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
-        let bdev =
-            UntypedBdev::bdev_first().expect("Failed to enumerate devices");
+
+        let bdev = match UntypedBdev::bdev_first() {
+            Some(b) => b,
+            None => return Vec::new(), /* No devices available, provide no
+                                       snapshots. */
+        };
 
         let lvol_devices = bdev
             .into_iter()
