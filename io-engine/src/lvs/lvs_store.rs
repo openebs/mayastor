@@ -40,6 +40,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume,
+        snapshot::VolumeSnapshotDescriptor,
         Bdev,
         IoType,
         Share,
@@ -642,6 +643,35 @@ impl Lvs {
         }
 
         Ok(())
+    }
+
+    /// return an iterator for enumerating all snapshots that reside on the pool
+    pub fn snapshots(
+        &self,
+    ) -> Option<impl Iterator<Item = VolumeSnapshotDescriptor>> {
+        if let Some(bdev) = UntypedBdev::bdev_first() {
+            let pool_name = format!("{}/", self.name());
+            Some(
+                bdev.into_iter()
+                    .filter(move |b| {
+                        b.driver() == "lvol"
+                            && b.aliases()
+                                .iter()
+                                .any(|a| a.contains(&pool_name))
+                    })
+                    .filter_map(|b| {
+                        Lvol::try_from(b).ok().and_then(|l| {
+                            if l.is_snapshot() {
+                                l.snapshot_descriptor(None)
+                            } else {
+                                None
+                            }
+                        })
+                    }),
+            )
+        } else {
+            None
+        }
     }
 
     /// return an iterator that filters out all bdevs that patch the pool
