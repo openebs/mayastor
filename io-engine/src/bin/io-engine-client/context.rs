@@ -65,6 +65,7 @@ mod v1 {
     pub type ReplicaRpcClient = replica::ReplicaRpcClient<Channel>;
     pub type HostRpcClient = host::HostRpcClient<Channel>;
     pub type NexusRpcClient = nexus::NexusRpcClient<Channel>;
+    pub type SnapshotRpcClient = snapshot::SnapshotRpcClient<Channel>;
 
     pub struct Context {
         pub bdev: BdevRpcClient,
@@ -73,6 +74,7 @@ mod v1 {
         pub replica: ReplicaRpcClient,
         pub host: HostRpcClient,
         pub nexus: NexusRpcClient,
+        pub snapshot: SnapshotRpcClient,
     }
 
     impl Context {
@@ -83,6 +85,7 @@ mod v1 {
             let replica = ReplicaRpcClient::connect(h.clone()).await.unwrap();
             let host = HostRpcClient::connect(h.clone()).await.unwrap();
             let nexus = NexusRpcClient::connect(h.clone()).await.unwrap();
+            let snapshot = SnapshotRpcClient::connect(h.clone()).await.unwrap();
 
             Ok(Self {
                 bdev,
@@ -91,6 +94,7 @@ mod v1 {
                 replica,
                 host,
                 nexus,
+                snapshot,
             })
         }
     }

@@ -17,6 +17,7 @@ import grpc
 import uuid as guid
 import pool_pb2 as pool_pb
 import replica_pb2 as replica_pb
+import snapshot_pb2 as snapshot_pb
 import common_pb2 as common_pb
 import nexus_pb2 as nexus_pb
 import subprocess

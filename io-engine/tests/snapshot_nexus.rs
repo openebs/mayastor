@@ -9,11 +9,8 @@ use common::compose::{
     rpc::v1::{
         bdev::ListBdevOptions,
         pool::CreatePoolRequest,
-        replica::{
-            CreateReplicaRequest,
-            ListReplicaSnapshotsRequest,
-            ReplicaSnapshot,
-        },
+        replica::CreateReplicaRequest,
+        snapshot::{ListSnapshotsRequest, SnapshotInfo},
         GrpcConnect,
     },
     Builder,
@@ -182,7 +179,7 @@ async fn create_device(url: &str) -> String {
     device_create(url).await.expect("Failed to create device")
 }
 
-fn check_replica_snapshot(params: &SnapshotParams, snapshot: &ReplicaSnapshot) {
+fn check_replica_snapshot(params: &SnapshotParams, snapshot: &SnapshotInfo) {
     assert_eq!(
         snapshot.snapshot_uuid,
         params.snapshot_uuid().unwrap(),
@@ -190,7 +187,7 @@ fn check_replica_snapshot(params: &SnapshotParams, snapshot: &ReplicaSnapshot) {
     );
 
     assert_eq!(
-        snapshot.replica_uuid,
+        snapshot.source_uuid,
         params.parent_id().unwrap(),
         "Snapshot replica UUID doesn't match",
     );
@@ -228,9 +225,10 @@ async fn test_replica_handle_snapshot() {
 
     // Make sure no snapshot exists on the remote node prior testing.
     let snapshots = ms1
-        .replica
-        .list_replica_snapshot(ListReplicaSnapshotsRequest {
-            replica_uuid: None,
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -250,7 +248,7 @@ async fn test_replica_handle_snapshot() {
         Some(String::from(SNAP_NAME)),
         Some(Uuid::new_v4().to_string()),
     );
-    let snapshot_params_clone = snapshot_params.clone();
+    let mut snapshot_params_clone = snapshot_params.clone();
 
     ms.spawn(async move {
         let device_name = create_device(&urls[0]).await;
@@ -267,15 +265,16 @@ async fn test_replica_handle_snapshot() {
 
     // Make sure snapshot exists on the remote node.
     let snapshots = ms1
-        .replica
-        .list_replica_snapshot(ListReplicaSnapshotsRequest {
-            replica_uuid: None,
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
         .into_inner()
         .snapshots;
-
+    snapshot_params_clone.set_parent_id(String::default());
     check_replica_snapshot(
         &snapshot_params_clone,
         snapshots
@@ -345,9 +344,10 @@ async fn test_list_no_snapshots() {
 
     // Make sure snapshots can be properly enumerated when no devices exist.
     let snapshots = ms1
-        .replica
-        .list_replica_snapshot(ListReplicaSnapshotsRequest {
-            replica_uuid: None,
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -383,9 +383,10 @@ async fn test_nexus_snapshot() {
 
     // Make sure no snapshots exist on the remote node prior testing.
     let snapshots = ms1
-        .replica
-        .list_replica_snapshot(ListReplicaSnapshotsRequest {
-            replica_uuid: None,
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -444,9 +445,10 @@ async fn test_nexus_snapshot() {
     .await;
 
     let snapshots = ms1
-        .replica
-        .list_replica_snapshot(ListReplicaSnapshotsRequest {
-            replica_uuid: None,
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")

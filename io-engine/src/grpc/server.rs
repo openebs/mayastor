@@ -11,6 +11,7 @@ use super::{
         nexus::NexusService,
         pool::PoolService,
         replica::ReplicaService,
+        snapshot::SnapshotService,
     },
 };
 
@@ -87,6 +88,9 @@ impl MayastorGrpcServer {
             )
             .add_optional_service(enable_v1.map(|_| {
                 v1::replica::ReplicaRpcServer::new(ReplicaService::new())
+            }))
+            .add_optional_service(enable_v1.map(|_| {
+                v1::snapshot::SnapshotRpcServer::new(SnapshotService::new())
             }))
             .add_optional_service(enable_v1.map(|_| {
                 v1::host::HostRpcServer::new(HostService::new(

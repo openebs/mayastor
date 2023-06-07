@@ -3,33 +3,21 @@ use crate::{
     bdev_api::BdevError,
     core::{
         logical_volume::LogicalVolume,
-        snapshot::{
-            SnapshotDescriptor,
-            VolumeSnapshotDescriptor,
-            VolumeSnapshotDescriptors,
-        },
         Bdev,
         Protocol,
         Share,
         ShareProps,
-        SnapshotOps,
-        SnapshotParams,
-        SnapshotXattrs,
         UntypedBdev,
         UpdateProps,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol},
-    spdk_rs::ffihelper::IntoCString,
 };
 use ::function_name::named;
-use core::ffi::{c_char, c_void};
 use futures::FutureExt;
 use mayastor_api::v1::replica::*;
 use nix::errno::Errno;
-use spdk_rs::libspdk::spdk_blob_get_xattr_value;
 use std::{convert::TryFrom, panic::AssertUnwindSafe, pin::Pin};
-use strum::IntoEnumIterator;
 use tonic::{Request, Response, Status};
 
 #[derive(Debug)]
@@ -38,25 +26,7 @@ pub struct ReplicaService {
     name: String,
     client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
 }
-#[derive(Debug)]
-pub struct ReplicaSnapshotDescriptor {
-    pub snapshot_lvol: Lvol,
-    pub replica_uuid: String,
-    pub replica_size: u64,
-}
-impl ReplicaSnapshotDescriptor {
-    fn new(
-        snapshot_lvol: Lvol,
-        replica_uuid: String,
-        replica_size: u64,
-    ) -> Self {
-        Self {
-            snapshot_lvol,
-            replica_uuid,
-            replica_size,
-        }
-    }
-}
+
 #[async_trait::async_trait]
 impl<F, T> Serializer<F, T> for ReplicaService
 where
@@ -134,82 +104,6 @@ impl Default for ReplicaService {
     }
 }
 
-impl From<VolumeSnapshotDescriptor> for ReplicaSnapshot {
-    fn from(s: VolumeSnapshotDescriptor) -> Self {
-        Self {
-            snapshot_uuid: s.snapshot_uuid().to_string(),
-            snapshot_name: s.snapshot_params().name().unwrap_or_default(),
-            snapshot_size: s.snapshot_size(),
-            num_clones: s.num_clones(),
-            timestamp: None, //TODO: Need to update xAttr to track timestamp
-            replica_uuid: s.snapshot_params().parent_id().unwrap_or_default(),
-            replica_size: s.replica_size(),
-            entity_id: s.snapshot_params().entity_id().unwrap_or_default(),
-            txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
-            valid_snapshot: s.valid_snapshot(),
-        }
-    }
-}
-
-impl From<ReplicaSnapshotDescriptor> for ReplicaSnapshot {
-    fn from(r: ReplicaSnapshotDescriptor) -> Self {
-        let snap_lvol = r.snapshot_lvol;
-        let blob = snap_lvol.bs_iter_first();
-        let mut snapshot_param: SnapshotParams = Default::default();
-        for attr in SnapshotXattrs::iter() {
-            let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
-            let mut size: u64 = 0;
-            let attr_id = attr.name().to_string().into_cstring();
-            let curr_attr_val = unsafe {
-                let _r = spdk_blob_get_xattr_value(
-                    blob,
-                    attr_id.as_ptr(),
-                    &mut val as *mut *const c_char as *mut *const c_void,
-                    &mut size as *mut u64,
-                );
-
-                let sl =
-                    std::slice::from_raw_parts(val as *const u8, size as usize);
-                std::str::from_utf8(sl).map_or_else(|error| {
-                    warn!(
-                        snapshot=snap_lvol.name(),
-                        attribute=attr.name(),
-                        ?error,
-                        "Failed to parse snapshot attribute, default to empty string"
-                    );
-                    String::default()
-                },
-                |v| v.to_string())
-            };
-            match attr {
-                SnapshotXattrs::ParentId => {
-                    snapshot_param.set_parent_id(curr_attr_val);
-                }
-                SnapshotXattrs::EntityId => {
-                    snapshot_param.set_entity_id(curr_attr_val);
-                }
-                SnapshotXattrs::TxId => {
-                    snapshot_param.set_txn_id(curr_attr_val);
-                }
-                SnapshotXattrs::SnapshotUuid => {
-                    snapshot_param.set_snapshot_uuid(curr_attr_val);
-                }
-            }
-        }
-        Self {
-            snapshot_uuid: snap_lvol.uuid(),
-            snapshot_name: snap_lvol.name(),
-            snapshot_size: snap_lvol.size(),
-            num_clones: 0, //TODO: Need to implement along with clone
-            timestamp: None, //TODO: Need to update xAttr to track timestamp
-            replica_uuid: r.replica_uuid,
-            replica_size: r.replica_size,
-            entity_id: snapshot_param.entity_id().unwrap_or_default(),
-            txn_id: snapshot_param.txn_id().unwrap_or_default(),
-            valid_snapshot: true,
-        }
-    }
-}
 impl ReplicaService {
     pub fn new() -> Self {
         Self {
@@ -524,200 +418,6 @@ impl ReplicaRpc for ReplicaService {
                             name: args.uuid,
                         }),
                     }
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
-        .await
-    }
-    #[named]
-    async fn create_replica_snapshot(
-        &self,
-        request: Request<CreateReplicaSnapshotRequest>,
-    ) -> GrpcResult<CreateReplicaSnapshotResponse> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let lvol = match UntypedBdev::lookup_by_uuid_str(
-                        &args.replica_uuid,
-                    ) {
-                        Some(bdev) => Lvol::try_from(bdev)?,
-                        None => {
-                            return Err(LvsError::Invalid {
-                                source: Errno::ENOENT,
-                                msg: format!(
-                                    "Replica {} not found",
-                                    args.replica_uuid
-                                ),
-                            })
-                        }
-                    };
-                    // validate snapshot name
-                    if let Some(_r) = UntypedBdev::lookup_by_name(&args.snapshot_name) {
-                        return Err(LvsError::Invalid {
-                            source: Errno::EEXIST,
-                            msg: format!(
-                                "Snapshot name {} already exist",
-                                args.snapshot_name
-                            ),
-                        })
-                    }
-                    // validate snapshot uuid
-                    if let Some(_r) = UntypedBdev::lookup_by_uuid_str(&args.snapshot_uuid) {
-                        return Err(LvsError::Invalid {
-                            source: Errno::EEXIST,
-                            msg: format!(
-                                "Snapshot uuid {} already exist",
-                                args.snapshot_uuid
-                            ),
-                        })
-                    }
-                    // prepare snap config and flush IO before taking snapshot.
-                    let Some(snap_config) =
-                        lvol.prepare_snap_config(
-                            &args.snapshot_name,
-                            &args.entity_id,
-                            &args.txn_id,
-                            &args.snapshot_uuid
-                        ) else {
-                            return Err(LvsError::Invalid {
-                                source: Errno::EINVAL,
-                                msg: format!(
-                                    "tx id / snapshot name not provided for replica {}",
-                                    args.replica_uuid
-                                ),
-                            });
-                    };
-                    let replica_uuid = lvol.uuid();
-                    let replica_size = lvol.size();
-                    // create snapshot
-                    match lvol.create_snapshot(snap_config.clone()).await {
-                        Ok(snap_lvol) => {
-                            info!("Create Snapshot Success for {lvol:?}, {snap_lvol:?}");
-                            let snapshot_descriptor =
-                                ReplicaSnapshotDescriptor::new(snap_lvol, replica_uuid, replica_size);
-                            Ok(CreateReplicaSnapshotResponse {
-                                replica_uuid: lvol.uuid(),
-                                snapshot: Some(ReplicaSnapshot::from(snapshot_descriptor)),
-                            })
-                        }
-                        Err(e) => {
-                            error!(
-                                "Create Snapshot Failed for lvol: {lvol:?} with Error: {e:?}",
-                            );
-                            Err(e)
-                        }
-                    }
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
-        .await
-    }
-    #[named]
-    async fn list_replica_snapshot(
-        &self,
-        request: Request<ListReplicaSnapshotsRequest>,
-    ) -> GrpcResult<ListReplicaSnapshotsResponse> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let replica_uuid = args.replica_uuid;
-                    match replica_uuid {
-                        // if replica_uuid is valid, filter snapshot based on
-                        // replica_uuid
-                        Some(replica_uuid) => {
-                            let lvol = match UntypedBdev::lookup_by_uuid_str(
-                                &replica_uuid,
-                            ) {
-                                Some(bdev) => Lvol::try_from(bdev)?,
-                                None => {
-                                    return Err(LvsError::Invalid {
-                                        source: Errno::ENOENT,
-                                        msg: format!(
-                                            "Replica {replica_uuid} not found",
-                                        ),
-                                    })
-                                }
-                            };
-                            let snapshots = lvol
-                                .list_snapshot()
-                                .into_iter()
-                                .map(ReplicaSnapshot::from)
-                                .collect();
-                            Ok(ListReplicaSnapshotsResponse {
-                                snapshots,
-                            })
-                        }
-                        // if replica_uuid is not input, list all snapshot
-                        // present in system
-                        None => {
-                            let snapshots = Lvol::list_all_snapshots()
-                                .into_iter()
-                                .map(ReplicaSnapshot::from)
-                                .collect();
-                            Ok(ListReplicaSnapshotsResponse {
-                                snapshots,
-                            })
-                        }
-                    }
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
-            },
-        )
-        .await
-    }
-
-    #[named]
-    async fn delete_replica_snapshot(
-        &self,
-        request: Request<DeleteReplicaSnapshotRequest>,
-    ) -> GrpcResult<()> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
-            async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let bdev = UntypedBdev::bdev_first()
-                        .expect("Failed to enumerate devices");
-
-                    let device = match bdev
-                        .into_iter()
-                        .find(|b| {
-                            b.driver() == "lvol"
-                                && b.uuid_as_string() == args.snapshot_uuid
-                        })
-                        .map(|b| Lvol::try_from(b).unwrap())
-                    {
-                        Some(lvol) => lvol,
-                        None => {
-                            return Err(LvsError::Invalid {
-                                source: Errno::ENOENT,
-                                msg: format!(
-                                    "Snapshot {} not found",
-                                    args.snapshot_uuid
-                                ),
-                            })
-                        }
-                    };
-                    device.destroy().await?;
-                    Ok(())
                 })?;
                 rx.await
                     .map_err(|_| Status::cancelled("cancelled"))?

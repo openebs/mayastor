@@ -6,8 +6,6 @@ use crate::{
             ChildStateClient,
             FaultReason,
             NexusChild,
-            NexusReplicaSnapshotDescriptor,
-            NexusReplicaSnapshotStatus,
             NexusStatus,
         },
     },
@@ -15,7 +13,6 @@ use crate::{
         lock::{ProtectedSubsystems, ResourceLockManager},
         Protocol,
         Share,
-        SnapshotParams,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult},
     rebuild::{HistoryRecord, RebuildState, RebuildStats},
@@ -49,27 +46,6 @@ pub struct NexusService {
 impl Default for NexusService {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl From<NexusReplicaSnapshotStatus> for NexusCreateSnapshotReplicaStatus {
-    fn from(status: NexusReplicaSnapshotStatus) -> Self {
-        Self {
-            replica_uuid: status.replica_uuid,
-            status_code: status.status,
-        }
-    }
-}
-
-impl From<NexusCreateSnapshotReplicaDescriptor>
-    for NexusReplicaSnapshotDescriptor
-{
-    fn from(descr: NexusCreateSnapshotReplicaDescriptor) -> Self {
-        NexusReplicaSnapshotDescriptor {
-            replica_uuid: descr.replica_uuid,
-            snapshot_uuid: descr.snapshot_uuid,
-            skip: descr.skip,
-        }
     }
 }
 
@@ -1164,58 +1140,6 @@ impl NexusRpc for NexusService {
                     records,
                 })
             })?;
-            rx.await
-                .map_err(|_| Status::cancelled("cancelled"))?
-                .map_err(Status::from)
-                .map(Response::new)
-        })
-        .await
-    }
-
-    #[named]
-    async fn create_snapshot(
-        &self,
-        request: Request<NexusCreateSnapshotRequest>,
-    ) -> GrpcResult<NexusCreateSnapshotResponse> {
-        let ctx = GrpcClientContext::new(&request, function_name!());
-        let args = request.into_inner();
-
-        self.serialized(ctx, args.nexus_uuid.clone(), false, async move {
-            trace!("{:?}", args);
-            let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                let snapshot = SnapshotParams::new(
-                    Some(args.entity_id.clone()),
-                    Some(args.nexus_uuid.clone()),
-                    Some(args.txn_id.clone()),
-                    Some(args.snapshot_name.clone()),
-                    None, // Snapshot UUID will be handled on per-replica base.
-                );
-
-                let mut nexus = nexus_lookup(&args.nexus_uuid)?;
-                let replicas = args
-                    .replicas
-                    .iter()
-                    .cloned()
-                    .map(NexusReplicaSnapshotDescriptor::from)
-                    .collect::<Vec<_>>();
-
-                let res =
-                    nexus.as_mut().create_snapshot(snapshot, replicas).await?;
-
-                let replicas_done = res
-                    .replicas_done
-                    .into_iter()
-                    .map(NexusCreateSnapshotReplicaStatus::from)
-                    .collect::<Vec<_>>();
-
-                Ok(NexusCreateSnapshotResponse {
-                    nexus: Some(nexus.into_grpc().await),
-                    snapshot_timestamp: Some(res.snapshot_timestamp.into()),
-                    replicas_done,
-                    replicas_skipped: res.replicas_skipped,
-                })
-            })?;
-
             rx.await
                 .map_err(|_| Status::cancelled("cancelled"))?
                 .map_err(Status::from)

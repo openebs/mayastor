@@ -244,7 +244,7 @@ async fn test_lvol_list_snapshot() {
             .await
             .expect("Failed to create a snapshot");
 
-        let snapshot_list = lvol.list_snapshot();
+        let snapshot_list = lvol.list_snapshot_by_source_uuid();
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(2, snapshot_list.len(), "Snapshot Count not matched!!");
     })
