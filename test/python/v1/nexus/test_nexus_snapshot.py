@@ -63,7 +63,7 @@ def start_fio_client(connect_nexus_1):
     f.communicate()
 
 
-@when("a nexus snapshot is created")
+@when("a nexus snapshot is created", target_fixture="create_nexus_snapshot")
 def create_nexus_snapshot(
     connect_nexus_1, mayastor_mod, nexus_cfg, replica_cfg, snapshot1_cfg
 ):
@@ -77,6 +77,17 @@ def create_nexus_snapshot(
         replicas,
         [],
     )
+
+
+@then("successful status for replicas should be returned to the caller")
+def check_nexus_snapshot_creation_status(create_nexus_snapshot, replica_cfg):
+    res = create_nexus_snapshot
+    assert len(res.replicas_done) == 1, "No status for replicas provided"
+    assert len(res.replicas_skipped) == 0, "Skipped replicas reported"
+    assert (
+        res.replicas_done[0].replica_uuid == replica_cfg[0]
+    ), "UUID for replica mismatches"
+    assert res.replicas_done[0].status_code == 0, "Status code mismatches"
 
 
 @then("snapshot should be created on all nexus replicas")
