@@ -1,30 +1,13 @@
 /* I/O channel for NVMe controller, one per core. */
 
-use std::{
-    cmp::max,
-    mem::size_of,
-    os::raw::c_void,
-    ptr::NonNull,
-    time::Duration,
-};
+use std::{mem::size_of, os::raw::c_void, ptr::NonNull, time::Duration};
 
 use spdk_rs::{
     libspdk::{
         nvme_qpair_abort_all_queued_reqs,
         nvme_transport_qpair_abort_reqs,
         spdk_io_channel,
-        spdk_nvme_ctrlr_alloc_io_qpair,
-        spdk_nvme_ctrlr_connect_io_qpair,
-        spdk_nvme_ctrlr_disconnect_io_qpair,
-        spdk_nvme_ctrlr_free_io_qpair,
-        spdk_nvme_ctrlr_get_default_io_qpair_opts,
-        spdk_nvme_io_qpair_opts,
-        spdk_nvme_poll_group,
-        spdk_nvme_poll_group_add,
-        spdk_nvme_poll_group_create,
-        spdk_nvme_poll_group_destroy,
         spdk_nvme_poll_group_process_completions,
-        spdk_nvme_poll_group_remove,
         spdk_nvme_qpair,
         spdk_put_io_channel,
     },
@@ -32,30 +15,21 @@ use spdk_rs::{
     PollerBuilder,
 };
 
-#[cfg(feature = "spdk-async-qpair-connect")]
-use spdk_rs::libspdk::{
-    spdk_nvme_ctrlr_connect_io_qpair_async,
-    spdk_nvme_ctrlr_io_qpair_connect_poll_async,
-};
-
-#[cfg(feature = "spdk-async-qpair-connect")]
-use nix::errno::Errno;
-
 use crate::{
-    bdev::{
-        device_lookup,
-        nvmx::{
-            controller_inner::SpdkNvmeController,
-            nvme_bdev_running_config,
-            NvmeControllerState,
-            NVME_CONTROLLERS,
-        },
-    },
-    core::{BlockDevice, BlockDeviceIoStats, CoreError, IoType},
+    bdev::device_lookup,
+    core::{BlockDevice, BlockDeviceIoStats, IoType},
 };
 
-use futures::channel::oneshot;
+use super::{
+    nvme_bdev_running_config,
+    NvmeControllerState,
+    PollGroup,
+    QPair,
+    SpdkNvmeController,
+    NVME_CONTROLLERS,
+};
 
+/// TODO
 #[repr(C)]
 pub struct NvmeIoChannel<'a> {
     inner: *mut NvmeIoChannelInner<'a>,
@@ -87,396 +61,6 @@ impl<'a> NvmeIoChannel<'a> {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
-pub enum QPairState {
-    Disconnected,
-    Disconnecting,
-    Connecting,
-    Connected,
-    Enabling,
-    Enabled,
-    Destroying,
-}
-
-impl From<u8> for QPairState {
-    fn from(u: u8) -> Self {
-        match u {
-            0 => Self::Disconnected,
-            1 => Self::Disconnecting,
-            2 => Self::Connecting,
-            3 => Self::Connected,
-            4 => Self::Enabling,
-            5 => Self::Enabled,
-            6 => Self::Destroying,
-            _ => panic!("qpair in a unknown state"),
-        }
-    }
-}
-
-impl ToString for QPairState {
-    fn to_string(&self) -> String {
-        match *self {
-            QPairState::Disconnected => "Disconnected",
-            QPairState::Disconnecting => "Disconnecting",
-            QPairState::Connecting => "Connecting",
-            QPairState::Connected => "Connected",
-            QPairState::Enabling => "Enabling",
-            QPairState::Enabled => "Enabled",
-            QPairState::Destroying => "Destroying",
-        }
-        .parse()
-        .unwrap()
-    }
-}
-
-#[derive(Debug)]
-pub struct IoQpair {
-    /// TODO
-    qpair: NonNull<spdk_nvme_qpair>,
-    /// TODO
-    ctrlr_handle: SpdkNvmeController,
-    /// TODO
-    state: QPairState,
-    /// Connection waiters for async qpair connection support.
-    #[allow(dead_code)]
-    connect_waiters: Vec<oneshot::Sender<Result<(), CoreError>>>,
-}
-
-impl IoQpair {
-    fn get_default_options(
-        ctrlr_handle: SpdkNvmeController,
-    ) -> spdk_nvme_io_qpair_opts {
-        let mut opts = spdk_nvme_io_qpair_opts::default();
-        let default_opts = nvme_bdev_running_config();
-
-        unsafe {
-            spdk_nvme_ctrlr_get_default_io_qpair_opts(
-                ctrlr_handle.as_ptr(),
-                &mut opts,
-                size_of::<spdk_nvme_io_qpair_opts>() as u64,
-            )
-        };
-
-        opts.io_queue_requests =
-            max(opts.io_queue_requests, default_opts.io_queue_requests);
-        opts.create_only = true;
-
-        // Always assume async_mode is enabled instread of
-        // relying on default_opts.async_mode.
-        opts.async_mode = true;
-
-        opts
-    }
-
-    /// Create a qpair with default options for target NVMe controller.
-    fn create(
-        ctrlr_handle: SpdkNvmeController,
-        ctrlr_name: &str,
-    ) -> Result<Self, CoreError> {
-        //assert!(!ctrlr_handle.is_null(), "controller handle is null");
-
-        let qpair_opts = IoQpair::get_default_options(ctrlr_handle);
-
-        let qpair: *mut spdk_nvme_qpair = unsafe {
-            spdk_nvme_ctrlr_alloc_io_qpair(
-                ctrlr_handle.as_ptr(),
-                &qpair_opts,
-                size_of::<spdk_nvme_io_qpair_opts>() as u64,
-            )
-        };
-
-        if let Some(q) = NonNull::new(qpair) {
-            trace!(?qpair, ?ctrlr_name, "qpair created for controller");
-            Ok(Self {
-                qpair: q,
-                ctrlr_handle,
-                state: QPairState::Disconnected,
-                connect_waiters: Vec::new(),
-            })
-        } else {
-            error!(?ctrlr_name, "Failed to allocate I/O qpair for controller",);
-            Err(CoreError::GetIoChannel {
-                name: ctrlr_name.to_string(),
-            })
-        }
-    }
-
-    /// Get SPDK qpair object.
-    pub fn as_ptr(&self) -> *mut spdk_nvme_qpair {
-        self.qpair.as_ptr()
-    }
-
-    /// Synchronously connect qpair.
-    pub(crate) fn connect(&mut self) -> i32 {
-        trace!(?self, "connecting I/O qpair");
-
-        // Check if I/O qpair is already connected to provide idempotency for
-        // multiple allocations of the same handle for the same thread, to make
-        // sure we don't reconnect every time.
-        if self.state == QPairState::Connected {
-            return 0;
-        }
-
-        // During synchronous connection we shouldn't be preemped by any other
-        // SPDK thread, so we can't see QPairState::Connecting.
-        assert_eq!(
-            self.state,
-            QPairState::Disconnected,
-            "Insufficient QPair state"
-        );
-
-        // Mark qpair as being connected and try to connect.
-        let status = unsafe {
-            spdk_nvme_ctrlr_connect_io_qpair(
-                self.ctrlr_handle.as_ptr(),
-                self.qpair.as_ptr(),
-            )
-        };
-
-        // Update QPairState according to the connection result.
-        self.state = if status == 0 {
-            QPairState::Connected
-        } else {
-            QPairState::Disconnected
-        };
-
-        trace!(?self, ?status, state=?self.state,"I/O qpair connected");
-
-        status
-    }
-
-    #[cfg(feature = "spdk-async-qpair-connect")]
-    /// Asynchronously connect qpair.
-    pub(crate) async fn connect_async(&mut self) -> Result<(), CoreError> {
-        // Check if I/O qpair is already connected to provide idempotency for
-        // multiple allocations of the same handle for the same thread, to make
-        // sure we don't reconnect every time.
-        if self.state == QPairState::Connected {
-            return Ok(());
-        }
-
-        // Take into account other connect requests for this I/O qpair to avoid
-        // multiple concurrent connections.
-        match self.state {
-            QPairState::Disconnected => {
-                self.state = QPairState::Connecting;
-            }
-            QPairState::Connecting => {
-                let (sender, receiver) =
-                    oneshot::channel::<Result<(), CoreError>>();
-
-                self.connect_waiters.push(sender);
-
-                let r = receiver
-                    .await
-                    .expect("I/O qpair connection sender disappeared");
-                return r;
-            }
-            _ => {
-                panic!("QPair is in insufficient state: {:?}", self.state);
-            }
-        }
-
-        let (sender, receiver) =
-            oneshot::channel::<crate::ffihelper::ErrnoResult<()>>();
-
-        let connect_arg = Box::into_raw(Box::new(IoQpairConnectContext {
-            sender: Some(sender),
-            poller: None,
-        }));
-
-        let connect_ctx = unsafe {
-            spdk_nvme_ctrlr_connect_io_qpair_async(
-                self.ctrlr_handle.as_ptr(),
-                self.qpair.as_ptr(),
-                Some(qpair_connect_cb),
-                connect_arg as *mut c_void,
-            )
-        };
-
-        if connect_ctx.is_null() {
-            error!(qpair=?self, "Failed to initiate asynchronous connection on a qpair");
-            return Err(CoreError::OpenBdev {
-                source: Errno::ENXIO,
-            });
-        }
-
-        let qpair = self.qpair.as_ptr();
-
-        let poller = PollerBuilder::new()
-            .with_name("io_qpair_connect_poller")
-            .with_interval(Duration::from_millis(1))
-            .with_data(())
-            .with_poll_fn(move |_| unsafe {
-                let ctx = &mut *connect_arg;
-
-                let st = spdk_nvme_ctrlr_io_qpair_connect_poll_async(
-                    qpair,
-                    connect_ctx,
-                );
-
-                match st {
-                    // Connection complete, callback is called.
-                    0 => 1,
-                    // Connection still in progress, keep polling.
-                    1 => 0,
-                    // Error occured during polling.
-                    errno => {
-                        error!(?qpair, ?errno, "I/O qpair connection failed");
-
-                        // Stop the poller and notify the listener.
-                        ctx.poller.take();
-                        ctx.sender
-                            .take()
-                            .expect("No qpair connection sender provided")
-                            .send(Err(Errno::from_i32(errno)))
-                            .expect("Failed to notify I/O qpair connection listener");
-                        1
-                    }
-                }
-            })
-            .build();
-
-        unsafe {
-            (*connect_arg).poller = Some(poller);
-        }
-
-        let r = receiver
-            .await
-            .expect("I/O qpair connection sender disappeared")
-            .map_err(|e| CoreError::OpenBdev {
-                source: e,
-            });
-
-        // Update QPairState according to the connection result.
-        self.state = if r.is_ok() {
-            QPairState::Connected
-        } else {
-            QPairState::Disconnected
-        };
-
-        // Wake up all other callers waiting for connection to complete.
-        if !self.connect_waiters.is_empty() {
-            let waiters: Vec<oneshot::Sender<Result<(), CoreError>>> =
-                self.connect_waiters.drain(..).collect();
-            trace!(
-                ?qpair,
-                waiters = waiters.len(),
-                "Notifying connection waiters"
-            );
-            for w in waiters {
-                w.send(r.clone())
-                    .expect("Failed to notify a connection waiter");
-            }
-            trace!(?qpair, "All connection waiters are notified");
-        }
-
-        // Drop context object transformed previously into a raw pointer.
-        unsafe {
-            drop(Box::from_raw(connect_arg));
-        }
-
-        r
-    }
-}
-
-#[cfg(feature = "spdk-async-qpair-connect")]
-struct IoQpairConnectContext<'poller> {
-    sender: Option<oneshot::Sender<Result<(), Errno>>>,
-    poller: Option<Poller<'poller>>,
-}
-
-#[cfg(feature = "spdk-async-qpair-connect")]
-extern "C" fn qpair_connect_cb(
-    qpair: *mut spdk_nvme_qpair,
-    cb_ctx: *mut c_void,
-) {
-    trace!(?qpair, "I/O qpair successfully connected");
-
-    let connect_ctx =
-        unsafe { &mut *(cb_ctx as *const _ as *mut IoQpairConnectContext) };
-
-    // Stop the poller.
-    connect_ctx.poller.take();
-
-    // Notify the listener.
-    connect_ctx
-        .sender
-        .take()
-        .expect("No qpair connection sender provided")
-        .send(Ok(()))
-        .expect("Failed to notify I/O qpair connection listener");
-}
-
-struct PollGroup(NonNull<spdk_nvme_poll_group>);
-
-impl PollGroup {
-    /// Create a poll group.
-    fn create(ctx: *mut c_void, ctrlr_name: &str) -> Result<Self, CoreError> {
-        let poll_group: *mut spdk_nvme_poll_group =
-            unsafe { spdk_nvme_poll_group_create(ctx, std::ptr::null_mut()) };
-
-        if poll_group.is_null() {
-            Err(CoreError::GetIoChannel {
-                name: ctrlr_name.to_string(),
-            })
-        } else {
-            Ok(Self(NonNull::new(poll_group).unwrap()))
-        }
-    }
-
-    /// Add I/O qpair to poll group.
-    fn add_qpair(&mut self, qpair: &IoQpair) -> i32 {
-        unsafe { spdk_nvme_poll_group_add(self.0.as_ptr(), qpair.as_ptr()) }
-    }
-
-    /// Remove I/O qpair to poll group.
-    fn remove_qpair(&mut self, qpair: &IoQpair) -> i32 {
-        unsafe { spdk_nvme_poll_group_remove(self.0.as_ptr(), qpair.as_ptr()) }
-    }
-
-    /// Get SPDK handle for poll group.
-    #[inline]
-    fn as_ptr(&self) -> *mut spdk_nvme_poll_group {
-        self.0.as_ptr()
-    }
-}
-
-impl Drop for PollGroup {
-    fn drop(&mut self) {
-        trace!("dropping poll group {:p}", self.0.as_ptr());
-        let rc = unsafe { spdk_nvme_poll_group_destroy(self.0.as_ptr()) };
-        if rc < 0 {
-            error!("Error on poll group destroy: {}", rc);
-        }
-        trace!("poll group {:p} successfully dropped", self.0.as_ptr());
-    }
-}
-
-/// spdk_nvme_ctrlr_free_io_qpair() calls disconnected. So we can either
-/// a. NOT call disconnect here
-///     and have SPDK disconnect it.
-/// b. set the ptr to null, as SPDK checks if the ptr is NULL. However, that
-/// breaks    the contract with NonNull<T>
-impl Drop for IoQpair {
-    fn drop(&mut self) {
-        let qpair = self.qpair.as_ptr();
-
-        unsafe {
-            nvme_qpair_abort_all_queued_reqs(qpair, 1);
-            trace!(?qpair, "I/O requests successfully aborted,");
-            nvme_transport_qpair_abort_reqs(qpair, 1);
-            trace!(?qpair, "transport requests successfully aborted,");
-            spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
-            trace!(?qpair, "qpair successfully disconnected,");
-            spdk_nvme_ctrlr_free_io_qpair(qpair);
-            trace!(?qpair, "qpair successfully freed,");
-        }
-
-        trace!(?qpair, "qpair successfully dropped,");
-    }
-}
-
 impl std::fmt::Debug for NvmeIoChannelInner<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NvmeIoChannelInner")
@@ -487,7 +71,7 @@ impl std::fmt::Debug for NvmeIoChannelInner<'_> {
 }
 
 pub struct NvmeIoChannelInner<'a> {
-    pub qpair: Option<IoQpair>,
+    qpair: Option<QPair>,
     poll_group: PollGroup,
     poller: Poller<'a>,
     io_stats_controller: IoStatsController,
@@ -513,17 +97,48 @@ pub struct NvmeIoChannelInner<'a> {
 }
 
 impl NvmeIoChannelInner<'_> {
+    /// Returns SPDK pointer for the QPair. The QPair must exist.
+    #[inline(always)]
+    pub(crate) unsafe fn qpair_ptr(&mut self) -> *mut spdk_nvme_qpair {
+        self.qpair.as_mut().expect("QPair must exist").as_ptr()
+    }
+
+    #[inline(always)]
+    pub(crate) fn qpair(&self) -> &Option<QPair> {
+        &self.qpair
+    }
+
+    #[inline(always)]
+    pub(crate) fn qpair_mut(&mut self) -> &mut Option<QPair> {
+        &mut self.qpair
+    }
+
+    fn remove_qpair(&mut self) -> Option<QPair> {
+        if let Some(q) = &self.qpair {
+            trace!(qpair = ?q.as_ptr(), "removing qpair");
+        }
+        self.qpair.take()
+    }
+
     /// Reset channel, making it unusable till reinitialize() is called.
     pub fn reset(&mut self) -> i32 {
-        if self.qpair.is_some() {
-            // Remove qpair and trigger its deallocation via drop().
-            let qpair = self.qpair.take().unwrap();
-            trace!(
-                "dropping qpair {:p} ({}) I/O requests pending)",
-                qpair.as_ptr(),
-                self.num_pending_ios
-            );
+        // Remove qpair and trigger its deallocation via drop().
+        match self.remove_qpair() {
+            Some(qpair) => {
+                trace!(
+                    "reset: dropping qpair {:p} ({}) I/O requests pending)",
+                    qpair.as_ptr(),
+                    self.num_pending_ios
+                );
+            }
+            None => {
+                trace!(
+                    "reset: no qpair ({}) I/O requests pending)",
+                    self.num_pending_ios
+                );
+            }
         }
+
         0
     }
 
@@ -578,8 +193,7 @@ impl NvmeIoChannelInner<'_> {
 
         // We assume that channel is reinitialized after being reset, so we
         // expect to see no I/O qpair.
-        let prev = self.qpair.take();
-        if prev.is_some() {
+        if self.remove_qpair().is_some() {
             warn!(
                 ?ctrlr_name,
                 "I/O channel has active I/O qpair while being reinitialized, clearing"
@@ -587,7 +201,7 @@ impl NvmeIoChannelInner<'_> {
         }
 
         // Create qpair for target controller.
-        let mut qpair = match IoQpair::create(ctrlr_handle, ctrlr_name) {
+        let qpair = match QPair::create(ctrlr_handle, ctrlr_name) {
             Ok(qpair) => qpair,
             Err(e) => {
                 error!(?ctrlr_name, ?e, "Failed to allocate qpair,");
@@ -689,7 +303,7 @@ extern "C" fn disconnected_qpair_cb(
 ) {
     let inner = NvmeIoChannel::from_raw(ctx).inner_mut();
 
-    if let Some(ref qpair) = inner.qpair {
+    if let Some(qpair) = inner.qpair() {
         unsafe {
             nvme_qpair_abort_all_queued_reqs(qpair.as_ptr(), 1);
             nvme_transport_qpair_abort_reqs(qpair.as_ptr(), 1);
@@ -776,7 +390,7 @@ impl NvmeControllerIoChannel {
         };
 
         // Allocate qpair.
-        let qpair = match IoQpair::create(controller, &cname) {
+        let qpair = match QPair::create(controller, &cname) {
             Ok(qpair) => qpair,
             Err(e) => {
                 error!(?cname, ?e, "Failed to allocate qpair");
@@ -837,12 +451,14 @@ impl NvmeControllerIoChannel {
             let ch = NvmeIoChannel::from_raw(ctx);
             let mut inner = unsafe { Box::from_raw(ch.inner) };
 
+            let qpair = inner.remove_qpair();
+
             // Stop the poller and do extra handling for I/O qpair, as it needs
             // to be detached from the poller prior poller
             // destruction.
             inner.poller.stop();
 
-            if let Some(qpair) = inner.qpair.take() {
+            if let Some(qpair) = qpair {
                 inner.poll_group.remove_qpair(&qpair);
             }
         }

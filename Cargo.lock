@@ -2711,6 +2711,7 @@ dependencies = [
 name = "spdk-rs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bindgen 0.59.2",
  "cc",
  "futures",

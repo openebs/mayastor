@@ -218,8 +218,8 @@ async fn nexus_partial_rebuild_io_fault() {
     // Check that the nexus child is now faulted, with I/O failure reason.
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children.len(), 2);
-    assert_eq!(children[1].state, ChildState::Faulted as i32);
-    assert_eq!(children[1].state_reason, ChildStateReason::IoFailure as i32);
+    assert_eq!(children[1].state(), ChildState::Faulted);
+    assert_eq!(children[1].state_reason(), ChildStateReason::IoFailure);
     assert_eq!(children[1].has_io_log, true);
 
     // Chunk B.
@@ -323,8 +323,8 @@ async fn nexus_partial_rebuild_offline_online() {
         .unwrap();
 
     let children = nex_0.get_nexus().await.unwrap().children;
-    assert_eq!(children[0].state, ChildState::Degraded as i32);
-    assert_eq!(children[0].state_reason, ChildStateReason::ByClient as i32);
+    assert_eq!(children[0].state(), ChildState::Degraded);
+    assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
 
     validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
 
@@ -477,8 +477,8 @@ async fn nexus_partial_rebuild_double_fault() {
         .await
         .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
-    assert_eq!(children[0].state, ChildState::Degraded as i32);
-    assert_eq!(children[0].state_reason, ChildStateReason::ByClient as i32);
+    assert_eq!(children[0].state(), ChildState::Degraded);
+    assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
 
     // Write some data to have something to rebuild.
     test_fio_to_nexus(
@@ -531,10 +531,14 @@ async fn nexus_partial_rebuild_double_fault() {
 
     let _ = tokio::join!(j0, j1);
 
-    // Replica must now be faulted with I/O failure.
+    // Replica must now be faulted with I/O failure, or, rarely, rebuild failure
+    // may come first.
     let children = nex_0.get_nexus().await.unwrap().children;
-    assert_eq!(children[0].state, ChildState::Faulted as i32);
-    assert_eq!(children[0].state_reason, ChildStateReason::IoFailure as i32);
+    assert_eq!(children[0].state(), ChildState::Faulted);
+    assert!(matches!(
+        children[0].state_reason(),
+        ChildStateReason::IoFailure | ChildStateReason::RebuildFailed
+    ));
 
     // [6]
     nex_0.online_child_replica(&repl_0).await.unwrap();
@@ -555,8 +559,8 @@ async fn nexus_partial_rebuild_double_fault() {
         .await
         .unwrap();
     let children = nex_0.get_nexus().await.unwrap().children;
-    assert_eq!(children[0].state, ChildState::Degraded as i32);
-    assert_eq!(children[0].state_reason, ChildStateReason::ByClient as i32);
+    assert_eq!(children[0].state(), ChildState::Degraded);
+    assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
 
     // Write some data to have something to rebuild.
     test_fio_to_nexus(

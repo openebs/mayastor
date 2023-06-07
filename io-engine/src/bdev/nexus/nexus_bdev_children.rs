@@ -838,12 +838,12 @@ impl<'n> Nexus<'n> {
         // and the I/O would end up logged.
         if has_io_log {
             self.traverse_io_channels(
+                (),
                 |chan, _| {
                     chan.reconnect_io_logs();
                     ChannelTraverseStatus::Ok
                 },
                 |_, _| {},
-                (),
             );
 
             c.io_log_channel()
@@ -1048,9 +1048,9 @@ impl<'n> Nexus<'n> {
             );
 
             self.traverse_io_channels(
+                ctx,
                 update_failfast_cb,
                 update_failfast_done,
-                ctx,
             );
 
             r.await
