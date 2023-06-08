@@ -17,16 +17,17 @@ use crate::{
     grpc::{rpc_submit, GrpcClientContext, GrpcResult},
     rebuild::{HistoryRecord, RebuildState, RebuildStats},
 };
+use mayastor_api::v1::nexus::*;
+
 use futures::FutureExt;
 use std::{
+    collections::HashMap,
     convert::{From, TryFrom, TryInto},
     fmt::Debug,
     ops::Deref,
     pin::Pin,
 };
 use tonic::{Request, Response, Status};
-
-use mayastor_api::v1::nexus::*;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
@@ -208,11 +209,9 @@ impl From<RebuildState> for mayastor_api::v1::nexus::RebuildJobState {
     }
 }
 
-impl From<&HistoryRecord> for RebuildHistoryRecord {
-    fn from(record: &HistoryRecord) -> Self {
+impl From<HistoryRecord> for RebuildHistoryRecord {
+    fn from(record: HistoryRecord) -> Self {
         RebuildHistoryRecord {
-            child_uri: record.child_uri.clone(),
-            src_uri: record.src_uri.clone(),
             state: RebuildJobState::from(record.state) as i32,
             blocks_total: record.blocks_total,
             blocks_recovered: record.blocks_recovered,
@@ -223,6 +222,8 @@ impl From<&HistoryRecord> for RebuildHistoryRecord {
             is_partial: record.is_partial,
             start_time: Some(record.start_time.into()),
             end_time: Some(record.end_time.into()),
+            child_uri: record.child_uri,
+            src_uri: record.src_uri,
         }
     }
 }
@@ -1126,13 +1127,12 @@ impl NexusRpc for NexusService {
     ) -> GrpcResult<RebuildHistoryResponse> {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
-
         self.serialized(ctx, args.uuid.clone(), false, async move {
             trace!("{:?}", args);
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 let records = nexus_lookup(&args.uuid)?
                     .rebuild_history()
-                    .iter()
+                    .into_iter()
                     .map(RebuildHistoryRecord::from)
                     .collect();
                 Ok(RebuildHistoryResponse {
@@ -1146,5 +1146,44 @@ impl NexusRpc for NexusService {
                 .map(Response::new)
         })
         .await
+    }
+
+    async fn list_rebuild_history(
+        &self,
+        request: Request<ListRebuildHistoryRequest>,
+    ) -> GrpcResult<RebuildHistoryMapResponse> {
+        let args = request.into_inner();
+        let count = args.count.unwrap_or_default() as usize;
+        trace!("{:?}", args);
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            let history_map: HashMap<_, _> = nexus::nexus_iter()
+                .map(|nexus| {
+                    let uuid = nexus.uuid().to_string();
+                    let hist = nexus.rebuild_history();
+                    let hist = hist
+                        .into_iter()
+                        .rev()
+                        .take(count)
+                        .map(RebuildHistoryRecord::from)
+                        .collect();
+                    (
+                        uuid.clone(),
+                        RebuildHistoryResponse {
+                            nexus: uuid,
+                            records: hist,
+                        },
+                    )
+                })
+                .collect();
+
+            Ok(RebuildHistoryMapResponse {
+                histories: history_map,
+            })
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
     }
 }
