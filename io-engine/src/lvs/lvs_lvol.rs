@@ -27,6 +27,7 @@ use spdk_rs::libspdk::{
     spdk_bs_iter_next,
     spdk_lvol,
     spdk_xattr_descriptor,
+    vbdev_lvol_create_clone_ext,
     vbdev_lvol_create_snapshot_ext,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
@@ -39,8 +40,9 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         logical_volume::LogicalVolume,
-        snapshot::{SnapshotDescriptor, VolumeSnapshotDescriptor},
+        snapshot::{CloneParams, SnapshotDescriptor, VolumeSnapshotDescriptor},
         Bdev,
+        CloneXattrs,
         Protocol,
         PtplProps,
         Share,
@@ -473,16 +475,13 @@ impl Lvol {
         Ok(())
     }
     /// Common API to get the xattr from blob.
-    pub fn get_blob_xattr(
-        snapshot: &Lvol,
-        attr: &SnapshotXattrs,
-    ) -> Option<String> {
+    pub fn get_blob_xattr(lvol: &Lvol, attr: &str) -> Option<String> {
         let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
         let mut size: u64 = 0;
-        let attribute = attr.name().into_cstring();
+        let attribute = attr.into_cstring();
 
         unsafe {
-            let blob = snapshot.bs_iter_first();
+            let blob = lvol.bs_iter_first();
             let r = spdk_blob_get_xattr_value(
                 blob,
                 attribute.as_ptr(),
@@ -490,14 +489,12 @@ impl Lvol {
                 &mut size as *mut u64,
             );
 
-            // Mark snapshot invalid, if any attribute not found or if attribute
-            // is empty.
             if r != 0 || size == 0 {
-                warn!(?snapshot, ?attribute, "Snapshot attribute not found",);
+                warn!(?lvol, ?attribute, "attribute not found",);
                 return None;
             }
 
-            // Parse snapshot attribute into a string, transparently removing
+            // Parse attribute into a string, transparently removing
             // null-terminating character for SPDK system attributes like UUID,
             // which are stored in C-string format.
             let mut last_char = val.offset((size as isize) - 1);
@@ -523,27 +520,132 @@ impl Lvol {
                 // characters (assume malformed attribute value
                 // contains only zeroes).
                 if size == 0 {
-                    warn!(
-                        ?snapshot,
-                        ?attribute,
-                        "Snapshot attribute contains no value",
-                    );
+                    warn!(?lvol, ?attribute, "attribute contains no value",);
                     return None;
                 }
             }
 
             let sl =
                 std::slice::from_raw_parts(val as *const u8, size as usize);
-            std::str::from_utf8(sl).map_or_else(|error| {
+            std::str::from_utf8(sl).map_or_else(
+                |error| {
                     warn!(
-                        ?snapshot,
-                        attribute=attr.name(),
+                        ?lvol,
+                        attribute = attr,
                         ?error,
-                        "Failed to parse snapshot attribute, default to empty string"
+                        "Failed to parse attribute, default to empty string"
                     );
                     None
                 },
-                |v| Some(v.to_string()))
+                |v| Some(v.to_string()),
+            )
+        }
+    }
+    /// Prepare clone xattrs.
+    fn prepare_clone_xattrs(
+        &self,
+        attr_descrs: &mut [spdk_xattr_descriptor; CloneXattrs::COUNT],
+        params: CloneParams,
+        cstrs: &mut Vec<CString>,
+    ) -> Result<(), Error> {
+        for (idx, attr) in CloneXattrs::iter().enumerate() {
+            // Get attribute value from CloneParams.
+            let av = match attr {
+                CloneXattrs::SourceUuid => match params.source_uuid() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::CloneConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "source uuid not provided".to_string(),
+                        })
+                    }
+                },
+                CloneXattrs::CloneCreateTime => {
+                    match params.clone_create_time() {
+                        Some(v) => v,
+                        None => {
+                            return Err(Error::CloneConfigFailed {
+                                name: self.as_bdev().name().to_string(),
+                                msg: "create_time not provided".to_string(),
+                            })
+                        }
+                    }
+                }
+                CloneXattrs::CloneUuid => match params.clone_uuid() {
+                    Some(v) => v,
+                    None => {
+                        return Err(Error::CloneConfigFailed {
+                            name: self.as_bdev().name().to_string(),
+                            msg: "clone_uuid not provided".to_string(),
+                        })
+                    }
+                },
+            };
+            let attr_name = attr.name().to_string().into_cstring();
+            let attr_val = av.into_cstring();
+            attr_descrs[idx].name = attr_name.as_ptr() as *mut c_char;
+            attr_descrs[idx].value = attr_val.as_ptr() as *mut c_void;
+            attr_descrs[idx].value_len = attr_val.to_bytes().len() as c_ushort;
+
+            cstrs.push(attr_val);
+            cstrs.push(attr_name);
+        }
+        Ok(())
+    }
+    /// Create clone inner function to call spdk clone function.
+    fn create_clone_inner(
+        &self,
+        clone_param: &CloneParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+    ) -> Result<(), Error> {
+        let mut attr_descrs: [spdk_xattr_descriptor; CloneXattrs::COUNT] =
+            [spdk_xattr_descriptor::default(); CloneXattrs::COUNT];
+
+        // Vector to keep allocated CStrings before snapshot  creation
+        // is complete to guarantee validity of attribute buffers
+        // stored inside CStrings.
+        let mut cstrs: Vec<CString> = Vec::new();
+
+        self.prepare_clone_xattrs(
+            &mut attr_descrs,
+            clone_param.clone(),
+            &mut cstrs,
+        )?;
+
+        let c_clone_name = clone_param.clone_name().unwrap().into_cstring();
+
+        unsafe {
+            vbdev_lvol_create_clone_ext(
+                self.as_inner_ptr(),
+                c_clone_name.as_ptr(),
+                attr_descrs.as_mut_ptr(),
+                CloneXattrs::COUNT as u32,
+                Some(done_cb),
+                done_cb_arg,
+            )
+        };
+        Ok(())
+    }
+    async fn do_create_clone(
+        &self,
+        clone_param: CloneParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
+    ) -> Result<Lvol, Error> {
+        self.create_clone_inner(&clone_param, done_cb, done_cb_arg)?;
+
+        // Wait till operation succeeds, if requested.
+        let (error, lvol_ptr) = receiver
+            .await
+            .expect("Snapshot Clone done callback disappeared");
+        match error {
+            0 => Ok(Lvol::from_inner_ptr(lvol_ptr)),
+            _ => Err(Error::SnapshotCloneCreate {
+                source: Errno::from_i32(error),
+                msg: clone_param.clone_name().unwrap(),
+            }),
         }
     }
     /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.
@@ -554,7 +656,7 @@ impl Lvol {
         let mut valid_snapshot = true;
         let mut snapshot_param: SnapshotParams = Default::default();
         for attr in SnapshotXattrs::iter() {
-            let curr_attr_val = match Self::get_blob_xattr(self, &attr) {
+            let curr_attr_val = match Self::get_blob_xattr(self, attr.name()) {
                 Some(val) => val,
                 None => {
                     valid_snapshot = false;
@@ -1259,5 +1361,33 @@ impl SnapshotOps for Lvol {
             }
         }
         snapshot_list
+    }
+    /// Create snapshot clone.
+    async fn create_clone(
+        &self,
+        clone_param: CloneParams,
+    ) -> Result<Lvol, Self::Error> {
+        extern "C" fn clone_done_cb(
+            arg: *mut c_void,
+            lvol_ptr: *mut spdk_lvol,
+            errno: i32,
+        ) {
+            let s = unsafe {
+                Box::from_raw(
+                    arg as *mut oneshot::Sender<(i32, *mut spdk_lvol)>,
+                )
+            };
+            if errno != 0 {
+                error!("Snapshot Clone failed errno {}", errno);
+            }
+            s.send((errno, lvol_ptr)).ok();
+        }
+
+        let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
+
+        let create_clone = self
+            .do_create_clone(clone_param, clone_done_cb, cb_arg(s), r)
+            .await;
+        create_clone
     }
 }

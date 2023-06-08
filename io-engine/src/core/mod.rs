@@ -66,6 +66,8 @@ pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
 pub use snapshot::{
+    CloneParams,
+    CloneXattrs,
     SnapshotDescriptor,
     SnapshotOps,
     SnapshotParams,
