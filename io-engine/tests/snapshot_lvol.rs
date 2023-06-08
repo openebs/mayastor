@@ -17,15 +17,14 @@ use io_engine::{
     pool_backend::PoolArgs,
 };
 
-use std::convert::TryFrom;
-
+use chrono::Utc;
 use io_engine::core::{
     snapshot::VolumeSnapshotDescriptor,
     SnapshotDescriptor,
     SnapshotOps,
 };
 use log::info;
-use std::str;
+use std::{convert::TryFrom, str};
 use uuid::Uuid;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -136,6 +135,13 @@ fn check_snapshot_descriptor(
             .expect("Snapshot descriptor has no txn ID"),
         "Snapshot txn ID doesn't match"
     );
+    assert_eq!(
+        params.create_time().unwrap(),
+        snap_params
+            .create_time()
+            .expect("Snapshot descriptor has no snapshot createtime"),
+        "Snapshot CreateTime doesn't match"
+    );
 }
 
 #[tokio::test]
@@ -170,6 +176,7 @@ async fn test_lvol_bdev_snapshot() {
             Some(txn_id),
             Some(snap_name.clone()),
             Some(snap_uuid.clone()),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -226,6 +233,7 @@ async fn test_lvol_handle_snapshot() {
             Some(txn_id),
             Some(snap_name),
             Some(snap_uuid),
+            Some(Utc::now().to_string()),
         );
 
         handle
@@ -270,6 +278,7 @@ async fn test_lvol_list_snapshot() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -289,6 +298,7 @@ async fn test_lvol_list_snapshot() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -336,6 +346,7 @@ async fn test_list_all_snapshots() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -355,6 +366,7 @@ async fn test_list_all_snapshots() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -385,6 +397,7 @@ async fn test_list_all_snapshots() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -404,6 +417,7 @@ async fn test_list_all_snapshots() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params.clone())
@@ -450,6 +464,7 @@ async fn test_list_pool_snapshots() {
             Some(txn_id),
             Some(snap_name),
             Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params1.clone())
@@ -469,6 +484,7 @@ async fn test_list_pool_snapshots() {
             Some(txn_id2.clone()),
             Some(snap_name2.clone()),
             Some(snapshot_uuid2.clone()),
+            Some(Utc::now().to_string()),
         );
 
         lvol.create_snapshot(snapshot_params2.clone())

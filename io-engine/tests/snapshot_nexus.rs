@@ -3,8 +3,7 @@ pub mod common;
 use io_engine::core::SnapshotDescriptor;
 use once_cell::sync::OnceCell;
 
-use common::compose::MayastorTest;
-
+use chrono::{DateTime, Utc};
 use common::compose::{
     rpc::v1::{
         bdev::ListBdevOptions,
@@ -15,6 +14,7 @@ use common::compose::{
     },
     Builder,
     ComposeTest,
+    MayastorTest,
 };
 
 use io_engine::{
@@ -209,6 +209,14 @@ fn check_replica_snapshot(params: &SnapshotParams, snapshot: &SnapshotInfo) {
         params.name().unwrap(),
         "Snapshot name ID doesn't match",
     );
+
+    assert_eq!(
+        snapshot.timestamp,
+        params
+            .create_time()
+            .map(|s| s.parse::<DateTime<Utc>>().unwrap_or_default().into()),
+        "Snapshot CreateTime doesn't match",
+    );
 }
 
 #[tokio::test]
@@ -247,6 +255,7 @@ async fn test_replica_handle_snapshot() {
         Some(Uuid::new_v4().to_string()),
         Some(String::from(SNAP_NAME)),
         Some(Uuid::new_v4().to_string()),
+        Some(Utc::now().to_string()),
     );
     let mut snapshot_params_clone = snapshot_params.clone();
 
@@ -297,6 +306,7 @@ async fn test_multireplica_nexus_snapshot() {
             Some(Uuid::new_v4().to_string()),
             Some(String::from("s1")),
             Some(Uuid::new_v4().to_string()),
+            Some(Utc::now().to_string()),
         );
 
         let replicas = vec![
@@ -378,6 +388,7 @@ async fn test_nexus_snapshot() {
         Some(TXN_ID.to_string()),
         Some(String::from(SNAP_NAME)),
         Some(snapshot_uuid.clone()),
+        Some(Utc::now().to_string()),
     );
     let snapshot_params_clone = snapshot_params.clone();
 

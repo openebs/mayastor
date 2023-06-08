@@ -15,7 +15,6 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use std::pin::Pin;
-
 /// Per-replica descriptor for nexus snapshot operation.
 #[derive(Debug)]
 pub struct NexusReplicaSnapshotDescriptor {
@@ -34,7 +33,7 @@ pub struct NexusReplicaSnapshotStatus {
 /// Status of a nexus snapshot operation.
 #[derive(Debug)]
 pub struct NexusSnapshotStatus {
-    pub snapshot_timestamp: DateTime<Utc>,
+    pub snapshot_timestamp: Option<DateTime<Utc>>,
     pub replicas_done: Vec<NexusReplicaSnapshotStatus>,
     pub replicas_skipped: Vec<String>,
 }
@@ -175,7 +174,7 @@ impl ReplicaSnapshotExecutor {
     /// Take snapshots for all replicas participating in the operation.
     async fn take_snapshot(
         &self,
-        snapshot: SnapshotParams,
+        snapshot: &SnapshotParams,
     ) -> (Vec<NexusReplicaSnapshotStatus>, Vec<String>) {
         let futures = self
             .replica_ctx
@@ -186,13 +185,13 @@ impl ReplicaSnapshotExecutor {
                 // snapshots.
                 let snapshot_params = SnapshotParams::new(
                     snapshot.entity_id(),
-                    snapshot.parent_id(),
+                    Some(ctx.replica_uuid.clone()),
                     snapshot.txn_id(),
                     snapshot.name(),
                     Some(ctx.snapshot_uuid.clone()),
+                    snapshot.create_time(),
                 );
                 let replica_uuid = ctx.replica_uuid.clone();
-
                 debug!(
                     replica_uuid,
                     ?snapshot_params,
@@ -271,15 +270,14 @@ impl<'n> Nexus<'n> {
         let (replicas_done, replicas_skipped) =
             ReplicaSnapshotExecutor::new(self.as_ref(), replicas)
                 .await?
-                .take_snapshot(snapshot)
+                .take_snapshot(&snapshot)
                 .await;
-
-        let ts = Utc::now(); // TODO: make timestamp a snapshot attribute.
-
         Ok(NexusSnapshotStatus {
             replicas_done,
             replicas_skipped,
-            snapshot_timestamp: ts,
+            snapshot_timestamp: snapshot
+                .create_time()
+                .map(|t| t.parse::<DateTime<Utc>>().unwrap_or_default()),
         })
     }
 

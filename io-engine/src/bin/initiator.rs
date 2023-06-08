@@ -13,6 +13,7 @@ use std::{
 
 use clap::{App, Arg, SubCommand};
 
+use chrono::Utc;
 use io_engine::{
     bdev::{device_create, device_open},
     bdev_api::{bdev_create, BdevError},
@@ -147,6 +148,7 @@ async fn create_snapshot(uri: &str) -> Result<()> {
         Some(Uuid::new_v4().to_string()), // unique tx id
         Some(Uuid::new_v4().to_string()), // unique snapshot name
         Some(Uuid::new_v4().to_string()), // unique snapshot uuid
+        Some(Utc::now().to_string()),
     );
 
     let t = h.create_snapshot(snapshot).await?;
