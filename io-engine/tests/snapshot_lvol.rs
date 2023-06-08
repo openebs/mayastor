@@ -7,6 +7,8 @@ use common::{bdev_io, compose::MayastorTest};
 use io_engine::{
     bdev::device_open,
     core::{
+        CloneParams,
+        CloneXattrs,
         LogicalVolume,
         MayastorCliArgs,
         SnapshotParams,
@@ -84,11 +86,28 @@ async fn check_snapshot(params: SnapshotParams) {
         .expect("Can't find target snapshot device");
 
     for (attr_name, attr_value) in attrs {
-        let v = Lvol::get_blob_xattr(&lvol, &attr_name)
+        let v = Lvol::get_blob_xattr(&lvol, attr_name.name())
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, attr_value, "Snapshot attr doesn't match");
     }
 }
+
+async fn check_clone(clone_lvol: Lvol, params: CloneParams) {
+    let attrs = [
+        (CloneXattrs::SourceUuid, params.source_uuid().unwrap()),
+        (
+            CloneXattrs::CloneCreateTime,
+            params.clone_create_time().unwrap(),
+        ),
+        (CloneXattrs::CloneUuid, params.clone_uuid().unwrap()),
+    ];
+    for (attr_name, attr_value) in attrs {
+        let v = Lvol::get_blob_xattr(&clone_lvol, attr_name.name())
+            .expect("Failed to get clone attribute");
+        assert_eq!(v, attr_value, "clone attr doesn't match");
+    }
+}
+
 async fn clean_snapshots(snapshot_list: Vec<VolumeSnapshotDescriptor>) {
     for snapshot in snapshot_list {
         let snap_lvol = UntypedBdev::lookup_by_uuid_str(
@@ -207,6 +226,8 @@ async fn test_lvol_bdev_snapshot() {
             .await
             .expect("Can't find target snapshot device");
         assert_eq!(snap_uuid, lvol.uuid(), "Snapshot UUID doesn't match");
+        let snapshot_list = Lvol::list_all_snapshots();
+        clean_snapshots(snapshot_list).await;
     })
     .await;
 }
@@ -258,6 +279,8 @@ async fn test_lvol_handle_snapshot() {
             .expect("Failed to create snapshot");
 
         check_snapshot(snapshot_params).await;
+        let snapshot_list = Lvol::list_all_snapshots();
+        clean_snapshots(snapshot_list).await;
     })
     .await;
 }
@@ -527,7 +550,7 @@ async fn test_list_pool_snapshots() {
         // Check that snapshots match their initial parameters.
         check_snapshot_descriptor(&snapshot_params1, &snapshots[idxs[0]]);
         check_snapshot_descriptor(&snapshot_params2, &snapshots[idxs[1]]);
-
+        clean_snapshots(snapshots).await;
         pool.export().await.expect("Failed to export the pool");
     })
     .await;
@@ -743,6 +766,79 @@ async fn test_snapshot_referenced_size() {
             "Snapshot size doesn't properly reflect wiped superblock"
         );
 
+    })
+    .await;
+}
+#[tokio::test]
+async fn test_snapshot_clone() {
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool8",
+            "malloc:///disk5?size_mb=128".to_string(),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                "lvol8",
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("lvol8_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol8_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        let snapshot_list = Lvol::list_all_snapshots();
+        assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
+        let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
+            snapshot_list
+                .get(0)
+                .unwrap()
+                .snapshot_params()
+                .snapshot_uuid()
+                .unwrap_or_default()
+                .as_str(),
+        )
+        .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
+        .unwrap();
+        let clone_name = String::from("lvol8_snap1_clone_1");
+        let clone_uuid = Uuid::new_v4().to_string();
+        let source_uuid = snapshot_lvol.uuid();
+
+        let clone_param = CloneParams::new(
+            Some(clone_name),
+            Some(clone_uuid),
+            Some(source_uuid),
+            Some(Utc::now().to_string()),
+        );
+        let clone = snapshot_lvol
+            .create_clone(clone_param.clone())
+            .await
+            .expect("Failed to create a clone");
+        info!("Clone creation success with uuid {:?}", clone.uuid());
+        check_clone(clone, clone_param).await;
     })
     .await;
 }
