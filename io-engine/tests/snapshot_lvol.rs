@@ -19,7 +19,11 @@ use io_engine::{
 
 use std::convert::TryFrom;
 
-use io_engine::core::{SnapshotDescriptor, SnapshotOps};
+use io_engine::core::{
+    snapshot::VolumeSnapshotDescriptor,
+    SnapshotDescriptor,
+    SnapshotOps,
+};
 use log::info;
 use std::str;
 use uuid::Uuid;
@@ -85,6 +89,53 @@ async fn check_snapshot(params: SnapshotParams) {
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, attr_value, "Snapshot attr doesn't match");
     }
+}
+
+fn check_snapshot_descriptor(
+    params: &SnapshotParams,
+    descr: &VolumeSnapshotDescriptor,
+) {
+    let snap_params = descr.snapshot_params();
+
+    assert_eq!(
+        params.name().unwrap(),
+        snap_params
+            .name()
+            .expect("Snapshot descriptor has no snapshot name"),
+        "Snapshot name doesn't match"
+    );
+
+    assert_eq!(
+        params.parent_id().unwrap(),
+        snap_params
+            .parent_id()
+            .expect("Snapshot descriptor has no parent ID"),
+        "Snapshot parent ID doesn't match"
+    );
+
+    assert_eq!(
+        params.entity_id().unwrap(),
+        snap_params
+            .entity_id()
+            .expect("Snapshot descriptor has no entity ID"),
+        "Snapshot entity ID doesn't match"
+    );
+
+    assert_eq!(
+        params.snapshot_uuid().unwrap(),
+        snap_params
+            .snapshot_uuid()
+            .expect("Snapshot descriptor has no snapshot UUID"),
+        "Snapshot UUID doesn't match"
+    );
+
+    assert_eq!(
+        params.txn_id().unwrap(),
+        snap_params
+            .txn_id()
+            .expect("Snapshot descriptor has no txn ID"),
+        "Snapshot txn ID doesn't match"
+    );
 }
 
 #[tokio::test]
@@ -362,6 +413,88 @@ async fn test_list_all_snapshots() {
         let snapshot_list = Lvol::list_all_snapshots();
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(4, snapshot_list.len(), "Snapshot Count not matched!!");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_list_pool_snapshots() {
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool =
+            create_test_pool("pool6", "malloc:///disk6?size_mb=32".to_string())
+                .await;
+
+        let lvol = pool
+            .create_lvol(
+                "volume6",
+                16 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create the first snapshot.
+        let entity_id = String::from("lvol6_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol6_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params1 = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+        );
+
+        lvol.create_snapshot(snapshot_params1.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // Create the second snapshot.
+        let entity_id2 = String::from("lvol6_e2");
+        let parent_id2 = lvol.uuid();
+        let txn_id2 = Uuid::new_v4().to_string();
+        let snap_name2 = String::from("lvol6_snap2");
+        let snapshot_uuid2 = Uuid::new_v4().to_string();
+
+        let snapshot_params2 = SnapshotParams::new(
+            Some(entity_id2.clone()),
+            Some(parent_id2.clone()),
+            Some(txn_id2.clone()),
+            Some(snap_name2.clone()),
+            Some(snapshot_uuid2.clone()),
+        );
+
+        lvol.create_snapshot(snapshot_params2.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // Check that snapshots are properly reported via pool snapshot
+        // iterator.
+        let snapshots = pool
+            .snapshots()
+            .expect("Can't get snapshot iterator for lvol")
+            .collect::<Vec<_>>();
+
+        assert_eq!(snapshots.len(), 2, "Not all snapshots are listed");
+
+        let n = snapshots[0]
+            .snapshot_params()
+            .name()
+            .expect("Can't get snapshot name");
+        let idxs: [usize; 2] = if n == snap_name2 { [1, 0] } else { [0, 1] };
+
+        // Check that snapshots match their initial parameters.
+        check_snapshot_descriptor(&snapshot_params1, &snapshots[idxs[0]]);
+        check_snapshot_descriptor(&snapshot_params2, &snapshots[idxs[1]]);
+
+        pool.export().await.expect("Failed to export the pool");
     })
     .await;
 }
