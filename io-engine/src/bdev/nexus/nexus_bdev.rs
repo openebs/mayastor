@@ -591,6 +591,7 @@ impl<'n> Nexus<'n> {
         let (sender, recv) = oneshot::channel::<ChannelTraverseStatus>();
 
         self.traverse_io_channels(
+            sender,
             |chan, _sender| -> ChannelTraverseStatus {
                 chan.reconnect_all();
                 ChannelTraverseStatus::Ok
@@ -599,7 +600,6 @@ impl<'n> Nexus<'n> {
                 debug!("{self:?}: all I/O channels reconfigured");
                 sender.send(status).expect("reconfigure channel gone");
             },
-            sender,
         );
 
         let result = recv.await.expect("reconfigure sender already dropped");

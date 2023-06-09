@@ -1,12 +1,8 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use snafu::ResultExt;
 
-use super::{
-    rebuild_error::{NoBdevHandle, RebuildError},
-    RebuildMap,
-};
+use super::{rebuild_error::RebuildError, RebuildMap};
 use crate::core::{BlockDeviceDescriptor, BlockDeviceHandle, DescriptorGuard};
 
 /// Contains all descriptors and their associated information which allows the
@@ -66,12 +62,16 @@ impl RebuildDescriptor {
     pub(super) async fn io_handle(
         descriptor: &dyn BlockDeviceDescriptor,
     ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
-        descriptor
-            .get_io_handle_nonblock()
-            .await
-            .context(NoBdevHandle {
+        descriptor.get_io_handle_nonblock().await.map_err(|e| {
+            error!(
+                "{dev}: failed to get I/O handle: {e}",
+                dev = descriptor.device_name()
+            );
+            RebuildError::NoBdevHandle {
+                source: e,
                 bdev: descriptor.get_device().device_name(),
-            })
+            }
+        })
     }
 
     /// Checks if the block has to be transferred.

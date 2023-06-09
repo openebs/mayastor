@@ -35,6 +35,21 @@ use version_info::fmt_package_info;
 
 const PAGES_NEEDED: u32 = 1024;
 
+macro_rules! print_feature {
+    ($txt:literal, $feat:tt) => {{
+        info!(
+            "{txt} feature ('{feat}') is {s}",
+            txt = $txt,
+            feat = $feat,
+            s = if cfg!(feature = $feat) {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+    }};
+}
+
 io_engine::CPS_INIT!();
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
@@ -66,6 +81,10 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
         warn!("Nexus reset is disabled");
     }
+
+    print_feature!("Async QPair connection", "spdk-async-qpair-connect");
+    print_feature!("SPDK subsystem events", "spdk-subsystem-events");
+    print_feature!("Nexus-level fault injection", "nexus-fault-injection");
 
     // Initialize Lock manager.
     let cfg = ResourceLockManagerConfig::default()
