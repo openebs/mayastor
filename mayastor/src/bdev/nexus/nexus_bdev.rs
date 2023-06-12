@@ -983,9 +983,9 @@ impl<'n> Nexus<'n> {
     ) -> Result<(), Error> {
         self.child_retire_for_each_channel(Some(name.clone()))
             .await?;
-        debug!(?self, "PAUSE");
+        debug!(?self, "PAUSING");
         self.as_mut().pause().await?;
-        debug!(?self, "UNPAUSE");
+        debug!(?self, "PAUSED");
         if let Some(child) = self.lookup_child(&name) {
             let uri = child.name.clone();
             // schedule the deletion of the child eventhough etcd has not been
@@ -1030,6 +1030,16 @@ impl<'n> Nexus<'n> {
                 })))
                 .await;
         }
+        // If we are faulted then rather than failing all IO back to the
+        // initiator we can instead leave the subsystem paused, and wait
+        // for the control-plane to do something about this.
+        // Meanwhile the initiator will begin it's reconnect loop and won't see
+        // a swarm of IO failures which could cause a fs to shutdown.
+        if self.status() == NexusStatus::Faulted {
+            tracing::warn!(?self, "Nexus Faulted: not resuming subsystem");
+            return Ok(());
+        }
+        debug!(?self, "RESUMING");
         self.resume().await
     }
 
