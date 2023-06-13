@@ -46,6 +46,7 @@ mkShell {
     python3
     utillinux
     gnuplot
+    xfsprogs
     libunwind
     autoconf
     automake
@@ -58,6 +59,7 @@ mkShell {
   SPDK_PATH = if nospdk then null else "${libspdk-dev}";
   FIO_SPDK = if nospdk then null else "${libspdk-dev}/fio/spdk_nvme";
   ETCD_BIN = "${etcd}/bin/etcd";
+  ETCDCTL_API = "3";
 
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
