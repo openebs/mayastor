@@ -46,6 +46,7 @@ mkShell {
     pytest_inputs
     python3
     utillinux
+    xfsprogs
     libunwind
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
 

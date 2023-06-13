@@ -21,6 +21,14 @@ function run_tests()
       python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name"
     )
     fi
+    if [ -f "$name" ]
+    then
+    (
+      set -x
+      base=$(dirname "$name")
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name"
+    )
+    fi
   done
 }
 
@@ -46,6 +54,7 @@ tests/replica_uuid
 # tests/rpc
 
 tests/nexus_multipath
+tests/nexus_fault
 tests/nexus
 
 v1/pool

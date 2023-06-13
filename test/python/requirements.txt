@@ -9,3 +9,4 @@ pytest-docker-compose
 pytest-testconfig
 pytest-timeout
 pytest-variables
+retrying
