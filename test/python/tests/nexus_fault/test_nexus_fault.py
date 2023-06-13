@@ -8,7 +8,6 @@ from pytest_bdd import (
     when,
 )
 
-import os
 import subprocess
 import time
 
@@ -17,9 +16,8 @@ from retrying import retry
 from common.command import run_cmd
 from common.fio import Fio
 from common.mayastor import container_mod, mayastor_mod
-from common.nvme import nvme_connect, nvme_disconnect
+from common.nvme import nvme_connect, nvme_disconnect, nvme_disconnect_controller
 
-import grpc
 import nexus_pb2 as pb
 
 
@@ -35,12 +33,20 @@ def test_a_temporarily_faulted_nexus_should_not_cause_initiator_filesystem_to_sh
     """a temporarily faulted nexus should not cause initiator filesystem to shutdown."""
 
 
+@scenario(
+    "features/nexus_fault.feature",
+    "replacing a temporarily faulted nexus should not cause initiator filesystem to shutdown",
+)
+def test_replacing_a_temporarily_faulted_nexus_should_not_cause_initiator_filesystem_to_shutdown():
+    """replacing a temporarily faulted nexus should not cause initiator filesystem to shutdown."""
+
+
 @given("a filesystem is placed on top of the connected device")
 def _(connect_nexus_1):
     """a filesystem is placed on top of the connected device."""
     device = connect_nexus_1
     print(device)
-    run_cmd(f"sudo mkfs.xfs {device}")
+    run_cmd(f"sudo mkfs.xfs -f {device}")
 
 
 @given(
@@ -107,6 +113,21 @@ def _(recreate_pool, republish_nexus):
     """the faulted nexus is recreated."""
 
 
+@when("the faulted nexus is recreated on another node")
+def _(recreate_pool, republish_nexus_ana):
+    """the faulted nexus is recreated on another node."""
+
+
+@when("the initiator swaps the nexuses")
+def _(recreate_pool, republish_nexus_ana):
+    """the initiator swaps the nexuses."""
+    print(republish_nexus_ana)
+    device = nvme_connect(republish_nexus_ana)
+    # disconnect previous nexus: /dev/nvme*n*
+    split_dev = device.split("n")
+    nvme_disconnect_controller(f"{split_dev[0]}n{split_dev[1]}")
+
+
 @then("the fio workload should complete gracefully")
 def _(fio):
     """the fio workload should complete gracefully."""
@@ -139,10 +160,15 @@ def local_instance():
 
 @pytest.fixture
 def create_nexus(mayastor_mod, nexus_uuid, create_replica, local_instance):
-    nexus = mayastor_mod[local_instance].nexus_create(
-        uuid=nexus_uuid,
-        size=megabytes(303),
-        children=list([create_replica.uri]),
+    nexus = mayastor_mod[local_instance].nexus_create_v2(
+        nexus_uuid,
+        nexus_uuid,
+        megabytes(303),
+        1,
+        2,
+        1,
+        0,
+        list([create_replica.uri]),
     )
     yield nexus
 
@@ -155,12 +181,36 @@ def publish_nexus(mayastor_mod, nexus_uuid, create_nexus, local_instance):
 @pytest.fixture
 def republish_nexus(mayastor_mod, nexus_uuid, local_instance, recreate_replica):
     mayastor_mod[local_instance].nexus_destroy(nexus_uuid)
-    mayastor_mod[local_instance].nexus_create(
-        uuid=nexus_uuid,
-        size=megabytes(303),
-        children=list([recreate_replica.uri]),
+    mayastor_mod[local_instance].nexus_create_v2(
+        nexus_uuid,
+        nexus_uuid,
+        megabytes(303),
+        1,
+        2,
+        1,
+        0,
+        list([recreate_replica.uri]),
     )
     yield mayastor_mod[local_instance].nexus_publish(nexus_uuid)
+
+
+@pytest.fixture
+def republish_nexus_ana(
+    mayastor_mod, nexus_uuid, local_instance, remote_instance, recreate_replica_local
+):
+    nexus = mayastor_mod[local_instance].nexus_shutdown(nexus_uuid)
+    print(nexus)
+    mayastor_mod[remote_instance].nexus_create_v2(
+        nexus_uuid,
+        nexus_uuid,
+        megabytes(303),
+        3,
+        4,
+        1,
+        0,
+        list([recreate_replica_local.uri]),
+    )
+    yield mayastor_mod[remote_instance].nexus_publish(nexus_uuid)
 
 
 @pytest.fixture(scope="module")
@@ -208,6 +258,18 @@ def recreate_replica(mayastor_mod, pool_remote, remote_instance, recreate_pool):
     yield replica
 
 
+@pytest.fixture
+def recreate_replica_local(mayastor_mod, pool_remote, remote_instance, recreate_pool):
+    replica = mayastor_mod[remote_instance].replica_create(
+        pool_remote, "c64f5e67-e979-4933-8952-741600d3792a", megabytes(333), 0
+    )
+    replica = mayastor_mod[remote_instance].replica_share(
+        "c64f5e67-e979-4933-8952-741600d3792a", 0
+    )
+    print(replica)
+    yield replica
+
+
 @pytest.fixture(scope="module")
 def pool_remote():
     yield "pool-remote"
@@ -237,19 +299,3 @@ def find_nexus(mayastor_mod, local_instance):
 @retry(wait_fixed=200, stop_max_attempt_number=30)
 def remote_ready(mayastor_mod, remote_instance):
     mayastor_mod[remote_instance].pool_list()
-
-
-@retry(wait_fixed=200, stop_max_attempt_number=10)
-def xfs_not_shutdown(mounted_nexus):
-    try:
-        run_cmd(f"ls {mounted_nexus}")
-        pytest.fail(f"Filesystem on {mounted_nexus} should not be available")
-    except:
-        pass
-
-    try:
-        # xfs_info should still be working as the fs is not shutdown
-        run_cmd(f"xfs_info {mounted_nexus}")
-    except:
-        pytest.fail(f"Filesystem on {mounted_nexus} should not be shutdown")
-        pass
