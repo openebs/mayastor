@@ -1,6 +1,5 @@
 use crate::lvs::Lvol;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// Snapshot Captures all the Snapshot information for Lvol.
@@ -11,6 +10,7 @@ pub struct SnapshotParams {
     txn_id: Option<String>,
     snap_name: Option<String>,
     snapshot_uuid: Option<String>,
+    create_time: Option<String>,
 }
 
 /// Implement Snapshot Common Function.
@@ -21,6 +21,7 @@ impl SnapshotParams {
         txn_id: Option<String>,
         snap_name: Option<String>,
         snapshot_uuid: Option<String>,
+        create_time: Option<String>,
     ) -> SnapshotParams {
         SnapshotParams {
             entity_id,
@@ -28,6 +29,7 @@ impl SnapshotParams {
             txn_id,
             snap_name,
             snapshot_uuid,
+            create_time,
         }
     }
 }
@@ -41,8 +43,6 @@ pub struct VolumeSnapshotDescriptor {
     pub snap_param: SnapshotParams,
     pub num_clones: u64, /* TODO: Need to move to SnapshotParams part of
                           * clone feature. */
-    pub timestamp: DateTime<Utc>, /* TODO: Need to move to SnapshotParams
-                                   * part of clone feature. */
     // set to false, if any of the snapshotdescriptor is not filled properly
     pub valid_snapshot: bool,
 }
@@ -53,7 +53,6 @@ impl VolumeSnapshotDescriptor {
         source_size: u64,
         snap_param: SnapshotParams,
         num_clones: u64,
-        timestamp: DateTime<Utc>,
         valid_snapshot: bool,
     ) -> Self {
         Self {
@@ -62,7 +61,6 @@ impl VolumeSnapshotDescriptor {
             source_size,
             snap_param,
             num_clones,
-            timestamp,
             valid_snapshot,
         }
     }
@@ -90,11 +88,6 @@ impl VolumeSnapshotDescriptor {
         self.num_clones
     }
 
-    /// Give timestamp of Snapshot creation.
-    pub fn timestamp(&self) -> DateTime<Utc> {
-        self.timestamp
-    }
-
     /// Get ValidSnapshot value.
     pub fn valid_snapshot(&self) -> bool {
         self.valid_snapshot
@@ -108,6 +101,7 @@ pub enum SnapshotXattrs {
     EntityId,
     ParentId,
     SnapshotUuid,
+    SnapshotCreateTime,
 }
 
 impl SnapshotXattrs {
@@ -117,6 +111,7 @@ impl SnapshotXattrs {
             Self::EntityId => "io-engine.entity_id",
             Self::ParentId => "io-engine.parent_id",
             Self::SnapshotUuid => "uuid",
+            Self::SnapshotCreateTime => "io-engine.snapshot_create_time",
         }
     }
 }
@@ -183,6 +178,12 @@ pub trait SnapshotDescriptor {
 
     /// Set snapshot uuid of the snapshot.
     fn set_snapshot_uuid(&mut self, snapshot_uuid: String);
+
+    /// Get snapshot create time.
+    fn create_time(&self) -> Option<String>;
+
+    /// Set snapshot create time.
+    fn set_create_time(&mut self, time: String);
 }
 
 /// Trait to give interface for all Snapshot Parameters.
@@ -230,5 +231,14 @@ impl SnapshotDescriptor for SnapshotParams {
     /// Set snapshot uuid of the snapshot.
     fn set_snapshot_uuid(&mut self, snapshot_uuid: String) {
         self.snapshot_uuid = Some(snapshot_uuid);
+    }
+    /// Get snapshot create time.
+    fn create_time(&self) -> Option<String> {
+        self.create_time.clone()
+    }
+
+    /// Set snapshot create time.
+    fn set_create_time(&mut self, time: String) {
+        self.create_time = Some(time);
     }
 }

@@ -19,6 +19,7 @@ use crate::{
     lvs::{lvs_lvol::LvsLvol, Lvol},
 };
 
+use chrono::Utc;
 use spdk_rs::{
     libspdk::{
         nvme_cmd_cdw10_get,
@@ -47,7 +48,6 @@ use spdk_rs::{
     nvme_admin_opc,
     Uuid,
 };
-
 #[warn(unused_variables)]
 #[derive(Clone)]
 pub struct NvmeCpl(pub(crate) NonNull<spdk_nvme_cpl>);
@@ -224,6 +224,7 @@ pub fn create_snapshot(
         Some(Uuid::generate().to_string()),
         Some(snapshot_name),
         Some(Uuid::generate().to_string()),
+        Some(Utc::now().to_string()),
     );
     // Blobfs operations must be on md_thread
     Reactors::master().send_future(async move {

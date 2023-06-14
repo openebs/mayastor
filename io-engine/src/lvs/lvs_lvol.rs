@@ -381,11 +381,20 @@ impl Lvol {
                         })
                     }
                 },
+                SnapshotXattrs::SnapshotCreateTime => {
+                    match params.create_time() {
+                        Some(v) => v,
+                        None => {
+                            return Err(Error::SnapshotConfigFailed {
+                                name: self.as_bdev().name().to_string(),
+                                msg: "create_time not provided".to_string(),
+                            })
+                        }
+                    }
+                }
             };
-
             let attr_name = attr.name().to_string().into_cstring();
             let attr_val = av.into_cstring();
-
             attr_descrs[idx].name = attr_name.as_ptr() as *mut c_char;
             attr_descrs[idx].value = attr_val.as_ptr() as *mut c_void;
             attr_descrs[idx].value_len = attr_val.to_bytes().len() as c_ushort;
@@ -557,6 +566,7 @@ impl Lvol {
                     if let Some(parent_lvol) = parent {
                         // Skip snapshots if it's parent is not matched.
                         if curr_attr_val != parent_lvol.uuid() {
+                            warn!("presisted parent ?curr_attr_val not matched to input parent ?parent_lvol.uuid()");
                             return None;
                         }
                     }
@@ -570,6 +580,9 @@ impl Lvol {
                 }
                 SnapshotXattrs::SnapshotUuid => {
                     snapshot_param.set_snapshot_uuid(curr_attr_val);
+                }
+                SnapshotXattrs::SnapshotCreateTime => {
+                    snapshot_param.set_create_time(curr_attr_val);
                 }
             }
         }
@@ -585,14 +598,9 @@ impl Lvol {
             .and_then(|b| Lvol::try_from(b).ok())
             {
                 Some(parent) => (parent.uuid(), parent.size()),
-                None => {
-                    warn!("Snapshot{:?}, parent not proper", self);
-                    // valid_snapshot = false;
-                    (String::default(), 0)
-                }
+                None => (String::default(), 0),
             }
         };
-
         let snapshot_descriptor = VolumeSnapshotDescriptor::new(
             self.to_owned(),
             parent_uuid,
@@ -600,8 +608,6 @@ impl Lvol {
             snapshot_param,
             0, /* TODO: It will updated as part of snapshot clone
                 * implementation */
-            Utc::now(), /* TODO: Need to take from xAttr Snapshot
-                         * Parameter. */
             valid_snapshot,
         );
         Some(snapshot_descriptor)
@@ -1123,6 +1129,7 @@ impl LvsLvol for Lvol {
             Some(self.name()),
             Some(self.name()),
             Some(self.name()),
+            Some(Utc::now().to_string()),
         )
     }
 }
@@ -1202,13 +1209,13 @@ impl SnapshotOps for Lvol {
         };
         // Current Lvol uuid is the parent for the snapshot.
         let parent_id = Some(self.uuid());
-
         Some(SnapshotParams::new(
             Some(entity_id),
             parent_id,
             Some(txn_id),
             Some(snap_name),
             snap_uuid,
+            Some(Utc::now().to_string()),
         ))
     }
     /// List Snapshot details based on source UUID from which snapshot is

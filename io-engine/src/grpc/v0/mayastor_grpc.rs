@@ -56,6 +56,7 @@ use crate::{
     subsys::PoolConfig,
 };
 
+use chrono::Utc;
 use futures::FutureExt;
 use mayastor_api::v0::*;
 use nix::errno::Errno;
@@ -66,7 +67,6 @@ use std::{
     time::Duration,
 };
 use tonic::{Request, Response, Status};
-
 /// TODO
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
@@ -1756,6 +1756,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     Some(Uuid::new_v4().to_string()), // unique tx id
                     Some(name.clone()),
                     None, // snapshot UUID will be handled on per-replica base.
+                    Some(Utc::now().to_string()),
                 );
 
                 let mut replicas = Vec::new();

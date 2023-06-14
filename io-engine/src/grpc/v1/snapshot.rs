@@ -27,6 +27,7 @@ use crate::{
     spdk_rs::ffihelper::IntoCString,
 };
 use ::function_name::named;
+use chrono::{DateTime, Utc};
 use core::ffi::{c_char, c_void};
 use futures::FutureExt;
 use mayastor_api::v1::snapshot::*;
@@ -35,7 +36,6 @@ use spdk_rs::libspdk::spdk_blob_get_xattr_value;
 use std::{convert::TryFrom, panic::AssertUnwindSafe};
 use strum::IntoEnumIterator;
 use tonic::{Request, Response, Status};
-
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct SnapshotService {
@@ -62,6 +62,7 @@ impl ReplicaSnapshotDescriptor {
         }
     }
 }
+
 impl From<NexusCreateSnapshotReplicaDescriptor>
     for NexusReplicaSnapshotDescriptor
 {
@@ -126,6 +127,9 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
                 SnapshotXattrs::SnapshotUuid => {
                     snapshot_param.set_snapshot_uuid(curr_attr_val);
                 }
+                SnapshotXattrs::SnapshotCreateTime => {
+                    snapshot_param.set_create_time(curr_attr_val);
+                }
             }
         }
         Self {
@@ -133,7 +137,9 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
             snapshot_name: snap_lvol.name(),
             snapshot_size: snap_lvol.size(),
             num_clones: 0, //TODO: Need to implement along with clone
-            timestamp: None, //TODO: Need to update xAttr to track timestamp
+            timestamp: snapshot_param
+                .create_time()
+                .map(|s| s.parse::<DateTime<Utc>>().unwrap_or_default().into()),
             source_uuid: r.replica_uuid,
             source_size: r.replica_size,
             pool_uuid: snap_lvol.pool_uuid(),
@@ -153,7 +159,10 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
             snapshot_name: s.snapshot_params().name().unwrap_or_default(),
             snapshot_size: s.snapshot_lvol().size(),
             num_clones: s.num_clones(),
-            timestamp: None, //TODO: Need to update xAttr to track timestamp
+            timestamp: s
+                .snapshot_params()
+                .create_time()
+                .map(|s| s.parse::<DateTime<Utc>>().unwrap_or_default().into()),
             source_uuid: s.source_uuid(),
             source_size: s.source_size(),
             pool_uuid: s.snapshot_lvol().pool_uuid(),
@@ -297,6 +306,7 @@ impl SnapshotRpc for SnapshotService {
                     Some(args.txn_id.clone()),
                     Some(args.snapshot_name.clone()),
                     None, // Snapshot UUID will be handled on per-replica base.
+                    Some(Utc::now().to_string()),
                 );
 
                 let mut nexus = nexus_lookup(&args.nexus_uuid)?;
@@ -318,7 +328,9 @@ impl SnapshotRpc for SnapshotService {
 
                 Ok(NexusCreateSnapshotResponse {
                     nexus: Some(nexus.into_grpc().await),
-                    snapshot_timestamp: Some(res.snapshot_timestamp.into()),
+                    snapshot_timestamp: res
+                        .snapshot_timestamp
+                        .map(|x| x.into()),
                     replicas_done,
                     replicas_skipped: res.replicas_skipped,
                 })
@@ -408,7 +420,7 @@ impl SnapshotRpc for SnapshotService {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-                info!("{:?}", args);
+                trace!("{:?}", args);
                 let rx = rpc_submit(async move {
                     // if snapshot_uuid is input, get specific snapshot result
                     if let Some(snapshot_uuid) = args.snapshot_uuid {
