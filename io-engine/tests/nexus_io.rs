@@ -380,8 +380,8 @@ async fn nexus_io_resv_acquire() {
             )
             .await
             .unwrap();
-            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+            bdev_io::write_some(NXNAME, 0, 2, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 2, 0xff).await.unwrap();
         })
         .await;
 
@@ -472,10 +472,10 @@ async fn nexus_io_resv_acquire() {
 
     mayastor
         .spawn(async move {
-            bdev_io::write_some(NXNAME, 0, 0xff)
+            bdev_io::write_some(NXNAME, 0, 2, 0xff)
                 .await
                 .expect("writes should still succeed");
-            bdev_io::read_some(NXNAME, 0, 0xff)
+            bdev_io::read_some(NXNAME, 0, 2, 0xff)
                 .await
                 .expect("reads should succeed");
 
@@ -576,8 +576,8 @@ async fn nexus_io_resv_preempt() {
             )
             .await
             .unwrap();
-            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+            bdev_io::write_some(NXNAME, 0, 2, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 2, 0xff).await.unwrap();
         })
         .await;
 
@@ -665,10 +665,10 @@ async fn nexus_io_resv_preempt() {
     // shutdown.
     mayastor
         .spawn(async move {
-            bdev_io::write_some(NXNAME, 0, 0xff)
+            bdev_io::write_some(NXNAME, 0, 2, 0xff)
                 .await
                 .expect_err("writes should fail");
-            bdev_io::read_some(NXNAME, 0, 0xff)
+            bdev_io::read_some(NXNAME, 0, 2, 0xff)
                 .await
                 .expect_err("reads should fail");
         })
@@ -852,8 +852,8 @@ async fn nexus_io_resv_preempt_tabled() {
                     )
                     .await
                     .unwrap();
-                    bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
-                    bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+                    bdev_io::write_some(NXNAME, 0, 2, 0xff).await.unwrap();
+                    bdev_io::read_some(NXNAME, 0, 2, 0xff).await.unwrap();
                 })
                 .await;
         } else {
@@ -1077,19 +1077,19 @@ async fn nexus_io_write_zeroes() {
             .await
             .unwrap();
 
-            bdev_io::write_some(&name, 0, 0xff).await.unwrap();
+            bdev_io::write_some(&name, 0, 2, 0xff).await.unwrap();
             // Read twice to ensure round-robin read from both replicas
-            bdev_io::read_some(&name, 0, 0xff)
+            bdev_io::read_some(&name, 0, 2, 0xff)
                 .await
                 .expect("read should return block of 0xff");
-            bdev_io::read_some(&name, 0, 0xff)
+            bdev_io::read_some(&name, 0, 2, 0xff)
                 .await
                 .expect("read should return block of 0xff");
             bdev_io::write_zeroes_some(&name, 0, 512).await.unwrap();
-            bdev_io::read_some(&name, 0, 0)
+            bdev_io::read_some(&name, 0, 2, 0)
                 .await
                 .expect("read should return block of 0");
-            bdev_io::read_some(&name, 0, 0)
+            bdev_io::read_some(&name, 0, 2, 0)
                 .await
                 .expect("read should return block of 0");
         })

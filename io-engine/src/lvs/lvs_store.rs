@@ -201,6 +201,12 @@ impl Lvs {
         Bdev::checked_from_ptr(p).unwrap()
     }
 
+    /// Returns blobstore cluster size.
+    pub fn blob_cluster_size(&self) -> u64 {
+        let blobs = self.blob_store();
+        unsafe { spdk_bs_get_cluster_size(blobs) }
+    }
+
     /// returns the UUID of the lvs
     pub fn uuid(&self) -> String {
         let t = unsafe { self.as_inner_ref().uuid.u.raw };
