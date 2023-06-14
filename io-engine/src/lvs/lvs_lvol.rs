@@ -627,10 +627,7 @@ impl Lvol {
             .filter(|b| b.driver() == "lvol")
             .map(|b| Lvol::try_from(b).unwrap())
             .collect::<Vec<Lvol>>();
-        // return empty snapshot parameter list, if no snapshot found.
-        if lvol_devices.len() <= 1 {
-            return snapshot_list;
-        }
+
         for snapshot_lvol in lvol_devices {
             // skip lvol if it is not snapshot.
             if !snapshot_lvol.is_snapshot() {
@@ -1228,10 +1225,6 @@ impl SnapshotOps for Lvol {
                 .filter(|b| b.driver() == "lvol")
                 .map(|b| Lvol::try_from(b).unwrap())
                 .collect::<Vec<Lvol>>();
-            // return empty snapshot parameter list, if no snapshot found.
-            if lvol_devices.len() <= 1 {
-                return snapshot_list;
-            }
             for snapshot_lvol in lvol_devices {
                 // skip lvol if it is not snapshot.
                 if !snapshot_lvol.is_snapshot() {
