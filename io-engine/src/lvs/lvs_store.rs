@@ -786,6 +786,8 @@ impl Lvs {
             })
             .map(Lvol::from_inner_ptr)?;
 
+        info!("{:?}: wiping super", lvol);
+
         if let Err(error) = lvol.wipe_super().await {
             // If we fail to destroy it hopefully the control-plane will clean
             // it up, though it's possible it may attempt to use it...

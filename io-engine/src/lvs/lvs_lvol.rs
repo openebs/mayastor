@@ -31,7 +31,6 @@ use spdk_rs::libspdk::{
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVS_CLEAR_WITH_UNMAP,
-    SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
 
 use super::{Error, Lvs};
@@ -295,34 +294,18 @@ impl Lvol {
                     }
                 })?;
 
-            // Set the buffer size to the maximum allowed by SPDK.
-            let buf_size = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
-            let buf = hdl.dma_malloc(buf_size).map_err(|e| {
-                error!(
-                    ?self,
-                    ?e,
-                    "no memory available to allocate zero buffer"
-                );
-                Error::RepDestroy {
-                    source: Errno::ENOMEM,
-                    name: self.name(),
-                    msg: "no memory available to allocate zero buffer".into(),
-                }
-            })?;
             // write zero to the first 8MB which wipes the metadata and the
             // first 4MB of the data partition
-            let range =
+            let wipe_size =
                 std::cmp::min(self.as_bdev().size_in_bytes(), WIPE_SUPER_LEN);
-            for offset in 0 .. (range / buf_size) {
-                hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
-                    error!(?self, ?e);
-                    Error::RepDestroy {
-                        source: Errno::EIO,
-                        name: self.name(),
-                        msg: "failed to write to lvol".into(),
-                    }
-                })?;
-            }
+            hdl.write_zeroes_at(0, wipe_size).await.map_err(|e| {
+                error!(?self, ?e);
+                Error::RepDestroy {
+                    source: Errno::EIO,
+                    name: self.name(),
+                    msg: "failed to write to lvol".into(),
+                }
+            })?;
         }
         Ok(())
     }
