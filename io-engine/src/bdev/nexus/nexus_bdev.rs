@@ -530,6 +530,11 @@ impl<'n> Nexus<'n> {
         self.unpin_mut().children.push(child)
     }
 
+    /// Removes a child with given URI.
+    pub(super) unsafe fn child_remove_unsafe(self: Pin<&mut Self>, uri: &str) {
+        self.unpin_mut().children.retain(|c| c.uri() != uri);
+    }
+
     /// TODO
     pub fn child_at(&self, idx: usize) -> &NexusChild<'n> {
         self.children.get(idx).expect("Bad child index")
@@ -746,7 +751,15 @@ impl<'n> Nexus<'n> {
         // Persist the fact that the nexus is now successfully open.
         // We have to do this before setting the nexus to open so that
         // nexus list does not return this nexus until it is persisted.
-        nex.persist(PersistOp::Create).await;
+        if let Err(e) = nex.persist(PersistOp::Create).await {
+            error!(
+                "{nex:?}: failed to create nexus because of \
+                persistent store update failure, unregistering bdev: {e}"
+            );
+            bdev.unregister_bdev();
+            return Err(e);
+        }
+
         nex.as_mut().set_state(NexusState::Open);
         info!("{:?}: nexus bdev registered successfully", nex);
 
@@ -790,7 +803,8 @@ impl<'n> Nexus<'n> {
         info!("{:?}: children closed", self);
 
         // Persist the fact that the nexus destruction has completed.
-        self.persist(PersistOp::Shutdown).await;
+        self.persist(PersistOp::Shutdown).await.ok();
+
         if !sigterm {
             if let Err(error) = self.ptpl().destroy() {
                 error!(
@@ -922,7 +936,7 @@ impl<'n> Nexus<'n> {
         self.close_children().await;
 
         // Step 4: Mark nexus as being properly shutdown in ETCd.
-        self.persist(PersistOp::Shutdown).await;
+        self.persist(PersistOp::Shutdown).await.ok();
 
         // Finally, mark nexus as being fully shutdown.
         *self.state.lock() = NexusState::Shutdown;

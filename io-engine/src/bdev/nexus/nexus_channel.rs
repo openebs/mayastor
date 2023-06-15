@@ -305,6 +305,19 @@ impl<'n> NexusChannel<'n> {
         });
     }
 
+    /// Aborts all frozen I/Os.
+    pub(super) fn abort_frozen(&mut self) {
+        debug!(
+            "{self:?}: aborting {n} frozen I/Os ...",
+            n = self.frozen_ios.len()
+        );
+
+        self.frozen_ios.drain(..).for_each(|io| {
+            trace!("{io:?}: aborting a frozen I/O");
+            io.fail();
+        });
+    }
+
     /// Freezes submission of the given Nexus I/O.
     pub(super) fn freeze_io_submission(&mut self, io: NexusBio<'n>) {
         trace!("{io:?}: freezing I/O");

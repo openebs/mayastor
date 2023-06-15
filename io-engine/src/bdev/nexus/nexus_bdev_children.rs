@@ -30,6 +30,7 @@ use snafu::ResultExt;
 
 use super::{
     nexus_err,
+    nexus_lookup,
     nexus_lookup_mut,
     ChildState,
     ChildSyncState,
@@ -217,13 +218,25 @@ impl<'n> Nexus<'n> {
                     self.as_mut().child_add_unsafe(child);
                 }
 
-                self.persist(PersistOp::AddChild {
-                    child_uri,
-                    healthy,
-                })
-                .await;
-
-                Ok(self.status())
+                match self
+                    .persist(PersistOp::AddChild {
+                        child_uri,
+                        healthy,
+                    })
+                    .await
+                {
+                    Ok(_) => Ok(self.status()),
+                    Err(e) => {
+                        error!(
+                            "{self:?}: failed to add child '{uri}' \
+                            because of persistent store update failure: {e}"
+                        );
+                        unsafe {
+                            self.as_mut().child_remove_unsafe(uri);
+                        }
+                        Err(e)
+                    }
+                }
             }
             Err(e) => {
                 if let Err(err) = device_destroy(uri).await {
@@ -282,10 +295,18 @@ impl<'n> Nexus<'n> {
         debug!("{self:?}: remove child '{uri}': pausing ok");
 
         // Update persistent store.
-        self.persist(PersistOp::RemoveChild {
-            child_uri: uri.to_string(),
-        })
-        .await;
+        if let Err(e) = self
+            .persist(PersistOp::RemoveChild {
+                child_uri: uri.to_string(),
+            })
+            .await
+        {
+            error!(
+                "{self:?}: failed to remove child '{uri}' because of \
+                persistent store update failure: {e}"
+            );
+            return Err(e);
+        }
 
         // Close and remove the child.
         let res = match self.lookup_child(uri) {
@@ -919,14 +940,10 @@ impl<'n> Nexus<'n> {
         // Update persistent store. To prevent data inconsistency across
         // replicas, this must be done before disconnecting the
         // device from the I/O channels and acknowledging the I/O to the client.
-        //
-        // We have to freeze I/O (re-)submissions while doing that, to prevent
-        // an uncontrollable storm of I/O resubmissions in the case
-        // the persistent store is slow to response, or has failed.
-        {
-            self.set_nexus_io_mode(IoMode::Freeze).await;
-            self.child_retire_persist(&dev).await;
-            self.set_nexus_io_mode(IoMode::Normal).await;
+        // If the persistent store update fails, the nexus is shutting down and
+        // we don't proceed further at this place.
+        if self.child_retire_persist(&dev).await.is_err() {
+            return Ok(());
         }
 
         // Disconnect the device from all the channels.
@@ -954,45 +971,20 @@ impl<'n> Nexus<'n> {
         Ok(())
     }
 
-    /// Destroys the device being retired.
-    async fn child_retire_destroy_device(&self, dev: &str) {
-        let Some(child) = self.lookup_child_by_device(dev) else {
-            error!("{self:?}: child device to retire is not found: '{dev}'");
-            return;
-        };
-
-        // Cancel rebuild job for this child, if any.
-        if let Some(job) = child.rebuild_job() {
-            debug!("{self:?}: retire: stopping rebuild job...");
-            let terminated = job.terminate();
-            Reactors::master().send_future(async move {
-                terminated.await.ok();
-            });
-        }
-
-        debug!("{child:?}: retire: enqueuing device '{dev}' to retire");
-
-        device_cmd_queue().enqueue(DeviceCommand::RetireDevice {
-            nexus_name: self.name.clone(),
-            child_device: dev.to_string(),
-        });
-    }
-
     /// Persist current nexus state during device retire procedure.
-    async fn child_retire_persist(&self, dev: &str) {
+    async fn child_retire_persist(&self, dev: &str) -> Result<(), Error> {
         let Some(child) = self.lookup_child_by_device(dev) else {
             error!("{self:?}: child device to retire is not found: '{dev}'");
-            return;
+            return Ok(());
         };
 
         let uri = child.uri();
 
-        // Do not persist child state in case it's the last healthy child of
-        // the nexus: let Control Plane reconstruct the nexus
-        // using this device as the replica with the most recent
-        // user data.
         debug!("{self:?}: retire device '{dev}': updating persistent store...");
 
+        // Do not persist child state in case it's the last healthy child of the
+        // nexus: let Control Plane reconstruct the nexus using this device as
+        // the replica with the most recent user data.
         self.persist(PersistOp::UpdateCond {
             child_uri: uri.to_owned(),
             healthy: child.is_healthy(),
@@ -1028,9 +1020,11 @@ impl<'n> Nexus<'n> {
                 }
             },
         })
-        .await;
+        .await?;
 
         debug!("{self:?}: retire device '{dev}': persistent store updated");
+
+        Ok(())
     }
 
     /// Disconnects a device from all I/O channels.
@@ -1049,8 +1043,32 @@ impl<'n> Nexus<'n> {
         debug!("{self:?}: '{dev}' disconnected from all I/O channels");
     }
 
+    /// Destroys the device being retired.
+    async fn child_retire_destroy_device(&self, dev: &str) {
+        let Some(child) = self.lookup_child_by_device(dev) else {
+            error!("{self:?}: child device to retire is not found: '{dev}'");
+            return;
+        };
+
+        // Cancel rebuild job for this child, if any.
+        if let Some(job) = child.rebuild_job() {
+            debug!("{self:?}: retire: stopping rebuild job...");
+            let terminated = job.terminate();
+            Reactors::master().send_future(async move {
+                terminated.await.ok();
+            });
+        }
+
+        debug!("{child:?}: retire: enqueuing device '{dev}' to retire");
+
+        device_cmd_queue().enqueue(DeviceCommand::RetireDevice {
+            nexus_name: self.name.clone(),
+            child_device: dev.to_string(),
+        });
+    }
+
     /// Sets the current nexus I/O mode for all channels.
-    async fn set_nexus_io_mode(&self, mode: IoMode) {
+    pub(crate) async fn set_nexus_io_mode(&self, mode: IoMode) {
         if !self.has_io_device {
             return;
         }
@@ -1063,5 +1081,70 @@ impl<'n> Nexus<'n> {
         .await;
 
         debug!("{self:?}: set I/O mode to {mode:?}: done");
+    }
+
+    /// TODO
+    pub(super) fn try_self_shutdown(&self) {
+        let nexus_name = self.nexus_name().to_owned();
+
+        Reactors::master().send_future(async move {
+            if let Some(nexus) = nexus_lookup(&nexus_name) {
+                // Check against concurrent graceful nexus shutdown
+                // initiated by user and mark nexus as being shutdown.
+                {
+                    let mut s = nexus.state.lock();
+                    match *s {
+                        NexusState::Shutdown | NexusState::ShuttingDown => {
+                            info!(
+                                nexus_name,
+                                "Nexus is under user-triggered shutdown, \
+                                    skipping self shutdown"
+                            );
+                            return;
+                        }
+                        nexus_state => {
+                            info!(
+                                nexus_name,
+                                nexus_state=%nexus_state,
+                                "Initiating self shutdown for nexus"
+                            );
+                        }
+                    };
+                    *s = NexusState::ShuttingDown;
+                }
+
+                // Step 1: Close I/O channels for all children.
+                for dev in nexus.child_devices() {
+                    nexus.disconnect_device(&dev).await;
+
+                    device_cmd_queue().enqueue(DeviceCommand::RetireDevice {
+                        nexus_name: nexus.name.clone(),
+                        child_device: dev.clone(),
+                    });
+                }
+
+                // Step 2: abort all frozen I/Os.
+                debug!("{nexus:?}: aborting all frozen I/Os");
+                nexus
+                    .traverse_io_channels_async((), |channel, _| {
+                        channel.abort_frozen();
+                    })
+                    .await;
+
+                // Step 3: cancel all active rebuild jobs.
+                let child_uris = nexus.child_uris();
+                for child in child_uris {
+                    nexus.cancel_rebuild_jobs(&child).await;
+                }
+
+                // Step 4: close all children.
+                nexus.close_children().await;
+
+                // Step 5: Mark nexus as shutdown.
+                // Note: we don't persist nexus's state in ETCd as nexus
+                // might be recreated on onother node.
+                *nexus.state.lock() = NexusState::Shutdown;
+            }
+        });
     }
 }

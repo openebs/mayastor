@@ -386,16 +386,24 @@ impl<'n> Nexus<'n> {
                 c.set_sync_state(ChildSyncState::Synced);
 
                 if c.is_healthy() {
-                    info!("{c:?}: rebuild is successfull");
-
-                    let child_uri = child_uri.to_owned();
-                    let healthy = c.is_healthy();
-                    // todo: shouldn't we do this with the subsystem paused?
-                    self.persist(PersistOp::Update {
-                        child_uri,
-                        healthy,
-                    })
-                    .await;
+                    match self
+                        .persist(PersistOp::Update {
+                            child_uri: child_uri.to_owned(),
+                            healthy: true,
+                        })
+                        .await
+                    {
+                        Ok(_) => {
+                            info!("{c:?}: rebuild is successfull");
+                        }
+                        Err(e) => {
+                            error!(
+                                "{self:?}: failed to update persistent store \
+                                after rebuilding child '{c:?}': {e}"
+                            );
+                            return Err(e);
+                        }
+                    }
                 } else {
                     warn!(
                         "{c:?}: rebuild is successfull, but the child \

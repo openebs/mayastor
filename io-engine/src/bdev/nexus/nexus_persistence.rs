@@ -1,4 +1,4 @@
-use super::{Nexus, NexusChild};
+use super::{IoMode, Nexus, NexusChild};
 use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -73,16 +73,22 @@ pub(crate) enum PersistOp<'a> {
 }
 
 impl<'n> Nexus<'n> {
-    /// Persist information to the store.
-    pub(crate) async fn persist(&self, op: PersistOp<'_>) {
+    /// Persists nexus's information to the store.
+    pub(crate) async fn persist(&self, op: PersistOp<'_>) -> Result<(), Error> {
         if !PersistentStore::enabled() {
-            return;
+            return Ok(());
         }
 
         let mut persistent_nexus_info = self.nexus_info.lock().await;
+
+        // We have to freeze I/O (re-)submissions while doing that, to prevent
+        // an uncontrollable storm of I/O resubmissions in the case
+        // the persistent store is slow to response, or has failed.
+        self.set_nexus_io_mode(IoMode::Freeze).await;
+
         let mut nexus_info = persistent_nexus_info.inner_mut();
 
-        match op {
+        match &op {
             PersistOp::Create => {
                 // Initialisation of the persistent info will overwrite any
                 // existing entries.
@@ -107,9 +113,9 @@ impl<'n> Nexus<'n> {
                 // on adding a new child. Take into account that the same child
                 // can be readded again.
                 let child_info = ChildInfo {
-                    uuid: NexusChild::uuid(&child_uri)
+                    uuid: NexusChild::uuid(child_uri)
                         .expect("Failed to get child UUID."),
-                    healthy,
+                    healthy: *healthy,
                 };
 
                 // Check if there is a child with the same UUID already
@@ -126,7 +132,7 @@ impl<'n> Nexus<'n> {
             PersistOp::RemoveChild {
                 child_uri,
             } => {
-                let uuid = NexusChild::uuid(&child_uri)
+                let uuid = NexusChild::uuid(child_uri)
                     .expect("Failed to get child UUID.");
 
                 nexus_info.children.retain(|child| child.uuid != uuid);
@@ -135,14 +141,14 @@ impl<'n> Nexus<'n> {
                 child_uri,
                 healthy,
             } => {
-                let uuid = NexusChild::uuid(&child_uri)
+                let uuid = NexusChild::uuid(child_uri)
                     .expect("Failed to get child UUID.");
                 // Only update the state of the child that has changed. Do not
                 // update the other children or "clean shutdown" information.
                 // This should only be called on a child state change.
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
-                        c.healthy = healthy;
+                        c.healthy = *healthy;
                     }
                 });
             }
@@ -150,19 +156,20 @@ impl<'n> Nexus<'n> {
             PersistOp::UpdateCond {
                 child_uri,
                 healthy,
-                predicate,
+                ref predicate,
             } => {
                 // Do not persist the state if predicate fails.
                 if !predicate(nexus_info) {
-                    return;
+                    self.set_nexus_io_mode(IoMode::Normal).await;
+                    return Ok(());
                 }
 
-                let uuid = NexusChild::uuid(&child_uri)
+                let uuid = NexusChild::uuid(child_uri)
                     .expect("Failed to get child UUID.");
 
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
-                        c.healthy = healthy;
+                        c.healthy = *healthy;
                     }
                 });
             }
@@ -174,8 +181,25 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        if let Err(e) = self.save(&persistent_nexus_info).await {
-            warn!("Failed to save nexus persistent info: {e}");
+        match self.save(&persistent_nexus_info).await {
+            Ok(_) => {
+                self.set_nexus_io_mode(IoMode::Normal).await;
+                Ok(())
+            }
+            Err(e) => {
+                // If the operation was an update for shutdown, no need to
+                // shutdown in the case of an error.
+                if matches!(op, PersistOp::Shutdown) {
+                    error!("{self:?}: failed to update persistent store: {e}");
+                } else {
+                    error!(
+                        "{self:?}: failed to update persistent store, \
+                        will shutdown the nexus: {e}"
+                    );
+                    self.try_self_shutdown();
+                }
+                Err(e)
+            }
         }
     }
 
