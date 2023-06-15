@@ -40,7 +40,7 @@ use io_engine::{
     },
     core::{MayastorCliArgs, Protocol},
     lvs::Lvs,
-    persistent_store::PersistentStore,
+    persistent_store::PersistentStoreBuilder,
     pool_backend::PoolArgs,
 };
 
@@ -361,7 +361,10 @@ async fn nexus_child_retire_persist_failure_with_bdev_io() {
         .await
         .unwrap();
 
-    PersistentStore::init(Some(ETCD_ENDPOINT.to_string())).await;
+    PersistentStoreBuilder::new()
+        .with_endpoint(ETCD_ENDPOINT)
+        .connect()
+        .await;
 
     // Create mayastor instance.
     let ms = get_ms();

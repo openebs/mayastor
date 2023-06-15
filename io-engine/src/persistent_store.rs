@@ -22,56 +22,122 @@ use crate::{
 };
 use futures::channel::oneshot;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use serde_json::Value;
 use snafu::ResultExt;
-use std::{future::Future, sync::Mutex, time::Duration};
+use std::{future::Future, time::Duration};
 
-static DEFAULT_PORT: &str = "2379";
-static STORE_OP_TIMEOUT: Duration = Duration::from_secs(30);
-static PERSISTENT_STORE: OnceCell<Option<Mutex<PersistentStore>>> =
-    OnceCell::new();
+/// Persistent store builder.
+pub struct PersistentStoreBuilder {
+    /// Default port.
+    default_port: u16,
+    /// Endpoint of the backing store.
+    endpoint: Option<String>,
+    /// Operation timeout.
+    timeout: Duration,
+    /// Number of operation retries.
+    retries: u8,
+}
 
-/// Persistent store
+impl Default for PersistentStoreBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PersistentStoreBuilder {
+    /// Creates new `PersistentStoreBuilder` instance.
+    pub fn new() -> Self {
+        Self {
+            endpoint: None,
+            default_port: 2379,
+            timeout: Duration::from_secs(1),
+            retries: 5,
+        }
+    }
+
+    /// Sets the default port.
+    pub fn with_default_port(mut self, port: u16) -> Self {
+        self.default_port = port;
+        self
+    }
+
+    /// Sets store's endpoint. Adds the default port to the endpoint if one
+    /// isn't specified.
+    pub fn with_endpoint(mut self, endpoint: &str) -> Self {
+        self.endpoint = Some(match endpoint.contains(':') {
+            true => endpoint.to_string(),
+            false => format!("{endpoint}:{port}", port = self.default_port),
+        });
+        self
+    }
+
+    /// Sets operation timeout.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Sets number of operation retries.
+    pub fn with_retries(mut self, retries: u8) -> Self {
+        self.retries = retries;
+        self
+    }
+
+    /// Consumes `PersistentStoreBuilder` instance and initialises the
+    /// persistent store. If the supplied endpoint is 'None', the store is
+    /// uninitalised and unavailable for use.
+    pub async fn connect(self) {
+        PersistentStore::connect(self).await
+    }
+}
+
+/// Persistent store.
 pub struct PersistentStore {
     /// Backing store used for persistence.
     store: Etcd,
     /// Endpoint of the backing store.
     endpoint: String,
+    /// Operation timeout.
+    timeout: Duration,
+    /// Number of operation retries.
+    retries: u8,
 }
 
+/// Persistent store global instance.
+static PERSISTENT_STORE: OnceCell<Mutex<PersistentStore>> = OnceCell::new();
+
 impl PersistentStore {
-    /// Initialise the persistent store.
+    /// Initialises the persistent store.
     /// If the supplied endpoint is 'None', the store is uninitalised and
     /// unavailable for use.
-    pub async fn init(endpoint: Option<String>) {
-        if endpoint.is_none() {
+    async fn connect(bld: PersistentStoreBuilder) {
+        let Some(endpoint) = bld.endpoint else {
             // No endpoint means no persistent store.
             warn!("Persistent store not initialised");
             return;
-        }
+        };
 
-        assert!(endpoint.is_some());
-
-        // An endpoint has been provided, initialise the persistent store.
-        let endpoint = Self::format_endpoint(&endpoint.unwrap());
+        let timeout = bld.timeout;
+        let retries = bld.retries;
         let store = Self::connect_to_backing_store(&endpoint.clone()).await;
+
+        info!(
+            "Persistent store operation timeout: {timeout:?}, \
+            number of retries: {retries}"
+        );
+
         PERSISTENT_STORE.get_or_init(|| {
-            Some(Mutex::new(PersistentStore {
+            Mutex::new(PersistentStore {
                 store,
                 endpoint,
-            }))
+                timeout,
+                retries,
+            })
         });
     }
 
-    /// Adds the default port to the endpoint if one isn't already specified.
-    fn format_endpoint(endpoint: &str) -> String {
-        match endpoint.contains(':') {
-            true => endpoint.to_string(),
-            false => format!("{endpoint}:{DEFAULT_PORT}"),
-        }
-    }
-
-    /// Connect to etcd as the backing store.
+    /// Connects to etcd as the backing store.
     /// A connection to the store will be attempted continuously until
     /// successful. This is necessary as the backing store is essential to the
     /// operation of Mayastor across restarts.
@@ -99,7 +165,7 @@ impl PersistentStore {
         }
     }
 
-    /// Put a key-value in the store.
+    /// Puts a key-value in the store.
     pub async fn put(
         key: &impl StoreKey,
         value: &impl StoreValue,
@@ -115,6 +181,7 @@ impl PersistentStore {
                 key_string,
                 value_clone.to_string()
             );
+
             match Self::backing_store()
                 .put_kv(&key_string, &value_clone)
                 .await
@@ -137,7 +204,7 @@ impl PersistentStore {
         })?
     }
 
-    /// Retrieve a value, with the given key, from the store.
+    /// Retrieves a value, with the given key, from the store.
     pub async fn get(key: &impl StoreKey) -> Result<Value, StoreError> {
         let key_string = key.to_string();
         let rx = Self::execute_store_op(async move {
@@ -155,7 +222,7 @@ impl PersistentStore {
         })?
     }
 
-    /// Delete the entry in the store with the given key.
+    /// Deletes the entry in the store with the given key.
     pub async fn delete(key: &impl StoreKey) -> Result<(), StoreError> {
         let key_string = key.to_string();
         let rx = Self::execute_store_op(async move {
@@ -186,7 +253,8 @@ impl PersistentStore {
     ) -> oneshot::Receiver<Result<T, StoreError>> {
         let (tx, rx) = oneshot::channel::<Result<T, StoreError>>();
         core::runtime::spawn(async move {
-            let result = match tokio::time::timeout(STORE_OP_TIMEOUT, f).await {
+            let op_timeout = Self::timeout();
+            let result = match tokio::time::timeout(op_timeout, f).await {
                 Ok(result) => result,
                 Err(_) => {
                     Self::reconnect().await;
@@ -208,37 +276,45 @@ impl PersistentStore {
         rx
     }
 
-    /// Determine if the persistent store has been enabled.
+    /// Determines if the persistent store has been enabled.
     pub fn enabled() -> bool {
         PERSISTENT_STORE.get().is_some()
     }
 
-    /// Get the persistent store.
-    fn new() -> &'static Mutex<PersistentStore> {
+    /// Gets the persistent store instance.
+    fn instance() -> &'static Mutex<PersistentStore> {
         PERSISTENT_STORE
             .get()
             .expect("Persistent store should have been initialised")
-            .as_ref()
-            .expect("Failed to get persistent store")
     }
 
-    /// Get an instance of the backing store.
+    /// Gets an instance of the backing store.
     fn backing_store() -> Etcd {
-        Self::new().lock().unwrap().store.clone()
+        Self::instance().lock().store.clone()
     }
 
-    /// Get the endpoint of the backing store.
-    fn endpoint() -> String {
-        Self::new().lock().unwrap().endpoint.clone()
+    /// Gets the endpoint of the backing store.
+    pub fn endpoint() -> String {
+        Self::instance().lock().endpoint.clone()
+    }
+
+    /// Gets the operation timeout.
+    pub fn timeout() -> Duration {
+        Self::instance().lock().timeout
+    }
+
+    /// Gets the number of operation retries.
+    pub fn retries() -> u8 {
+        Self::instance().lock().retries
     }
 
     /// Reconnects to the backing store and replaces the old connection with the
     /// new connection.
     async fn reconnect() {
         warn!("Attempting to reconnect to persistent store....");
-        let persistent_store = Self::new();
+        let persistent_store = Self::instance();
         let backing_store =
             Self::connect_to_backing_store(&PersistentStore::endpoint()).await;
-        persistent_store.lock().unwrap().store = backing_store;
+        persistent_store.lock().store = backing_store;
     }
 }

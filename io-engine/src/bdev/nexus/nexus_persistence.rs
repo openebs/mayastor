@@ -3,6 +3,8 @@ use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+use super::Error;
+
 /// Information associated with the persisted NexusInfo structure.
 pub struct PersistentNexusInfo {
     /// Structure that is written to the persistent store.
@@ -171,51 +173,47 @@ impl<'n> Nexus<'n> {
                 nexus_info.clean_shutdown = true;
             }
         }
-        self.save(&persistent_nexus_info).await;
+
+        if let Err(e) = self.save(&persistent_nexus_info).await {
+            warn!("Failed to save nexus persistent info: {e}");
+        }
     }
 
-    // Save the nexus info to the store. This is integral to ensuring data
+    // Saves the nexus info to the store. This is integral to ensuring data
     // consistency across restarts of Mayastor. Therefore, keep retrying
     // until successful.
-    // TODO: Should we give up retrying eventually?
-    async fn save(&self, info: &PersistentNexusInfo) {
-        let mut output_err = true;
-        let nexus_uuid = self.uuid().to_string();
-        // If a key has been provided use this to store the NexusInfo.
-        // If a key is not provided, use the nexus uuid as the key.
+    async fn save(&self, info: &PersistentNexusInfo) -> Result<(), Error> {
+        // If a key has been provided, use it to store the NexusInfo; use the
+        // nexus uuid as the key otherwise.
         let key = match &info.key {
             Some(k) => k.clone(),
             None => self.uuid().to_string(),
         };
 
+        let mut retry = PersistentStore::retries();
         loop {
-            match PersistentStore::put(&key, &info.inner).await {
-                Ok(_) => {
-                    // The state was saved successfully.
-                    break;
-                }
-                Err(e) => {
-                    // Output an error message on first failure. Thereafter
-                    // silently retry.
-                    if output_err {
-                        error!(
-                            "Failed to persist nexus information for nexus {}, UUID {} with error {}. Retrying...",
-                            self.name,
-                            nexus_uuid,
-                            e
-                        );
-                        output_err = false;
-                    }
+            let Err(err) = PersistentStore::put(&key, &info.inner).await else {
+                trace!(?key, "{self:?}: the state was saved successfully");
+                return Ok(());
+            };
 
-                    // Allow some time for the connection to the persistent
-                    // store to be re-established before retrying the operation.
-                    let rx = mayastor_sleep(Duration::from_secs(1));
-                    if rx.await.is_err() {
-                        // Failed to wait for sleep but just carry on around the
-                        // loop and try the 'put' again anyway.
-                        error!("Failed to wait for Mayastor sleep");
-                    }
-                }
+            retry -= 1;
+            if retry == 0 {
+                return Err(Error::SaveStateFailed {
+                    source: err,
+                    name: self.name.clone(),
+                });
+            }
+
+            error!(
+                "{self:?}: failed to persist nexus information, \
+                will retry ({retry} left): {err}"
+            );
+
+            // Allow some time for the connection to the persistent
+            // store to be re-established before retrying the operation.
+            if mayastor_sleep(Duration::from_secs(1)).await.is_err() {
+                error!("{self:?}: failed to wait for sleep");
             }
         }
     }

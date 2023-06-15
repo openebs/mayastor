@@ -13,6 +13,7 @@ use crate::{
     bdev_api::BdevError,
     core::{CoreError, VerboseError},
     rebuild::RebuildError,
+    store::store_defs::StoreError,
     subsys::NvmfError,
 };
 
@@ -228,6 +229,8 @@ pub enum Error {
     InvalidReservation { reservation: u8 },
     #[snafu(display("failed to update share properties {}", name))]
     UpdateShareProperties { source: CoreError, name: String },
+    #[snafu(display("failed to save nexus state {}", name))]
+    SaveStateFailed { source: StoreError, name: String },
 }
 
 impl From<NvmfError> for Error {
