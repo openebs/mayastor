@@ -13,7 +13,7 @@ use io_engine::{
         SnapshotXattrs,
         UntypedBdev,
     },
-    lvs::{Lvol, Lvs},
+    lvs::{Lvol, Lvs, LvsLvol},
     pool_backend::PoolArgs,
 };
 
@@ -87,6 +87,22 @@ async fn check_snapshot(params: SnapshotParams) {
         let v = Lvol::get_blob_xattr(&lvol, &attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, attr_value, "Snapshot attr doesn't match");
+    }
+}
+async fn clean_snapshots(snapshot_list: Vec<VolumeSnapshotDescriptor>) {
+    for snapshot in snapshot_list {
+        let snap_lvol = UntypedBdev::lookup_by_uuid_str(
+            &snapshot
+                .snapshot_params()
+                .snapshot_uuid()
+                .unwrap_or_default(),
+        )
+        .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
+        .unwrap();
+        snap_lvol
+            .destroy()
+            .await
+            .expect("Failed to destroy Snapshot");
     }
 }
 
@@ -308,6 +324,7 @@ async fn test_lvol_list_snapshot() {
         let snapshot_list = lvol.list_snapshot_by_source_uuid();
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(2, snapshot_list.len(), "Snapshot Count not matched!!");
+        clean_snapshots(snapshot_list).await;
     })
     .await;
 }
@@ -427,6 +444,7 @@ async fn test_list_all_snapshots() {
         let snapshot_list = Lvol::list_all_snapshots();
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(4, snapshot_list.len(), "Snapshot Count not matched!!");
+        clean_snapshots(snapshot_list).await;
     })
     .await;
 }
@@ -511,6 +529,57 @@ async fn test_list_pool_snapshots() {
         check_snapshot_descriptor(&snapshot_params2, &snapshots[idxs[1]]);
 
         pool.export().await.expect("Failed to export the pool");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_list_all_snapshots_with_replica_destroy() {
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool7",
+            "malloc:///disk7?size_mb=128".to_string(),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                "lvol7",
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a snapshot-1 via lvol object.
+        let entity_id = String::from("lvol7_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol7_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        lvol.destroy().await.expect("Failed to destroy replica");
+
+        let snapshot_list = Lvol::list_all_snapshots();
+        info!("Total number of snapshots: {}", snapshot_list.len());
+        assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
+        clean_snapshots(snapshot_list).await;
     })
     .await;
 }
