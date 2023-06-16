@@ -204,8 +204,43 @@ impl BlockDevice for NvmeBlockDevice {
             IoType::Unmap => self.ns.supports_deallocate(),
             IoType::WriteZeros => self.ns.supports_write_zeroes(),
             IoType::CompareAndWrite => false,
+            IoType::ZoneAppend
+            | IoType::ZoneInfo
+            | IoType::ZoneManagement => true,
             _ => false,
         }
+    }
+
+    fn io_type_supported_by_device(&self, io_type: IoType) -> bool {
+        self.io_type_supported(io_type)
+    }
+
+    fn is_zoned(&self) -> bool {
+        self.ns.is_zoned()
+    }
+
+    fn get_zone_size(&self) -> u64 {
+        self.ns.get_zone_size()
+    }
+
+    fn get_num_zones(&self) -> u64 {
+        self.ns.get_num_zones()
+    }
+
+    fn get_max_zone_append_size(&self) -> u32 {
+        self.ns.get_max_zone_append_size()
+    }
+
+    fn get_max_open_zones(&self) -> u32 {
+        self.ns.get_max_open_zones()
+    }
+
+    fn get_max_active_zones(&self) -> u32 {
+        self.ns.get_max_active_zones()
+    }
+
+    fn get_optimal_open_zones(&self) -> u32 {
+        self.ns.get_optimal_open_zones()
     }
 
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {

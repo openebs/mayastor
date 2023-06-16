@@ -62,6 +62,9 @@ pub trait BlockDevice {
     /// Checks whether target I/O type is supported by the device.
     fn io_type_supported(&self, io_type: IoType) -> bool;
 
+    /// Checks whether target I/O type is supported by the device.
+    fn io_type_supported_by_device(&self, io_type: IoType) -> bool;
+
     /// Obtains I/O statistics for the device.
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError>;
 
@@ -82,6 +85,14 @@ pub trait BlockDevice {
         &self,
         listener: DeviceEventSink,
     ) -> Result<(), CoreError>;
+
+    fn is_zoned(&self) -> bool;
+    fn get_zone_size(&self) -> u64;
+    fn get_num_zones(&self) -> u64;
+    fn get_max_zone_append_size(&self) -> u32;
+    fn get_max_open_zones(&self) -> u32;
+    fn get_max_active_zones(&self) -> u32;
+    fn get_optimal_open_zones(&self) -> u32;
 }
 
 /// Core trait that represents a descriptor for an opened block device.
@@ -212,7 +223,51 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// TODO
+    fn emulate_zone_mgmt_send_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        _buffer: *mut c_void,
+        _buffer_size: u64,
+        _cb: IoCompletionCallback,
+        _cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
+
+   /// TODO
+    fn emulate_zone_mgmt_recv_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        _buffer: *mut c_void,
+        _buffer_size: u64,
+        _cb: IoCompletionCallback,
+        _cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
+
     // NVMe only.
+    /// TODO
+    fn submit_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        _buffer: *mut c_void,
+        _buffer_size: u64,
+        _cb: IoCompletionCallback,
+        _cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
 
     /// TODO
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>;

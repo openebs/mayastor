@@ -19,7 +19,7 @@ use crate::{
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
 #[derive(Debug, Snafu)]
-#[snafu(visibility(pub(crate)), context(suffix(false)), module(nexus_err))]
+#[snafu(visibility(pub), context(suffix(false)), module(nexus_err))]
 pub enum Error {
     #[snafu(display("Nexus {} does not exist", name))]
     NexusNotFound { name: String },
@@ -85,6 +85,8 @@ pub enum Error {
     },
     #[snafu(display("Children of nexus {} have mixed block sizes", name))]
     MixedBlockSizes { name: String },
+    #[snafu(display("Child {} is incompatible with its (zoned) siblings", child))]
+    MixedZonedChild { child: String },
     #[snafu(display(
         "Child {} of nexus {} has incompatible size or block size",
         child,
@@ -228,6 +230,8 @@ pub enum Error {
     InvalidReservation { reservation: u8 },
     #[snafu(display("failed to update share properties {}", name))]
     UpdateShareProperties { source: CoreError, name: String },
+    #[snafu(display("Replication for zoned storage is not implemented. Consider adding a single zoned storage device to the nexus"))]
+    ZonedReplicationNotImplemented,
 }
 
 impl From<NvmfError> for Error {

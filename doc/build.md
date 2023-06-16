@@ -91,6 +91,12 @@ $ sudo nixos-rebuild switch --update
 >
 > Don't want to use `nixUnstable`? **That's ok!** Use `nix-shell` and `nix-build` as you normally would.
 
+Check out the submodules:
+
+```bash
+git submodule update --init
+```
+
 **Want to run or hack on Mayastor?** _You need more configuration!_ See
 [running][doc-run], then [testing][doc-test].
 
@@ -119,7 +125,7 @@ cargo build --release
 ```
 
 **Want to run or hack on Mayastor?** _You need more configuration!_ See
-[running][doc-running], then [testing][doc-testing].
+[running][doc-run], then [testing][doc-test].
 
 To ensure you are aware of this, we greet you with a nice cow.
 

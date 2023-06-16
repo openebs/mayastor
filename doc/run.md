@@ -83,14 +83,14 @@ In order to use the full feature set of Mayastor, some or all of the following c
   ```nix
   # /etc/nixos/configuration.nix
   boot.kernelModules = [
-    "nbd" "xfs" "nvmet" "nvme_fabrics" "nvmet_rdma" "nvme_tcp" "nvme_rdma" "nvme_loop"
+    "nbd" "xfs" "btrfs" "nvmet" "nvme_fabrics" "nvmet_rdma" "nvme_tcp" "nvme_rdma" "nvme_loop"
   ];
   ```
 
   To load these on non-NixOS machines:
 
   ```bash
-  modprobe nbd nvmet nvmet_rdma nvme_fabrics nvme_tcp nvme_rdma nvme_loop
+  modprobe nbd xfs btrfs nvmet nvmet_rdma nvme_fabrics nvme_tcp nvme_rdma nvme_loop
   ```
 
 - For Asymmetric Namespace Access (ANA) support (early preview), the following kernel build configuration enabled:

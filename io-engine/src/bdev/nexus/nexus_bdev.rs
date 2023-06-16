@@ -37,6 +37,8 @@ use super::{
 use crate::{
     bdev::{
         device_destroy,
+        device_lookup,
+        device_create,
         nexus::{nexus_persistence::PersistentNexusInfo, NexusIoSubsystem},
     },
     core::{
@@ -62,6 +64,7 @@ use spdk_rs::{
     IoDevice,
     IoDeviceChannelTraverse,
     JsonWriteContext,
+    libspdk::spdk_bdev_is_zoned,
 };
 
 pub static NVME_MIN_CNTLID: u16 = 1;
@@ -253,6 +256,7 @@ pub struct Nexus<'n> {
     pub(super) nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
     pub(super) has_io_device: bool,
+    pub(super) is_zoned: bool,
     /// Information associated with the persisted NexusInfo structure.
     pub(super) nexus_info: futures::lock::Mutex<PersistentNexusInfo>,
     /// Nexus I/O subsystem.
@@ -344,6 +348,31 @@ impl Display for NexusState {
     }
 }
 
+#[derive(Debug)]
+pub struct ZoneInfo {
+    zoned: bool,
+    num_zones: u64,
+    zone_size: u64,
+    max_zone_append_size: u32,
+    max_open_zones: u32,
+    max_active_zones: u32,
+    optimal_open_zones: u32,
+}
+
+impl Default for ZoneInfo {
+    fn default() -> ZoneInfo{
+        ZoneInfo{
+            zoned: false,
+            num_zones: Default::default(),
+            zone_size: Default::default(),
+            max_zone_append_size: Default::default(),
+            max_open_zones: Default::default(),
+            max_active_zones: Default::default(),
+            optimal_open_zones: Default::default(),
+        }
+    }
+}
+
 impl<'n> Nexus<'n> {
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
@@ -354,6 +383,7 @@ impl<'n> Nexus<'n> {
         nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
         nexus_info_key: Option<String>,
+        zone_info: ZoneInfo,
     ) -> spdk_rs::Bdev<Nexus<'n>> {
         let n = Nexus {
             name: name.to_string(),
@@ -370,6 +400,7 @@ impl<'n> Nexus<'n> {
                 nexus_info_key,
             )),
             io_subsystem: None,
+            is_zoned: false,
             nexus_uuid: Default::default(),
             event_sink: None,
             rebuild_history: parking_lot::Mutex::new(Vec::new()),
@@ -387,6 +418,13 @@ impl<'n> Nexus<'n> {
             .with_block_count(0)
             .with_required_alignment(9)
             .with_data(n)
+            .with_zoned(zone_info.zoned)
+            .with_num_zones(zone_info.num_zones)
+            .with_zone_size(zone_info.zone_size)
+            .with_max_zone_append_size(zone_info.max_zone_append_size)
+            .with_max_open_zones(zone_info.max_open_zones)
+            .with_max_active_zones(zone_info.max_active_zones)
+            .with_optimal_open_zones(zone_info.optimal_open_zones)
             .build();
 
         unsafe {
@@ -404,6 +442,7 @@ impl<'n> Nexus<'n> {
                 name.to_string(),
                 n.bdev.as_mut().unwrap(),
             ));
+            n.is_zoned = zone_info.zoned;
         }
 
         info!(
@@ -515,6 +554,10 @@ impl<'n> Nexus<'n> {
     /// Returns the required alignment of the Nexus.
     pub fn required_alignment(&self) -> u8 {
         unsafe { self.bdev().required_alignment() }
+    }
+
+    pub fn is_zoned(&self) -> bool {
+        unsafe { spdk_bdev_is_zoned(self.bdev().unsafe_inner_ptr()) }
     }
 
     /// TODO
@@ -678,6 +721,13 @@ impl<'n> Nexus<'n> {
                         block_size: bs,
                     })
                 }
+            }
+
+            if dev.is_zoned() {
+                //TODO: Implement partitioning zoned block devices. This requires handling drive resources like max active/open zones.
+                warn!("The device '{}' is zoned. Partitioning zoned block devices into smaller devices is not implemented. Using the whole device.", dev.device_name());
+                start_blk = 0;
+                end_blk = nb;
             }
         }
 
@@ -1201,10 +1251,15 @@ impl<'n> BdevOps for Nexus<'n> {
             IoType::Flush
             | IoType::Reset
             | IoType::Unmap
-            | IoType::WriteZeros => {
+            | IoType::WriteZeros
+            | IoType::ZoneAppend
+            | IoType::ZoneInfo
+            | IoType::ZoneManagement
+            | IoType::NvmeIo
+            | IoType::ZeroCopy => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {
-                    info!(
+                    warn!(
                         "{:?}: I/O type '{:?}' not supported by at least \
                         one of child devices",
                         self, io_type
@@ -1336,6 +1391,60 @@ pub async fn nexus_create_v2(
     }
 }
 
+async fn get_nexus_zone_info_from_children(children_devices: &mut Vec<(String, String)>) -> Result<ZoneInfo, Error> {
+    let mut zone_info = ZoneInfo::default();
+    let mut conventional = false;
+    let mut info_set = false;
+
+    for (_uri, device_name) in &*children_devices {
+        let dev = device_lookup(&device_name).unwrap();
+
+        if dev.is_zoned() {
+            zone_info.zoned = true;
+            if !info_set {
+                zone_info.num_zones = dev.get_num_zones();
+                zone_info.zone_size = dev.get_zone_size();
+                zone_info.max_zone_append_size = dev.get_max_zone_append_size();
+                zone_info.max_open_zones = dev.get_max_open_zones();
+                zone_info.max_active_zones = dev.get_max_active_zones();
+                zone_info.optimal_open_zones = dev.get_optimal_open_zones();
+                info_set = true;
+            } else if zone_info.num_zones != dev.get_num_zones()
+                    || zone_info.zone_size != dev.get_zone_size()
+                    || zone_info.max_zone_append_size != dev.get_max_zone_append_size()
+                    || zone_info.max_open_zones != dev.get_max_open_zones()
+                    || zone_info.max_active_zones != dev.get_max_active_zones()
+                    || zone_info.optimal_open_zones != dev.get_optimal_open_zones() {
+                error!("Can not use ZBD's with different parameters as nexus children");
+                return Err(Error::MixedZonedChild { child: device_name.to_string() });
+           }
+        } else {
+            conventional = true;
+        }
+
+        if zone_info.zoned == conventional {
+            error!("Can not handle conventional and zoned storage at the same time in a nexus");
+            return Err(Error::MixedZonedChild { child: device_name.to_string() });
+        }
+    }
+
+    Ok(zone_info)
+}
+
+async fn create_children_devices(
+    children: &[String],
+) -> Result<Vec<(String, String)>, Error> {
+    let mut children_devices = Vec::new();
+    for uri in children {
+        let device_name = device_create(uri).await.unwrap();
+        if device_lookup(&device_name).unwrap().is_zoned() && children.len() > 1 {
+            return Err(Error::ZonedReplicationNotImplemented {});
+        }
+        children_devices.push((uri.to_string(), device_name));
+    }
+    Ok(children_devices)
+}
+
 async fn nexus_create_internal(
     name: &str,
     size: u64,
@@ -1371,6 +1480,14 @@ async fn nexus_create_internal(
         return Ok(());
     }
 
+    let mut children_devices = create_children_devices(children).await?;
+
+    let zone_info = get_nexus_zone_info_from_children(&mut children_devices).await?;
+
+    if zone_info.zoned {
+        info!("The Nexus will zoned with the properies {:?}", zone_info);
+    }
+
     // Create a new Nexus object, and immediately add it to the global list.
     // This is necessary to ensure proper cleanup, as the code responsible for
     // closing a child assumes that the nexus to which it belongs will appear
@@ -1383,10 +1500,12 @@ async fn nexus_create_internal(
         nexus_uuid,
         nvme_params,
         nexus_info_key,
+        zone_info,
     );
 
-    for uri in children {
-        if let Err(error) = nexus_bdev.data_mut().new_child(uri).await {
+
+    for (uri, device_name) in children_devices {
+        if let Err(error) = nexus_bdev.data_mut().new_child(&uri, &device_name).await {
             error!(
                 "{n:?}: failed to add child '{uri}': {e}",
                 n = nexus_bdev.data(),

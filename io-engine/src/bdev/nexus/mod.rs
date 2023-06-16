@@ -7,7 +7,7 @@ use futures::{future::Future, FutureExt};
 
 mod nexus_bdev;
 mod nexus_bdev_children;
-mod nexus_bdev_error;
+pub mod nexus_bdev_error;
 mod nexus_bdev_rebuild;
 mod nexus_bdev_snapshot;
 mod nexus_channel;

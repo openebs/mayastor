@@ -1,5 +1,6 @@
 { img_tag ? "", tag ? "" }:
 self: super: {
+  btrfs-progs = super.callPackage ./pkgs/btrfs-progs { };
   fio = super.callPackage ./pkgs/fio { };
   images = super.callPackage ./pkgs/images { inherit img_tag; };
   libnvme = super.callPackage ./pkgs/libnvme { };

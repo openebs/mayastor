@@ -7,7 +7,11 @@ use libc::c_void;
 use nix::errno::Errno;
 
 use spdk_rs::{
-    libspdk::{spdk_bdev_io, spdk_io_channel},
+    libspdk::{
+        spdk_bdev_io,
+        spdk_io_channel,
+        spdk_nvme_cmd,
+    },
     BdevIo,
 };
 
@@ -36,6 +40,7 @@ use crate::core::{
     DeviceCommand,
     GenericStatusCode,
     IoCompletionStatus,
+    is_zoned_nvme_error,
     IoStatus,
     IoSubmissionFailure,
     IoType,
@@ -190,9 +195,17 @@ impl<'n> NexusBio<'n> {
             // these IOs are submitted to all the underlying children
             IoType::Write
             | IoType::WriteZeros
+            | IoType::NvmeIo
             | IoType::Reset
             | IoType::Unmap
             | IoType::Flush => self.submit_all(),
+            IoType::ZoneAppend => {
+                warn!("ZoneAppend is explicitly disallowed, otherwise reading from different replicas won't work.");
+                self.fail();
+                Err(CoreError::NotSupported {
+                    source: Errno::EOPNOTSUPP,
+                })
+            }
             IoType::NvmeAdmin => {
                 self.fail();
                 Err(CoreError::NotSupported {
@@ -253,10 +266,20 @@ impl<'n> NexusBio<'n> {
         if status == IoCompletionStatus::Success {
             self.ctx_mut().successful += 1;
         } else {
+            error!(
+                "{:?}: IO completion for '{}' failed: {:?}, ctx={:?}",
+                self,
+                child.device_name(),
+                status,
+                self.ctx()
+            );
             self.ctx_mut().status = IoStatus::Failed;
-            self.ctx_mut().failed += 1;
 
-            self.completion_error(child, status);
+            // Don't take zoned child out on zoned related nvme errors
+            if !is_zoned_nvme_error(status) {
+                self.ctx_mut().failed += 1;
+                self.completion_error(child, status);
+            }
         }
 
         if self.ctx().in_flight > 0 {
@@ -469,6 +492,60 @@ impl<'n> NexusBio<'n> {
     }
 
     #[inline]
+    fn submit_io_passthru(
+        &self,
+        hdl: &dyn BlockDeviceHandle,
+    ) -> Result<(), CoreError> {
+        let orig_nvme_cmd = self.nvme_cmd();
+        let buffer = self.nvme_buf();
+        let buffer_size = self.nvme_nbytes();
+
+        let mut passthru_nvme_cmd = spdk_nvme_cmd::default();
+        passthru_nvme_cmd.set_opc(orig_nvme_cmd.opc());
+        unsafe {
+            passthru_nvme_cmd.__bindgen_anon_1.cdw10 = orig_nvme_cmd.__bindgen_anon_1.cdw10;
+            passthru_nvme_cmd.__bindgen_anon_2.cdw11 = orig_nvme_cmd.__bindgen_anon_2.cdw11;
+            passthru_nvme_cmd.__bindgen_anon_3.cdw12 = orig_nvme_cmd.__bindgen_anon_3.cdw12;
+        }
+        passthru_nvme_cmd.cdw13 = orig_nvme_cmd.cdw13;
+        passthru_nvme_cmd.cdw14 = orig_nvme_cmd.cdw14;
+        passthru_nvme_cmd.cdw15 = orig_nvme_cmd.cdw15;
+
+        if hdl.get_device().io_type_supported_by_device(self.io_type()) {
+            return hdl.submit_io_passthru(
+                &passthru_nvme_cmd,
+                buffer,
+                buffer_size,
+                Self::child_completion,
+                self.as_ptr().cast(),
+            );
+        } else {
+            match orig_nvme_cmd.opc() {
+                // Zone Management Send
+                121 => return hdl.emulate_zone_mgmt_send_io_passthru(
+                    &passthru_nvme_cmd,
+                    buffer,
+                    buffer_size,
+                    Self::child_completion,
+                    self.as_ptr().cast(),
+                ),
+                // Zone Management Receive
+                122 => return hdl.emulate_zone_mgmt_recv_io_passthru(
+                    &passthru_nvme_cmd,
+                    buffer,
+                    buffer_size,
+                    Self::child_completion,
+                    self.as_ptr().cast(),
+                ),
+                _ => return Err(CoreError::NvmeIoPassthruDispatch {
+                    source: Errno::EOPNOTSUPP,
+                    opcode: orig_nvme_cmd.opc(),
+                }),
+            }
+        }
+    }
+
+    #[inline]
     fn submit_write(
         &self,
         hdl: &dyn BlockDeviceHandle,
@@ -573,6 +650,7 @@ impl<'n> NexusBio<'n> {
                 IoType::WriteZeros => self.submit_write_zeroes(h),
                 IoType::Reset => self.submit_reset(h),
                 IoType::Flush => self.submit_flush(h),
+                IoType::NvmeIo => self.submit_io_passthru(h),
                 // we should never reach here, if we do it is a bug.
                 _ => unreachable!(),
             }

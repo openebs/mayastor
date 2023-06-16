@@ -52,6 +52,7 @@ mkShell {
     python3
     utillinux
     xfsprogs
+    btrfs-progs
     gnuplot
     libunwind
     autoconf

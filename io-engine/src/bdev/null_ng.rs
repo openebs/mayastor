@@ -142,6 +142,7 @@ impl<'a> NullIoDevice<'a> {
             .with_block_length(1 << 12)
             .with_block_count(1 << 20)
             .with_required_alignment(12)
+            .with_zoned(false)
             .build();
 
         bdev.data().register_io_device(Some(name));

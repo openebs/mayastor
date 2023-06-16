@@ -103,6 +103,7 @@ url = "2.2.2"
 gettid = "0.1.2"
 async-process = { version = "1.5.0" }
 rstack = { version = "0.3.2" }
+jemalloc-sys = "0.5.2+5.3.0-patched"
 
 jsonrpc = { path = "../jsonrpc"}
 mayastor-api = { path = "../rpc/mayastor-api" }

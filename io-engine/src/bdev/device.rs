@@ -6,6 +6,7 @@ use std::{
     convert::TryFrom,
     os::raw::c_void,
     sync::{Arc, Mutex},
+    mem,
 };
 
 use async_trait::async_trait;
@@ -23,6 +24,37 @@ use spdk_rs::{
         spdk_bdev_unmap_blocks,
         spdk_bdev_write_zeroes_blocks,
         spdk_bdev_writev_blocks,
+        spdk_bdev_nvme_io_passthru,
+        spdk_bdev_zone_info,
+        spdk_bdev_get_zone_info,
+        spdk_bdev_zone_management,
+        SPDK_BDEV_ZONE_CLOSE,
+        SPDK_BDEV_ZONE_FINISH,
+        SPDK_BDEV_ZONE_OPEN,
+        SPDK_BDEV_ZONE_RESET,
+        SPDK_BDEV_ZONE_OFFLINE,
+        SPDK_NVME_ZONE_STATE_EMPTY,
+        SPDK_NVME_ZONE_STATE_IOPEN,
+        SPDK_NVME_ZONE_STATE_EOPEN,
+        SPDK_NVME_ZONE_STATE_CLOSED,
+        SPDK_NVME_ZONE_STATE_RONLY,
+        SPDK_NVME_ZONE_STATE_FULL,
+        SPDK_NVME_ZONE_STATE_OFFLINE,
+        SPDK_BDEV_ZONE_STATE_EMPTY,
+        SPDK_BDEV_ZONE_STATE_IMP_OPEN,
+        SPDK_BDEV_ZONE_STATE_FULL,
+        SPDK_BDEV_ZONE_STATE_CLOSED,
+        SPDK_BDEV_ZONE_STATE_READ_ONLY,
+        SPDK_BDEV_ZONE_STATE_OFFLINE,
+        SPDK_BDEV_ZONE_STATE_EXP_OPEN,
+        SPDK_NVME_ZRA_LIST_ALL,
+        SPDK_NVME_ZRA_LIST_ZSE,
+        SPDK_NVME_ZRA_LIST_ZSIO,
+        SPDK_NVME_ZRA_LIST_ZSEO,
+        SPDK_NVME_ZRA_LIST_ZSC,
+        SPDK_NVME_ZRA_LIST_ZSF,
+        SPDK_NVME_ZRA_LIST_ZSRO,
+        SPDK_NVME_ZRA_LIST_ZSO,
     },
     nvme_admin_opc,
     BdevOps,
@@ -57,6 +89,12 @@ use crate::{
         UntypedDescriptorGuard,
     },
     lvs::Lvol,
+    ffihelper::FfiResult,
+};
+
+use jemalloc_sys::{
+    calloc,
+    free,
 };
 
 /// TODO
@@ -68,6 +106,59 @@ static BDEV_EVENT_DISPATCHER: Lazy<Mutex<EventDispatcherMap>> =
 
 // Memory pool for bdev I/O context.
 static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
+
+/// TODO
+fn bdev_zone_state_to_nvme_zns_zone_state(bdev_zone_state: u32) -> Result<u32, CoreError> {
+    match bdev_zone_state {
+        SPDK_BDEV_ZONE_STATE_EMPTY => Ok(SPDK_NVME_ZONE_STATE_EMPTY),
+        SPDK_BDEV_ZONE_STATE_IMP_OPEN => Ok(SPDK_NVME_ZONE_STATE_IOPEN),
+        SPDK_BDEV_ZONE_STATE_FULL => Ok(SPDK_NVME_ZONE_STATE_FULL),
+        SPDK_BDEV_ZONE_STATE_CLOSED => Ok(SPDK_NVME_ZONE_STATE_CLOSED),
+        SPDK_BDEV_ZONE_STATE_READ_ONLY => Ok(SPDK_NVME_ZONE_STATE_RONLY),
+        SPDK_BDEV_ZONE_STATE_OFFLINE => Ok(SPDK_NVME_ZONE_STATE_OFFLINE),
+        SPDK_BDEV_ZONE_STATE_EXP_OPEN => Ok(SPDK_NVME_ZONE_STATE_EOPEN),
+        _ => {
+            error!("Can not map SPDK_BDEV_ZONE_STATE {} to any SPDK_NVME_ZONE_STATE", bdev_zone_state);
+            Err(CoreError::NvmeIoPassthruDispatch {
+                source: Errno::EINVAL,
+                opcode: 122,
+            })
+        },
+    }
+}
+
+/// TODO
+fn zone_send_action_to_bdev_zone_action(zone_send_action: u8) -> Result<u32, CoreError> {
+    match zone_send_action {
+        0x01 => Ok(SPDK_BDEV_ZONE_CLOSE),
+        0x02 => Ok(SPDK_BDEV_ZONE_FINISH),
+        0x03 => Ok(SPDK_BDEV_ZONE_OPEN),
+        0x04 => Ok(SPDK_BDEV_ZONE_RESET),
+        0x05 => Ok(SPDK_BDEV_ZONE_OFFLINE),
+        _ => {
+            error!("Can not map Zone Send Action {} to any spdk_bdev_zone_action", zone_send_action);
+            Err(CoreError::NvmeIoPassthruDispatch {
+                source: Errno::EINVAL,
+                opcode: 121,
+            })
+        },
+    }
+}
+
+/// TODO
+fn is_zra_list_matching_zone_state(zra_report_opt: u32, zns_zone_state: u32) -> bool {
+    match (zra_report_opt, zns_zone_state) {
+        (SPDK_NVME_ZRA_LIST_ALL, _) => true,
+        (SPDK_NVME_ZRA_LIST_ZSE, SPDK_NVME_ZONE_STATE_EMPTY) => true,
+        (SPDK_NVME_ZRA_LIST_ZSIO, SPDK_NVME_ZONE_STATE_IOPEN) => true,
+        (SPDK_NVME_ZRA_LIST_ZSEO, SPDK_NVME_ZONE_STATE_EOPEN) => true,
+        (SPDK_NVME_ZRA_LIST_ZSC, SPDK_NVME_ZONE_STATE_CLOSED) => true,
+        (SPDK_NVME_ZRA_LIST_ZSF, SPDK_NVME_ZONE_STATE_FULL) => true,
+        (SPDK_NVME_ZRA_LIST_ZSRO, SPDK_NVME_ZONE_STATE_RONLY) => true,
+        (SPDK_NVME_ZRA_LIST_ZSO, SPDK_NVME_ZONE_STATE_OFFLINE) => true,
+        _ => false,
+    }
+}
 
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
@@ -83,7 +174,7 @@ impl SpdkBlockDevice {
     pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
         debug!("Searching SPDK devices for '{}'...", name);
         let bdev = UntypedBdev::lookup_by_name(name)?;
-        debug!("SPDK {} device found: '{}'", bdev.driver(), name);
+        debug!("SPDK {} device found: '{}'", bdev.driver(), bdev.name());
         Some(Box::new(SpdkBlockDevice::new(bdev)))
     }
 
@@ -133,8 +224,44 @@ impl BlockDevice for SpdkBlockDevice {
     }
     /// returns true if the IO type is supported
     fn io_type_supported(&self, io_type: IoType) -> bool {
+        match io_type {
+            IoType::NvmeIo => true,
+            _ => self.io_type_supported_by_device(io_type),
+        }
+    }
+
+    fn io_type_supported_by_device(&self, io_type: IoType) -> bool {
         self.0.io_type_supported(io_type)
     }
+
+    fn is_zoned(&self) -> bool {
+        self.0.is_zoned()
+    }
+
+    fn get_zone_size(&self) -> u64 {
+        self.0.get_zone_size()
+    }
+
+    fn get_num_zones(&self) -> u64 {
+        self.0.get_num_zones()
+    }
+
+    fn get_max_zone_append_size(&self) -> u32 {
+        self.0.get_max_zone_append_size()
+    }
+
+    fn get_max_open_zones(&self) -> u32 {
+        self.0.get_max_open_zones()
+    }
+
+    fn get_max_active_zones(&self) -> u32 {
+        self.0.get_max_active_zones()
+    }
+
+    fn get_optimal_open_zones(&self) -> u32 {
+        self.0.get_optimal_open_zones()
+    }
+
     /// returns the IO statistics
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
         self.0.stats_async().await
@@ -501,6 +628,315 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         Err(CoreError::NvmeAdminDispatch {
             source: Errno::ENXIO,
             opcode: nvme_admin_opc::IDENTIFY.into(),
+        })
+    }
+
+    fn emulate_zone_mgmt_send_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        buffer: *mut c_void,
+        buffer_size: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        unsafe { buffer.write_bytes(0, buffer_size as usize) };
+
+        // Read relevant fields for a 'Zone Management Send' command, see 'NVMe Zoned Namespace Command Set Specification, Revision 1.1c'
+        // Bit 63:00 Dword11:Dword10 > Starting LBA
+        let mut slba;
+        unsafe {
+            slba = ((nvme_cmd.__bindgen_anon_2.cdw11 as u64) << 32) | nvme_cmd.__bindgen_anon_1.cdw10 as u64;
+        }
+
+        // Bit 07:00 Dword 13 > Zone Send Action
+        let zsa = zone_send_action_to_bdev_zone_action(nvme_cmd.cdw13 as u8).unwrap();
+
+        // Bit 08 Dword 13 > Select All
+        let select_all = nvme_cmd.cdw13 & (1 << 8) != 0;
+
+        if select_all {
+            slba = 0;
+        }
+
+        let ctx = alloc_bdev_io_ctx(
+            IoType::NvmeIo,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+            },
+            0,
+            0,
+        )?;
+
+        let (desc, ch) = self.handle.io_tuple();
+
+        let num_zones = self.device.get_num_zones();
+        let zone_size = self.device.get_zone_size();
+
+        let mut result;
+        loop {
+            result = unsafe {
+                spdk_bdev_zone_management(
+                    desc,
+                    ch,
+                    slba,
+                    zsa,
+                    Some(bdev_io_completion),
+                    ctx as *mut c_void,
+                )
+            }.to_result(|e| CoreError::NvmeIoPassthruDispatch {
+                source: Errno::from_i32(e),
+                opcode: nvme_cmd.opc(),
+            });
+            let continue_next_zone = select_all && slba == num_zones * zone_size;
+            if !continue_next_zone || result.is_err() {
+                break result;
+            }
+            slba += zone_size;
+        }
+    }
+
+    fn emulate_zone_mgmt_recv_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        buffer: *mut c_void,
+        buffer_size: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+
+        let ctx = alloc_bdev_io_ctx(
+            IoType::NvmeIo,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+            },
+            0,
+            0,
+        )?;
+
+        let (desc, ch) = self.handle.io_tuple();
+
+        let size_of_spdk_bdev_zone_info = mem::size_of::<spdk_bdev_zone_info>() as usize;
+
+        // Bit 63:00 Dword11:Dword10 > Starting LBA
+        let slba = unsafe { ((nvme_cmd.__bindgen_anon_2.cdw11 as u64) << 32) | nvme_cmd.__bindgen_anon_1.cdw10 as u64 };
+
+        // Bit 07:00 Dword13 > Zone Receive Action
+        let zra = nvme_cmd.cdw13 as u8;
+        if zra != 0x0u8 {
+            error!("Zone Management Receive 'Zone Receive Action' (cdw13) != 00h (Report Zones) not implemented");
+            return Err(CoreError::NvmeIoPassthruDispatch{
+                source: Errno::EOPNOTSUPP,
+                opcode: nvme_cmd.opc(),
+            });
+        }
+
+        // Bit 16 Dword13 > Partial Report
+        let partial_report = nvme_cmd.cdw13 & (1 << 16) != 0;
+        if !partial_report {
+            error!("Zone Management Receive 'Partial Report' (cdw13) == 0 not implemented");
+            return Err(CoreError::NvmeIoPassthruDispatch{
+                source: Errno::EOPNOTSUPP,
+                opcode: nvme_cmd.opc(),
+            });
+        }
+
+        // Bit 15:08 Dword13 > Reporting Options
+        let zra_report_opt = (nvme_cmd.cdw13 >> 8) as u8;
+
+        let max_num_zones = self.device.get_num_zones();
+        let zone_size = self.device.get_zone_size();
+        let zone_report_offset = slba / zone_size;
+        let max_num_zones_to_report = max_num_zones - zone_report_offset;
+
+        // Bit 31:00 Dword12 > Number of Dwords
+        let num_of_dwords = unsafe{ nvme_cmd.__bindgen_anon_3.cdw12 } + 1;
+        if u64::from(((num_of_dwords * 4) - 64) / 64) < max_num_zones_to_report {
+            error!("Zone Management Receive 'Number of Dwords' (cdw12) indicates to less space of the number of zones ({}) that will be reported.", max_num_zones_to_report);
+            return Err(CoreError::NvmeIoPassthruDispatch{
+                source: Errno::EOPNOTSUPP,
+                opcode: nvme_cmd.opc(),
+            });
+        }
+
+        let bdev_zone_infos;
+
+        let ret = unsafe {
+            bdev_zone_infos = calloc(max_num_zones_to_report as usize, size_of_spdk_bdev_zone_info);
+            spdk_bdev_get_zone_info(
+                desc,
+                ch,
+                slba,
+                max_num_zones_to_report,
+                bdev_zone_infos as *mut spdk_bdev_zone_info,
+                Some(bdev_io_completion),
+                ctx as *mut c_void,
+            )
+        }.to_result(|e| CoreError::NvmeIoPassthruDispatch {
+            source: Errno::from_i32(e),
+            opcode: nvme_cmd.opc(),
+        });
+
+        // Populate buff with the 'Extended Report Zones Data Structure' of the 'NVMe Zoned Namespace Command Set Specification, Revision 1.1c'
+        unsafe { buffer.write_bytes(0, buffer_size as usize) };
+
+        if ret.is_err() {
+            unsafe { free(bdev_zone_infos) };
+            return ret;
+        }
+        // Bytes 07:00 > Number of Zones
+        // Deferred until we know how many zones we actuallay reported
+
+        // Bytes 63:08 > Reserved
+        let erzds_rsvd_offset: isize = 64;
+
+        // Bytes 127:64 and the following 64 * (max_num_zones - 1) bytes > Zone Descriptor
+        let zone_desc_size: isize = 64;
+
+        // Zone Descriptor Extention not needed
+        let zone_desc_ext_size: isize = 0;
+
+        let mut zone = 0u64;
+        let mut num_zones_reported = 0u64;
+
+        let bdev_zone_info_c_void = unsafe { calloc(1, size_of_spdk_bdev_zone_info) };
+        loop {
+            if zone >= max_num_zones_to_report {
+                break;
+            }
+            unsafe {
+                // Fetch and cast the current zone info
+                std::ptr::copy_nonoverlapping(
+                    bdev_zone_infos.offset((zone as usize * size_of_spdk_bdev_zone_info) as isize),
+                    bdev_zone_info_c_void,
+                    size_of_spdk_bdev_zone_info
+                );
+                let bdev_zone_info: *mut spdk_bdev_zone_info = std::ptr::slice_from_raw_parts_mut(
+                    bdev_zone_info_c_void,
+                    size_of_spdk_bdev_zone_info
+                ) as _;
+
+                if !is_zra_list_matching_zone_state(zra_report_opt as u32, (*bdev_zone_info).state) {
+                    zone += 1;
+                    continue;
+                }
+
+                // Byte 00 of Zone Descriptor > Zone Type (always sequential = 0x2u8)
+                let mut byte_offset: isize = 0;
+                let mut zt = 0x2u8;
+                std::ptr::copy_nonoverlapping(
+                    &mut zt as *mut _ as *mut c_void,
+                    buffer.offset(erzds_rsvd_offset + (zone as isize * (zone_desc_size + zone_desc_ext_size)) + byte_offset),
+                    1
+                );
+                byte_offset += 1;
+
+                // Byte 01, bits 7:4 > Zone State
+                let mut zs = bdev_zone_state_to_nvme_zns_zone_state((*bdev_zone_info).state).unwrap() as u8;
+                zs = zs << 4;
+                std::ptr::copy_nonoverlapping(
+                    &mut zs as *mut _ as *mut c_void,
+                    buffer.offset(erzds_rsvd_offset + (zone as isize * (zone_desc_size + zone_desc_ext_size)) + byte_offset),
+                    1
+                );
+                byte_offset += 1;
+
+                //Byte 02 > Zone Attributes (always 0x0u8)
+                byte_offset += 1;
+
+                //Byte 03 > Zone Attributes Information (always 0x0u8)
+                byte_offset += 1;
+
+                //Byte 07:04 > Reserved (always 0x0u32)
+                byte_offset += 4;
+
+                //Byte 15:08 > Zone Capacity
+                let mut zcap = (*bdev_zone_info).capacity;
+                std::ptr::copy_nonoverlapping(
+                    &mut zcap as *mut _ as *mut c_void,
+                    buffer.offset(erzds_rsvd_offset + (zone as isize * (zone_desc_size + zone_desc_ext_size)) + byte_offset),
+                    8
+                );
+                byte_offset += 8;
+
+                //Byte 23:16 > Zone Start Logical Block Address
+                let mut zslba = (*bdev_zone_info).zone_id as u64;
+                std::ptr::copy_nonoverlapping(
+                    &mut zslba as *mut _ as *mut c_void,
+                    buffer.offset(erzds_rsvd_offset + (zone as isize * (zone_desc_size + zone_desc_ext_size)) + byte_offset),
+                    8
+                );
+                byte_offset += 8;
+
+                //Byte 31:24 > Write Pointer
+                let mut wp = (*bdev_zone_info).write_pointer as u64;
+                std::ptr::copy_nonoverlapping(
+                    &mut wp as *mut _ as *mut c_void,
+                    buffer.offset(erzds_rsvd_offset + (zone as isize * (zone_desc_size + zone_desc_ext_size)) + byte_offset),
+                    8
+                );
+                //byte_offset += 8;
+
+                // Byte 32:63 > Reserved
+                zone += 1;
+                num_zones_reported += 1;
+            }
+        }
+
+        // Bytes 07:00 > Number of Zones
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                &mut num_zones_reported as *mut _ as *mut c_void,
+                buffer,
+                mem::size_of::<u64>() as usize
+            );
+        }
+
+        unsafe {
+            free(bdev_zone_info_c_void);
+            free(bdev_zone_infos);
+        }
+        ret
+    }
+
+    fn submit_io_passthru(
+        &self,
+        nvme_cmd: &spdk_rs::libspdk::spdk_nvme_cmd,
+        buffer: *mut c_void,
+        buffer_size: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+
+        let ctx = alloc_bdev_io_ctx(
+            IoType::NvmeIo,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+            },
+            0,
+            0,
+        )?;
+
+        let (desc, ch) = self.handle.io_tuple();
+
+        unsafe {
+            spdk_bdev_nvme_io_passthru(
+                desc,
+                ch,
+                nvme_cmd,
+                buffer,
+                buffer_size,
+                Some(bdev_io_completion),
+                ctx as *mut c_void,
+            )
+        }.to_result(|e| CoreError::NvmeIoPassthruDispatch {
+            source: Errno::from_i32(e),
+            opcode: nvme_cmd.opc(),
         })
     }
 

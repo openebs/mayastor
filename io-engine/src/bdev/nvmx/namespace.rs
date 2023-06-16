@@ -10,6 +10,13 @@ use spdk_rs::libspdk::{
     spdk_nvme_ns_get_size,
     spdk_nvme_ns_get_uuid,
     spdk_nvme_ns_supports_compare,
+    spdk_nvme_zns_ns_get_data,
+    spdk_nvme_zns_ns_get_zone_size,
+    spdk_nvme_zns_ns_get_num_zones,
+    spdk_nvme_ns_get_ctrlr,
+    spdk_nvme_zns_ctrlr_get_max_zone_append_size,
+    spdk_nvme_zns_ns_get_max_open_zones,
+    spdk_nvme_zns_ns_get_max_active_zones,
     SPDK_NVME_NS_DEALLOCATE_SUPPORTED,
     SPDK_NVME_NS_WRITE_ZEROES_SUPPORTED,
 };
@@ -77,5 +84,33 @@ impl NvmeNamespace {
 
     pub fn as_ptr(&self) -> *mut spdk_nvme_ns {
         self.0.as_ptr()
+    }
+
+    pub fn is_zoned(&self) -> bool {
+        unsafe { !spdk_nvme_zns_ns_get_data(self.0.as_ptr()).is_null() }
+    }
+
+    pub fn get_zone_size(&self) -> u64 {
+        unsafe { spdk_nvme_zns_ns_get_zone_size(self.0.as_ptr()) }
+    }
+
+    pub fn get_num_zones(&self) -> u64 {
+        unsafe { spdk_nvme_zns_ns_get_num_zones(self.0.as_ptr()) }
+    }
+
+    pub fn get_max_zone_append_size(&self) -> u32 {
+        unsafe { spdk_nvme_zns_ctrlr_get_max_zone_append_size(spdk_nvme_ns_get_ctrlr(self.0.as_ptr())) }
+    }
+
+    pub fn get_max_open_zones(&self) -> u32 {
+        unsafe { spdk_nvme_zns_ns_get_max_open_zones(self.0.as_ptr()) }
+    }
+
+    pub fn get_max_active_zones(&self) -> u32 {
+        unsafe { spdk_nvme_zns_ns_get_max_active_zones(self.0.as_ptr()) }
+    }
+
+    pub fn get_optimal_open_zones(&self) -> u32 {
+        self.get_max_open_zones()
     }
 }

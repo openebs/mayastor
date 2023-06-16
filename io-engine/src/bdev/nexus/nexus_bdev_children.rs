@@ -65,19 +65,20 @@ impl<'n> Nexus<'n> {
     /// nexus init phase
     pub async fn new_child(
         mut self: Pin<&mut Self>,
-        uri: &str,
+        device_uri: &str,
+        device_name: &str,
     ) -> Result<(), BdevError> {
         assert_eq!(*self.state.lock(), NexusState::Init);
 
-        info!("{:?}: adding child: '{}'...", self, uri);
+        info!("{:?}: adding child: '{}'...", self, device_uri);
 
         let nexus_name = self.nexus_name().to_owned();
-        let device_name = device_create(uri).await?;
+        let dev = device_lookup(device_name);
 
         let c = NexusChild::new(
-            uri.to_string(),
+            device_uri.to_string(),
             nexus_name,
-            device_lookup(&device_name),
+            dev,
         );
 
         info!("{:?}: added to nexus", c);

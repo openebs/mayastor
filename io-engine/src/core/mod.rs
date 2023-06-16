@@ -61,7 +61,7 @@ pub use lock::{
 pub use runtime::spawn;
 pub(crate) use segment_map::SegmentMap;
 pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
-pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
+pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus, CommandSpecificStatusCode};
 pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
@@ -347,6 +347,23 @@ impl From<NvmeStatus> for IoCompletionStatus {
         } else {
             IoCompletionStatus::NvmeError(s)
         }
+    }
+}
+
+pub fn is_zoned_nvme_error(status: IoCompletionStatus) -> bool {
+    match status {
+        IoCompletionStatus::NvmeError(NvmeStatus::CommandSpecific(cssc)) => match cssc {
+            CommandSpecificStatusCode::ZonedBoundaryError => true,
+            CommandSpecificStatusCode::ZoneIsFull => true,
+            CommandSpecificStatusCode::ZoneIsReadOnly => true,
+            CommandSpecificStatusCode::ZoneIsOffline => true,
+            CommandSpecificStatusCode::ZoneInvalidWrite => true,
+            CommandSpecificStatusCode::TooManyActiveZones => true,
+            CommandSpecificStatusCode::TooManyOpenZones => true,
+            CommandSpecificStatusCode::InvalidZoneStateTransition => true,
+            _ => false,
+        },
+        _ => false,
     }
 }
 
