@@ -3,10 +3,11 @@ use io_engine::core::{CoreError, UntypedBdevHandle};
 pub async fn write_some(
     nexus_name: &str,
     offset: u64,
+    num_blocks: u32,
     fill: u8,
 ) -> Result<(), CoreError> {
     let h = UntypedBdevHandle::open(nexus_name, true, false)?;
-    let buflen = u64::from(h.get_bdev().block_len() * 2);
+    let buflen = u64::from(h.get_bdev().block_len() * num_blocks);
     let mut buf = h.dma_malloc(buflen).expect("failed to allocate buffer");
     buf.fill(fill);
 
@@ -20,11 +21,12 @@ pub async fn write_some(
 pub async fn read_some(
     nexus_name: &str,
     offset: u64,
+    num_blocks: u32,
     fill: u8,
 ) -> Result<(), CoreError> {
     let h = UntypedBdevHandle::open(nexus_name, true, false)?;
 
-    let buflen = u64::from(h.get_bdev().block_len() * 2);
+    let buflen = u64::from(h.get_bdev().block_len() * num_blocks);
     let mut buf = h.dma_malloc(buflen).expect("failed to allocate buffer");
     let slice = buf.as_mut_slice();
 

@@ -101,23 +101,23 @@ async fn replica_snapshot() {
                 .await
                 .unwrap();
             create_nexus(0, &ip0).await;
-            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+            bdev_io::write_some(NXNAME, 0, 2, 0xff).await.unwrap();
             // Issue an unimplemented vendor command
             // This checks that the target is correctly rejecting such commands
             // In practice the nexus will not send such commands
             custom_nvme_admin(0xc1).await.expect_err(
                 "unexpectedly succeeded invalid nvme admin command",
             );
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 2, 0xff).await.unwrap();
             let ts = create_snapshot().await.unwrap();
             // Check that IO to the replica still works after creating a
             // snapshot
             info!("testing IO to nexus");
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::write_some(NXNAME, 1024, 0xaa).await.unwrap();
-            bdev_io::read_some(NXNAME, 1024, 0xaa).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 2, 0xff).await.unwrap();
+            bdev_io::write_some(NXNAME, 0, 2, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 2, 0xff).await.unwrap();
+            bdev_io::write_some(NXNAME, 1024, 2, 0xaa).await.unwrap();
+            bdev_io::read_some(NXNAME, 1024, 2, 0xaa).await.unwrap();
             ts
         })
         .await;
@@ -144,10 +144,10 @@ async fn replica_snapshot() {
             //    .expect_err("writing to snapshot should fail");
             // Verify that data read from snapshot remains unchanged
             info!("testing IO to nexus for snapshot");
-            bdev_io::write_some(NXNAME, 0, 0x55).await.unwrap();
-            bdev_io::read_some(NXNAME, 0, 0x55).await.unwrap();
-            bdev_io::read_some(NXNAME_SNAP, 0, 0xff).await.unwrap();
-            bdev_io::read_some(NXNAME_SNAP, 1024, 0).await.unwrap();
+            bdev_io::write_some(NXNAME, 0, 2, 0x55).await.unwrap();
+            bdev_io::read_some(NXNAME, 0, 2, 0x55).await.unwrap();
+            bdev_io::read_some(NXNAME_SNAP, 0, 2, 0xff).await.unwrap();
+            bdev_io::read_some(NXNAME_SNAP, 1024, 2, 0).await.unwrap();
         })
         .await;
 

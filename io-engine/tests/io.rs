@@ -31,6 +31,6 @@ async fn io_test() {
 // only execute one future per reactor loop.
 async fn start() {
     bdev_create(BDEVNAME).await.expect("failed to create bdev");
-    bdev_io::write_some(BDEVNAME, 0, 0xff).await.unwrap();
-    bdev_io::read_some(BDEVNAME, 0, 0xff).await.unwrap();
+    bdev_io::write_some(BDEVNAME, 0, 2, 0xff).await.unwrap();
+    bdev_io::read_some(BDEVNAME, 0, 2, 0xff).await.unwrap();
 }

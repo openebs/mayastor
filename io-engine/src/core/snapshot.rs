@@ -39,7 +39,7 @@ impl SnapshotParams {
 pub struct VolumeSnapshotDescriptor {
     pub snapshot_lvol: Lvol,
     pub source_uuid: String,
-    pub source_size: u64,
+    pub snapshot_size: u64,
     pub snap_param: SnapshotParams,
     pub num_clones: u64, /* TODO: Need to move to SnapshotParams part of
                           * clone feature. */
@@ -50,7 +50,7 @@ impl VolumeSnapshotDescriptor {
     pub fn new(
         snapshot_lvol: Lvol,
         source_uuid: String,
-        source_size: u64,
+        snapshot_size: u64,
         snap_param: SnapshotParams,
         num_clones: u64,
         valid_snapshot: bool,
@@ -58,7 +58,7 @@ impl VolumeSnapshotDescriptor {
         Self {
             snapshot_lvol,
             source_uuid,
-            source_size,
+            snapshot_size,
             snap_param,
             num_clones,
             valid_snapshot,
@@ -73,9 +73,9 @@ impl VolumeSnapshotDescriptor {
         self.source_uuid.clone()
     }
 
-    /// Give snapshot size.
-    pub fn source_size(&self) -> u64 {
-        self.source_size
+    /// Give amount of bytes owned by snapshot.
+    pub fn snapshot_size(&self) -> u64 {
+        self.snapshot_size
     }
 
     /// Get SnapshotParameters.

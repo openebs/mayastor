@@ -2,7 +2,7 @@ pub mod common;
 
 use once_cell::sync::OnceCell;
 
-use common::compose::MayastorTest;
+use common::{bdev_io, compose::MayastorTest};
 
 use io_engine::{
     bdev::device_open,
@@ -580,6 +580,169 @@ async fn test_list_all_snapshots_with_replica_destroy() {
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
         clean_snapshots(snapshot_list).await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_snapshot_referenced_size() {
+    let ms = get_ms();
+    const LVOL_NAME: &str = "lvol8";
+    const LVOL_SIZE: u64 = 24 * 1024 * 1024;
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool8",
+            "malloc:///disk8?size_mb=64".to_string(),
+        )
+        .await;
+
+        let cluster_size = pool.blob_cluster_size();
+
+        let lvol = pool
+            .create_lvol(
+                LVOL_NAME,
+                LVOL_SIZE,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Thick-provisioned volume, all blob clusters must be pre-allocated.
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            LVOL_SIZE,
+            "Wiped superbock is not properly accounted in volume allocated bytes"
+        );
+
+        /* Scenario 1: create a snapshot for a volume without any data written:
+         * snapshot size must be equal to the initial volume size and current
+         * size of the volume must be zero.
+         * Note: initially volume is thick-provisioned, so snapshot shall own
+         * all volume's data.
+         */
+        let snap1_name = "lvol8_snapshot1".to_string();
+        let mut snapshot_params = SnapshotParams::new(
+            Some("e1".to_string()),
+            Some("p1".to_string()),
+            Some(Uuid::new_v4().to_string()),
+            Some(snap1_name.clone()),
+            Some(Uuid::new_v4().to_string()),
+            Some(Utc::now().to_string()),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the first snapshot for test volume");
+
+        // Make sure snapshot fully owns initial volume data.
+        let snapshot_list = pool.snapshots().expect("Failed to enumerate poool snapshots").collect::<Vec<_>>();
+        assert_eq!(snapshot_list.len(), 1, "No first snapshot found");
+        assert_eq!(
+            snapshot_list[0].snapshot_size,
+            LVOL_SIZE,
+            "Snapshot size doesn't properly reflect wiped superblock"
+        );
+
+        let snap_lvol = find_snapshot_device(&snap1_name)
+            .await
+            .expect("Can't lookup snapshot lvol");
+        assert_eq!(
+            snap_lvol.usage().allocated_bytes,
+            LVOL_SIZE,
+            "Snapshot size doesn't properly reflect wiped superblock"
+        );
+
+        // Make sure volume has no allocated space after snapshot is taken.
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            0,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+
+        /* Scenario 2: write some data to volume at 2nd cluster, take the second snapshot
+         * and make sure snapshot size reflects the amount of data written (aligned by
+         * the size of the blobstore cluster).
+         * Note: volume is now a thin-provisioned volume, so the volume stores only incremental
+         * differences from its underlying snapshot.
+         */
+        bdev_io::write_some(LVOL_NAME, 2 * cluster_size, 16, 0xaau8)
+            .await
+            .expect("Failed to write data to volume");
+
+        bdev_io::write_some(LVOL_NAME, 3 * cluster_size, 16, 0xbbu8)
+            .await
+            .expect("Failed to write data to volume");
+
+        // Make sure volume has exactly one allocated cluster even if a smaller amount of bytes was written.
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            2 * cluster_size,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+
+        let snap2_name = "lvol8_snapshot2".to_string();
+        snapshot_params.set_name(snap2_name.clone());
+        snapshot_params.set_snapshot_uuid(Uuid::new_v4().to_string());
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the second snapshot for test volume");
+
+        let snapshot_list = pool.snapshots().expect("Failed to enumerate poool snapshots").collect::<Vec<_>>();
+        assert_eq!(snapshot_list.len(), 2, "Not all snapshots found");
+        let snap_lvol = snapshot_list.iter().find(|s| {
+            s.snapshot_params().name().expect("Snapshot has no name") == snap2_name
+        })
+        .expect("No second snapshot found");
+
+        // Before a new data is written to the volume, volume's space accounts snapshot space too.
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            2 * cluster_size,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+
+        // Make sure snapshot owns newly written volume data.
+        assert_eq!(
+            snap_lvol.snapshot_size,
+            2 * cluster_size,
+            "Snapshot size doesn't properly reflect new volume data"
+        );
+
+        let snap_lvol = find_snapshot_device(&snap2_name)
+            .await
+            .expect("Can't lookup snapshot lvol");
+        assert_eq!(
+            snap_lvol.usage().allocated_bytes,
+            2 * cluster_size,
+            "Snapshot size doesn't properly reflect wiped superblock"
+        );
+
+        // Write some data to the volume and make sure volume accounts only
+        // new incremental storage difference (1 cluster).
+        bdev_io::write_some(LVOL_NAME, 0, 16, 0xccu8)
+            .await
+            .expect("Failed to write data to volume");
+
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            cluster_size,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+
+        // Make sure snapshots allocated space hasn't changed.
+        let snap_lvol = find_snapshot_device(&snap2_name)
+            .await
+            .expect("Can't lookup snapshot lvol");
+        assert_eq!(
+            snap_lvol.usage().allocated_bytes,
+            2 * cluster_size,
+            "Snapshot size doesn't properly reflect wiped superblock"
+        );
+
     })
     .await;
 }

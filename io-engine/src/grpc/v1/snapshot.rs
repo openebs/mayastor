@@ -135,7 +135,7 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
         Self {
             snapshot_uuid: snap_lvol.uuid(),
             snapshot_name: snap_lvol.name(),
-            snapshot_size: snap_lvol.size(),
+            snapshot_size: snap_lvol.usage().allocated_bytes,
             num_clones: 0, //TODO: Need to implement along with clone
             timestamp: snapshot_param
                 .create_time()
@@ -157,14 +157,14 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
         Self {
             snapshot_uuid: s.snapshot_lvol().uuid(),
             snapshot_name: s.snapshot_params().name().unwrap_or_default(),
-            snapshot_size: s.snapshot_lvol().size(),
+            snapshot_size: s.snapshot_lvol().usage().allocated_bytes,
             num_clones: s.num_clones(),
             timestamp: s
                 .snapshot_params()
                 .create_time()
                 .map(|s| s.parse::<DateTime<Utc>>().unwrap_or_default().into()),
             source_uuid: s.source_uuid(),
-            source_size: s.source_size(),
+            source_size: s.snapshot_lvol().size(),
             pool_uuid: s.snapshot_lvol().pool_uuid(),
             pool_name: s.snapshot_lvol().pool_name(),
             entity_id: s.snapshot_params().entity_id().unwrap_or_default(),

@@ -589,22 +589,23 @@ impl Lvol {
         // set remaining snapshot parameters for snapshot list
         snapshot_param.set_name(self.name());
         // set parent replica uuid and size of the snapshot
-        let (parent_uuid, parent_size) = if let Some(parent_lvol) = parent {
-            (parent_lvol.uuid(), parent_lvol.size())
+        let parent_uuid = if let Some(parent_lvol) = parent {
+            parent_lvol.uuid()
         } else {
             match Bdev::lookup_by_uuid_str(
                 snapshot_param.parent_id().unwrap_or_default().as_str(),
             )
             .and_then(|b| Lvol::try_from(b).ok())
             {
-                Some(parent) => (parent.uuid(), parent.size()),
-                None => (String::default(), 0),
+                Some(parent) => parent.uuid(),
+                None => String::default(),
             }
         };
+
         let snapshot_descriptor = VolumeSnapshotDescriptor::new(
             self.to_owned(),
             parent_uuid,
-            parent_size,
+            self.usage().allocated_bytes,
             snapshot_param,
             0, /* TODO: It will updated as part of snapshot clone
                 * implementation */
