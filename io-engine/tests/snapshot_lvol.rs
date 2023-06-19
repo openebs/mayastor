@@ -606,7 +606,6 @@ async fn test_list_all_snapshots_with_replica_destroy() {
     })
     .await;
 }
-
 #[tokio::test]
 async fn test_snapshot_referenced_size() {
     let ms = get_ms();
@@ -776,13 +775,13 @@ async fn test_snapshot_clone() {
     ms.spawn(async move {
         // Create a pool and lvol.
         let pool = create_test_pool(
-            "pool8",
+            "pool9",
             "malloc:///disk5?size_mb=128".to_string(),
         )
         .await;
         let lvol = pool
             .create_lvol(
-                "lvol8",
+                "lvol9",
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
@@ -791,10 +790,10 @@ async fn test_snapshot_clone() {
             .expect("Failed to create test lvol");
 
         // Create a snapshot-1 via lvol object.
-        let entity_id = String::from("lvol8_e1");
+        let entity_id = String::from("lvol9_e1");
         let parent_id = lvol.uuid();
         let txn_id = Uuid::new_v4().to_string();
-        let snap_name = String::from("lvol8_snap1");
+        let snap_name = String::from("lvol9_snap1");
         let snapshot_uuid = Uuid::new_v4().to_string();
 
         let snapshot_params = SnapshotParams::new(
@@ -823,7 +822,7 @@ async fn test_snapshot_clone() {
         )
         .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
         .unwrap();
-        let clone_name = String::from("lvol8_snap1_clone_1");
+        let clone_name = String::from("lvol9_snap1_clone_1");
         let clone_uuid = Uuid::new_v4().to_string();
         let source_uuid = snapshot_lvol.uuid();
 

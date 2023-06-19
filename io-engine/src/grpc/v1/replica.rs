@@ -4,6 +4,7 @@ use crate::{
     core::{
         logical_volume::LogicalVolume,
         Bdev,
+        CloneXattrs,
         Protocol,
         Share,
         ShareProps,
@@ -83,6 +84,8 @@ impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
 impl From<Lvol> for Replica {
     fn from(l: Lvol) -> Self {
         let usage = l.usage();
+        let source_uuid =
+            Lvol::get_blob_xattr(&l, CloneXattrs::SourceUuid.name());
         Self {
             name: l.name(),
             uuid: l.uuid(),
@@ -94,6 +97,8 @@ impl From<Lvol> for Replica {
             poolname: l.pool_name(),
             usage: Some(usage.into()),
             allowed_hosts: l.allowed_hosts(),
+            is_clone: l.is_clone(),
+            snapshot_uuid: source_uuid,
         }
     }
 }

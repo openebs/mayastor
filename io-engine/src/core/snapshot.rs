@@ -36,13 +36,13 @@ impl SnapshotParams {
 /// Parameters details for the Snapshot Clone.
 #[derive(Clone, Debug)]
 pub struct CloneParams {
-    // Clone replica name
+    /// Clone replica name.
     pub clone_name: Option<String>,
-    // Clone replica uuid
+    /// Clone replica uuid.
     pub clone_uuid: Option<String>,
-    // Source uuid from which the clone to be created
+    /// Source uuid from which the clone to be created.
     pub source_uuid: Option<String>,
-    // Timestamp when the clone is created
+    /// Timestamp when the clone is created.
     pub clone_create_time: Option<String>,
 }
 impl CloneParams {
@@ -59,35 +59,35 @@ impl CloneParams {
             clone_create_time,
         }
     }
-    // Get clone name
+    /// Get clone name.
     pub fn clone_name(&self) -> Option<String> {
         self.clone_name.clone()
     }
-    // Set clone name
+    /// Set clone name.
     pub fn set_clone_name(&mut self, clone_name: String) {
         self.clone_name = Some(clone_name);
     }
-    // Get clone uuid
+    /// Get clone uuid.
     pub fn clone_uuid(&self) -> Option<String> {
         self.clone_uuid.clone()
     }
-    // Set clone uuid
+    /// Set clone uuid.
     pub fn set_clone_uuid(&mut self, clone_uuid: String) {
         self.clone_uuid = Some(clone_uuid);
     }
-    // Get source uuid from which clone is created
+    /// Get source uuid from which clone is created.
     pub fn source_uuid(&self) -> Option<String> {
         self.source_uuid.clone()
     }
-    // Set source uuid
+    /// Set source uuid.
     pub fn set_source_uuid(&mut self, uuid: String) {
         self.source_uuid = Some(uuid);
     }
-    // Get clone creation time
+    /// Get clone creation time.
     pub fn clone_create_time(&self) -> Option<String> {
         self.clone_create_time.clone()
     }
-    // Set clone create time
+    /// Set clone create time.
     pub fn set_clone_create_time(&mut self, time: String) {
         self.clone_create_time = Some(time);
     }
@@ -194,6 +194,7 @@ impl CloneXattrs {
 pub trait SnapshotOps {
     type Error;
     type SnapshotIter;
+    type Lvol;
     /// Create Snapshot Common API.
     async fn create_snapshot(
         &self,
@@ -222,7 +223,18 @@ pub trait SnapshotOps {
     async fn create_clone(
         &self,
         clone_param: CloneParams,
-    ) -> Result<Lvol, Self::Error>;
+    ) -> Result<Self::Lvol, Self::Error>;
+
+    /// Prepare clone config for snapshot.
+    fn prepare_clone_config(
+        &self,
+        clone_name: &str,
+        clone_uuid: &str,
+        source_uuid: &str,
+    ) -> Option<CloneParams>;
+
+    /// Get clone count.
+    fn snapshot_clone_count(&self) -> u64;
 }
 
 /// Traits gives the Snapshots Related Parameters.

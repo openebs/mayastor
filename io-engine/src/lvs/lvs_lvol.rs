@@ -19,6 +19,7 @@ use spdk_rs::libspdk::{
     spdk_blob_calc_used_clusters,
     spdk_blob_get_num_clusters,
     spdk_blob_get_xattr_value,
+    spdk_blob_is_clone,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
     spdk_blob_set_xattr,
@@ -490,7 +491,6 @@ impl Lvol {
             );
 
             if r != 0 || size == 0 {
-                warn!(?lvol, ?attribute, "attribute not found",);
                 return None;
             }
 
@@ -613,7 +613,8 @@ impl Lvol {
             &mut cstrs,
         )?;
 
-        let c_clone_name = clone_param.clone_name().unwrap().into_cstring();
+        let c_clone_name =
+            clone_param.clone_name().unwrap_or_default().into_cstring();
 
         unsafe {
             vbdev_lvol_create_clone_ext(
@@ -644,7 +645,7 @@ impl Lvol {
             0 => Ok(Lvol::from_inner_ptr(lvol_ptr)),
             _ => Err(Error::SnapshotCloneCreate {
                 source: Errno::from_i32(error),
-                msg: clone_param.clone_name().unwrap(),
+                msg: clone_param.clone_name().unwrap_or_default(),
             }),
         }
     }
@@ -703,14 +704,12 @@ impl Lvol {
                 None => String::default(),
             }
         };
-
         let snapshot_descriptor = VolumeSnapshotDescriptor::new(
             self.to_owned(),
             parent_uuid,
             self.usage().allocated_bytes,
             snapshot_param,
-            0, /* TODO: It will updated as part of snapshot clone
-                * implementation */
+            self.snapshot_clone_count(),
             valid_snapshot,
         );
         Some(snapshot_descriptor)
@@ -799,18 +798,21 @@ impl PtplFileOps for LvolPtpl {
 ///  LvsLvol Trait Provide the interface for all the Volume Specific Interface
 #[async_trait(?Send)]
 pub trait LvsLvol: LogicalVolume + Share {
-    /// Return lvs for the Logical Volume
+    /// Return lvs for the Logical Volume.
     fn lvs(&self) -> Lvs;
-    /// Returns the underlying bdev of the lvol
+    /// Returns the underlying bdev of the lvol.
     fn as_bdev(&self) -> UntypedBdev;
 
-    /// Returns a boolean indicating if the lvol is a snapshot
+    /// Returns a boolean indicating if the lvol is a snapshot.
     fn is_snapshot(&self) -> bool;
 
-    /// Get/Read a property from this lvol from disk
+    /// Returns a boolean indicating if the lvol is a clone.
+    fn is_clone(&self) -> bool;
+
+    /// Get/Read a property from this lvol from disk.
     async fn get(&self, prop: PropName) -> Result<PropValue, Error>;
 
-    /// Destroy the lvol
+    /// Destroy the lvol.
     async fn destroy(mut self) -> Result<String, Error>;
 
     /// Write the property prop on to the lvol but do not sync the metadata yet.
@@ -819,19 +821,19 @@ pub trait LvsLvol: LogicalVolume + Share {
         prop: PropValue,
     ) -> Result<(), Error>;
 
-    /// Write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk.
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), Error>;
 
-    /// Callback executed after synchronizing the lvols metadata
+    /// Callback executed after synchronizing the lvols metadata.
     extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32);
 
-    /// Write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk.
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error>;
 
-    /// Create a snapshot in Remote
+    /// Create a snapshot in Remote.
     async fn create_snapshot_remote(
         &self,
         nvmf_req: &NvmfReq,
@@ -857,39 +859,39 @@ pub trait LvsLvol: LogicalVolume + Share {
     fn build_snapshot_param(&self, blob: *mut spdk_blob) -> SnapshotParams;
 }
 
-///  LogicalVolume implement Generic interface for Lvol
+///  LogicalVolume implement Generic interface for Lvol.
 impl LogicalVolume for Lvol {
-    /// Returns the name of the Snapshot
+    /// Returns the name of the Snapshot.
     fn name(&self) -> String {
         self.as_bdev().name().to_string()
     }
 
-    /// Returns the UUID of the Snapshot
+    /// Returns the UUID of the Snapshot.
     fn uuid(&self) -> String {
         self.as_bdev().uuid_as_string()
     }
 
-    /// Returns the pool name of the Snapshot
+    /// Returns the pool name of the Snapshot.
     fn pool_name(&self) -> String {
         self.lvs().name().to_string()
     }
 
-    /// Returns the pool uuid of the Snapshot
+    /// Returns the pool uuid of the Snapshot.
     fn pool_uuid(&self) -> String {
         self.lvs().uuid()
     }
 
-    /// Returns a boolean indicating if the Logical Volume is thin provisioned
+    /// Returns a boolean indicating if the Logical Volume is thin provisioned.
     fn is_thin(&self) -> bool {
         self.as_inner_ref().thin_provision
     }
 
-    /// Returns a boolean indicating if the Logical Volume is read-only
+    /// Returns a boolean indicating if the Logical Volume is read-only.
     fn is_read_only(&self) -> bool {
         unsafe { spdk_blob_is_read_only(self.blob_checked()) }
     }
 
-    /// Return the size of the Snapshot in bytes
+    /// Return the size of the Snapshot in bytes.
     fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
     }
@@ -917,22 +919,25 @@ impl LogicalVolume for Lvol {
 /// LvsLvol Trait Implementation for Lvol for Volume Specific Interface.
 #[async_trait(? Send)]
 impl LvsLvol for Lvol {
-    /// Return lvs for the Logical Volume
+    /// Return lvs for the Logical Volume.
     fn lvs(&self) -> Lvs {
         Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
     }
 
-    /// Returns the underlying bdev of the lvol
+    /// Returns the underlying bdev of the lvol.
     fn as_bdev(&self) -> UntypedBdev {
         Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
     }
 
-    /// Returns a boolean indicating if the lvol is a snapshot
+    /// Returns a boolean indicating if the lvol is a snapshot.
     fn is_snapshot(&self) -> bool {
         unsafe { spdk_blob_is_snapshot(self.blob_checked()) }
     }
-
-    /// Get/Read a property from this lvol from disk
+    /// Returns a boolean indicating if the lvol is a clone.
+    fn is_clone(&self) -> bool {
+        unsafe { spdk_blob_is_clone(self.blob_checked()) }
+    }
+    /// Get/Read a property from this lvol from disk.
     async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = self.blob_checked();
 
@@ -1000,13 +1005,13 @@ impl LvsLvol for Lvol {
         }
     }
 
-    /// Callback executed after synchronizing the lvols metadata
+    /// Callback executed after synchronizing the lvols metadata.
     extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32) {
         let sender =
             unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
         sender.send(errno).expect("blob cb receiver is gone");
     }
-    /// Destroy the lvol
+    /// Destroy the lvol.
     async fn destroy(mut self) -> Result<String, Error> {
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
@@ -1014,7 +1019,7 @@ impl LvsLvol for Lvol {
             sender.send(errno).unwrap();
         }
 
-        // we must always unshare before destroying bdev
+        // We must always unshare before destroying bdev.
         let _ = Pin::new(&mut self).unshare().await;
 
         let name = self.name();
@@ -1100,7 +1105,7 @@ impl LvsLvol for Lvol {
         Ok(())
     }
 
-    /// Write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk.
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
@@ -1109,7 +1114,7 @@ impl LvsLvol for Lvol {
         self.sync_metadata().await
     }
 
-    /// Write the property prop on to the lvol which is stored on disk
+    /// Write the property prop on to the lvol which is stored on disk.
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error> {
         let blob = self.blob_checked();
 
@@ -1134,7 +1139,7 @@ impl LvsLvol for Lvol {
 
         Ok(())
     }
-    /// Create a snapshot in Remote
+    /// Create a snapshot in Remote.
     async fn create_snapshot_remote(
         &self,
         nvmf_req: &NvmfReq,
@@ -1238,6 +1243,7 @@ impl LvsLvol for Lvol {
 impl SnapshotOps for Lvol {
     type Error = Error;
     type SnapshotIter = LvolSnapshotIter;
+    type Lvol = Lvol;
     /// Create Snapshot Common API for Local Device.
     async fn create_snapshot(
         &self,
@@ -1367,7 +1373,7 @@ impl SnapshotOps for Lvol {
     async fn create_clone(
         &self,
         clone_param: CloneParams,
-    ) -> Result<Lvol, Self::Error> {
+    ) -> Result<Self::Lvol, Self::Error> {
         extern "C" fn clone_done_cb(
             arg: *mut c_void,
             lvol_ptr: *mut spdk_lvol,
@@ -1390,5 +1396,56 @@ impl SnapshotOps for Lvol {
             .do_create_clone(clone_param, clone_done_cb, cb_arg(s), r)
             .await;
         create_clone
+    }
+    /// Prepare clone config for snapshot.
+    fn prepare_clone_config(
+        &self,
+        clone_name: &str,
+        clone_uuid: &str,
+        source_uuid: &str,
+    ) -> Option<CloneParams> {
+        // clone_name
+        let clone_name = if clone_name.is_empty() {
+            return None;
+        } else {
+            clone_name.to_string()
+        };
+        // clone_uuid
+        let clone_uuid = if clone_uuid.is_empty() {
+            return None;
+        } else {
+            clone_uuid.to_string()
+        };
+        // source_uuid
+        let source_uuid = if source_uuid.is_empty() {
+            return None;
+        } else {
+            source_uuid.to_string()
+        };
+        Some(CloneParams::new(
+            Some(clone_name),
+            Some(clone_uuid),
+            Some(source_uuid),
+            Some(Utc::now().to_string()),
+        ))
+    }
+    /// Get clone count
+    fn snapshot_clone_count(&self) -> u64 {
+        let bdev = match UntypedBdev::bdev_first() {
+            Some(b) => b,
+            None => return 0, /* No devices available, 0 clones */
+        };
+        bdev.into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .filter(|b| b.is_clone())
+            .filter(|b| {
+                let source_uuid =
+                    Lvol::get_blob_xattr(b, CloneXattrs::SourceUuid.name())
+                        .unwrap_or_default();
+                // If clone source uuid is match with snapshot uuid
+                source_uuid == self.uuid()
+            })
+            .count() as u64
     }
 }

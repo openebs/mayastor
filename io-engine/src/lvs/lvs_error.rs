@@ -109,16 +109,12 @@ pub enum Error {
     ReplicaShareProtocol {
         value: i32,
     },
-    #[snafu(display("Snapshot {} created with Resultcode {}", msg, source))]
+    #[snafu(display("Snapshot {} creation failed", msg))]
     SnapshotCreate {
         source: Errno,
         msg: String,
     },
-    #[snafu(display(
-        "SnapshotClone {} created with Resultcode {}",
-        msg,
-        source
-    ))]
+    #[snafu(display("SnapshotClone {} creation failed", msg))]
     SnapshotCloneCreate {
         source: Errno,
         msg: String,
@@ -137,7 +133,7 @@ pub enum Error {
         msg: String,
     },
     #[snafu(display(
-        "Clone parameters for replica {} is not correct: {}",
+        "Clone parameters for replica {} are not correct: {}",
         name,
         msg
     ))]
