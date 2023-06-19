@@ -36,6 +36,11 @@ use spdk_rs::libspdk::spdk_blob_get_xattr_value;
 use std::{convert::TryFrom, panic::AssertUnwindSafe};
 use strum::IntoEnumIterator;
 use tonic::{Request, Response, Status};
+
+/// Support for the snapshot's consumption as source, should be marked as true
+/// once we start supporting the feature.
+const SNAPSHOT_READY_AS_SOURCE: bool = false;
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct SnapshotService {
@@ -147,6 +152,7 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
             entity_id: snapshot_param.entity_id().unwrap_or_default(),
             txn_id: snapshot_param.txn_id().unwrap_or_default(),
             valid_snapshot: true,
+            ready_as_source: SNAPSHOT_READY_AS_SOURCE,
         }
     }
 }
@@ -170,6 +176,7 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
             entity_id: s.snapshot_params().entity_id().unwrap_or_default(),
             txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
             valid_snapshot: s.valid_snapshot(),
+            ready_as_source: SNAPSHOT_READY_AS_SOURCE,
         }
     }
 }
