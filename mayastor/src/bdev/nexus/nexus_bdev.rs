@@ -367,7 +367,25 @@ pub enum NexusPauseState {
     Unpaused,
     Pausing,
     Paused,
+    Frozen,
     Unpausing,
+}
+impl From<super::nexus_io_subsystem::NexusPauseState> for NexusPauseState {
+    fn from(value: super::nexus_io_subsystem::NexusPauseState) -> Self {
+        match value {
+            super::nexus_io_subsystem::NexusPauseState::Unpaused => {
+                Self::Unpaused
+            }
+            super::nexus_io_subsystem::NexusPauseState::Pausing => {
+                Self::Pausing
+            }
+            super::nexus_io_subsystem::NexusPauseState::Paused => Self::Paused,
+            super::nexus_io_subsystem::NexusPauseState::Frozen => Self::Frozen,
+            super::nexus_io_subsystem::NexusPauseState::Unpausing => {
+                Self::Unpausing
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -900,6 +918,11 @@ impl<'n> Nexus<'n> {
     /// Returns a mutable reference to Nexus I/O.
     fn io_subsystem_mut(self: Pin<&mut Self>) -> &mut NexusIoSubsystem<'n> {
         unsafe { self.get_unchecked_mut().io_subsystem.as_mut().unwrap() }
+    }
+
+    /// Get the subsystem pause state.
+    pub fn io_subsystem_state(&self) -> Option<NexusPauseState> {
+        self.io_subsystem.as_ref().map(|io| io.pause_state().into())
     }
 
     /// Resumes I/O to the Bdev.
