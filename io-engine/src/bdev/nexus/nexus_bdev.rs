@@ -37,7 +37,11 @@ use super::{
 use crate::{
     bdev::{
         device_destroy,
-        nexus::{nexus_persistence::PersistentNexusInfo, NexusIoSubsystem},
+        nexus::{
+            nexus_io_subsystem::NexusPauseState,
+            nexus_persistence::PersistentNexusInfo,
+            NexusIoSubsystem,
+        },
     },
     core::{
         partition,
@@ -825,6 +829,11 @@ impl<'n> Nexus<'n> {
     /// Returns a mutable reference to Nexus I/O.
     fn io_subsystem_mut(self: Pin<&mut Self>) -> &mut NexusIoSubsystem<'n> {
         unsafe { self.get_unchecked_mut().io_subsystem.as_mut().unwrap() }
+    }
+
+    /// Get the subsystem pause state.
+    pub fn io_subsystem_state(&self) -> Option<NexusPauseState> {
+        self.io_subsystem.as_ref().map(|io| io.pause_state())
     }
 
     /// Resumes I/O to the Bdev.

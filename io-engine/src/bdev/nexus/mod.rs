@@ -49,7 +49,8 @@ pub use nexus_child::{
 };
 use nexus_io::{NexusBio, NioCtx};
 use nexus_io_log::{IOLog, IOLogChannel};
-use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};
+use nexus_io_subsystem::NexusIoSubsystem;
+pub use nexus_io_subsystem::NexusPauseState;
 pub use nexus_iter::{
     nexus_iter,
     nexus_iter_mut,

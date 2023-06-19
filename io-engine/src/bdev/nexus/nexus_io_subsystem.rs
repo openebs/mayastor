@@ -80,6 +80,11 @@ impl<'n> NexusIoSubsystem<'n> {
         }
     }
 
+    /// Get the subsystem pause state.
+    pub(super) fn pause_state(&self) -> NexusPauseState {
+        self.pause_state.load()
+    }
+
     /// Suspend any incoming IO to the bdev pausing the controller allows us to
     /// handle internal events and which is a protocol feature.
     /// In case concurrent pause requests take place, the other callers
