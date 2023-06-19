@@ -20,6 +20,7 @@ pub enum NexusPauseState {
     Unpaused,
     Pausing,
     Paused,
+    Frozen,
     Unpausing,
 }
 
@@ -32,6 +33,7 @@ impl Display for NexusPauseState {
                 Self::Unpaused => "unpaused",
                 Self::Pausing => "pausing",
                 Self::Paused => "paused",
+                Self::Frozen => "frozen",
                 Self::Unpausing => "unpausing",
             }
         )
@@ -146,7 +148,7 @@ impl<'n> NexusIoSubsystem<'n> {
                     break;
                 }
                 // Subsystem is already paused, increment number of paused.
-                Err(NexusPauseState::Paused) => {
+                Err(NexusPauseState::Paused | NexusPauseState::Frozen) => {
                     trace!(
                         "{:?}: nexus is already paused, \
                         incrementing pause count",
@@ -194,7 +196,7 @@ impl<'n> NexusIoSubsystem<'n> {
     /// Resume IO to the bdev.
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
-    pub(super) async fn resume(&mut self) -> Result<(), Error> {
+    pub(super) async fn resume(&mut self, freeze: bool) -> Result<(), Error> {
         assert_eq!(
             Cores::current(),
             Cores::first(),
@@ -204,7 +206,8 @@ impl<'n> NexusIoSubsystem<'n> {
         trace!("{:?}: resuming I/O...", self);
 
         loop {
-            match self.pause_state.load() {
+            let state = self.pause_state.load();
+            match state {
                 // Already unpaused, bail out.
                 NexusPauseState::Unpaused => {
                     break;
@@ -229,36 +232,48 @@ impl<'n> NexusIoSubsystem<'n> {
                     );
                 }
                 // Unpause the subsystem, taking into account the overall number
-                // of pauses.
-                NexusPauseState::Paused => {
+                // of pauses, or leave it frozen.
+                NexusPauseState::Paused | NexusPauseState::Frozen => {
                     let v = self.pause_cnt.fetch_sub(1, Ordering::SeqCst);
                     // In case the last pause discarded, resume the subsystem.
                     if v == 1 {
-                        if let Some(subsystem) =
-                            NvmfSubsystem::nqn_lookup(&self.name)
-                        {
-                            self.pause_state.store(NexusPauseState::Unpausing);
-                            trace!(
-                                "{:?}: resuming subsystem '{}'...",
-                                self,
-                                subsystem.get_nqn()
-                            );
-
-                            if let Err(e) = subsystem.resume().await {
-                                panic!(
-                                    "Failed to resume subsystem '{}: {}",
-                                    subsystem.get_nqn(),
-                                    e
+                        if state == NexusPauseState::Frozen || freeze {
+                            if let Some(subsystem) =
+                                NvmfSubsystem::nqn_lookup(&self.name)
+                            {
+                                trace!(
+                                    "{:?}: subsystem '{}' not being resumed",
+                                    self,
+                                    subsystem.get_nqn()
                                 );
                             }
-
-                            trace!(
-                                "{:?}: subsystem '{}' resumed",
-                                self,
-                                subsystem.get_nqn()
-                            );
+                            self.pause_state.store(NexusPauseState::Frozen);
+                        } else {
+                            if let Some(subsystem) =
+                                NvmfSubsystem::nqn_lookup(&self.name)
+                            {
+                                self.pause_state
+                                    .store(NexusPauseState::Unpausing);
+                                trace!(
+                                    "{:?}: resuming subsystem '{}'...",
+                                    self,
+                                    subsystem.get_nqn()
+                                );
+                                if let Err(e) = subsystem.resume().await {
+                                    panic!(
+                                        "Failed to resume subsystem '{}: {}",
+                                        subsystem.get_nqn(),
+                                        e
+                                    );
+                                }
+                                trace!(
+                                    "{:?}: subsystem '{}' resumed",
+                                    self,
+                                    subsystem.get_nqn()
+                                );
+                            }
+                            self.pause_state.store(NexusPauseState::Unpaused);
                         }
-                        self.pause_state.store(NexusPauseState::Unpaused);
                     }
                     break;
                 }

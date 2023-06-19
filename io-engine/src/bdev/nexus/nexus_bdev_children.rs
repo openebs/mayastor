@@ -1023,16 +1023,6 @@ impl<'n> Nexus<'n> {
             );
         }
 
-        // If we are faulted then rather than failing all IO back to the
-        // initiator we can instead leave the subsystem paused, and wait
-        // for the control-plane to do something about this.
-        // Meanwhile the initiator will begin its reconnect loop and won't see
-        // a swarm of IO failures which could cause a fs to shutdown.
-        if self.status() == NexusStatus::Faulted {
-            tracing::warn!("{self:?}: Nexus Faulted: not resuming subsystem");
-            return Ok(());
-        }
-
         debug!("{self:?}: resuming...");
         self.as_mut().resume().await?;
         debug!("{self:?}: resuming ok");
