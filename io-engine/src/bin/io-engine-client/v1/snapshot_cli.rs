@@ -24,6 +24,7 @@ pub async fn handler(
         ("list", Some(args)) => list(ctx, args).await,
         ("destroy", Some(args)) => destroy(ctx, args).await,
         ("create_clone", Some(args)) => create_clone(ctx, args).await,
+        ("list_clone", Some(args)) => list_clone(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -33,7 +34,7 @@ pub async fn handler(
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create_for_nexus = SubCommand::with_name("create_for_nexus")
-        .about("create a snapshot for nexus")
+        .about("Create a snapshot for nexus")
         .arg(
             Arg::with_name("uuid")
                 .required(true)
@@ -41,7 +42,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uuid of the nexus"),
         );
     let create_for_replica = SubCommand::with_name("create_for_replica")
-        .about("create a snapshot for replica")
+        .about("Create a snapshot for replica")
         .arg(
             Arg::with_name("replica_uuid")
                 .required(true)
@@ -73,7 +74,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("Snapshot uuid"),
         );
     let list = SubCommand::with_name("list")
-        .about("List Snapshot Detail")
+        .about("List snapshots details")
         .arg(
             Arg::with_name("source_uuid")
                 .required(false)
@@ -87,7 +88,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("Snapshot uuid"),
         );
     let destroy = SubCommand::with_name("destroy")
-        .about("Destroy Snapshot")
+        .about("Destroy snapshot")
         .arg(
             Arg::with_name("snapshot_uuid")
                 .required(true)
@@ -111,7 +112,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("Name of the pool where snapshot resides"),
         );
     let create_clone = SubCommand::with_name("create_clone")
-        .about("create a clone from snapshot")
+        .about("Create a clone from snapshot")
         .arg(
             Arg::with_name("snapshot_uuid")
                 .required(true)
@@ -130,6 +131,14 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .index(3)
                 .help("Clone uuid"),
         );
+    let list_clone = SubCommand::with_name("list_clone")
+        .about("List clones details")
+        .arg(
+            Arg::with_name("snapshot_uuid")
+                .required(false)
+                .index(1)
+                .help("Snapshot uuid"),
+        );
     SubCommand::with_name("snapshot")
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
@@ -142,6 +151,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(list)
         .subcommand(destroy)
         .subcommand(create_clone)
+        .subcommand(list_clone)
 }
 
 async fn create_for_nexus(
@@ -453,9 +463,7 @@ async fn create_clone(
                 r.thin.clone().to_string(),
                 r.poolname.clone(),
                 r.is_clone.clone().to_string(),
-                r.snapshot_uuid
-                    .clone()
-                    .expect("Failed to get snapshot uuid"),
+                r.snapshot_uuid.clone().unwrap_or_default(),
             ]];
             ctx.print_list(
                 vec![
@@ -469,6 +477,71 @@ async fn create_clone(
                     "SNAPSHOT_UUID",
                 ],
                 data,
+            );
+        }
+    };
+
+    Ok(())
+}
+async fn list_clone(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let snapshot_uuid = matches.value_of("snapshot_uuid").map(|s| s.to_owned());
+    let request = v1_rpc::snapshot::ListSnapshotCloneRequest {
+        snapshot_uuid,
+    };
+
+    let response = ctx
+        .v1
+        .snapshot
+        .list_snapshot_clone(request)
+        .await
+        .context(GrpcStatus)?;
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let clones = &response.get_ref().replicas;
+            if clones.is_empty() {
+                ctx.v1("No clones found");
+                return Ok(());
+            }
+
+            let table = clones
+                .iter()
+                .map(|r| {
+                    vec![
+                        r.name.clone(),
+                        r.uuid.clone(),
+                        r.size.clone().to_string(),
+                        r.usage.as_ref().unwrap().allocated_bytes.to_string(),
+                        r.thin.clone().to_string(),
+                        r.poolname.clone(),
+                        r.is_clone.clone().to_string(),
+                        r.snapshot_uuid.clone().unwrap_or_default(),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec![
+                    "CLONE_NAME",
+                    "CLONE_UUID",
+                    "CLONE_CAPACITY",
+                    "CLONE_ALLOC",
+                    "THIN",
+                    "POOL",
+                    "IS_CLONE",
+                    "SNAPSHOT_UUID",
+                ],
+                table,
             );
         }
     };

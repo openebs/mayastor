@@ -233,8 +233,8 @@ pub trait SnapshotOps {
         source_uuid: &str,
     ) -> Option<CloneParams>;
 
-    /// Get clone count.
-    fn snapshot_clone_count(&self) -> u64;
+    /// Get clone list based on snapshot_uuid.
+    fn list_clones_by_snapshot_uuid(&self) -> Vec<Lvol>;
 }
 
 /// Traits gives the Snapshots Related Parameters.

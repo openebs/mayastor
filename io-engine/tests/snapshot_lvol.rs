@@ -764,7 +764,6 @@ async fn test_snapshot_referenced_size() {
             2 * cluster_size,
             "Snapshot size doesn't properly reflect wiped superblock"
         );
-
     })
     .await;
 }
@@ -832,12 +831,36 @@ async fn test_snapshot_clone() {
             Some(source_uuid),
             Some(Utc::now().to_string()),
         );
-        let clone = snapshot_lvol
+        let clone1 = snapshot_lvol
             .create_clone(clone_param.clone())
             .await
             .expect("Failed to create a clone");
-        info!("Clone creation success with uuid {:?}", clone.uuid());
-        check_clone(clone, clone_param).await;
+        check_clone(clone1, clone_param).await;
+
+        let clone_name = String::from("lvol9_snap1_clone_2");
+        let clone_uuid = Uuid::new_v4().to_string();
+        let source_uuid = snapshot_lvol.uuid();
+
+        let clone_param = CloneParams::new(
+            Some(clone_name),
+            Some(clone_uuid),
+            Some(source_uuid),
+            Some(Utc::now().to_string()),
+        );
+        let clone2 = snapshot_lvol
+            .create_clone(clone_param.clone())
+            .await
+            .expect("Failed to create a clone");
+        check_clone(clone2, clone_param).await;
+        info!(
+            "Total number of Clones: {:?}",
+            snapshot_lvol.list_clones_by_snapshot_uuid().len()
+        );
+        assert_eq!(
+            snapshot_lvol.list_clones_by_snapshot_uuid().len(),
+            2,
+            "Number of Clones Doesn't match"
+        );
     })
     .await;
 }
