@@ -23,6 +23,7 @@ pub use nexus_bdev::{
     Error,
     Nexus,
     NexusNvmeParams,
+    NexusPauseState,
     NexusState,
     NexusStatus,
     NexusTarget,

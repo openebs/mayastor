@@ -367,7 +367,25 @@ pub enum NexusPauseState {
     Unpaused,
     Pausing,
     Paused,
+    Frozen,
     Unpausing,
+}
+impl From<super::nexus_io_subsystem::NexusPauseState> for NexusPauseState {
+    fn from(value: super::nexus_io_subsystem::NexusPauseState) -> Self {
+        match value {
+            super::nexus_io_subsystem::NexusPauseState::Unpaused => {
+                Self::Unpaused
+            }
+            super::nexus_io_subsystem::NexusPauseState::Pausing => {
+                Self::Pausing
+            }
+            super::nexus_io_subsystem::NexusPauseState::Paused => Self::Paused,
+            super::nexus_io_subsystem::NexusPauseState::Frozen => Self::Frozen,
+            super::nexus_io_subsystem::NexusPauseState::Unpausing => {
+                Self::Unpausing
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -902,11 +920,28 @@ impl<'n> Nexus<'n> {
         unsafe { self.get_unchecked_mut().io_subsystem.as_mut().unwrap() }
     }
 
+    /// Get the subsystem pause state.
+    pub fn io_subsystem_state(&self) -> Option<NexusPauseState> {
+        self.io_subsystem.as_ref().map(|io| io.pause_state().into())
+    }
+
     /// Resumes I/O to the Bdev.
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
     pub async fn resume(self: Pin<&mut Self>) -> Result<(), Error> {
-        self.io_subsystem_mut().resume().await
+        // If we are faulted then rather than failing all IO back to the
+        // initiator we can instead leave the subsystem frozen, and wait
+        // for the control-plane to do something about this.
+        // Meanwhile the initiator will begin its reconnect loop and won't see
+        // a swarm of IO failures which could cause a fs to shutdown.
+        let freeze = match self.status() {
+            NexusStatus::Faulted => {
+                tracing::warn!(?self, "Nexus Faulted: will not resume I/Os");
+                true
+            }
+            _ => false,
+        };
+        self.io_subsystem_mut().resume(freeze).await
     }
 
     /// Suspend any incoming IO to the bdev pausing the controller allows us to
@@ -1029,15 +1064,6 @@ impl<'n> Nexus<'n> {
                     }
                 })))
                 .await;
-        }
-        // If we are faulted then rather than failing all IO back to the
-        // initiator we can instead leave the subsystem paused, and wait
-        // for the control-plane to do something about this.
-        // Meanwhile the initiator will begin it's reconnect loop and won't see
-        // a swarm of IO failures which could cause a fs to shutdown.
-        if self.status() == NexusStatus::Faulted {
-            tracing::warn!(?self, "Nexus Faulted: not resuming subsystem");
-            return Ok(());
         }
         debug!(?self, "RESUMING");
         self.resume().await

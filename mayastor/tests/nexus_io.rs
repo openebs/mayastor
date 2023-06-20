@@ -4,8 +4,11 @@ use mayastor::{
     bdev::nexus::{
         nexus_create,
         nexus_create_v2,
+        nexus_lookup,
         nexus_lookup_mut,
         NexusNvmeParams,
+        NexusPauseState,
+        NexusStatus,
         NvmeAnaState,
     },
     core::{MayastorCliArgs, Protocol},
@@ -25,13 +28,17 @@ use rpc::mayastor::{
 use std::process::{Command, ExitStatus};
 
 pub mod common;
-use common::{compose::Builder, MayastorTest};
+use common::{
+    compose::{Builder, ComposeTest},
+    MayastorTest,
+};
 
 extern crate libnvme_rs;
 
 static POOL_NAME: &str = "tpool";
 static NXNAME: &str = "nexus0";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
+static UUID2: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c48";
 static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
@@ -609,4 +616,180 @@ async fn nexus_io_write_zeroes() {
                 .expect("read should return block of 0");
         })
         .await;
+}
+
+#[tokio::test]
+async fn nexus_io_freeze() {
+    std::env::set_var("NEXUS_NVMF_ANA_ENABLE", "1");
+    std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
+    // create a new composeTest
+    let test = Builder::new()
+        .name("nexus_io_freeze")
+        .network("10.1.0.0/16")
+        .add_container("ms1")
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+    create_pool_replicas(&test, 0).await;
+
+    let mayastor = get_ms();
+    let hdls = test.grpc_handles().await.unwrap();
+    let ip0 = hdls[0].endpoint.ip();
+    let nexus_name = format!("nexus-{}", UUID);
+    let nexus_children = [
+        format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID),
+        format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID2),
+    ];
+
+    let name = nexus_name.clone();
+    let children = nexus_children.clone();
+    mayastor
+        .spawn(async move {
+            // create nexus on local node with remote replica as child
+            nexus_create(&name, 32 * 1024 * 1024, Some(UUID), &children)
+                .await
+                .unwrap();
+            // publish nexus on local node over nvmf
+            nexus_lookup_mut(&name)
+                .unwrap()
+                .share(Protocol::Nvmf, None)
+                .await
+                .unwrap();
+            assert_eq!(
+                nexus_pause_state(&name),
+                Some(NexusPauseState::Unpaused)
+            );
+        })
+        .await;
+
+    // This will lead into a child retire, which means the nexus will be faulted
+    // and subsystem frozen!
+    test.restart("ms1").await.unwrap();
+    wait_nexus_faulted(&nexus_name, std::time::Duration::from_secs(2))
+        .await
+        .unwrap();
+
+    let name = nexus_name.clone();
+    mayastor
+        .spawn(async move {
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Frozen));
+
+            nexus_lookup_mut(&name).unwrap().pause().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Frozen));
+
+            nexus_lookup_mut(&name).unwrap().resume().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Frozen));
+
+            nexus_lookup_mut(&name).unwrap().destroy().await.unwrap();
+        })
+        .await;
+
+    create_pool_replicas(&test, 0).await;
+
+    let name = nexus_name.clone();
+    let children = nexus_children.clone();
+    mayastor
+        .spawn(async move {
+            nexus_create(&name, 32 * 1024 * 1024, Some(UUID), &children)
+                .await
+                .unwrap();
+            nexus_lookup_mut(&name)
+                .unwrap()
+                .share(Protocol::Nvmf, None)
+                .await
+                .unwrap();
+
+            // Pause, so now WE must be the ones which resume to frozen!
+            nexus_lookup_mut(&name).unwrap().pause().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Paused));
+        })
+        .await;
+
+    test.restart("ms1").await.unwrap();
+    wait_nexus_faulted(&nexus_name, std::time::Duration::from_secs(2))
+        .await
+        .unwrap();
+
+    let name = nexus_name.clone();
+    mayastor
+        .spawn(async move {
+            nexus_lookup_mut(&name).unwrap().pause().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Paused));
+
+            nexus_lookup_mut(&name).unwrap().resume().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Paused));
+
+            // Final resume, transition to Frozen!
+            nexus_lookup_mut(&name).unwrap().resume().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Frozen));
+
+            nexus_lookup_mut(&name).unwrap().destroy().await.unwrap();
+        })
+        .await;
+}
+
+fn nexus_pause_state(name: &str) -> Option<NexusPauseState> {
+    nexus_lookup(name).unwrap().io_subsystem_state()
+}
+
+async fn create_pool_replicas(test: &ComposeTest, index: usize) {
+    let mut hdls = test.grpc_handles().await.unwrap();
+    let hdl = &mut hdls[index];
+
+    // create a pool on remote node
+    hdl.mayastor
+        .create_pool(CreatePoolRequest {
+            name: POOL_NAME.to_string(),
+            disks: vec!["malloc:///disk0?size_mb=128".into()],
+        })
+        .await
+        .unwrap();
+
+    // create replica, shared over nvmf
+    hdl.mayastor
+        .create_replica(CreateReplicaRequest {
+            uuid: UUID.to_string(),
+            pool: POOL_NAME.to_string(),
+            size: 32 * 1024 * 1024,
+            thin: false,
+            share: 1,
+        })
+        .await
+        .unwrap();
+
+    // create replica, shared over nvmf
+    hdl.mayastor
+        .create_replica(CreateReplicaRequest {
+            uuid: UUID2.to_string(),
+            pool: POOL_NAME.to_string(),
+            size: 32 * 1024 * 1024,
+            thin: false,
+            share: 1,
+        })
+        .await
+        .unwrap();
+}
+
+async fn wait_nexus_faulted(
+    name: &str,
+    timeout: std::time::Duration,
+) -> Result<(), std::time::Duration> {
+    let mayastor = get_ms();
+    let start = std::time::Instant::now();
+
+    while start.elapsed() <= timeout {
+        let name = name.to_string();
+        let faulted = mayastor
+            .spawn(async move {
+                nexus_lookup(&name).unwrap().status() == NexusStatus::Faulted
+            })
+            .await;
+        if faulted {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    Err(start.elapsed())
 }
