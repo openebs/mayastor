@@ -8,6 +8,7 @@ use super::{
             ChildState,
             ChildStateReason,
             CreateNexusRequest,
+            DestroyNexusRequest,
             InjectNexusFaultRequest,
             InjectedFault,
             ListInjectedNexusFaultsRequest,
@@ -25,7 +26,12 @@ use super::{
     file_io::DataSize,
     fio::Fio,
     generate_uuid,
-    nvmf::{test_fio_to_nvmf, test_write_to_nvmf, NvmfLocation},
+    nvmf::{
+        test_fio_to_nvmf,
+        test_fio_to_nvmf_aio,
+        test_write_to_nvmf,
+        NvmfLocation,
+    },
     replica::ReplicaBuilder,
 };
 use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
@@ -74,8 +80,7 @@ impl NexusBuilder {
 
     pub fn with_uuid(mut self, uuid: &str) -> Self {
         self.uuid = Some(uuid.to_owned());
-        let u = uuid::Uuid::parse_str(uuid).unwrap();
-        self.serial = Some(make_subsystem_serial(u.as_bytes()));
+        self.serial = Some(make_nexus_serial(uuid));
         self
     }
 
@@ -139,7 +144,7 @@ impl NexusBuilder {
     }
 
     pub fn nqn(&self) -> String {
-        format!("{}:{}", NVME_NQN_PREFIX, self.name.as_ref().unwrap())
+        make_nexus_nqn(self.name.as_ref().unwrap())
     }
 
     /// Returns NVMe serial for this Nexus.
@@ -176,6 +181,18 @@ impl NexusBuilder {
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn destroy(&mut self) -> Result<(), Status> {
+        self.rpc()
+            .lock()
+            .await
+            .nexus
+            .destroy_nexus(DestroyNexusRequest {
+                uuid: self.uuid(),
+            })
+            .await
+            .map(|_| ())
     }
 
     pub async fn publish(&self) -> Result<Nexus, Status> {
@@ -330,6 +347,26 @@ impl NexusBuilder {
             .map(|r| r.into_inner().injections)
     }
 
+    pub async fn inject_fault_at_replica(
+        &self,
+        r: &ReplicaBuilder,
+        inj_params: &str,
+    ) -> Result<String, Status> {
+        let child = self.get_nexus_replica_child(r).await?;
+
+        let dev = child.device_name.as_ref().ok_or_else(|| {
+            Status::new(
+                Code::Unavailable,
+                format!("Child '{uri}' is closed", uri = child.uri),
+            )
+        })?;
+
+        let inj_uri = format!("inject://{dev}?{inj_params}",);
+        self.inject_nexus_fault(&inj_uri).await?;
+
+        Ok(inj_uri)
+    }
+
     pub async fn get_rebuild_history(
         &self,
     ) -> Result<Vec<RebuildHistoryRecord>, Status> {
@@ -368,9 +405,8 @@ impl NexusBuilder {
                 Status::new(
                     Code::NotFound,
                     format!(
-                        "Child '{}' not found on nexus '{}'",
-                        child_uri,
-                        self.uuid()
+                        "Child '{child_uri}' not found on nexus '{nex}'",
+                        nex = self.uuid()
                     ),
                 )
             })
@@ -384,10 +420,7 @@ impl NexusBuilder {
 
         loop {
             let n = find_nexus_by_uuid(self.rpc(), &self.uuid()).await?;
-            if n.children
-                .iter()
-                .all(|c| c.state == ChildState::Online as i32)
-            {
+            if n.children.iter().all(|c| c.state() == ChildState::Online) {
                 return Ok(());
             }
 
@@ -474,7 +507,26 @@ pub async fn test_write_to_nexus(
 /// TODO
 pub async fn test_fio_to_nexus(
     nex: &NexusBuilder,
-    fio: &Fio,
+    fio: Fio,
 ) -> std::io::Result<()> {
     test_fio_to_nvmf(&nex.nvmf_location(), fio).await
+}
+
+/// TODO
+pub async fn test_fio_to_nexus_aio(
+    nex: &NexusBuilder,
+    fio: Fio,
+) -> std::io::Result<()> {
+    test_fio_to_nvmf_aio(&nex.nvmf_location(), fio).await
+}
+
+/// Creates a nexus serial from its UUID.
+pub fn make_nexus_serial(uuid: &str) -> String {
+    let u = uuid::Uuid::parse_str(uuid).unwrap();
+    make_subsystem_serial(u.as_bytes())
+}
+
+/// Creates a nexus NQN from nexus name.
+pub fn make_nexus_nqn(name: &str) -> String {
+    format!("{NVME_NQN_PREFIX}:{name}")
 }

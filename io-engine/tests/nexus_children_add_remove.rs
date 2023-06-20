@@ -283,7 +283,7 @@ async fn nexus_remove_child_with_io() {
         async move {
             test_fio_to_nexus(
                 &nex_0,
-                &Fio::new().with_job(
+                Fio::new().with_job(
                     FioJob::new()
                         .with_runtime(10)
                         .with_bs(4096)

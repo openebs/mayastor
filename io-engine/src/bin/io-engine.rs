@@ -28,7 +28,7 @@ use io_engine::{
     },
     grpc,
     logger,
-    persistent_store::PersistentStore,
+    persistent_store::PersistentStoreBuilder,
     subsys::Registration,
 };
 use version_info::fmt_package_info;
@@ -59,7 +59,9 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let node_name = grpc::node_name(&args.node_name);
     let node_nqn = args.make_hostnqn();
 
-    let persistent_store_endpoint = args.persistent_store_endpoint.clone();
+    let ps_endpoint = args.ps_endpoint.clone();
+    let ps_timeout = args.ps_timeout;
+    let ps_retries = args.ps_retries;
 
     let reactor_freeze_detection = args.reactor_freeze_detection;
     let reactor_freeze_timeout = args.reactor_freeze_timeout;
@@ -94,7 +96,16 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
             let mut futures = Vec::new();
-            PersistentStore::init(persistent_store_endpoint).await;
+
+            if let Some(endpoint) = &ps_endpoint {
+                PersistentStoreBuilder::new()
+                    .with_endpoint(endpoint)
+                    .with_timeout(ps_timeout)
+                    .with_retries(ps_retries)
+                    .connect()
+                    .await;
+            }
+
             runtime::spawn(device_monitor_loop());
 
             // Launch reactor health monitor if diagnostics is enabled.

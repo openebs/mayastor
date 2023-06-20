@@ -34,7 +34,7 @@ pub struct InjectionInfo {
     pub is_active: bool,
 }
 
-pub use inj_impl::{injections_enabled, Injections};
+pub use inj_impl::{injections_enabled, Injection, Injections};
 
 /// Operation type.
 #[allow(dead_code)]
@@ -49,9 +49,8 @@ pub enum InjectionOp {
 #[cfg(feature = "nexus-fault-injection")]
 mod inj_impl {
     use std::{
-        fmt::{Debug, Formatter},
+        fmt::{Debug, Display, Formatter},
         ops::Range,
-        pin::Pin,
         sync::atomic::{AtomicBool, Ordering},
         time::{Duration, Instant},
     };
@@ -123,7 +122,8 @@ mod inj_impl {
     }
 
     /// Injected failures.
-    struct Injection {
+    #[derive(Debug, Clone)]
+    pub struct Injection {
         name: String,
         op: InjectionOp,
         started: Option<Instant>,
@@ -132,7 +132,7 @@ mod inj_impl {
         range: Range<u64>,
     }
 
-    impl Debug for Injection {
+    impl Display for Injection {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             fn fmt_duration(u: &Duration) -> String {
                 if *u == Duration::MAX {
@@ -165,6 +165,25 @@ mod inj_impl {
     }
 
     impl Injection {
+        /// Creates new injection.
+        #[allow(dead_code)]
+        pub fn new(
+            name: &str,
+            op: InjectionOp,
+            begin: Duration,
+            end: Duration,
+            range: Range<u64>,
+        ) -> Self {
+            Self {
+                name: name.to_owned(),
+                op,
+                started: None,
+                begin,
+                end,
+                range,
+            }
+        }
+
         /// Parses an injection URI and creates injection object.
         fn from_uri(uri: &str) -> Result<Self, InjectionError> {
             if !uri.starts_with("inject://") {
@@ -282,11 +301,30 @@ mod inj_impl {
     }
 
     impl<'n> Nexus<'n> {
+        /// Adds an injection.
+        pub fn inject_add(&self, inj: Injection) {
+            if INJECTIONS_ENABLED
+                .compare_exchange(
+                    false,
+                    true,
+                    Ordering::Acquire,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
+                warn!("Enabling nexus fault injections globally");
+            }
+
+            self.injections.items.lock().push(inj);
+        }
+
+        /// Removes all injections matching the name.
+        pub fn inject_remove(&self, name: &str) {
+            self.injections.items.lock().retain(|inj| inj.name != name);
+        }
+
         /// Creates a injected fault from URI.
-        pub async fn inject_add_fault(
-            self: Pin<&mut Self>,
-            uri: &str,
-        ) -> Result<(), Error> {
+        pub async fn inject_add_fault(&self, uri: &str) -> Result<(), Error> {
             let name = self.name.clone();
 
             self.inject_from_uri(uri)
@@ -302,34 +340,17 @@ mod inj_impl {
                 })
         }
 
-        /// Creates a injection from URI.
-        fn inject_from_uri(
-            self: Pin<&mut Self>,
-            uri: &str,
-        ) -> Result<(), InjectionError> {
-            if INJECTIONS_ENABLED
-                .compare_exchange(
-                    false,
-                    true,
-                    Ordering::Acquire,
-                    Ordering::Relaxed,
-                )
-                .is_ok()
-            {
-                warn!("Enabling nexus fault injections globally");
-            }
-
+        /// Creates an injection from URI.
+        fn inject_from_uri(&self, uri: &str) -> Result<(), InjectionError> {
             let inj = Injection::from_uri(uri)?;
-
-            info!("{self:?}: add a injected fault: {inj:?} from URI '{uri}'");
-            self.injections.items.lock().push(inj);
-
+            info!("{self:?}: add a injected fault: {inj} from URI '{uri}'");
+            self.inject_add(inj);
             Ok(())
         }
 
         /// Removes an injected fault by its name from URI.
         pub async fn inject_remove_fault(
-            self: Pin<&mut Self>,
+            &self,
             uri: &str,
         ) -> Result<(), Error> {
             let t = Injection::from_uri(uri)
@@ -349,10 +370,7 @@ mod inj_impl {
                 name = t.name
             );
 
-            self.injections
-                .items
-                .lock()
-                .retain(|inj| inj.name != t.name);
+            self.inject_remove(&t.name);
 
             Ok(())
         }
@@ -368,6 +386,11 @@ mod inj_impl {
                 .iter()
                 .map(InjectionInfo::from)
                 .collect())
+        }
+
+        /// Returns a copy of the injection list.
+        pub fn get_injections(&self) -> Vec<Injection> {
+            (*self.injections.items.lock()).clone()
         }
 
         /// Tests if there exists an active injected fault for the device.
@@ -392,8 +415,6 @@ mod inj_impl {
 #[cfg(not(feature = "nexus-fault-injection"))]
 #[allow(dead_code)]
 mod inj_impl {
-    use std::pin::Pin;
-
     use super::{
         super::{Error, Nexus},
         InjectionError,
@@ -413,6 +434,8 @@ mod inj_impl {
         }
     }
 
+    pub struct Injection();
+
     impl<'n> Nexus<'n> {
         /// TODO
         fn injections_disabled(&self) -> Result<(), Error> {
@@ -425,16 +448,13 @@ mod inj_impl {
         }
 
         /// Creates a injected fault from URI.
-        pub async fn inject_add_fault(
-            self: Pin<&mut Self>,
-            _uri: &str,
-        ) -> Result<(), Error> {
+        pub async fn inject_add_fault(&self, _uri: &str) -> Result<(), Error> {
             self.injections_disabled()
         }
 
         /// Removes an injected fault by its name from URI.
         pub async fn inject_remove_fault(
-            self: Pin<&mut Self>,
+            &self,
             _uri: &str,
         ) -> Result<(), Error> {
             self.injections_disabled()

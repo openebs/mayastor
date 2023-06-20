@@ -38,7 +38,7 @@ pub use nexus_bdev::{
     NvmeReservation,
 };
 pub(crate) use nexus_bdev_error::{nexus_err, Error};
-pub(crate) use nexus_channel::{DrEvent, NexusChannel};
+pub(crate) use nexus_channel::{DrEvent, IoMode, NexusChannel};
 pub use nexus_child::{
     ChildError,
     ChildState,
@@ -47,6 +47,7 @@ pub use nexus_child::{
     FaultReason,
     NexusChild,
 };
+pub use nexus_injection::{Injection, InjectionOp};
 use nexus_io::{NexusBio, NioCtx};
 use nexus_io_log::{IOLog, IOLogChannel};
 use nexus_io_subsystem::{NexusIoSubsystem, NexusPauseState};

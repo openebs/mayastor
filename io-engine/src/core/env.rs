@@ -51,7 +51,7 @@ use crate::{
     grpc,
     grpc::MayastorGrpcServer,
     logger,
-    persistent_store::PersistentStore,
+    persistent_store::PersistentStoreBuilder,
     subsys::{
         self,
         registration::registration_grpc::ApiVersion,
@@ -78,6 +78,13 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     } else {
         Err(format!("Invalid argument {src}"))
     }
+}
+
+/// Parses a persistent store timeout.
+fn parse_ps_timeout(src: &str) -> Result<Duration, String> {
+    humantime::parse_duration(src)
+        .map_err(|e| format!("Invalid argument {src}: {e}"))
+        .map(|d| d.clamp(Duration::from_secs(1), Duration::from_secs(60)))
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -137,7 +144,17 @@ pub struct MayastorCliArgs {
     pub core_list: Option<String>,
     #[structopt(short = "p")]
     /// Endpoint of the persistent store.
-    pub persistent_store_endpoint: Option<String>,
+    pub ps_endpoint: Option<String>,
+    #[structopt(
+        long = "ps-timeout",
+        default_value = "10s",
+        parse(try_from_str = parse_ps_timeout),
+    )]
+    /// Persistent store timeout.
+    pub ps_timeout: Duration,
+    #[structopt(long = "ps-retries", default_value = "30")]
+    /// Persistent store operation retries.
+    pub ps_retries: u8,
     #[structopt(long = "bdev-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for bdev I/O contexts
     pub bdev_io_ctx_pool_size: u64,
@@ -193,7 +210,9 @@ impl Default for MayastorCliArgs {
     fn default() -> Self {
         Self {
             grpc_endpoint: grpc::default_endpoint().to_string(),
-            persistent_store_endpoint: None,
+            ps_endpoint: None,
+            ps_timeout: Duration::from_secs(10),
+            ps_retries: 30,
             node_name: None,
             env_context: None,
             reactor_mask: "0x1".into(),
@@ -275,7 +294,9 @@ pub struct MayastorEnvironment {
     node_nqn: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
     pub registration_endpoint: Option<Uri>,
-    persistent_store_endpoint: Option<String>,
+    ps_endpoint: Option<String>,
+    ps_timeout: Duration,
+    ps_retries: u8,
     mayastor_config: Option<String>,
     ptpl_dir: Option<String>,
     pool_config: Option<String>,
@@ -317,7 +338,9 @@ impl Default for MayastorEnvironment {
             node_nqn: None,
             grpc_endpoint: None,
             registration_endpoint: None,
-            persistent_store_endpoint: None,
+            ps_endpoint: None,
+            ps_timeout: Duration::from_secs(10),
+            ps_retries: 30,
             mayastor_config: None,
             ptpl_dir: None,
             pool_config: None,
@@ -441,7 +464,9 @@ impl MayastorEnvironment {
         Self {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             registration_endpoint: args.registration_endpoint,
-            persistent_store_endpoint: args.persistent_store_endpoint,
+            ps_endpoint: args.ps_endpoint,
+            ps_timeout: args.ps_timeout,
+            ps_retries: args.ps_retries,
             node_name: args.node_name.clone().unwrap_or_else(|| {
                 env::var("HOSTNAME").unwrap_or_else(|_| "mayastor-node".into())
             }),
@@ -915,16 +940,27 @@ impl MayastorEnvironment {
         let node_name = self.node_name.clone();
         let node_nqn = self.node_nqn.clone();
 
+        let ps_endpoint = self.ps_endpoint.clone();
+        let ps_timeout = self.ps_timeout;
+        let ps_retries = self.ps_retries;
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
         let api_versions = self.api_versions.clone();
-        let persistent_store_endpoint = self.persistent_store_endpoint.clone();
         let ms = self.init();
 
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
         rt.block_on(async {
-            PersistentStore::init(persistent_store_endpoint).await;
+            // If a persistent store endpoint is given, configure and enable it.
+            if let Some(ps_endpoint) = ps_endpoint {
+                PersistentStoreBuilder::new()
+                    .with_endpoint(&ps_endpoint)
+                    .with_timeout(ps_timeout)
+                    .with_retries(ps_retries)
+                    .connect()
+                    .await;
+            }
+
             let master = Reactors::current();
             master.send_future(async { f() });
             let mut futures: Vec<

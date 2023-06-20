@@ -11,15 +11,7 @@ use spdk_rs::{
     BdevIo,
 };
 
-use super::{
-    nexus_lookup,
-    FaultReason,
-    IOLogChannel,
-    Nexus,
-    NexusChannel,
-    NexusState,
-    NEXUS_PRODUCT_ID,
-};
+use super::{FaultReason, IOLogChannel, Nexus, NexusChannel, NEXUS_PRODUCT_ID};
 
 #[allow(unused_imports)]
 use super::{
@@ -28,12 +20,10 @@ use super::{
 };
 
 use crate::core::{
-    device_cmd_queue,
     BlockDevice,
     BlockDeviceHandle,
     CoreError,
     Cores,
-    DeviceCommand,
     GenericStatusCode,
     IoCompletionStatus,
     IoStatus,
@@ -42,7 +32,6 @@ use crate::core::{
     LvolFailure,
     Mthread,
     NvmeStatus,
-    Reactors,
 };
 
 #[cfg(feature = "nexus-io-tracing")]
@@ -117,6 +106,7 @@ impl<'n> Debug for NioCtx<'n> {
 
 /// TODO
 #[repr(transparent)]
+#[derive(Clone)]
 pub(super) struct NexusBio<'n>(BdevIo<Nexus<'n>>);
 
 impl<'n> Debug for NexusBio<'n> {
@@ -185,6 +175,12 @@ impl<'n> NexusBio<'n> {
 
     /// TODO
     pub(super) fn submit_request(mut self) {
+        if self.channel().is_frozen() {
+            let s = self.clone();
+            self.channel_mut().freeze_io_submission(s);
+            return;
+        }
+
         if let Err(_e) = match self.io_type() {
             IoType::Read => self.readv(),
             // these IOs are submitted to all the underlying children
@@ -293,7 +289,7 @@ impl<'n> NexusBio<'n> {
         ctx.successful = 0;
         ctx.failed = 0;
 
-        let bio = Self(self.0.clone());
+        let bio = self.clone();
         trace_nexus_io!("New resubmit: {bio:?}");
         bio.submit_request();
     }
@@ -656,62 +652,7 @@ impl<'n> NexusBio<'n> {
             .compare_exchange(false, true)
             .is_ok()
         {
-            let nexus_name =
-                self.channel_mut().nexus_mut().nexus_name().to_owned();
-
-            Reactors::master().send_future(async move {
-                if let Some(nexus) = nexus_lookup(&nexus_name) {
-                    // Check against concurrent graceful nexus shutdown
-                    // initiated by user and mark nexus as being shutdown.
-                    {
-                        let mut s = nexus.state.lock();
-                        match *s {
-                            NexusState::Shutdown | NexusState::ShuttingDown => {
-                                info!(
-                                    nexus_name,
-                                    "Nexus is under user-triggered shutdown, \
-                                    skipping self shutdown"
-                                );
-                                return;
-                            }
-                            nexus_state => {
-                                info!(
-                                    nexus_name,
-                                    nexus_state=%nexus_state,
-                                    "Initiating self shutdown for nexus"
-                                );
-                            }
-                        };
-                        *s = NexusState::ShuttingDown;
-                    }
-
-                    // 1: Close I/O channels for all children.
-                    for d in nexus.child_devices() {
-                        nexus.disconnect_device_from_channels(d.clone()).await;
-
-                        device_cmd_queue().enqueue(
-                            DeviceCommand::RetireDevice {
-                                nexus_name: nexus.name.clone(),
-                                child_device: d.clone(),
-                            },
-                        );
-                    }
-
-                    // Step 2: cancel all active rebuild jobs.
-                    let child_uris = nexus.child_uris();
-                    for child in child_uris {
-                        nexus.cancel_rebuild_jobs(&child).await;
-                    }
-
-                    // Step 3: close all children.
-                    nexus.close_children().await;
-
-                    // Step 4: Mark nexus as shutdown.
-                    // Note: we don't persist nexus's state in ETCd as nexus
-                    // might be recreated on onother node.
-                    *nexus.state.lock() = NexusState::Shutdown;
-                }
-            });
+            self.channel().nexus().try_self_shutdown();
         }
     }
 
