@@ -392,7 +392,7 @@ impl SnapshotRpc for SnapshotService {
                     let replica_uuid = lvol.uuid();
                     let replica_size = lvol.size();
                     // create snapshot
-                    match lvol.create_snapshot(snap_config.clone()).await {
+                    match lvol.create_snapshot(snap_config).await {
                         Ok(snap_lvol) => {
                             info!("Create Snapshot Success for {lvol:?}, {snap_lvol:?}");
                             let snapshot_descriptor =
@@ -583,5 +583,85 @@ impl SnapshotRpc for SnapshotService {
             },
         )
         .await
+    }
+    #[named]
+    async fn create_snapshot_clone(
+        &self,
+        request: Request<CreateSnapshotCloneRequest>,
+    ) -> GrpcResult<Replica> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit(async move {
+                    let snap_lvol = match UntypedBdev::lookup_by_uuid_str(
+                        &args.snapshot_uuid,
+                    ) {
+                        Some(bdev) => Lvol::try_from(bdev)?,
+                        None => {
+                            return Err(LvsError::Invalid {
+                                source: Errno::ENOENT,
+                                msg: format!(
+                                    "Snapshot {} not found",
+                                    args.snapshot_uuid
+                                ),
+                            })
+                        }
+                    };
+                    if let Some(_b) =  UntypedBdev::lookup_by_uuid_str(
+                        &args.clone_uuid) {
+                            return Err(LvsError::Invalid {
+                                source: Errno::EEXIST,
+                                msg: format!(
+                                    "clone uuid {} already exist",
+                                    args.clone_uuid
+                                ),
+                            })
+                    };
+                    // prepare clone config.
+                    let clone_config =
+                        match snap_lvol.prepare_clone_config(
+                            &args.clone_name,
+                            &args.clone_uuid,
+                            &args.snapshot_uuid
+                        ) {
+                            Some(clone_config) => clone_config,
+                            None => return Err(LvsError::Invalid {
+                                source: Errno::EINVAL,
+                                msg: format!(
+                                    "Invalid parameters clone_uuid: {}, clone_name: {}",
+                                    args.clone_uuid,
+                                    args.clone_name
+                                ),
+                            })
+                        };
+                    // create clone
+                    match snap_lvol.create_clone(clone_config).await {
+                        Ok(clone_lvol) => {
+                            info!("Create Clone Success for {snap_lvol:?}, {clone_lvol:?}");
+                            Ok(Replica::from(clone_lvol))
+                        }
+                        Err(e) => {
+                            error!(
+                                "Create clone Failed for snapshot: {snap_lvol:?} with Error: {e:?}",
+                            );
+                            Err(e)
+                        }
+                    }
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+    async fn list_snapshot_clone(
+        &self,
+        _request: Request<ListSnapshotCloneRequest>,
+    ) -> GrpcResult<ListSnapshotCloneResponse> {
+        todo!("Not implemented");
     }
 }

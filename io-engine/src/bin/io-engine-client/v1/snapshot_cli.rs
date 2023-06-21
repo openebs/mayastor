@@ -23,6 +23,7 @@ pub async fn handler(
         }
         ("list", Some(args)) => list(ctx, args).await,
         ("destroy", Some(args)) => destroy(ctx, args).await,
+        ("create_clone", Some(args)) => create_clone(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -109,6 +110,26 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("pool-uuid")
                 .help("Name of the pool where snapshot resides"),
         );
+    let create_clone = SubCommand::with_name("create_clone")
+        .about("create a clone from snapshot")
+        .arg(
+            Arg::with_name("snapshot_uuid")
+                .required(true)
+                .index(1)
+                .help("Snapshot uuid"),
+        )
+        .arg(
+            Arg::with_name("clone_name")
+                .required(true)
+                .index(2)
+                .help("Clone name"),
+        )
+        .arg(
+            Arg::with_name("clone_uuid")
+                .required(true)
+                .index(3)
+                .help("Clone uuid"),
+        );
     SubCommand::with_name("snapshot")
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
@@ -120,6 +141,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(create_for_replica)
         .subcommand(list)
         .subcommand(destroy)
+        .subcommand(create_clone)
 }
 
 async fn create_for_nexus(
@@ -246,7 +268,7 @@ async fn create_for_replica(
                     "SNAP_NAME",
                     "SNAP_SIZE",
                     "CREATE_TIME",
-                    "CLONE_COUNT",
+                    "CLONES",
                     "SOURCE_UUID",
                     "SOURCE_SIZE",
                     "POOL_UUID",
@@ -317,7 +339,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
                     "SNAP_NAME",
                     "SNAP_SIZE",
                     "CREATE_TIME",
-                    "CLONE_COUNT",
+                    "CLONES",
                     "REPLICA_UUID",
                     "REPLICA_SIZE",
                     "POOL_UUID",
@@ -371,6 +393,85 @@ async fn destroy(
             println!("snapshot: {} is deleted", &snapshot_uuid);
         }
     }
+
+    Ok(())
+}
+/// CLI to create snapshot clone.
+async fn create_clone(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let snapshot_uuid = matches
+        .value_of("snapshot_uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "snapshot_uuid".to_string(),
+        })?
+        .to_owned();
+    let clone_name = matches
+        .value_of("clone_name")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "clone_name".to_string(),
+        })?
+        .to_owned();
+    let clone_uuid = matches
+        .value_of("clone_uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "clone_uuid".to_string(),
+        })?
+        .to_owned();
+    // let snapshot_uuid = Uuid::generate().to_string();
+    let request = v1_rpc::snapshot::CreateSnapshotCloneRequest {
+        snapshot_uuid,
+        clone_name,
+        clone_uuid,
+    };
+
+    let response = ctx
+        .v1
+        .snapshot
+        .create_snapshot_clone(request)
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let r = &response.get_ref();
+            let data = vec![vec![
+                r.name.clone(),
+                r.uuid.clone(),
+                r.size.clone().to_string(),
+                r.usage.as_ref().unwrap().allocated_bytes.to_string(),
+                r.thin.clone().to_string(),
+                r.poolname.clone(),
+                r.is_clone.clone().to_string(),
+                r.snapshot_uuid
+                    .clone()
+                    .expect("Failed to get snapshot uuid"),
+            ]];
+            ctx.print_list(
+                vec![
+                    "CLONE_NAME",
+                    "CLONE_UUID",
+                    "CLONE_CAPACITY",
+                    "CLONE_ALLOC",
+                    "THIN",
+                    "POOL",
+                    "IS_CLONE",
+                    "SNAPSHOT_UUID",
+                ],
+                data,
+            );
+        }
+    };
 
     Ok(())
 }

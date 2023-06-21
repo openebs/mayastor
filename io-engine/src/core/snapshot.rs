@@ -33,8 +33,66 @@ impl SnapshotParams {
         }
     }
 }
-
-/// Snapshot Descriptor to respond back as part of listsnapshot
+/// Parameters details for the Snapshot Clone.
+#[derive(Clone, Debug)]
+pub struct CloneParams {
+    /// Clone replica name.
+    pub clone_name: Option<String>,
+    /// Clone replica uuid.
+    pub clone_uuid: Option<String>,
+    /// Source uuid from which the clone to be created.
+    pub source_uuid: Option<String>,
+    /// Timestamp when the clone is created.
+    pub clone_create_time: Option<String>,
+}
+impl CloneParams {
+    pub fn new(
+        clone_name: Option<String>,
+        clone_uuid: Option<String>,
+        source_uuid: Option<String>,
+        clone_create_time: Option<String>,
+    ) -> Self {
+        CloneParams {
+            clone_name,
+            clone_uuid,
+            source_uuid,
+            clone_create_time,
+        }
+    }
+    /// Get clone name.
+    pub fn clone_name(&self) -> Option<String> {
+        self.clone_name.clone()
+    }
+    /// Set clone name.
+    pub fn set_clone_name(&mut self, clone_name: String) {
+        self.clone_name = Some(clone_name);
+    }
+    /// Get clone uuid.
+    pub fn clone_uuid(&self) -> Option<String> {
+        self.clone_uuid.clone()
+    }
+    /// Set clone uuid.
+    pub fn set_clone_uuid(&mut self, clone_uuid: String) {
+        self.clone_uuid = Some(clone_uuid);
+    }
+    /// Get source uuid from which clone is created.
+    pub fn source_uuid(&self) -> Option<String> {
+        self.source_uuid.clone()
+    }
+    /// Set source uuid.
+    pub fn set_source_uuid(&mut self, uuid: String) {
+        self.source_uuid = Some(uuid);
+    }
+    /// Get clone creation time.
+    pub fn clone_create_time(&self) -> Option<String> {
+        self.clone_create_time.clone()
+    }
+    /// Set clone create time.
+    pub fn set_clone_create_time(&mut self, time: String) {
+        self.clone_create_time = Some(time);
+    }
+}
+/// Snapshot Descriptor to respond back as part of listsnapshot.
 #[derive(Clone, Debug)]
 pub struct VolumeSnapshotDescriptor {
     pub snapshot_lvol: Lvol,
@@ -115,12 +173,28 @@ impl SnapshotXattrs {
         }
     }
 }
-
+/// Clone attributes used to store its properties.
+#[derive(Debug, EnumCountMacro, EnumIter)]
+pub enum CloneXattrs {
+    CloneUuid,
+    SourceUuid,
+    CloneCreateTime,
+}
+impl CloneXattrs {
+    pub fn name(&self) -> &'static str {
+        match *self {
+            Self::CloneUuid => "uuid",
+            Self::SourceUuid => "io-engine.source_uuid",
+            Self::CloneCreateTime => "io-engine.clone_create_time",
+        }
+    }
+}
 ///  Traits gives the common snapshot/clone interface for Local/Remote Lvol.
 #[async_trait(?Send)]
 pub trait SnapshotOps {
     type Error;
     type SnapshotIter;
+    type Lvol;
     /// Create Snapshot Common API.
     async fn create_snapshot(
         &self,
@@ -145,6 +219,22 @@ pub trait SnapshotOps {
 
     /// List Single snapshot details based on snapshot UUID.
     fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
+
+    async fn create_clone(
+        &self,
+        clone_param: CloneParams,
+    ) -> Result<Self::Lvol, Self::Error>;
+
+    /// Prepare clone config for snapshot.
+    fn prepare_clone_config(
+        &self,
+        clone_name: &str,
+        clone_uuid: &str,
+        source_uuid: &str,
+    ) -> Option<CloneParams>;
+
+    /// Get clone count.
+    fn snapshot_clone_count(&self) -> u64;
 }
 
 /// Traits gives the Snapshots Related Parameters.
