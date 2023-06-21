@@ -9,8 +9,8 @@ use crate::{
     core::{
         snapshot::SnapshotDescriptor,
         BlockDeviceHandle,
-        IntoErrno,
         SnapshotParams,
+        ToErrno,
     },
 };
 use chrono::{DateTime, Utc};
@@ -215,7 +215,7 @@ impl ReplicaSnapshotExecutor {
             .into_iter()
             .map(|(u, r)| {
                 // Transform snapshot operation status into errno.
-                let status = r.map_or_else(|e| e.into_errno(), |_r| 0);
+                let status = r.map_or_else(|e| e.to_errno() as u32, |_r| 0);
 
                 NexusReplicaSnapshotStatus {
                     replica_uuid: u,

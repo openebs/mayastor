@@ -58,6 +58,7 @@ pub use lock::{
     ResourceLockManagerConfig,
     ResourceSubsystem,
 };
+
 pub use runtime::spawn;
 pub(crate) use segment_map::SegmentMap;
 pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
@@ -303,18 +304,113 @@ pub enum CoreError {
     #[snafu(display("Failed to create device snapshot: {}", reason))]
     SnapshotCreate {
         reason: String,
+        source: Errno,
     },
 }
 
-/// Transform error into errno code.
-pub trait IntoErrno {
-    fn into_errno(self) -> u32;
+/// Represent error as Errno value.
+pub trait ToErrno {
+    fn to_errno(self) -> Errno;
 }
 
-/// Map CoreError to errno code. For now assume any error is EIO
-impl IntoErrno for CoreError {
-    fn into_errno(self) -> u32 {
-        libc::EIO as u32
+/// Map CoreError to errno code.
+impl ToErrno for CoreError {
+    fn to_errno(self) -> Errno {
+        match self {
+            Self::BdevNotFound {
+                ..
+            } => Errno::ENODEV,
+            Self::OpenBdev {
+                source,
+            } => source,
+            Self::InvalidDescriptor {
+                ..
+            } => Errno::ENODEV,
+            Self::GetIoChannel {
+                ..
+            } => Errno::ENXIO,
+            Self::InvalidOffset {
+                ..
+            } => Errno::EINVAL,
+            Self::WriteDispatch {
+                source, ..
+            } => source,
+            Self::ReadDispatch {
+                source, ..
+            } => source,
+            Self::ResetDispatch {
+                source, ..
+            } => source,
+            Self::FlushDispatch {
+                source, ..
+            } => source,
+            Self::NvmeAdminDispatch {
+                source, ..
+            } => source,
+            Self::UnmapDispatch {
+                source, ..
+            } => source,
+            Self::WriteZeroesDispatch {
+                source, ..
+            } => source,
+            Self::NvmeIoPassthruDispatch {
+                source, ..
+            } => source,
+            Self::WriteFailed {
+                ..
+            }
+            | Self::ReadFailed {
+                ..
+            }
+            | Self::ReadingUnallocatedBlock {
+                ..
+            }
+            | Self::ResetFailed {
+                ..
+            }
+            | Self::WriteZeroesFailed {
+                ..
+            }
+            | Self::NvmeAdminFailed {
+                ..
+            }
+            | Self::NvmeIoPassthruFailed {
+                ..
+            }
+            | Self::ShareNvmf {
+                ..
+            }
+            | Self::UnshareNvmf {
+                ..
+            } => Errno::EIO,
+            Self::NotSupported {
+                source, ..
+            } => source,
+            Self::ReactorConfigureFailed {
+                source, ..
+            } => source,
+            Self::DmaAllocationFailed {
+                ..
+            } => Errno::ENOMEM,
+            Self::DeviceStatisticsFailed {
+                source, ..
+            } => source,
+            Self::NoDevicesAvailable {
+                ..
+            } => Errno::ENODEV,
+            Self::InvalidNvmeDeviceHandle {
+                ..
+            } => Errno::EINVAL,
+            Self::DeviceFlush {
+                source, ..
+            } => source,
+            Self::Ptpl {
+                ..
+            } => Errno::EIO,
+            Self::SnapshotCreate {
+                source, ..
+            } => source,
+        }
     }
 }
 

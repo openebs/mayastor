@@ -3,7 +3,10 @@ use snafu::Snafu;
 
 use super::PropName;
 
-use crate::{bdev_api::BdevError, core::CoreError};
+use crate::{
+    bdev_api::BdevError,
+    core::{CoreError, ToErrno},
+};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
@@ -141,4 +144,84 @@ pub enum Error {
         name: String,
         msg: String,
     },
+}
+
+/// Map CoreError to errno code.
+impl ToErrno for Error {
+    fn to_errno(self) -> Errno {
+        match self {
+            Self::Import {
+                source, ..
+            } => source,
+            Self::PoolCreate {
+                source, ..
+            } => source,
+            Self::Export {
+                source, ..
+            } => source,
+            Self::Destroy {
+                ..
+            } => Errno::ENXIO,
+            Self::PoolNotFound {
+                source, ..
+            } => source,
+            Self::InvalidBdev {
+                ..
+            } => Errno::ENXIO,
+            Self::Invalid {
+                source, ..
+            } => source,
+            Self::RepExists {
+                source, ..
+            } => source,
+            Self::RepCreate {
+                source, ..
+            } => source,
+            Self::RepDestroy {
+                source, ..
+            } => source,
+            Self::NotALvol {
+                source, ..
+            } => source,
+            Self::LvolShare {
+                source, ..
+            } => source.to_errno(),
+            Self::UpdateShareProperties {
+                source, ..
+            } => source.to_errno(),
+            Self::LvolUnShare {
+                source, ..
+            } => source.to_errno(),
+            Self::GetProperty {
+                source, ..
+            } => source,
+            Self::SetProperty {
+                source, ..
+            } => source,
+            Self::SyncProperty {
+                source, ..
+            } => source,
+            Self::SnapshotCreate {
+                source, ..
+            } => source,
+            Self::FlushFailed {
+                ..
+            } => Errno::EIO,
+            Self::Property {
+                source, ..
+            } => source,
+            Self::SnapshotConfigFailed {
+                ..
+            }
+            | Self::ReplicaShareProtocol {
+                ..
+            } => Errno::EINVAL,
+            Self::SnapshotCloneCreate {
+                source, ..
+            } => source,
+            Self::CloneConfigFailed {
+                ..
+            } => Errno::EINVAL,
+        }
+    }
 }
