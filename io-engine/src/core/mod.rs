@@ -250,8 +250,9 @@ pub enum CoreError {
         offset: u64,
         len: u64,
     },
-    #[snafu(display("NVMe Admin command {:x}h failed", opcode))]
+    #[snafu(display("NVMe Admin command {:x}h failed: {}", opcode, source))]
     NvmeAdminFailed {
+        source: Errno,
         opcode: u16,
     },
     #[snafu(display("NVMe IO Passthru command {:x}h failed", opcode))]
@@ -371,9 +372,6 @@ impl ToErrno for CoreError {
             | Self::WriteZeroesFailed {
                 ..
             }
-            | Self::NvmeAdminFailed {
-                ..
-            }
             | Self::NvmeIoPassthruFailed {
                 ..
             }
@@ -383,6 +381,9 @@ impl ToErrno for CoreError {
             | Self::UnshareNvmf {
                 ..
             } => Errno::EIO,
+            Self::NvmeAdminFailed {
+                source, ..
+            } => source,
             Self::NotSupported {
                 source, ..
             } => source,

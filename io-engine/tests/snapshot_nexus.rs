@@ -1,6 +1,6 @@
 pub mod common;
 
-use io_engine::core::SnapshotDescriptor;
+use io_engine::{bdev::nexus::NexusSnapshotStatus, core::SnapshotDescriptor};
 use once_cell::sync::OnceCell;
 
 use chrono::{DateTime, Utc};
@@ -32,6 +32,7 @@ use io_engine::{
     core::{MayastorCliArgs, SnapshotParams},
     subsys::{Config, NvmeBdevOpts},
 };
+use nix::errno::Errno;
 
 use std::{pin::Pin, str};
 use uuid::Uuid;
@@ -367,6 +368,47 @@ async fn test_list_no_snapshots() {
     assert_eq!(snapshots.len(), 0, "Some snapshots present");
 }
 
+fn check_nexus_snapshot_status(
+    res: &NexusSnapshotStatus,
+    status: &Vec<(String, u32)>,
+) {
+    assert_eq!(
+        res.replicas_skipped.len(),
+        0,
+        "Some replicas were skipped while taking nexus snapshot"
+    );
+
+    assert_eq!(
+        res.replicas_done.len(),
+        1,
+        "Not all replicas were processed while taking nexus snapshot"
+    );
+
+    assert_eq!(
+        res.replicas_done.len(),
+        status.len(),
+        "Size of replica status array returned doesn't match"
+    );
+
+    for (uuid, e) in status {
+        assert!(
+            res.replicas_done.iter().any(|r| {
+                if r.replica_uuid.eq(uuid) {
+                    assert_eq!(
+                        r.status, *e,
+                        "Replica snapshot status doesn't match"
+                    );
+                    true
+                } else {
+                    false
+                }
+            }),
+            "Replica not found: {}",
+            uuid,
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_nexus_snapshot() {
     let ms = get_ms();
@@ -430,28 +472,8 @@ async fn test_nexus_snapshot() {
             .await
             .expect("Failed to create nexus snapshot");
 
-        assert_eq!(
-            res.replicas_skipped.len(),
-            0,
-            "Some replicas were skipped while taking nexus snapshot"
-        );
-
-        assert_eq!(
-            res.replicas_done.len(),
-            1,
-            "Not all replicas were processed while taking nexus snapshot"
-        );
-
-        assert_eq!(
-            res.replicas_done[0].replica_uuid,
-            replica1_uuid(),
-            "Replica UUID doesn't match"
-        );
-
-        assert_eq!(
-            res.replicas_done[0].status, 0,
-            "Nexus snapshot operation failed on replica"
-        )
+        let replica_status: Vec<(String, u32)> = vec![(replica1_uuid(), 0)];
+        check_nexus_snapshot_status(&res, &replica_status);
     })
     .await;
 
@@ -468,6 +490,93 @@ async fn test_nexus_snapshot() {
 
     check_replica_snapshot(
         &snapshot_params,
+        snapshots
+            .get(0)
+            .expect("Snapshot is not created on remote replica"),
+    );
+}
+
+#[tokio::test]
+async fn test_duplicated_snapshot_uuid_name() {
+    let ms = get_ms();
+    let (test, urls) = launch_instance(true).await;
+    let conn = GrpcConnect::new(&test);
+
+    let mut ms1 = conn
+        .grpc_handle("ms1")
+        .await
+        .expect("Can't connect to remote I/O agent");
+
+    let snapshot_uuid = Uuid::new_v4().to_string();
+    let mut snapshot_params = SnapshotParams::new(
+        Some("e31".to_string()),
+        Some(replica1_uuid()),
+        Some("t31".to_string()),
+        Some(String::from("snapshot51")),
+        Some(snapshot_uuid.clone()),
+        Some(Utc::now().to_string()),
+    );
+    let snapshot_params_clone = snapshot_params.clone();
+
+    ms.spawn(async move {
+        // Create a single replica nexus.
+        let uris = [format!("{}?uuid={}", urls[0].clone(), replica1_uuid())];
+        let mut nexus = create_nexus(&uris).await;
+
+        let replicas = vec![NexusReplicaSnapshotDescriptor {
+            replica_uuid: replica1_uuid(),
+            skip: false,
+            snapshot_uuid: Some(snapshot_uuid.clone()),
+        }];
+
+        // Step 1: create a snapshot.
+        let res = nexus
+            .as_mut()
+            .create_snapshot(snapshot_params.clone(), replicas.clone())
+            .await
+            .expect("Failed to create nexus snapshot");
+
+        let mut replica_status: Vec<(String, u32)> = vec![(replica1_uuid(), 0)];
+        check_nexus_snapshot_status(&res, &replica_status);
+
+        // Step 2: try to create another snapshot with the same UUID: must see
+        // EEXIST.
+        let res = nexus
+            .as_mut()
+            .create_snapshot(snapshot_params.clone(), replicas.clone())
+            .await
+            .expect("Failed to create nexus snapshot");
+
+        replica_status[0].1 = Errno::EEXIST as u32;
+        check_nexus_snapshot_status(&res, &replica_status);
+
+        // Step 3: try to create another snapshot with the same name and
+        // different UUID: must see EEXIST.
+        snapshot_params.set_snapshot_uuid(Uuid::new_v4().to_string());
+
+        let res = nexus
+            .create_snapshot(snapshot_params, replicas)
+            .await
+            .expect("Failed to create nexus snapshot");
+
+        check_nexus_snapshot_status(&res, &replica_status);
+    })
+    .await;
+
+    let snapshots = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+        })
+        .await
+        .expect("Failed to list snapshots on replica node")
+        .into_inner()
+        .snapshots;
+
+    // Must see only one initial snapshot.
+    check_replica_snapshot(
+        &snapshot_params_clone,
         snapshots
             .get(0)
             .expect("Snapshot is not created on remote replica"),

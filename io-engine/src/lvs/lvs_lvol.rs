@@ -1152,14 +1152,13 @@ impl LvsLvol for Lvol {
         ) {
             let nvmf_req = NvmfReq::from(nvmf_req_ptr);
 
-            let sc = match errno {
-                0 => 0,
+            match errno {
+                0 => nvmf_req.complete(),
                 _ => {
                     error!("vbdev_lvol_create_snapshot_ext errno {}", errno);
-                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
+                    nvmf_req.complete_error(errno);
                 }
             };
-            nvmf_req.complete(sc);
         }
 
         info!(

@@ -359,6 +359,7 @@ impl<T: BdevOps> BdevHandle<T> {
         } else {
             Err(CoreError::NvmeAdminFailed {
                 opcode: (*nvme_cmd).opc(),
+                source: Errno::EIO,
             })
         }
     }
