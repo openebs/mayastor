@@ -37,7 +37,11 @@ use super::{
 use crate::{
     bdev::{
         device_destroy,
-        nexus::{nexus_persistence::PersistentNexusInfo, NexusIoSubsystem},
+        nexus::{
+            nexus_io_subsystem::NexusPauseState,
+            nexus_persistence::PersistentNexusInfo,
+            NexusIoSubsystem,
+        },
     },
     core::{
         partition,
@@ -841,11 +845,28 @@ impl<'n> Nexus<'n> {
         unsafe { self.get_unchecked_mut().io_subsystem.as_mut().unwrap() }
     }
 
+    /// Get the subsystem pause state.
+    pub fn io_subsystem_state(&self) -> Option<NexusPauseState> {
+        self.io_subsystem.as_ref().map(|io| io.pause_state())
+    }
+
     /// Resumes I/O to the Bdev.
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
     pub async fn resume(self: Pin<&mut Self>) -> Result<(), Error> {
-        self.io_subsystem_mut().resume().await
+        // If we are faulted then rather than failing all IO back to the
+        // initiator we can instead leave the subsystem frozen, and wait
+        // for the control-plane to do something about this.
+        // Meanwhile the initiator will begin its reconnect loop and won't see
+        // a swarm of IO failures which could cause a fs to shutdown.
+        let freeze = match self.status() {
+            NexusStatus::Faulted => {
+                tracing::warn!(?self, "Nexus Faulted: will not resume I/Os");
+                true
+            }
+            _ => false,
+        };
+        self.io_subsystem_mut().resume(freeze).await
     }
 
     /// Set the Nexus state to 'reset'

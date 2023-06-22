@@ -97,11 +97,11 @@ class MayastorHandle(object):
         return self.ms.CreatePool(pb.CreatePoolRequest(name=name, disks=disks))
 
     def pool_destroy(self, name):
-        """Destroy  the pool."""
+        """Destroy the pool."""
         return self.ms.DestroyPool(pb.DestroyPoolRequest(name=name))
 
     def replica_create(self, pool, uuid, size, share=1):
-        """Create  a replica on the pool with the specified UUID and size."""
+        """Create a replica on the pool with the specified UUID and size."""
         return self.ms.CreateReplica(
             pb.CreateReplicaRequest(
                 pool=pool, uuid=str(uuid), size=size, thin=False, share=share
@@ -120,6 +120,10 @@ class MayastorHandle(object):
         """Destroy the replica by the UUID, the pool is resolved within
         mayastor."""
         return self.ms.DestroyReplica(pb.DestroyReplicaRequest(uuid=uuid))
+
+    def replica_share(self, uuid, share=1):
+        """Share a replica with the specified share protocol."""
+        return self.ms.ShareReplica(pb.ShareReplicaRequest(uuid=str(uuid), share=share))
 
     def replica_list(self):
         """List existing replicas"""
