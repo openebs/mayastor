@@ -57,6 +57,7 @@ use crate::{
         IoCompletionCallbackArg,
         IoCompletionStatus,
         IoType,
+        Reactors,
         ReadMode,
         SnapshotParams,
     },
@@ -257,7 +258,9 @@ extern "C" fn nvme_admin_passthru_done(
         }
     };
 
-    done_cb(ctx, res);
+    Reactors::master().send_future(async move {
+        done_cb(ctx, res);
+    });
 }
 
 extern "C" fn nvme_queued_reset_sgl(ctx: *mut c_void, sgl_offset: u32) {
