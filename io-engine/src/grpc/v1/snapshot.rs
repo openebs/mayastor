@@ -375,7 +375,16 @@ impl SnapshotRpc for SnapshotService {
                             })
                         }
                     };
-                    // prepare snap config and flush IO before taking snapshot.
+                    if UntypedBdev::lookup_by_uuid_str(&args.snapshot_uuid).is_some() {
+                        return Err(LvsError::Invalid {
+                            source: Errno::EEXIST,
+                            msg: format!(
+                                "Snapshot {} already exist in the system",
+                                args.snapshot_uuid
+                            ),
+                        })
+                    }
+                    // prepare snap config before taking snapshot.
                     let snap_config =
                         match lvol.prepare_snap_config(
                             &args.snapshot_name,
@@ -384,9 +393,14 @@ impl SnapshotRpc for SnapshotService {
                             &args.snapshot_uuid
                         ) {
                             Some(snap_config) => snap_config,
-                            None => return Err(LvsError::SnapshotConfigFailed {
-                                name: args.replica_uuid,
-                                msg: "tx id / snapshot name not provided".to_string(),
+                            // if any of the prepare parameters not passed,
+                            // return failure as invalid argument.
+                            None => return Err(LvsError::Invalid {
+                                source: Errno::EINVAL,
+                                msg: format!(
+                                    "Snapshot {} some parameters not provided",
+                                    args.snapshot_uuid
+                                ),
                             })
                         };
                     let replica_uuid = lvol.uuid();

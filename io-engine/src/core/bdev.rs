@@ -137,7 +137,7 @@ where
             Some(bdev) => {
                 let b: Vec<Self> = bdev
                     .into_iter()
-                    .filter(|b| b.uuid_as_string() == uuid)
+                    .filter(|b| b.uuid_as_string() == uuid.to_lowercase())
                     .collect();
 
                 b.first().map(|b| Self {
