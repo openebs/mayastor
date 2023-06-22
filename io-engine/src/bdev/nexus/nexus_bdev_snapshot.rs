@@ -5,10 +5,11 @@ use futures::future::join_all;
 
 use super::{Error, Nexus, NexusOperation, NexusState};
 use crate::{
-    bdev::nexus::NexusChild,
+    bdev::nexus::{nexus_lookup, NexusChild},
     core::{
         snapshot::SnapshotDescriptor,
-        BlockDeviceHandle,
+        CoreError,
+        Reactor,
         SnapshotParams,
         ToErrno,
     },
@@ -41,6 +42,7 @@ pub struct NexusSnapshotStatus {
 /// Driver for performing snapshot creation on multiple nexus replicas in
 /// parallel.
 struct ReplicaSnapshotExecutor {
+    nexus_name: String,
     /// Replica UUID -> Snapshot UUID map.
     replica_ctx: Vec<SnapshotExecutorReplicaCtx>,
     skipped_replicas: Vec<String>,
@@ -49,7 +51,6 @@ struct ReplicaSnapshotExecutor {
 struct SnapshotExecutorReplicaCtx {
     snapshot_uuid: String,
     replica_uuid: String,
-    handle: Box<dyn BlockDeviceHandle>,
 }
 
 impl ReplicaSnapshotExecutor {
@@ -143,22 +144,9 @@ impl ReplicaSnapshotExecutor {
                     }
                 };
 
-                let handle = replica
-                    .get_io_handle_nonblock()
-                    .await
-                    .map_err(|error| {
-                        error!(
-                            ?replica,
-                            ?error,
-                            "Failed to get I/O handle for replica, nexus snapshot creation failed"
-                        );
-                        Error::FailedGetHandle {}
-                    })?;
-
                 replica_ctx.push(SnapshotExecutorReplicaCtx {
                     replica_uuid: r.replica_uuid.clone(),
                     snapshot_uuid,
-                    handle,
                 });
             } else {
                 skipped_replicas.push(r.replica_uuid.clone());
@@ -168,6 +156,7 @@ impl ReplicaSnapshotExecutor {
         Ok(Self {
             replica_ctx,
             skipped_replicas,
+            nexus_name: nexus.nexus_name().to_owned(),
         })
     }
 
@@ -191,19 +180,65 @@ impl ReplicaSnapshotExecutor {
                     Some(ctx.snapshot_uuid.clone()),
                     snapshot.create_time(),
                 );
-                let replica_uuid = ctx.replica_uuid.clone();
-                debug!(
-                    replica_uuid,
-                    ?snapshot_params,
-                    "Starting nexus replica snapshot operation",
-                );
 
-                // Snapshot operation future shall be able to track back to the
-                // replica.
+                let replica_uuid = ctx.replica_uuid.clone();
+                let nexus_name = self.nexus_name.clone();
+
+                // Schedule replica snapshot operation on master core.
+                let rx = Reactor::spawn_at_primary(async move {
+                    debug!(
+                        replica_uuid,
+                        ?snapshot_params,
+                        "Starting nexus replica snapshot operation",
+                    );
+
+                    let replica = nexus_lookup(&nexus_name)
+                        .ok_or_else(|| {
+                            error!(
+                                nexus_name,
+                                replica_uuid,
+                                "Failed to lookup nexus device, skipping snapshot for replica"
+                            );
+                            CoreError::BdevNotFound {
+                                name: nexus_name.clone()
+                            }
+                        })
+                        .and_then(|n| {
+                            n.child_by_uuid(&replica_uuid).map_err(|error| {
+                                error!(
+                                    nexus_name,
+                                    replica_uuid,
+                                    ?error,
+                                    "Failed to lookup replica device, skipping snapshot for replica"
+                                );
+                                CoreError::BdevNotFound {
+                                    name: replica_uuid.clone(),
+                                }
+                            })
+                        })?;
+
+                    let handle = replica
+                        .get_io_handle_nonblock()
+                        .await
+                        .map_err(|error| {
+                            error!(
+                                nexus_name,
+                                replica_uuid,
+                                ?error,
+                                "Failed to get I/O handle for replica device, skipping snapshot for replica"
+                            );
+                            CoreError::GetIoChannel { name: replica_uuid.clone() }
+                        })?;
+
+                    handle.create_snapshot(snapshot_params).await
+                })
+                .expect("Can't schedule replica snapshot operation");
+
+                // Snapshot operation future shall be able to track back to the replica.
                 async move {
                     (
-                        replica_uuid,
-                        ctx.handle.create_snapshot(snapshot_params).await,
+                        ctx.replica_uuid.clone(),
+                        rx.await.expect("Snapshot sender disappeared"),
                     )
                 }
             })

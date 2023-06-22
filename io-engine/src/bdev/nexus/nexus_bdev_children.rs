@@ -617,6 +617,21 @@ impl<'n> Nexus<'n> {
             .find(|c| c.match_device_name(device_name))
     }
 
+    /// Looks up a child by its UUID.
+    pub fn child_by_uuid(
+        &self,
+        device_uuid: &str,
+    ) -> Result<&NexusChild<'n>, Error> {
+        let dev = self.children_iter().find(|c| match c.get_uuid() {
+            Some(u) => u.eq(device_uuid),
+            None => false,
+        });
+        dev.ok_or_else(|| Error::ChildNotFound {
+            child: device_uuid.to_owned(),
+            name: self.name.clone(),
+        })
+    }
+
     /// Looks up a child by device name.
     /// Returns an error if child is not found.
     pub fn child_by_device(
