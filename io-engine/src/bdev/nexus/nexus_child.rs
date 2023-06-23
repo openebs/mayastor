@@ -240,6 +240,11 @@ impl ChildState {
             _ => false,
         }
     }
+
+    /// Check if the state is fault due to ENOSPC.
+    pub fn is_enospc(&self) -> bool {
+        matches!(self, Self::Faulted(FaultReason::NoSpace))
+    }
 }
 
 /// Synchronization state of a nexus child.

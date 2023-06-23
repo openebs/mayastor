@@ -16,6 +16,7 @@ use io_engine::{
     pool_backend::PoolArgs,
 };
 
+use crossbeam::channel::unbounded;
 use once_cell::sync::OnceCell;
 use std::process::Command;
 
@@ -50,14 +51,21 @@ use common::{
 use io_engine::{
     bdev::nexus::{
         ChildState,
+        Error,
         FaultReason,
         NexusNvmePreemption,
         NexusStatus,
         NvmeReservation,
     },
+    core::Mthread,
     grpc::v1::nexus::nexus_destroy,
 };
-use io_engine_tests::compose::rpc::v0::RpcHandle;
+use io_engine_tests::{
+    compose::rpc::v0::RpcHandle,
+    file_io::{test_write_to_file, DataSize},
+    nvme::NmveConnectGuard,
+    reactor_poll,
+};
 
 extern crate libnvme_rs;
 
@@ -1199,6 +1207,7 @@ async fn nexus_io_freeze() {
         .unwrap();
 
     let name = nexus_name.clone();
+    let children = nexus_children.clone();
     mayastor
         .spawn(async move {
             nexus_lookup_mut(&name).unwrap().pause().await.unwrap();
@@ -1211,6 +1220,99 @@ async fn nexus_io_freeze() {
             nexus_lookup_mut(&name).unwrap().resume().await.unwrap();
             assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Frozen));
 
+            nexus_lookup_mut(&name)
+                .unwrap()
+                .unshare_nexus()
+                .await
+                .unwrap();
+
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Frozen));
+
+            let status = nexus_lookup_mut(&name)
+                .unwrap()
+                .add_child("malloc:///disk?size_mb=32", false)
+                .await;
+            assert!(matches!(status, Err(Error::OperationNotAllowed { .. })));
+            let status = nexus_lookup_mut(&name)
+                .unwrap()
+                .online_child(&children[0])
+                .await;
+            assert!(matches!(status, Err(Error::OperationNotAllowed { .. })));
+
+            nexus_lookup_mut(&name).unwrap().destroy().await.unwrap();
+        })
+        .await;
+
+    create_pool_replicas(&test, 0).await;
+
+    let name = nexus_name.clone();
+    let children = nexus_children.first().cloned().unwrap();
+    let guard = mayastor
+        .spawn(async move {
+            nexus_create(
+                &name,
+                32 * 1024 * 1024,
+                Some(NEXUS_UUID),
+                &[children.to_string()],
+            )
+            .await
+            .unwrap();
+            let share = nexus_lookup_mut(&name)
+                .unwrap()
+                .share(Protocol::Nvmf, None)
+                .await
+                .unwrap();
+            tracing::info!("{share}");
+
+            // Connect to remote replica to check key registered
+            let nqn = format!("{HOSTNQN}:nexus-{NEXUS_UUID}");
+
+            let (s, r) = unbounded::<NmveConnectGuard>();
+            Mthread::spawn_unaffinitized(move || {
+                s.send(NmveConnectGuard::connect("127.0.0.1", &nqn))
+            });
+            let guard: NmveConnectGuard;
+            reactor_poll!(r, guard);
+            guard
+        })
+        .await;
+
+    let (s, r) = unbounded::<()>();
+    tokio::spawn(async move {
+        let device = get_mayastor_nvme_device();
+        test_write_to_file(
+            device,
+            DataSize::default(),
+            32,
+            DataSize::from_mb(1),
+        )
+        .await
+        .ok();
+        s.send(())
+    });
+    mayastor
+        .spawn(async move {
+            let _wait: ();
+            reactor_poll!(r, _wait);
+        })
+        .await;
+    drop(guard);
+
+    wait_nexus_faulted(&nexus_name, std::time::Duration::from_secs(2))
+        .await
+        .unwrap();
+
+    let name = nexus_name.clone();
+    mayastor
+        .spawn(async move {
+            let enospc = nexus_lookup(&name)
+                .map(|n| n.children().iter().all(|c| c.state().is_enospc()));
+            assert_eq!(enospc, Some(true));
+            // We're not Paused, because the nexus is faulted due to ENOSPC!
+            assert_eq!(
+                nexus_pause_state(&name),
+                Some(NexusPauseState::Unpaused)
+            );
             nexus_lookup_mut(&name).unwrap().destroy().await.unwrap();
         })
         .await;
@@ -1240,7 +1342,7 @@ async fn create_pool_replicas(test: &ComposeTest, index: usize) {
             uuid: REPL_UUID.to_string(),
             pool: POOL_NAME.to_string(),
             size: 32 * 1024 * 1024,
-            thin: false,
+            thin: true,
             share: 1,
             allowed_hosts: vec![],
         })
@@ -1252,7 +1354,7 @@ async fn create_pool_replicas(test: &ComposeTest, index: usize) {
         .create_replica(CreateReplicaRequest {
             uuid: REPL2_UUID.to_string(),
             pool: POOL_NAME.to_string(),
-            size: 32 * 1024 * 1024,
+            size: 100 * 1024 * 1024,
             thin: false,
             share: 1,
             allowed_hosts: vec![],
