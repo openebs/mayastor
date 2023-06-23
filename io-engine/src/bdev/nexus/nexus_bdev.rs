@@ -526,6 +526,11 @@ impl<'n> Nexus<'n> {
         &self.children
     }
 
+    /// Check if any of the failed children is faulted due to ENOSPC.
+    pub fn children_enospc(&self) -> bool {
+        self.children.iter().any(|child| child.state().is_enospc())
+    }
+
     /// TODO
     pub(super) unsafe fn child_add_unsafe(
         self: Pin<&mut Self>,
@@ -584,6 +589,11 @@ impl<'n> Nexus<'n> {
             NexusState::ShuttingDown | NexusState::Shutdown => {
                 Err(Error::OperationNotAllowed {
                     reason: "Nexus is shutdown".to_string(),
+                })
+            }
+            _ if self.io_subsystem_state() == Some(NexusPauseState::Frozen) => {
+                Err(Error::OperationNotAllowed {
+                    reason: "Nexus io subsystem is frozen".to_string(),
                 })
             }
             _ => Ok(()),
@@ -860,7 +870,9 @@ impl<'n> Nexus<'n> {
         // Meanwhile the initiator will begin its reconnect loop and won't see
         // a swarm of IO failures which could cause a fs to shutdown.
         let freeze = match self.status() {
-            NexusStatus::Faulted => {
+            // todo: how should we handle this, for now let's fail IO to keep
+            //  current behaviour.
+            NexusStatus::Faulted if !self.children_enospc() => {
                 tracing::warn!(?self, "Nexus Faulted: will not resume I/Os");
                 true
             }
