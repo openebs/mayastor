@@ -709,7 +709,7 @@ impl Lvol {
             parent_uuid,
             self.usage().allocated_bytes,
             snapshot_param,
-            self.snapshot_clone_count(),
+            self.list_clones_by_snapshot_uuid().len() as u64,
             valid_snapshot,
         );
         Some(snapshot_descriptor)
@@ -743,6 +743,22 @@ impl Lvol {
             }
         }
         snapshot_list
+    }
+    /// List All Clones.
+    pub fn list_all_clones() -> Vec<Lvol> {
+        let bdev = match UntypedBdev::bdev_first() {
+            Some(b) => b,
+            None => return Vec::new(), /* No devices available, no clones */
+        };
+        bdev.into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .filter(|b| b.is_clone())
+            .filter(|b| {
+                Lvol::get_blob_xattr(b, CloneXattrs::SourceUuid.name())
+                    .is_some()
+            })
+            .collect::<Vec<Lvol>>()
     }
 }
 
@@ -1428,11 +1444,12 @@ impl SnapshotOps for Lvol {
             Some(Utc::now().to_string()),
         ))
     }
-    /// Get clone count
-    fn snapshot_clone_count(&self) -> u64 {
+
+    /// List clones based on snapshot_uuid.
+    fn list_clones_by_snapshot_uuid(&self) -> Vec<Lvol> {
         let bdev = match UntypedBdev::bdev_first() {
             Some(b) => b,
-            None => return 0, /* No devices available, 0 clones */
+            None => return Vec::new(), /* No devices available, no clones */
         };
         bdev.into_iter()
             .filter(|b| b.driver() == "lvol")
@@ -1445,6 +1462,6 @@ impl SnapshotOps for Lvol {
                 // If clone source uuid is match with snapshot uuid
                 source_uuid == self.uuid()
             })
-            .count() as u64
+            .collect::<Vec<Lvol>>()
     }
 }

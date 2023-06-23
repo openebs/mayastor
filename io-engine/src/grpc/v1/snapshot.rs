@@ -598,6 +598,7 @@ impl SnapshotRpc for SnapshotService {
         )
         .await
     }
+
     #[named]
     async fn create_snapshot_clone(
         &self,
@@ -623,15 +624,14 @@ impl SnapshotRpc for SnapshotService {
                             })
                         }
                     };
-                    if let Some(_b) =  UntypedBdev::lookup_by_uuid_str(
-                        &args.clone_uuid) {
-                            return Err(LvsError::Invalid {
-                                source: Errno::EEXIST,
-                                msg: format!(
-                                    "clone uuid {} already exist",
-                                    args.clone_uuid
-                                ),
-                            })
+                    if UntypedBdev::lookup_by_uuid_str(&args.clone_uuid).is_some() {
+                        return Err(LvsError::Invalid {
+                            source: Errno::EEXIST,
+                            msg: format!(
+                                "clone uuid {} already exist",
+                                args.clone_uuid
+                            ),
+                        })
                     };
                     // prepare clone config.
                     let clone_config =
@@ -672,10 +672,60 @@ impl SnapshotRpc for SnapshotService {
         )
         .await
     }
+
+    #[named]
     async fn list_snapshot_clone(
         &self,
-        _request: Request<ListSnapshotCloneRequest>,
+        request: Request<ListSnapshotCloneRequest>,
     ) -> GrpcResult<ListSnapshotCloneResponse> {
-        todo!("Not implemented");
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                trace!("{:?}", args);
+                let rx = rpc_submit(async move {
+                    // if snapshot_uuid is present, list clones for specific
+                    // snapshot_uuid
+                    if let Some(snapshot_uuid) = args.snapshot_uuid {
+                        let snap_lvol = match UntypedBdev::lookup_by_uuid_str(
+                            &snapshot_uuid,
+                        ) {
+                            Some(bdev) => Lvol::try_from(bdev)?,
+                            None => {
+                                return Err(LvsError::Invalid {
+                                    source: Errno::ENOENT,
+                                    msg: format!(
+                                        "Snapshot {snapshot_uuid} not found",
+                                    ),
+                                })
+                            }
+                        };
+                        let replicas = snap_lvol
+                            .list_clones_by_snapshot_uuid()
+                            .into_iter()
+                            .map(Replica::from)
+                            .collect();
+                        Ok(ListSnapshotCloneResponse {
+                            replicas,
+                        })
+                    } else {
+                        // if source_uuid is not input, list all clones
+                        // present in system
+                        let replicas = Lvol::list_all_clones()
+                            .into_iter()
+                            .map(Replica::from)
+                            .collect();
+                        Ok(ListSnapshotCloneResponse {
+                            replicas,
+                        })
+                    }
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 }
