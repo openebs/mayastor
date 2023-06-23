@@ -56,6 +56,12 @@ impl NvmeCpl {
     pub(crate) fn status(&mut self) -> &mut spdk_nvme_status {
         unsafe { &mut *nvme_status_get(self.0.as_mut()) }
     }
+
+    pub(crate) fn set_cdw0(&mut self, cdw0: u32) {
+        unsafe {
+            self.0.as_mut().cdw0 = cdw0;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -71,13 +77,28 @@ impl NvmfReq {
         )
     }
 
-    /// Complete NVMf request.
-    pub fn complete(&self, sc: u16) {
+    /// Complete NVMf request without error.
+    pub fn complete(&self) {
         let mut rsp = self.response();
         let nvme_status = rsp.status();
 
         nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
-        nvme_status.set_sc(sc);
+        nvme_status.set_sc(0); // SPDK_NVME_SC_SUCCESS
+
+        unsafe {
+            spdk_nvmf_request_complete(self.0.as_ptr());
+        }
+    }
+
+    /// Complete NVMf request with error.
+    pub fn complete_error(&self, errno: i32) {
+        let mut rsp = self.response();
+        let nvme_status = rsp.status();
+
+        nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
+        nvme_status.set_sc(0x06); // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
+
+        rsp.set_cdw0(errno.unsigned_abs());
 
         unsafe {
             spdk_nvmf_request_complete(self.0.as_ptr());

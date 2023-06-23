@@ -236,11 +236,28 @@ extern "C" fn nvme_admin_passthru_done(
     ctx: *mut c_void,
     cpl: *const spdk_nvme_cpl,
 ) {
+    // In case of admin command failures error code is transferred via cdw0.
+    let status = unsafe { (*cpl).cdw0 };
+
     trace!(
-        "Admin passthrough completed, succeeded={}",
-        nvme_cpl_succeeded(cpl)
+        succeeded = nvme_cpl_succeeded(cpl),
+        status,
+        "Admin passthrough completed"
     );
-    done_cb(ctx, nvme_cpl_succeeded(cpl));
+
+    let res: u32 = if nvme_cpl_succeeded(cpl) {
+        0
+    } else {
+        // Handle situations when no error code is passed explicitly and assume
+        // EIO.
+        if status == 0 {
+            libc::EIO as u32
+        } else {
+            status
+        }
+    };
+
+    done_cb(ctx, res);
 }
 
 extern "C" fn nvme_queued_reset_sgl(ctx: *mut c_void, sgl_offset: u32) {
@@ -1138,7 +1155,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             None => (std::ptr::null_mut(), 0),
         };
 
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<u32>();
 
         unsafe {
             spdk_nvme_ctrlr_cmd_admin_raw(
@@ -1156,16 +1173,22 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         })?;
 
         inner.account_io();
-        let ret = if r.await.expect("Failed awaiting NVMe Admin command I/O") {
-            debug!("nvme_admin() done");
-            Ok(())
-        } else {
-            Err(CoreError::NvmeAdminFailed {
-                opcode: (*cmd).opc(),
-            })
-        };
+        let status = r.await.expect("Failed awaiting NVMe Admin command I/O");
         inner.discard_io();
-        ret
+
+        match status {
+            0 => {
+                debug!("nvme_admin() done");
+                Ok(())
+            }
+            _ => {
+                error!("nvme_admin() failed, errno={status}");
+                Err(CoreError::NvmeAdminFailed {
+                    opcode: (*cmd).opc(),
+                    source: Errno::from_i32(status as i32),
+                })
+            }
+        }
     }
 
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError> {

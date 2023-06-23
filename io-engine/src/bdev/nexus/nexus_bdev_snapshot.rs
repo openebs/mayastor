@@ -16,7 +16,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use std::pin::Pin;
 /// Per-replica descriptor for nexus snapshot operation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NexusReplicaSnapshotDescriptor {
     pub replica_uuid: String,
     pub snapshot_uuid: Option<String>,
