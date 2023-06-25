@@ -259,10 +259,16 @@ impl<'n> Nexus<'n> {
         Ok(rj.stats().await)
     }
 
-    /// Iterate over the replica rebuild history for this nexus
-    /// and return it as output.
+    /// Return a clone of the replica rebuild history.
     pub fn rebuild_history(&self) -> Vec<HistoryRecord> {
         self.rebuild_history.lock().clone()
+    }
+
+    /// Return a mutex guard of the replica rebuild history.
+    pub fn rebuild_history_guard(
+        &self,
+    ) -> parking_lot::MutexGuard<Vec<HistoryRecord>> {
+        self.rebuild_history.lock()
     }
 
     /// Returns the rebuild progress of a rebuild job for the given destination.
