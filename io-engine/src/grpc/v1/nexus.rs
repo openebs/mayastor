@@ -1131,13 +1131,16 @@ impl NexusRpc for NexusService {
         self.serialized(ctx, args.uuid.clone(), false, async move {
             trace!("{:?}", args);
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                let records = nexus_lookup(&args.uuid)?
+                let nexus = nexus_lookup(&args.uuid)?;
+                let name = nexus.nexus_name().to_string();
+                let records = nexus
                     .rebuild_history()
                     .into_iter()
                     .map(RebuildHistoryRecord::from)
                     .collect();
                 Ok(RebuildHistoryResponse {
-                    nexus: args.uuid.clone(),
+                    uuid: args.uuid.clone(),
+                    name,
                     records,
                 })
             })?;
@@ -1152,33 +1155,57 @@ impl NexusRpc for NexusService {
     async fn list_rebuild_history(
         &self,
         request: Request<ListRebuildHistoryRequest>,
-    ) -> GrpcResult<RebuildHistoryMapResponse> {
+    ) -> GrpcResult<ListRebuildHistoryResponse> {
         let args = request.into_inner();
-        let count = args.count.unwrap_or_default() as usize;
         trace!("{:?}", args);
+        let count = args.count.unwrap_or(u32::MAX) as usize;
+        let end_time = args
+            .since_end_time
+            .map(chrono::DateTime::<chrono::Utc>::from);
         let rx = rpc_submit::<_, _, nexus::Error>(async move {
-            let history_map: HashMap<_, _> = nexus::nexus_iter()
+            let mut newest_end_time = None;
+            let default_end_time = chrono::Utc::now();
+            let histories: HashMap<_, _> = nexus::nexus_iter()
                 .map(|nexus| {
-                    let uuid = nexus.uuid().to_string();
-                    let hist = nexus.rebuild_history();
+                    let hist = nexus.rebuild_history_guard();
                     let hist = hist
-                        .into_iter()
+                        .iter()
+                        .inspect(|record| match newest_end_time {
+                            Some(time) => {
+                                if record.end_time > time {
+                                    newest_end_time = Some(record.end_time);
+                                }
+                            }
+                            None => {
+                                newest_end_time = Some(record.end_time);
+                            }
+                        })
+                        .filter(|record| {
+                            end_time
+                                .map(|t| record.end_time > t)
+                                .unwrap_or(true)
+                        })
                         .rev()
                         .take(count)
+                        .cloned()
                         .map(RebuildHistoryRecord::from)
-                        .collect();
+                        .collect::<Vec<_>>();
                     (
-                        uuid.clone(),
+                        nexus.uuid().to_string(),
                         RebuildHistoryResponse {
-                            nexus: uuid,
+                            uuid: nexus.uuid().to_string(),
+                            name: nexus.nexus_name().to_string(),
                             records: hist,
                         },
                     )
                 })
                 .collect();
 
-            Ok(RebuildHistoryMapResponse {
-                histories: history_map,
+            Ok(ListRebuildHistoryResponse {
+                histories,
+                end_time: Some(
+                    newest_end_time.map_or(default_end_time.into(), Into::into),
+                ),
             })
         })?;
 
