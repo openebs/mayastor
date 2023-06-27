@@ -14,6 +14,7 @@ jobs:
           branch="${{ github.ref_name }}"
           ./scripts/set-submodule-branches.sh --branch "$branch"
       - name: Create Pull Request
+        id: cpr
         uses: peter-evans/create-pull-request@v5
         with:
           commit-message: "chore(ci): update git submodules"
@@ -25,3 +26,18 @@ jobs:
           draft: false
           title: Prepare release branch
           signoff: true
+      - name: Approve Pull Request by Actor
+        run: |
+          gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Approve Pull Request by CI User
+        run: |
+          gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
+        env:
+          GH_TOKEN: ${{ secrets.OPENEBS_CI }}
+      - name: Bors Merge Pull Request
+        run: |
+          gh pr comment ${{ steps.cpr.outputs.pull-request-number }} --body "bors merge"
+        env:
+          GH_TOKEN: ${{ github.token }}
