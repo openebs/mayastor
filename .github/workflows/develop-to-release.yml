@@ -19,18 +19,19 @@ jobs:
           commit-message: "chore(ci): update git submodules"
           committer: GitHub <noreply@github.com>
           author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: Prepare release branch
           labels: |
             prepare-release-branch
             automated-pr
           draft: false
-          title: Prepare release branch
           signoff: true
-      - name: Approve Pull Request by CI User1
+          token: ${{ secrets.OPENEBS_CI }}
+      - name: Approve Pull Request by CI Bot
         run: |
           gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
         env:
-          GH_TOKEN: ${{ secrets.OPENEBS_CI }}
-      - name: Approve Pull Request by CI User2
+          GH_TOKEN: ${{ github.token }}
+      - name: Approve Pull Request by CI User
         run: |
           gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
         env:
