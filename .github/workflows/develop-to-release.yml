@@ -25,13 +25,13 @@ jobs:
             automated-pr
           draft: false
           signoff: true
-          token: ${{ secrets.OPENEBS_CI }}
-      - name: Approve Pull Request by CI Bot
+          token: ${{ github.token }}
+      - name: Approve Pull Request by CI User1
         run: |
           gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
         env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Approve Pull Request by CI User
+          GH_TOKEN: ${{ secrets.OPENEBS_CI }}
+      - name: Approve Pull Request by CI User2
         run: |
           gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
         env:
