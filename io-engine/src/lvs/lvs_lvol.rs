@@ -22,6 +22,7 @@ use spdk_rs::libspdk::{
     spdk_blob_is_clone,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
+    spdk_blob_is_thin_provisioned,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_bs_get_cluster_size,
@@ -899,7 +900,7 @@ impl LogicalVolume for Lvol {
 
     /// Returns a boolean indicating if the Logical Volume is thin provisioned.
     fn is_thin(&self) -> bool {
-        self.as_inner_ref().thin_provision
+        unsafe { spdk_blob_is_thin_provisioned(self.blob_checked()) }
     }
 
     /// Returns a boolean indicating if the Logical Volume is read-only.
