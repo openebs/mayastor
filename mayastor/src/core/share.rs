@@ -49,8 +49,7 @@ pub trait Share: std::fmt::Debug {
     ) -> Result<Self::Output, Self::Error>;
 
     /// TODO
-    async fn unshare(self: Pin<&mut Self>)
-        -> Result<Self::Output, Self::Error>;
+    async fn unshare(self: Pin<&mut Self>) -> Result<(), Self::Error>;
 
     /// TODO
     fn shared(&self) -> Option<Protocol>;

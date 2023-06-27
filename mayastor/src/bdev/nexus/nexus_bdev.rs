@@ -479,9 +479,6 @@ pub struct Nexus<'n> {
     pub state: parking_lot::Mutex<NexusState>,
     /// The offset in blocks where the data partition starts.
     pub(crate) data_ent_offset: u64,
-    /// the handle to be used when sharing the nexus, this allows for the bdev
-    /// to be shared with vbdevs on top
-    pub(crate) share_handle: Option<String>,
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
@@ -588,7 +585,6 @@ impl<'n> Nexus<'n> {
             state: parking_lot::Mutex::new(NexusState::Init),
             bdev: None,
             data_ent_offset: 0,
-            share_handle: None,
             req_size: size,
             nexus_target: None,
             nvme_params,
@@ -879,7 +875,7 @@ impl<'n> Nexus<'n> {
     pub async fn destroy(mut self: Pin<&mut Self>) -> Result<(), Error> {
         info!("Destroying nexus {}", self.name);
 
-        self.as_mut().destroy_shares().await?;
+        self.as_mut().unshare_nexus().await?;
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
@@ -1473,6 +1469,13 @@ async fn nexus_create_internal(
     children: &[String],
     nexus_info_key: Option<String>,
 ) -> Result<(), Error> {
+    info!(
+        "Creating new nexus '{}' ({} child(ren): {:?})...",
+        name,
+        children.len(),
+        children
+    );
+
     if let Some(nexus) = nexus_lookup_name_uuid(name, nexus_uuid) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.

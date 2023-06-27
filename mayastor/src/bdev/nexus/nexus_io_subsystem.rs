@@ -90,7 +90,13 @@ impl<'n> NexusIoSubsystem<'n> {
                             NvmfSubsystem::nqn_lookup(&self.name)
                         {
                             trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "pausing subsystem");
-                            subsystem.pause().await.unwrap();
+                            if let Err(e) = subsystem.pause().await {
+                                panic!(
+                                    "Failed to pause subsystem '{}: {}",
+                                    subsystem.get_nqn(),
+                                    e
+                                );
+                            }
                             trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "subsystem paused");
                         }
                     }
@@ -183,7 +189,13 @@ impl<'n> NexusIoSubsystem<'n> {
                                 self.pause_state
                                     .store(NexusPauseState::Unpausing);
                                 trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "resuming subsystem");
-                                subsystem.resume().await.unwrap();
+                                if let Err(e) = subsystem.resume().await {
+                                    panic!(
+                                        "Failed to resume subsystem '{}: {}",
+                                        subsystem.get_nqn(),
+                                        e
+                                    );
+                                }
                                 trace!(nexus=%self.name, nqn=%subsystem.get_nqn(), "subsystem resumed");
                             }
                             self.pause_state.store(NexusPauseState::Unpaused);

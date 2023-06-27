@@ -199,21 +199,18 @@ where
     }
 
     /// unshare the bdev regardless of current active share
-    async fn unshare(
-        self: Pin<&mut Self>,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn unshare(self: Pin<&mut Self>) -> Result<(), Self::Error> {
         match self.shared() {
             Some(Protocol::Nvmf) => {
-                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(self.name())
-                {
-                    subsystem.stop().await.context(UnshareNvmf {})?;
-                    subsystem.destroy();
+                if let Some(ss) = NvmfSubsystem::nqn_lookup(self.name()) {
+                    ss.stop().await.context(UnshareNvmf {})?;
+                    ss.destroy();
                 }
             }
             Some(Protocol::Off) | None => {}
         }
 
-        Ok(self.name().to_string())
+        Ok(())
     }
 
     /// returns if the bdev is currently shared

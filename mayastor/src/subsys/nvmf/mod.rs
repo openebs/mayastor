@@ -63,6 +63,12 @@ pub enum Error {
     PgError { msg: String },
     #[snafu(display("Failed to create transport {}", msg))]
     Transport { source: Errno, msg: String },
+    #[snafu(display(
+        "Failed to {} subsystem '{}': subsystem is busy",
+        op,
+        nqn
+    ))]
+    SubsystemBusy { nqn: String, op: String },
     #[snafu(display("Failed nvmf subsystem operation for {} {} error: {}", source.desc(), nqn, msg))]
     Subsystem {
         source: Errno,
