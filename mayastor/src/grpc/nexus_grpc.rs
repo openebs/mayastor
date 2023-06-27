@@ -29,7 +29,6 @@ impl From<ChildState> for rpc::ChildState {
             ChildState::Init => rpc::ChildState::ChildDegraded,
             ChildState::ConfigInvalid => rpc::ChildState::ChildFaulted,
             ChildState::Open => rpc::ChildState::ChildOnline,
-            ChildState::Destroying => rpc::ChildState::ChildDegraded,
             ChildState::Closed => rpc::ChildState::ChildDegraded,
             ChildState::Faulted(reason) => match reason {
                 Reason::OutOfSync => rpc::ChildState::ChildDegraded,

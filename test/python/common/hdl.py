@@ -1,4 +1,5 @@
 """Common code that represents a mayastor handle."""
+from urllib.parse import urlparse
 import mayastor_pb2 as pb
 import grpc
 import mayastor_pb2_grpc as rpc
@@ -132,8 +133,14 @@ class MayastorHandle(object):
     def nexus_create(self, uuid, size, children):
         """Create a nexus with the given uuid and size. The children should
         be an array of nvmf URIs."""
+        children_ = []
+        for child in children:
+            u = urlparse(child)
+            host = u.hostname
+            if host != self.ip_v4:
+                children_.append(child)
         return self.ms.CreateNexus(
-            pb.CreateNexusRequest(uuid=str(uuid), size=size, children=children)
+            pb.CreateNexusRequest(uuid=str(uuid), size=size, children=children_)
         )
 
     def nexus_create_v2(
@@ -178,7 +185,7 @@ class MayastorHandle(object):
         """List all the nexus devices, with separate name and uuid."""
         return self.ms.ListNexusV2(pb.Null()).nexus_list
 
-    def nexus_add_replica(self, uuid, uri, norebuild):
+    def nexus_add_replica(self, uuid, uri, norebuild=False):
         """Add a new replica to the nexus"""
         return self.ms.AddChildNexus(
             pb.AddChildNexusRequest(uuid=uuid, uri=uri, norebuild=norebuild)

@@ -360,7 +360,7 @@ impl NvmfSubsystem {
             s.send(status).unwrap();
         }
 
-        info!(?self, "Subsystem {} in progress...", op);
+        debug!(?self, "Subsystem {} in progress...", op);
 
         let res = {
             let mut n = 0;
@@ -411,7 +411,7 @@ impl NvmfSubsystem {
         if let Err(ref e) = res {
             error!(?self, "Subsystem {} failed: {}", op, e.to_string());
         } else {
-            info!(?self, "Subsystem {} completed: Ok", op);
+            debug!(?self, "Subsystem {} completed: Ok", op);
         }
 
         res

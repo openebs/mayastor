@@ -712,6 +712,11 @@ impl<'n> Nexus<'n> {
         unsafe { self.bdev().required_alignment() }
     }
 
+    /// TODO
+    pub fn children_iter(&self) -> std::slice::Iter<NexusChild<'n>> {
+        self.children.iter()
+    }
+
     /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
         info!(
@@ -883,19 +888,7 @@ impl<'n> Nexus<'n> {
             self.cancel_child_rebuild_jobs(child.get_name()).await;
         }
 
-        unsafe {
-            for child in self.as_mut().get_unchecked_mut().children.iter_mut() {
-                info!("Destroying child bdev {}", child.get_name());
-                if let Err(e) = child.close().await {
-                    // TODO: should an error be returned here?
-                    error!(
-                        "Failed to close child {} with error {}",
-                        child.get_name(),
-                        e.verbose()
-                    );
-                }
-            }
-        }
+        self.close_children().await;
 
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
@@ -1283,16 +1276,9 @@ impl<'n> BdevOps for Nexus<'n> {
         Reactor::block_on(async move {
             let self_ref = unsafe { &mut *self_ptr };
 
-            for child in self_ref.children.iter_mut() {
-                if child.state() == ChildState::Open {
-                    if let Err(e) = child.close().await {
-                        error!(
-                            "{}: child {} failed to close with error {}",
-                            self_ref.name,
-                            child.get_name(),
-                            e.verbose()
-                        );
-                    }
+            for child in self_ref.children_iter() {
+                if child.is_healthy() {
+                    child.close().await.ok();
                 }
             }
 
