@@ -8,20 +8,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: cachix/install-nix-action@v22
       - name: Check if the submodules are correct
         run: |
           branch="${{ github.ref_name }}"
-          ./scripts/git/set-submodule-branches.sh --branch "$branch"
+          ./scripts/set-submodule-branches.sh --branch "$branch"
       - name: Create Pull Request
+        id: cpr
         uses: peter-evans/create-pull-request@v5
         with:
           commit-message: "chore(ci): update git submodules"
           committer: GitHub <noreply@github.com>
           author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: Prepare release branch
           labels: |
             prepare-release-branch
             automated-pr
           draft: false
-          title: Prepare release branch
           signoff: true
+          token: ${{ secrets.OPENEBS_CI }}
+      - name: Approve Pull Request by CI Bot
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Approve Pull Request by CI User
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
+        env:
+          GH_TOKEN: ${{ secrets.OPENEBS_CI_2 }}
+      - name: Bors Merge Pull Request
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          gh pr comment ${{ steps.cpr.outputs.pull-request-number }} --body "bors merge"
+        env:
+          GH_TOKEN: ${{ secrets.OPENEBS_CI }}
+
