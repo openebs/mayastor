@@ -864,3 +864,50 @@ async fn test_snapshot_clone() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn test_snapshot_volume_provisioning_mode() {
+    let ms = get_ms();
+    const LVOL_NAME: &str = "lvol10";
+    const LVOL_SIZE: u64 = 24 * 1024 * 1024;
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool10",
+            "malloc:///disk10?size_mb=64".to_string(),
+        )
+        .await;
+
+        let lvol = pool
+            .create_lvol(
+                LVOL_NAME,
+                LVOL_SIZE,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        let snap1_name = "lvol10_snapshot1".to_string();
+        let snapshot_params = SnapshotParams::new(
+            Some("e1".to_string()),
+            Some("p1".to_string()),
+            Some(Uuid::new_v4().to_string()),
+            Some(snap1_name.clone()),
+            Some(Uuid::new_v4().to_string()),
+            Some(Utc::now().to_string()),
+        );
+
+        // Volume must be reported as thick-provisioned before taking a snapshot.
+        assert!(!lvol.is_thin(), "Volume is reported as thin-provisioned before taking a snapshot");
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the first snapshot for test volume");
+
+        // Volume must be reported as thin provisioned after taking a snapshot.
+        assert!(lvol.is_thin(), "Volume is not reported as thin-provisioned after taking a snapshot");
+    })
+    .await;
+}
