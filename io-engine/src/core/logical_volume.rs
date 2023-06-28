@@ -2,6 +2,11 @@ use crate::lvs::LvolSpaceUsage;
 
 ///  LogicalVolume Trait Provide all the Generic Interface for Volume
 pub trait LogicalVolume {
+    type InnerPtr;
+
+    /// Get lvol inner ptr.
+    fn as_inner_ptr(&self) -> Self::InnerPtr;
+
     /// Returns the name of the Logical Volume
     fn name(&self) -> String;
 

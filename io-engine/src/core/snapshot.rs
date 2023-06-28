@@ -1,6 +1,13 @@
-use crate::lvs::Lvol;
+use crate::{lvs::Lvol, subsys::NvmfReq};
 use async_trait::async_trait;
+use futures::channel::oneshot;
 use serde::{Deserialize, Serialize};
+use spdk_rs::libspdk::{spdk_lvol, spdk_xattr_descriptor};
+use std::{
+    ffi::{c_void, CString},
+    fmt::Debug,
+};
+use strum::EnumCount;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// Snapshot Captures all the Snapshot information for Lvol.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -201,8 +208,37 @@ pub trait SnapshotOps {
         snap_param: SnapshotParams,
     ) -> Result<Lvol, Self::Error>;
 
+    /// Create a snapshot in Remote.
+    async fn create_snapshot_remote(
+        &self,
+        nvmf_req: &NvmfReq,
+        snapshot_params: SnapshotParams,
+    );
+
+    /// List Snapshot details based on source UUID from which snapshot is
+    /// created.
+    fn list_snapshot_by_source_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
+
+    /// List Single snapshot details based on snapshot UUID.
+    fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
+
+    /// List All Snapshot.
+    fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor>;
+
+    /// Create snapshot clone.
+    async fn create_clone(
+        &self,
+        clone_param: CloneParams,
+    ) -> Result<Self::Lvol, Self::Error>;
+
+    /// Get clone list based on snapshot_uuid.
+    fn list_clones_by_snapshot_uuid(&self) -> Vec<Self::Lvol>;
+
     // Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> Self::SnapshotIter;
+
+    /// List All Clones.
+    fn list_all_clones() -> Vec<Self::Lvol>;
 
     /// Prepare Snapshot Config for Block/Nvmf Device, before snapshot create.
     fn prepare_snap_config(
@@ -213,18 +249,6 @@ pub trait SnapshotOps {
         snap_uuid: &str,
     ) -> Option<SnapshotParams>;
 
-    /// List Snapshot details based on source UUID from which snapshot is
-    /// created.
-    fn list_snapshot_by_source_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
-
-    /// List Single snapshot details based on snapshot UUID.
-    fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
-
-    async fn create_clone(
-        &self,
-        clone_param: CloneParams,
-    ) -> Result<Self::Lvol, Self::Error>;
-
     /// Prepare clone config for snapshot.
     fn prepare_clone_config(
         &self,
@@ -233,8 +257,69 @@ pub trait SnapshotOps {
         source_uuid: &str,
     ) -> Option<CloneParams>;
 
-    /// Get clone list based on snapshot_uuid.
-    fn list_clones_by_snapshot_uuid(&self) -> Vec<Lvol>;
+    /// Prepare snapshot xattrs.
+    fn prepare_snapshot_xattrs(
+        &self,
+        attr_descrs: &mut [spdk_xattr_descriptor; SnapshotXattrs::COUNT],
+        params: SnapshotParams,
+        cstrs: &mut Vec<CString>,
+    ) -> Result<(), Self::Error>;
+    /// create replica snapshot inner function to call spdk snapshot create
+    /// function.
+    unsafe fn create_snapshot_inner(
+        &self,
+        snap_param: &SnapshotParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+    ) -> Result<(), Self::Error>;
+
+    /// Supporting function for creating local snapshot.
+    async fn do_create_snapshot(
+        &self,
+        snap_param: SnapshotParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
+    ) -> Result<Self::Lvol, Self::Error>;
+
+    /// Supporting function for creating remote snapshot.
+    async fn do_create_snapshot_remote(
+        &self,
+        snap_param: SnapshotParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+    ) -> Result<(), Self::Error>;
+
+    /// Prepare clone xattrs.
+    fn prepare_clone_xattrs(
+        &self,
+        attr_descrs: &mut [spdk_xattr_descriptor; CloneXattrs::COUNT],
+        params: CloneParams,
+        cstrs: &mut Vec<CString>,
+    ) -> Result<(), Self::Error>;
+
+    /// Create clone inner function to call spdk clone function.
+    unsafe fn create_clone_inner(
+        &self,
+        clone_param: &CloneParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+    ) -> Result<(), Self::Error>;
+
+    /// Supporting function for creating clone.
+    async fn do_create_clone(
+        &self,
+        clone_param: CloneParams,
+        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        done_cb_arg: *mut ::std::os::raw::c_void,
+        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
+    ) -> Result<Self::Lvol, Self::Error>;
+
+    /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.
+    fn snapshot_descriptor(
+        &self,
+        parent: Option<&Lvol>,
+    ) -> Option<VolumeSnapshotDescriptor>;
 }
 
 /// Traits gives the Snapshots Related Parameters.
