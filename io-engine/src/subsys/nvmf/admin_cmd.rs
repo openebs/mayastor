@@ -16,7 +16,7 @@ use crate::{
         Reactors,
         SnapshotParams,
     },
-    lvs::{lvs_lvol::LvsLvol, Lvol},
+    lvs::Lvol,
 };
 
 use chrono::Utc;

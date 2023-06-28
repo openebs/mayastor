@@ -40,7 +40,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume,
-        snapshot::VolumeSnapshotDescriptor,
+        snapshot::{SnapshotOps, VolumeSnapshotDescriptor},
         Bdev,
         IoType,
         Share,
