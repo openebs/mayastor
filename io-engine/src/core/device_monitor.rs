@@ -50,27 +50,39 @@ pub async fn device_monitor_loop() {
                     nexus_name,
                     child_device,
                 } => {
-                    let rx = Reactor::spawn_at_primary(async move {
-                        if let Some(n) = nexus_lookup(&nexus_name) {
-                            if let Err(e) = n.close_child(&child_device).await {
-                                error!(
-                                    "{:?}: failed to close child device \
-                                        in response to retire: {}",
-                                    n,
-                                    e.verbose()
+                    let rx = Reactor::spawn_at_primary({
+                        let nexus_name = nexus_name.clone();
+                        let child_device = child_device.clone();
+                        async move {
+                            if let Some(n) = nexus_lookup(&nexus_name) {
+                                if let Err(e) =
+                                    n.close_child(&child_device).await
+                                {
+                                    error!(
+                                    "Nexus '{nexus_name}': failed to close \
+                                    retired child '{child_device}': {e}",
+                                    e = e.verbose()
                                 );
+                                }
                             }
                         }
                     });
 
                     match rx {
-                        Err(e) => {
+                        Err(_) => {
                             error!(
-                                "Failed to schedule removal request: {}",
-                                e.verbose()
-                            )
+                                "Nexus '{nexus_name}': failed to schedule \
+                                removal request for '{child_device}'"
+                            );
                         }
-                        Ok(rx) => rx.await.unwrap(),
+                        Ok(rx) => {
+                            if let Err(e) = rx.await {
+                                error!(
+                                    "Nexus '{nexus_name}': failed to process \
+                                    removal request for '{child_device}': {e}"
+                                );
+                            }
+                        }
                     }
                 }
             }

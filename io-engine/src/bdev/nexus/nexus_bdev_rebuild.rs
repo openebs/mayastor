@@ -199,7 +199,7 @@ impl<'n> Nexus<'n> {
         // If a rebuild job is not found that's ok
         // as we were just going to remove it anyway.
         if let Ok(rj) = self.rebuild_job_mut(child_uri) {
-            let ch = rj.terminate();
+            let ch = rj.force_stop();
             if let Err(e) = ch.await {
                 error!(
                     "Failed to wait on rebuild job for child {child_uri} \
@@ -300,7 +300,7 @@ impl<'n> Nexus<'n> {
 
         // terminate all jobs with the child as a source
         src_jobs.into_iter().for_each(|j| {
-            terminated_jobs.push(j.terminate());
+            terminated_jobs.push(j.force_stop());
             rebuilding_children.push(j.dst_uri.clone());
         });
 
