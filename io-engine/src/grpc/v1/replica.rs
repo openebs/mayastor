@@ -76,6 +76,9 @@ impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
             cluster_size: u.cluster_size,
             num_clusters: u.num_clusters,
             num_allocated_clusters: u.num_allocated_clusters,
+            allocated_bytes_snapshots: u.allocated_bytes_snapshots,
+            num_allocated_clusters_snapshots: u
+                .num_allocated_clusters_snapshots,
         }
     }
 }
