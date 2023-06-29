@@ -113,6 +113,17 @@ pub fn nvme_connect(
     status
 }
 
+pub fn nvme_disconnect_all() {
+    let output_dis = Command::new("nvme")
+        .args(["disconnect-all"])
+        .output()
+        .unwrap();
+    assert!(
+        output_dis.status.success(),
+        "failed to disconnect all existing nvme target ",
+    );
+}
+
 pub fn nvme_disconnect_nqn(nqn: &str) {
     let output_dis = Command::new("nvme")
         .args(["disconnect"])
