@@ -172,9 +172,14 @@ impl<'n> NexusIoSubsystem<'n> {
                         self
                     );
 
+                    let nex = format!("{self:?}");
+
                     let (s, r) = oneshot::channel::<i32>();
                     self.pause_waiters.push_back(s);
-                    r.await.unwrap();
+                    if r.await.is_err() {
+                        error!("{nex}: I/O subsystem is gone while waiting");
+                        return Ok(());
+                    }
 
                     trace!(
                         "{:?}: nexus completed state transition, \
@@ -226,9 +231,14 @@ impl<'n> NexusIoSubsystem<'n> {
                         self
                     );
 
+                    let nex = format!("{self:?}");
+
                     let (s, r) = oneshot::channel::<i32>();
                     self.pause_waiters.push_back(s);
-                    r.await.unwrap();
+                    if r.await.is_err() {
+                        error!("{nex}: I/O subsystem is gone while waiting");
+                        return Ok(());
+                    }
 
                     trace!(
                         "{:?}: completed state transition, \

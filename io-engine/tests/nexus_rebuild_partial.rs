@@ -203,7 +203,7 @@ async fn nexus_partial_rebuild_io_fault() {
 
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children.len(), 2);
-    assert_eq!(children[1].state, ChildState::Online as i32);
+    assert_eq!(children[1].state(), ChildState::Online);
 
     // Chunk A.
     test_write_to_nexus(
@@ -587,19 +587,19 @@ async fn nexus_partial_rebuild_double_fault() {
     let hist = nex_0.get_rebuild_history().await.unwrap();
     assert_eq!(hist.len(), 3);
 
-    // First rebuild must have been stopped, because I/O failed while the job
+    // First rebuild must have been failed, because I/O failed while the job
     // was running.
-    assert_eq!(hist[0].state, RebuildJobState::Stopped as i32);
+    assert_eq!(hist[0].state(), RebuildJobState::Failed);
     assert_eq!(hist[0].is_partial, true);
     assert!(hist[0].blocks_transferred < hist[0].blocks_total);
 
     // 3rd rebuid job must have been a successfully full rebuild.
-    assert_eq!(hist[1].state, RebuildJobState::Completed as i32);
+    assert_eq!(hist[1].state(), RebuildJobState::Completed);
     assert_eq!(hist[1].is_partial, false);
     assert_eq!(hist[1].blocks_transferred, hist[1].blocks_total);
 
     // 3rd rebuid job must have been a successfully partial rebuild.
-    assert_eq!(hist[2].state, RebuildJobState::Completed as i32);
+    assert_eq!(hist[2].state(), RebuildJobState::Completed);
     assert_eq!(hist[2].is_partial, true);
     assert!(hist[2].blocks_transferred < hist[2].blocks_total);
 
