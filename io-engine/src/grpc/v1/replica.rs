@@ -74,13 +74,12 @@ impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
         Self {
             capacity_bytes: u.capacity_bytes,
             allocated_bytes: u.allocated_bytes,
-            // todo: rpc api submodule was updated, so have to fill these in as
-            // 0 for now..
-            allocated_bytes_snapshots: 0,
             cluster_size: u.cluster_size,
             num_clusters: u.num_clusters,
             num_allocated_clusters: u.num_allocated_clusters,
-            num_allocated_clusters_snapshots: 0,
+            allocated_bytes_snapshots: u.allocated_bytes_snapshots,
+            num_allocated_clusters_snapshots: u
+                .num_allocated_clusters_snapshots,
         }
     }
 }

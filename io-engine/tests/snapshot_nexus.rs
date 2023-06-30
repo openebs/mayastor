@@ -1,20 +1,24 @@
 pub mod common;
 
+use futures::channel::oneshot;
 use io_engine::{bdev::nexus::NexusSnapshotStatus, core::SnapshotDescriptor};
 use once_cell::sync::OnceCell;
 
 use chrono::{DateTime, Utc};
-use common::compose::{
-    rpc::v1::{
-        bdev::ListBdevOptions,
-        pool::CreatePoolRequest,
-        replica::CreateReplicaRequest,
-        snapshot::{ListSnapshotsRequest, SnapshotInfo},
-        GrpcConnect,
+use common::{
+    compose::{
+        rpc::v1::{
+            bdev::ListBdevOptions,
+            pool::CreatePoolRequest,
+            replica::{CreateReplicaRequest, ListReplicaOptions},
+            snapshot::{ListSnapshotsRequest, SnapshotInfo},
+            GrpcConnect,
+        },
+        Builder,
+        ComposeTest,
+        MayastorTest,
     },
-    Builder,
-    ComposeTest,
-    MayastorTest,
+    nvme::{list_mayastor_nvme_devices, nvme_connect, nvme_disconnect_all},
 };
 
 use io_engine::{
@@ -29,9 +33,11 @@ use io_engine::{
         },
         Nexus,
     },
-    core::{MayastorCliArgs, SnapshotParams},
+    constants::NVME_NQN_PREFIX,
+    core::{MayastorCliArgs, Protocol, SnapshotParams},
     subsys::{Config, NvmeBdevOpts},
 };
+use io_engine_tests::file_io::{test_write_to_file, DataSize};
 use nix::errno::Errno;
 
 use std::{pin::Pin, str};
@@ -39,7 +45,7 @@ use uuid::Uuid;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
-const REPLICA_SIZE: u64 = 8 * 1024 * 1024;
+const REPLICA_SIZE: u64 = 16 * 1024 * 1024;
 
 /// Get the global Mayastor test suite instance.
 fn get_ms() -> &'static MayastorTest<'static> {
@@ -72,6 +78,12 @@ fn nexus_name() -> String {
 
 fn nexus_uuid() -> String {
     "9f1014be-7653-4960-a48b-6d08b275e3ac".to_string()
+}
+
+fn get_mayastor_nvme_device() -> String {
+    let nvme_ms = list_mayastor_nvme_devices();
+    assert_eq!(nvme_ms.len(), 1);
+    format!("/dev/{}", nvme_ms[0].device)
 }
 
 /// Launch a containerized I/O agent with 2 shared volumes on it.
@@ -112,7 +124,7 @@ async fn launch_instance(create_replicas: bool) -> (ComposeTest, Vec<String>) {
             name: "pool1".to_string(),
             uuid: Some(pool_uuid()),
             pooltype: 0,
-            disks: vec!["malloc:///disk0?size_mb=32".into()],
+            disks: vec!["malloc:///disk0?size_mb=128".into()],
         })
         .await
         .unwrap();
@@ -581,4 +593,214 @@ async fn test_duplicated_snapshot_uuid_name() {
             .get(0)
             .expect("Snapshot is not created on remote replica"),
     );
+}
+
+#[tokio::test]
+async fn test_snapshot_ancestor_usage() {
+    let ms = get_ms();
+    let (test, urls) = launch_instance(true).await;
+    let conn = GrpcConnect::new(&test);
+
+    nvme_disconnect_all();
+
+    ms.spawn(async move {
+        // Create a single replica nexus.
+        let uris = [format!("{}?uuid={}", urls[0].clone(), replica1_uuid())];
+
+        let mut nexus = create_nexus(&uris).await;
+
+        nexus
+            .as_mut()
+            .share(Protocol::Nvmf, None)
+            .await
+            .expect("Failed to publish nexus");
+
+        let mut replicas = Vec::new();
+
+        let snapshot_uuid = Uuid::new_v4().to_string();
+        let snapshot_params = SnapshotParams::new(
+            Some("e61".to_string()),
+            Some(replica1_uuid()),
+            Some("t61".to_string()),
+            Some(String::from("snapshot61")),
+            Some(snapshot_uuid.clone()),
+            Some(Utc::now().to_string()),
+        );
+
+        let r = NexusReplicaSnapshotDescriptor {
+            replica_uuid: replica1_uuid(),
+            skip: false,
+            snapshot_uuid: Some(snapshot_uuid.clone()),
+        };
+        replicas.push(r);
+
+        let res = nexus
+            .create_snapshot(snapshot_params, replicas)
+            .await
+            .expect("Failed to create nexus snapshot");
+
+        let replica_status: Vec<(String, u32)> = vec![(replica1_uuid(), 0)];
+        check_nexus_snapshot_status(&res, &replica_status);
+    })
+    .await;
+
+    let mut ms1 = conn
+        .grpc_handle("ms1")
+        .await
+        .expect("Can't connect to remote I/O agent");
+
+    let mut replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            uuid: Some(replica1_uuid()),
+            ..Default::default()
+        })
+        .await
+        .expect("Can't get replicas from I/O agent")
+        .into_inner()
+        .replicas;
+
+    assert_eq!(replicas.len(), 1, "Number of test replicas doesn't match");
+    let usage = replicas
+        .pop()
+        .expect("Failed to get replica from response data")
+        .usage
+        .expect("No replica usage information provided");
+
+    let cluster_size = usage.cluster_size;
+
+    // Initial snapshot must own all replica's clusters.
+    assert_eq!(
+        usage.allocated_bytes_snapshots, REPLICA_SIZE,
+        "Amount of bytes allocated by snapshots doesn't match"
+    );
+
+    assert_eq!(
+        usage.num_allocated_clusters_snapshots * cluster_size,
+        usage.allocated_bytes_snapshots,
+        "Disparity in snapshot size and number of allocated clusters"
+    );
+
+    /*
+     * Write some data to nexus and create a second snapshot which
+     * should now own all new data.
+     */
+    let nqn = format!("{NVME_NQN_PREFIX}:{}", nexus_name());
+    nvme_connect("127.0.0.1", &nqn, true);
+
+    let (s, r) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let device = get_mayastor_nvme_device();
+
+        test_write_to_file(
+            device,
+            DataSize::default(),
+            1,
+            DataSize::from_mb(1),
+        )
+        .await
+        .expect("Failed to write to nexus");
+
+        s.send(()).expect("Failed to notify the waiter");
+    });
+
+    // Wait for I/O to complete.
+    r.await.expect("Failed to write data to nexus");
+
+    // After writing data to nexus snapshot space usage must remain unchanged.
+    replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            uuid: Some(replica1_uuid()),
+            ..Default::default()
+        })
+        .await
+        .expect("Can't get replicas from I/O agent")
+        .into_inner()
+        .replicas;
+
+    assert_eq!(replicas.len(), 1, "Number of test replicas doesn't match");
+    let usage2 = replicas
+        .pop()
+        .expect("Failed to get replica from response data")
+        .usage
+        .expect("No replica usage information provided");
+
+    // Snapshot data usage must not change since no other sapshots
+    // were taken.
+    assert_eq!(
+        usage.allocated_bytes_snapshots, usage2.allocated_bytes_snapshots,
+        "Amount of bytes allocated by snapshots has changed"
+    );
+
+    assert_eq!(
+        usage.num_allocated_clusters_snapshots,
+        usage2.num_allocated_clusters_snapshots,
+        "Amount of clusters allocated by snapshots has changed"
+    );
+
+    // Create a second snapshot after data has been written to nexus.
+    ms.spawn(async move {
+        let nexus =
+            nexus_lookup_mut(&nexus_name()).expect("Can't find the nexus");
+
+        let snapshot_params = SnapshotParams::new(
+            Some("e71".to_string()),
+            Some(replica1_uuid()),
+            Some("t71".to_string()),
+            Some(String::from("snapshot71")),
+            Some(Uuid::new_v4().to_string()),
+            Some(Utc::now().to_string()),
+        );
+
+        let replicas = vec![NexusReplicaSnapshotDescriptor {
+            replica_uuid: replica1_uuid(),
+            skip: false,
+            snapshot_uuid: snapshot_params.snapshot_uuid(),
+        }];
+
+        let res = nexus
+            .create_snapshot(snapshot_params, replicas)
+            .await
+            .expect("Failed to create nexus snapshot");
+
+        let replica_status: Vec<(String, u32)> = vec![(replica1_uuid(), 0)];
+        check_nexus_snapshot_status(&res, &replica_status);
+    })
+    .await;
+
+    // After taking the second snapshot its allocated space must
+    // be properly accounted in replica usage.
+    replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            uuid: Some(replica1_uuid()),
+            ..Default::default()
+        })
+        .await
+        .expect("Can't get replicas from I/O agent")
+        .into_inner()
+        .replicas;
+
+    assert_eq!(replicas.len(), 1, "Number of test replicas doesn't match");
+    let usage3 = replicas
+        .pop()
+        .expect("Failed to get replica from response data")
+        .usage
+        .expect("No replica usage information provided");
+
+    // Check that one extra cluster of data written is properly accounted.
+    assert_eq!(
+        usage3.allocated_bytes_snapshots,
+        usage2.allocated_bytes_snapshots + usage3.cluster_size,
+        "Amount of bytes allocated by snapshots has changed"
+    );
+
+    assert_eq!(
+        usage3.num_allocated_clusters_snapshots,
+        usage2.num_allocated_clusters_snapshots + 1,
+        "Amount of clusters allocated by snapshots has changed"
+    );
+
+    nvme_disconnect_all();
 }
