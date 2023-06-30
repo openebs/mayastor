@@ -1,0 +1,19 @@
+name: Trigger Integration Point Job
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  start-jenkins-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start Jenkins job
+        uses: geokats7/jenkins_client@main
+        with:
+          jenkins_job_name: ${{ secrets.HELMCORE_JENKINS_JOB_NAME}}
+          jenkins_job_parameters: '{"branch": "develop"}'
+          jenkins_base_url: ${{ secrets.JENKINS_URL}}
+          jenkins_user: ${{ secrets.HELMCORE_JENKINS_USERNAME}}
+          jenkins_password: ${{ secrets.HELMCORE_JENKINS_TOKEN}}
+          wait_for_result: 'False'
