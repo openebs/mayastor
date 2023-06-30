@@ -38,6 +38,35 @@ def mainBranches() {
     return BRANCH_NAME == "develop" || BRANCH_NAME.startsWith("release/");
 }
 
+def cronSchedule() {
+    node {
+        println "DEBUG: Fetching Cron Schedule from ${env.CRON_SCHEDULE_URL}"
+        def YAML = sh (script: "curl ${env.CRON_SCHEDULE_URL}", returnStdout: true).trim()
+        def schedules = readYaml text: YAML
+        def branch_cfg = schedules[BRANCH_NAME] ? schedules[BRANCH_NAME] : schedules["default"]
+        if ( branch_cfg == null ) {
+            println "ERROR: Failed to retrieve the cron schedule for the branch: ${BRANCH_NAME}"
+            return ""
+        }
+
+        def job_name_split = env.JOB_NAME.tokenize('/') as String[];
+        def project_name = job_name_split[0]
+        if ( project_name == null ) {
+            println "ERROR: No project name for: ${env.JOB_NAME}"
+            return ""
+        }
+
+        def project_cfg = branch_cfg[project_name] ? branch_cfg[project_name] : branch_cfg["default"]
+        if ( project_cfg == null ) {
+            println "ERROR: No cron schedule for: ${project_name}"
+            return ""
+        }
+
+        println "INFO: Cron Schedule for ${project_name}/${BRANCH_NAME}: ${project_cfg}"
+        return project_cfg
+    }
+}
+
 // TODO: Use multiple choices
 run_linter = true
 rust_test = true
@@ -54,9 +83,6 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') && mainBra
   build_images = true
 }
 
-// Only schedule regular builds on main branches, so we don't need to guard against it
-String cron_schedule = mainBranches() ? "0 2 * * *" : ""
-
 pipeline {
   agent none
   options {
@@ -68,7 +94,7 @@ pipeline {
     booleanParam(defaultValue: true, name: 'run_tests')
   }
   triggers {
-    cron(cron_schedule)
+    cron(cronSchedule())
   }
 
   stages {
