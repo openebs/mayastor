@@ -342,7 +342,9 @@ impl Lvs {
         }?;
 
         let pool = Self::import(&args.name, &bdev).await?;
-
+        // Try to destroy the pending snapshots without catching
+        // the error.
+        Lvol::destroy_pending_discarded_snapshot().await;
         // if the uuid is provided for the import request check
         // for the pool uuid to make sure it is the correct one
         if let Some(uuid) = args.uuid {

@@ -135,6 +135,11 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
                 SnapshotXattrs::SnapshotCreateTime => {
                     snapshot_param.set_create_time(curr_attr_val);
                 }
+                SnapshotXattrs::DiscardedSnapshot => {
+                    snapshot_param.set_discarded_snapshot(
+                        curr_attr_val.parse().unwrap_or_default(),
+                    );
+                }
             }
         }
 
@@ -157,6 +162,7 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
             valid_snapshot: true,
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
             referenced_bytes: usage.allocated_bytes_snapshots,
+            discarded_snapshot: snapshot_param.discarded_snapshot(),
         }
     }
 }
@@ -184,6 +190,7 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
             valid_snapshot: s.valid_snapshot(),
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
             referenced_bytes: usage.allocated_bytes_snapshots,
+            discarded_snapshot: s.snapshot_params().discarded_snapshot(),
         }
     }
 }
@@ -321,6 +328,7 @@ impl SnapshotRpc for SnapshotService {
                     Some(args.snapshot_name.clone()),
                     None, // Snapshot UUID will be handled on per-replica base.
                     Some(Utc::now().to_string()),
+                    false,
                 );
 
                 let mut nexus = nexus_lookup(&args.nexus_uuid)?;
@@ -594,7 +602,7 @@ impl SnapshotRpc for SnapshotService {
                             });
                         }
                     }
-                    device.destroy().await?;
+                    device.destroy_snapshot().await?;
                     Ok(())
                 })?;
                 rx.await
@@ -640,6 +648,16 @@ impl SnapshotRpc for SnapshotService {
                             ),
                         })
                     };
+                    // reject clone creation if "discardedSnapshot" xattr is marked as true.
+                    if snap_lvol.is_discarded_snapshot() {
+                        return Err(LvsError::Invalid {
+                            source: Errno::ENOENT,
+                            msg: format!(
+                                "Snapshot {} is marked to be deleted",
+                                args.snapshot_uuid
+                            ),
+                        })
+                    }
                     // prepare clone config.
                     let clone_config =
                         match snap_lvol.prepare_clone_config(
@@ -657,7 +675,7 @@ impl SnapshotRpc for SnapshotService {
                                 ),
                             })
                         };
-                    // create clone
+                    // create clone.
                     match snap_lvol.create_clone(clone_config).await {
                         Ok(clone_lvol) => {
                             info!("Create Clone Success for {snap_lvol:?}, {clone_lvol:?}");

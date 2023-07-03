@@ -45,6 +45,7 @@ use crate::{
         PtplProps,
         Share,
         ShareProps,
+        SnapshotOps,
         SnapshotParams,
         UntypedBdev,
         UpdateProps,
@@ -574,6 +575,10 @@ pub trait LvsLvol: LogicalVolume + Share {
 
     /// Build Snapshot Parameters from Blob.
     fn build_snapshot_param(&self, blob: *mut spdk_blob) -> SnapshotParams;
+
+    /// Wrapper function to destroy replica and its associated snapshot if
+    /// replica is identified as last clone.
+    async fn destroy_replica(mut self) -> Result<String, Error>;
 }
 
 ///  LogicalVolume implement Generic interface for Lvol.
@@ -947,6 +952,26 @@ impl LvsLvol for Lvol {
             Some(self.name()),
             Some(self.name()),
             Some(Utc::now().to_string()),
+            false,
         )
+    }
+    /// Wrapper function to destroy replica and its associated snapshot if
+    /// replica is identified as last clone.
+    async fn destroy_replica(mut self) -> Result<String, Error> {
+        let snapshot_lvol = self.is_snapshot_clone();
+        let name = self.name();
+        self.destroy().await?;
+
+        // If destroy replica is a snapshot clone and it is the last
+        // clone from the snapshot, destroy the snapshot
+        // if it is already marked as discardedSnapshot.
+        if let Some(snapshot_lvol) = snapshot_lvol {
+            if snapshot_lvol.list_clones_by_snapshot_uuid().is_empty()
+                && snapshot_lvol.is_discarded_snapshot()
+            {
+                snapshot_lvol.destroy().await?;
+            }
+        }
+        Ok(name)
     }
 }

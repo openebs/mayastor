@@ -245,7 +245,7 @@ impl ReplicaRpc for ReplicaService {
                     .ok_or(LvsError::RepDestroy {
                         source: Errno::ENOENT,
                         name: args.uuid.to_owned(),
-                        msg: "".into(),
+                        msg: "Replica not found".into(),
                     })?;
 
                 if let Some(lvs) = lvs {
@@ -263,7 +263,7 @@ impl ReplicaRpc for ReplicaService {
                         });
                     }
                 }
-                lvol.destroy().await?;
+                lvol.destroy_replica().await?;
                 Ok(())
             })?;
 

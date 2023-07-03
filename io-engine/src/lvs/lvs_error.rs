@@ -144,6 +144,12 @@ pub enum Error {
         name: String,
         msg: String,
     },
+    #[snafu(display("failed to set property {} on {}", attr, name))]
+    SetXAttr {
+        source: Errno,
+        attr: String,
+        name: String,
+    },
 }
 
 /// Map CoreError to errno code.
@@ -222,6 +228,9 @@ impl ToErrno for Error {
             Self::CloneConfigFailed {
                 ..
             } => Errno::EINVAL,
+            Self::SetXAttr {
+                source, ..
+            } => source,
         }
     }
 }

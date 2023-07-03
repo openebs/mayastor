@@ -1760,6 +1760,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     Some(name.clone()),
                     None, // snapshot UUID will be handled on per-replica base.
                     Some(Utc::now().to_string()),
+                    false,
                 );
 
                 let mut replicas = Vec::new();

@@ -179,6 +179,7 @@ impl ReplicaSnapshotExecutor {
                     snapshot.name(),
                     Some(ctx.snapshot_uuid.clone()),
                     snapshot.create_time(),
+                    false,
                 );
 
                 let replica_uuid = ctx.replica_uuid.clone();
