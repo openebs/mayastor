@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 
+SCRIPTDIR="$(realpath "$(dirname "$0")")"
+
+cleanup_handler() {
+  ERROR=$?
+  "$SCRIPTDIR"/clean-cargo-tests.sh || true
+  if [ $ERROR != 0 ]; then exit $ERROR; fi
+}
+
+cleanup_handler
+trap cleanup_handler INT QUIT TERM HUP EXIT
+
 set -euxo pipefail
 
 export PATH="$PATH:${HOME}/.cargo/bin"
 export npm_config_jobs=$(nproc)
-
-$(dirname "$0")/clean-cargo-tests.sh
 
 cargo build --all
 cd "$(dirname "$0")/../test/grpc"
