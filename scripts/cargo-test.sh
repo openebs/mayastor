@@ -3,23 +3,16 @@
 SCRIPTDIR=$(dirname "$0")
 
 cleanup_handler() {
-  for c in $(docker ps -a --filter "label=io.mayastor.test.name" --format '{{.ID}}') ; do
-    docker kill "$c" || true
-    docker rm "$c" || true
-  done
-
-  for n in $(docker network ls --filter "label=io.mayastor.test.name" --format '{{.ID}}') ; do
-    docker network rm "$n" || true
-  done
+  $SCRIPTDIR/clean-cargo-tests.sh || true
 }
 
-trap cleanup_handler ERR INT QUIT TERM HUP
+trap cleanup_handler ERR INT QUIT TERM HUP EXIT
 
 echo "running cargo-test..."
 echo "rustc version:"
 rustc --version
 
-$SCRIPTDIR/clean-cargo-tests.sh
+cleanup_handler
 
 set -euxo pipefail
 export PATH=$PATH:${HOME}/.cargo/bin
