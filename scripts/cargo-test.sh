@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 
-SCRIPTDIR=$(dirname "$0")
+SCRIPTDIR="$(realpath "$(dirname "$0")")"
 
 cleanup_handler() {
-  $SCRIPTDIR/clean-cargo-tests.sh || true
+  ERROR=$?
+  "$SCRIPTDIR"/clean-cargo-tests.sh || true
+  if [ $ERROR != 0 ]; then exit $ERROR; fi
 }
-
-trap cleanup_handler ERR INT QUIT TERM HUP EXIT
 
 echo "running cargo-test..."
 echo "rustc version:"
 rustc --version
 
 cleanup_handler
+trap cleanup_handler INT QUIT TERM HUP EXIT
 
 set -euxo pipefail
 export PATH=$PATH:${HOME}/.cargo/bin
