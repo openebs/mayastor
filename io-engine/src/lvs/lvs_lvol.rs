@@ -18,10 +18,12 @@ use spdk_rs::libspdk::{
     spdk_blob,
     spdk_blob_calc_used_clusters,
     spdk_blob_get_num_clusters,
+    spdk_blob_get_num_clusters_ancestors,
     spdk_blob_get_xattr_value,
     spdk_blob_is_clone,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
+    spdk_blob_is_thin_provisioned,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_bs_get_cluster_size,
@@ -123,6 +125,10 @@ pub struct LvolSpaceUsage {
     pub num_clusters: u64,
     /// Number of actually allocated clusters.
     pub num_allocated_clusters: u64,
+    /// Amount of disk space allocated by snapshots of this volume.
+    pub allocated_bytes_snapshots: u64,
+    /// Number of clusters allocated by snapshots of this volume.
+    pub num_allocated_clusters_snapshots: u64,
 }
 #[derive(Clone)]
 /// struct representing an lvol
@@ -899,7 +905,7 @@ impl LogicalVolume for Lvol {
 
     /// Returns a boolean indicating if the Logical Volume is thin provisioned.
     fn is_thin(&self) -> bool {
-        self.as_inner_ref().thin_provision
+        unsafe { spdk_blob_is_thin_provisioned(self.blob_checked()) }
     }
 
     /// Returns a boolean indicating if the Logical Volume is read-only.
@@ -921,12 +927,30 @@ impl LogicalVolume for Lvol {
             let num_clusters = spdk_blob_get_num_clusters(blob);
             let num_allocated_clusters = spdk_blob_calc_used_clusters(blob);
 
+            let num_allocated_clusters_snapshots = {
+                let mut c: u64 = 0;
+
+                match spdk_blob_get_num_clusters_ancestors(bs, blob, &mut c) {
+                    0 => c,
+                    errno => {
+                        error!(
+                            ?self,
+                            errno, "Failed to get snapshot space usage"
+                        );
+                        0
+                    }
+                }
+            };
+
             LvolSpaceUsage {
                 capacity_bytes: self.size(),
                 allocated_bytes: cluster_size * num_allocated_clusters,
                 cluster_size,
                 num_clusters,
                 num_allocated_clusters,
+                num_allocated_clusters_snapshots,
+                allocated_bytes_snapshots: cluster_size
+                    * num_allocated_clusters_snapshots,
             }
         }
     }
