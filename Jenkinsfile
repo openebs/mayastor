@@ -181,8 +181,7 @@ pipeline {
           }
           post {
             always {
-              // in case of abnormal termination of any nvmf test
-              sh 'sudo nvme disconnect-all'
+              sh 'nix-shell --run "./scripts/clean-cargo-tests.sh" ci.nix'
               sh 'sudo ./scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
@@ -216,6 +215,7 @@ pipeline {
           }
           post {
             always {
+              sh 'nix-shell --run "./scripts/clean-cargo-tests.sh" ci.nix'
               junit '*-xunit-report.xml'
               sh 'sudo ./scripts/check-coredumps.sh --since "${START_DATE}"'
             }
