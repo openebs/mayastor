@@ -1,11 +1,11 @@
-pub use lvol_snapshot_iter::LvolSnapshotIter;
+pub use lvol_snapshot::LvolSnapshotIter;
 pub use lvs_bdev::LvsBdev;
 pub use lvs_error::Error;
 pub use lvs_iter::{LvsBdevIter, LvsIter};
 pub use lvs_lvol::{Lvol, LvolSpaceUsage, LvsLvol, PropName, PropValue};
 pub use lvs_store::Lvs;
 
-mod lvol_snapshot_iter;
+mod lvol_snapshot;
 mod lvs_bdev;
 mod lvs_error;
 mod lvs_iter;

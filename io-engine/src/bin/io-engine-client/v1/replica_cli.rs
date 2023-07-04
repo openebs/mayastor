@@ -312,13 +312,24 @@ async fn replica_list(
                         capacity,
                         allocated,
                         r.uri.clone(),
+                        r.is_snapshot.to_string(),
+                        r.is_clone.to_string(),
                     ]
                 })
                 .collect();
             ctx.print_list(
                 vec![
-                    "POOL", "NAME", "UUID", ">THIN", ">SHARE", ">SIZE", ">CAP",
-                    ">ALLOC", "URI",
+                    "POOL",
+                    "NAME",
+                    "UUID",
+                    ">THIN",
+                    ">SHARE",
+                    ">SIZE",
+                    ">CAP",
+                    ">ALLOC",
+                    "URI",
+                    "IS_SNAPSHOT",
+                    "IS_CLONE",
                 ],
                 table,
             );

@@ -1763,13 +1763,11 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 for r in nexus.children() {
                     match r.get_uuid() {
                         Some(u) => {
-                            replicas.push(
-                                NexusReplicaSnapshotDescriptor {
-                                    replica_uuid: u.to_string(),
-                                    snapshot_uuid: Some(Uuid::new_v4().to_string()), // unique snapshot UUID.
-                                    skip: false,
-                                }
-                            )
+                            replicas.push(NexusReplicaSnapshotDescriptor {
+                                replica_uuid: u.to_string(),
+                                snapshot_uuid: Some(Uuid::new_v4().to_string()), // unique snapshot UUID.
+                                skip: false,
+                            })
                         }
                         None => {
                             let emsg =
