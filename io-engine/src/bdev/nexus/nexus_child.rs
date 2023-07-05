@@ -183,8 +183,6 @@ pub enum ChildState {
     ConfigInvalid,
     /// The child is open for I/O.
     Open,
-    /// The child device is being destroyed.
-    Destroying,
     /// The child has been closed by the nexus.
     Closed,
     /// The child is faulted.
@@ -209,7 +207,6 @@ impl Display for ChildState {
             Self::Init => write!(f, "init"),
             Self::ConfigInvalid => write!(f, "config invalid"),
             Self::Open => write!(f, "open"),
-            Self::Destroying => write!(f, "destroying"),
             Self::Closed => write!(f, "closed"),
             Self::Faulted(r) => write!(f, "faulted ({r})"),
         }
@@ -224,12 +221,6 @@ impl ChildState {
             self,
             ChildState::Open | ChildState::Init | ChildState::ConfigInvalid
         )
-    }
-
-    /// Determines if the state is a transition into a destroyed or close-like
-    /// state.
-    pub fn is_destroying(&self) -> bool {
-        matches!(self, ChildState::Destroying)
     }
 
     /// Determines if a child is in a state that can be onlined (re-opened).
@@ -266,6 +257,24 @@ impl Display for ChildSyncState {
     }
 }
 
+/// State of a child device destroy process.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+pub(crate) enum ChildDestroyState {
+    /// The child is not being destroyed.
+    None,
+    /// The child device is being destroyed.
+    Destroying,
+}
+
+impl Display for ChildDestroyState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::Destroying => write!(f, "destroying"),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct NexusChild<'c> {
     /// name of the parent this child belongs too
@@ -276,9 +285,9 @@ pub struct NexusChild<'c> {
     /// indicates that the child device is ok, but needs to be rebuilt.
     #[serde(skip_serializing)]
     sync_state: AtomicCell<ChildSyncState>,
-    /// previous state of the child
+    /// current state of device destroy process
     #[serde(skip_serializing)]
-    prev_state: AtomicCell<ChildState>,
+    destroy_state: AtomicCell<ChildDestroyState>,
     /// last fault timestamp if this child went faulted
     #[serde(skip_serializing)]
     faulted_at: parking_lot::Mutex<Option<DateTime<Utc>>>,
@@ -312,10 +321,14 @@ impl Debug for NexusChild<'_> {
 
         write!(
             f,
-            "Child '{name} @ {nexus}' [{st} {sync}{re}{io_log}]",
+            "Child '{name} @ {nexus}' [{st}{dest} {sync}{re}{io_log}]",
             name = self.name,
             nexus = self.parent,
             st = self.state(),
+            dest = match self.destroy_state() {
+                ChildDestroyState::None => "",
+                ChildDestroyState::Destroying => " (destroying)",
+            },
             sync = self.sync_state(),
             re = if self.is_rebuilding() {
                 "; rebuilding"
@@ -331,8 +344,7 @@ impl<'c> NexusChild<'c> {
     /// TODO
     fn set_state(&self, state: ChildState) {
         debug!("{self:?}: changing state to '{state}'");
-        let prev_state = self.state.swap(state);
-        self.prev_state.store(prev_state);
+        self.state.store(state);
     }
 
     /// Unconditionally sets child's state as faulted with the given reason.
@@ -356,7 +368,12 @@ impl<'c> NexusChild<'c> {
         parent_size: u64,
         sync_state: ChildSyncState,
     ) -> Result<String, ChildError> {
-        info!("{:?}: opening child device...", self);
+        info!("{self:?}: opening child device...");
+
+        if self.is_destroying() {
+            error!("{self:?}: cannot open: block device is being destroyed");
+            return Err(ChildError::ChildBeingDestroyed {});
+        }
 
         // verify the state of the child before we open it
         match self.state() {
@@ -370,13 +387,6 @@ impl<'c> NexusChild<'c> {
                 assert!(self.device_descriptor.is_some());
                 warn!("{:?}: already opened", self);
                 return Ok(self.name.clone());
-            }
-            ChildState::Destroying => {
-                error!(
-                    "{:?}: cannot open: block device is being destroyed",
-                    self
-                );
-                return Err(ChildError::ChildBeingDestroyed {});
             }
             _ => {}
         }
@@ -427,16 +437,12 @@ impl<'c> NexusChild<'c> {
             ChildState::Init => ChildStateClient::Init,
             ChildState::ConfigInvalid => ChildStateClient::ConfigInvalid,
             ChildState::Open => ChildStateClient::Open,
-            ChildState::Destroying => match self.prev_state.load() {
-                ChildState::Faulted(r) => ChildStateClient::Faulting(r),
-                _ => ChildStateClient::Faulting(FaultReason::Unknown),
-            },
             ChildState::Closed => ChildStateClient::Closed,
             ChildState::Faulted(r) => {
                 // If the child is in the `Faulted` state but the device is
                 // still being closed, report it as a transitional `Faulting`
                 // state.
-                if self.device_descriptor.is_some() {
+                if self.is_destroying() || self.device_descriptor.is_some() {
                     ChildStateClient::Faulting(r)
                 } else {
                     ChildStateClient::Faulted(r)
@@ -457,6 +463,24 @@ impl<'c> NexusChild<'c> {
         self.sync_state.store(s)
     }
 
+    /// Returns the destroy state of the child.
+    #[inline]
+    pub(crate) fn destroy_state(&self) -> ChildDestroyState {
+        self.destroy_state.load()
+    }
+
+    /// Sets the destroy state of the child.
+    #[inline]
+    pub(crate) fn set_destroy_state(&self, s: ChildDestroyState) {
+        self.destroy_state.store(s)
+    }
+
+    /// Determines if the child is being destroyed.
+    #[inline]
+    pub(crate) fn is_destroying(&self) -> bool {
+        matches!(self.destroy_state.load(), ChildDestroyState::Destroying)
+    }
+
     /// Return the last fault timestamp of the child.
     pub fn fault_timestamp(&self) -> Option<DateTime<Utc>> {
         *self.faulted_at.lock()
@@ -465,6 +489,12 @@ impl<'c> NexusChild<'c> {
     /// Sets the timestamp of this child fault to `now`.
     pub(super) fn set_fault_timestamp(&self) {
         *self.faulted_at.lock() = Some(Utc::now());
+    }
+
+    /// Determines if the child is opened.
+    #[inline]
+    pub fn is_opened(&self) -> bool {
+        self.state() == ChildState::Open
     }
 
     /// Determines if the child is opened but out-of-sync (needs rebuild or
@@ -933,10 +963,7 @@ impl<'c> NexusChild<'c> {
 
     /// Closes the child and forces a faulted state.
     pub(crate) async fn close_faulted(&self, reason: FaultReason) {
-        if let Err(e) = self.close().await {
-            error!("{self:?}: failed to close: {e}", e = e.verbose());
-        }
-
+        self.close().await.ok();
         self.set_faulted_state(reason);
     }
 
@@ -974,11 +1001,8 @@ impl<'c> NexusChild<'c> {
             return Err(ChildError::CannotOnlineChild {});
         }
 
-        if state.is_destroying() {
-            warn!(
-                "{:?}: child device is being destroyed and cannot be onlined",
-                self
-            );
+        if self.is_destroying() {
+            error!("{self:?}: child is being destroyed and cannot be onlined");
             return Err(ChildError::ChildBeingDestroyed {});
         }
 
@@ -1024,7 +1048,17 @@ impl<'c> NexusChild<'c> {
     pub(crate) async fn close(&self) -> Result<(), BdevError> {
         info!("{self:?}: closing child...");
 
+        if self.destroy_state.compare_exchange(
+            ChildDestroyState::None,
+            ChildDestroyState::Destroying,
+        ) != Ok(ChildDestroyState::None)
+        {
+            warn!("{self:?}: already being closed");
+            return Ok(());
+        }
+
         if self.device.is_none() {
+            self.set_destroy_state(ChildDestroyState::None);
             warn!("{self:?}: no block device: appears to be already closed");
             return Ok(());
         }
@@ -1035,20 +1069,29 @@ impl<'c> NexusChild<'c> {
         }
 
         // Destruction raises a device removal event.
-        let destroyed = self.destroy_device().await;
+        info!("{self:?}: destroying block device...");
+        match device_destroy(&self.name).await {
+            Ok(_) => {
+                info!(
+                    "{self:?}: block device destroyed, waiting for removal..."
+                );
 
-        // Only wait for block device removal if the child has been initialised.
-        // An uninitialized child won't have an underlying devices.
-        // Also check previous state as remove event may not have occurred.
-        if self.state.load() != ChildState::Init
-            && self.prev_state.load() != ChildState::Init
-        {
-            self.remove_channel.1.recv().await.ok();
+                // Only wait for block device removal if the child has been
+                // initialised.
+                if self.state.load() != ChildState::Init {
+                    self.remove_channel.1.recv().await.ok();
+                }
+
+                self.set_destroy_state(ChildDestroyState::None);
+                info!("{self:?}: child closed successfully");
+                Ok(())
+            }
+            Err(e) => {
+                self.set_destroy_state(ChildDestroyState::None);
+                error!("{self:?}: failed to close child: {e}");
+                Err(e)
+            }
         }
-
-        info!("{self:?}: child closed successfully");
-
-        destroyed
     }
 
     /// Called in response to a device removal event.
@@ -1057,38 +1100,25 @@ impl<'c> NexusChild<'c> {
     ///
     /// Note: The descriptor *must* be dropped for the unplug to complete.
     pub(crate) fn unplug(&mut self) {
-        info!("{:?}: unplugging child...", self);
+        info!("{self:?}: unplugging child...");
 
-        let mut state = self.state();
+        let state = self.state();
+        let is_destroying = self.is_destroying();
 
         // Only drop the device and the device descriptor if the child is being
         // destroyed. For a hot remove event, keep the device and descriptor.
-        let mut was_destroying = false;
-        if state == ChildState::Destroying {
-            debug!("{:?}: dropping block device", self);
-
-            // Block device is being removed, so ensure we don't use it again.
+        if is_destroying {
+            debug!("{self:?}: dropping block device");
             self.device = None;
-            was_destroying = true;
-            state = self.prev_state.load();
+        } else {
+            debug!("{self:?}: hot remove: keeping block device");
         }
 
-        match state {
-            ChildState::Open => {
-                // TODO: double-check interaction with rebuild job logic
-
-                // Change the state of the child to ensure it is taken out of
-                // the I/O path when the nexus is reconfigured.
-                self.set_state(ChildState::Closed);
-            }
-            // leave the state into whatever we found it as
-            _ => {
-                if was_destroying {
-                    // Restore the previous state
-                    info!("{:?}: reverting to previous state: {}", self, state);
-                    self.set_state(state);
-                }
-            }
+        if matches!(state, ChildState::Open) {
+            // Change the state of the child to ensure it is taken out of
+            // the I/O path when the nexus is reconfigured.
+            // TODO: double-check interaction with rebuild job logic
+            self.set_state(ChildState::Closed);
         }
 
         // Remove the child from the I/O path. If we had an IO error the block
@@ -1102,19 +1132,19 @@ impl<'c> NexusChild<'c> {
             Reactor::block_on(async move {
                 match nexus_lookup_mut(&nexus_name) {
                     Some(n) => n.reconfigure(DrEvent::ChildUnplug).await,
-                    None => error!("Nexus '{}' not found", nexus_name),
+                    None => error!("Nexus '{nexus_name}' not found"),
                 }
             });
         }
 
-        if was_destroying {
+        if is_destroying {
             // Dropping the last descriptor results in the device being removed.
             // This must be performed in this function.
             self.device_descriptor.take();
         }
 
         self.unplug_complete();
-        info!("{:?}: child successfully unplugged", self);
+        info!("{self:?}: child successfully unplugged");
     }
 
     /// Signal that the child unplug is complete.
@@ -1149,38 +1179,12 @@ impl<'c> NexusChild<'c> {
             device_descriptor: None,
             state: AtomicCell::new(ChildState::Init),
             sync_state: AtomicCell::new(ChildSyncState::Synced),
-            prev_state: AtomicCell::new(ChildState::Init),
+            destroy_state: AtomicCell::new(ChildDestroyState::None),
             faulted_at: parking_lot::Mutex::new(None),
             remove_channel: async_channel::bounded(1),
             io_log: Mutex::new(None),
             _c: Default::default(),
         }
-    }
-
-    /// Destroys the child's underlying block device.
-    ///
-    /// While the desvice is being destroyed, the child will temporarily stay in
-    /// `Destroying` state.
-    ///
-    /// Once the device is destroyed, the child transits
-    /// to `Closed` state or reverts to the state before the device destroy:
-    ///
-    /// * If the child was `Open` before destroying the device, it will transit
-    ///   to `Closed`.
-    ///
-    /// * If the child was `Faulted` before destroying the device, it will
-    ///   revert back to `Faulted`.
-    pub(super) async fn destroy_device(&self) -> Result<(), BdevError> {
-        if self.device.is_some() {
-            self.set_state(ChildState::Destroying);
-            info!("{:?}: destroying block device...", self);
-            device_destroy(&self.name).await?;
-            info!("{:?}: block device destroyed ok", self);
-        } else {
-            warn!("{:?}: no block device, ignoring device destroy call", self);
-        }
-
-        Ok(())
     }
 
     /// Returns reference to child's block device.
