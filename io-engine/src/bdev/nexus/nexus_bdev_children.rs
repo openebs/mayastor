@@ -25,7 +25,6 @@
 
 use std::{cmp::min, pin::Pin};
 
-use futures::future::join_all;
 use snafu::ResultExt;
 
 use super::{
@@ -444,7 +443,7 @@ impl<'n> Nexus<'n> {
 
         // Acquire reservations.
         if let Err(e) = child.reservation_acquire(&self.nvme_params).await {
-            let _ = child.close().await;
+            child.close().await.ok();
 
             return Err(e).context(nexus_err::OnlineChild {
                 child: child_uri.to_owned(),
@@ -457,19 +456,28 @@ impl<'n> Nexus<'n> {
 
         // Start rebuild.
         if let Err(e) = self.start_rebuild(child_uri).await {
-            let _ = child.close().await;
+            child.close().await.ok();
             return Err(e);
         }
 
         Ok(self.status())
     }
 
-    /// Close each child that belongs to this nexus.
+    /// Unconditionally closes all children of this nexus.
     pub(crate) async fn close_children(&self) {
-        let futures = self.children_iter().map(|c| c.close());
-        let results = join_all(futures).await;
-        if results.iter().any(|c| c.is_err()) {
-            error!("{self:?}: failed to close children");
+        info!("{self:?}: closing {n} children...", n = self.children.len());
+
+        let mut failed = 0;
+        for child in self.children_iter() {
+            if child.close().await.is_err() {
+                failed += 1;
+            }
+        }
+
+        if failed == 0 {
+            info!("{self:?}: all children closed");
+        } else {
+            error!("{self:?}: failed to close some of the children");
         }
     }
 
@@ -511,14 +519,8 @@ impl<'n> Nexus<'n> {
         if let Some(error) = error {
             // Close any children that WERE succesfully opened.
             for child in self.children_iter() {
-                if child.is_healthy() {
-                    if let Err(error) = child.close().await {
-                        error!(
-                            "{:?}: child failed to close: {}",
-                            child,
-                            error.verbose()
-                        );
-                    }
+                if child.is_opened() {
+                    child.close().await.ok();
                 }
             }
 
@@ -544,17 +546,9 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        if let Err(error) = write_ex_err {
-            for child in self.children_iter() {
-                if let Err(error) = child.close().await {
-                    error!(
-                        "{:?}: child failed to close: {}",
-                        child,
-                        error.verbose()
-                    );
-                }
-            }
-            return Err(error);
+        if let Err(e) = write_ex_err {
+            self.close_children().await;
+            return Err(e);
         }
 
         let mut new_alignment = self.alignment();
@@ -1068,7 +1062,7 @@ impl<'n> Nexus<'n> {
         // Cancel rebuild job for this child, if any.
         if let Some(job) = child.rebuild_job() {
             debug!("{self:?}: retire: stopping rebuild job...");
-            let terminated = job.terminate();
+            let terminated = job.force_fail();
             Reactors::master().send_future(async move {
                 terminated.await.ok();
             });

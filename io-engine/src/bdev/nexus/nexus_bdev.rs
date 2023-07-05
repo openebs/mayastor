@@ -804,17 +804,7 @@ impl<'n> Nexus<'n> {
             self.as_mut().cancel_rebuild_jobs(&child).await;
         }
 
-        info!("{:?}: closing {} children...", self, self.children.len());
-        for child in self.children_iter() {
-            if let Err(e) = child.close().await {
-                // TODO: should an error be returned here?
-                error!(
-                    "{child:?}: child failed to close: {e}",
-                    e = e.verbose()
-                );
-            }
-        }
-        info!("{:?}: children closed", self);
+        self.close_children().await;
 
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await.ok();
@@ -1194,7 +1184,7 @@ impl<'n> BdevOps for Nexus<'n> {
 
             // TODO: double-check interaction with rebuild job logic
             // TODO: cancel rebuild jobs?
-            let n = self_ref.children.iter().filter(|c| c.is_healthy()).count();
+            let n = self_ref.children.iter().filter(|c| c.is_opened()).count();
 
             if n > 0 {
                 warn!(
@@ -1203,14 +1193,8 @@ impl<'n> BdevOps for Nexus<'n> {
                 );
 
                 for child in self_ref.children.iter() {
-                    if child.is_healthy() {
-                        if let Err(e) = child.close().await {
-                            error!(
-                                "{:?}: child failed to close: {}",
-                                child,
-                                e.verbose()
-                            );
-                        }
+                    if child.is_opened() {
+                        child.close().await.ok();
                     }
                 }
             }
