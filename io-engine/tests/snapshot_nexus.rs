@@ -597,6 +597,10 @@ async fn test_duplicated_snapshot_uuid_name() {
 
 #[tokio::test]
 async fn test_snapshot_ancestor_usage() {
+    const SNAP1_NAME: &str = "snapshot61";
+    const SNAP2_NAME: &str = "snapshot62";
+    const SNAP3_NAME: &str = "snapshot63";
+
     let ms = get_ms();
     let (test, urls) = launch_instance(true).await;
     let conn = GrpcConnect::new(&test);
@@ -622,7 +626,7 @@ async fn test_snapshot_ancestor_usage() {
             Some("e61".to_string()),
             Some(replica1_uuid()),
             Some("t61".to_string()),
-            Some(String::from("snapshot61")),
+            Some(String::from(SNAP1_NAME)),
             Some(snapshot_uuid.clone()),
             Some(Utc::now().to_string()),
         );
@@ -745,10 +749,10 @@ async fn test_snapshot_ancestor_usage() {
             nexus_lookup_mut(&nexus_name()).expect("Can't find the nexus");
 
         let snapshot_params = SnapshotParams::new(
-            Some("e71".to_string()),
+            Some("e62".to_string()),
             Some(replica1_uuid()),
-            Some("t71".to_string()),
-            Some(String::from("snapshot71")),
+            Some("t62".to_string()),
+            Some(String::from(SNAP2_NAME)),
             Some(Uuid::new_v4().to_string()),
             Some(Utc::now().to_string()),
         );
@@ -800,6 +804,98 @@ async fn test_snapshot_ancestor_usage() {
         usage3.num_allocated_clusters_snapshots,
         usage2.num_allocated_clusters_snapshots + 1,
         "Amount of clusters allocated by snapshots has changed"
+    );
+
+    /* Make sure 2 test snapshots properly expose referenced bytes.
+     * The newest snapshot should expose allocated bytes of the oldest
+     * snapshot as its referenced bytes, whereas the oldest snapshot
+     * should expose zero as referenced bytes (since it's the last
+     * snapshot in the chain and has no successors).
+     */
+    let snapshots = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+        })
+        .await
+        .expect("Failed to list snapshots on replica node")
+        .into_inner()
+        .snapshots;
+
+    assert_eq!(
+        snapshots.len(),
+        2,
+        "Invalid number of snapshots reported for test volume"
+    );
+    let snap1 = snapshots.get(0).expect("Can't get the first sbapshot");
+    let snap2 = snapshots.get(1).expect("Can't get the second snaoshot");
+
+    let (oldest, newest) = if snap1.snapshot_name.eq(SNAP1_NAME) {
+        (snap1, snap2)
+    } else {
+        (snap2, snap1)
+    };
+
+    assert_eq!(
+        oldest.referenced_bytes, 0,
+        "Oldest snapshot has non-zero referenced bytes"
+    );
+    assert_eq!(
+        newest.referenced_bytes, REPLICA_SIZE,
+        "Number of bytes referenced by the ancestor snapshot doesn't match"
+    );
+
+    // Create the third snapshot and make sure it correctly references space of
+    // 2 pre-existing snapshots.
+    ms.spawn(async move {
+        let nexus =
+            nexus_lookup_mut(&nexus_name()).expect("Can't find the nexus");
+
+        let snapshot_params = SnapshotParams::new(
+            Some("e63".to_string()),
+            Some(replica1_uuid()),
+            Some("t63".to_string()),
+            Some(String::from(SNAP3_NAME)),
+            Some(Uuid::new_v4().to_string()),
+            Some(Utc::now().to_string()),
+        );
+
+        let replicas = vec![NexusReplicaSnapshotDescriptor {
+            replica_uuid: replica1_uuid(),
+            skip: false,
+            snapshot_uuid: snapshot_params.snapshot_uuid(),
+        }];
+
+        let res = nexus
+            .create_snapshot(snapshot_params, replicas)
+            .await
+            .expect("Failed to create nexus snapshot");
+
+        let replica_status: Vec<(String, u32)> = vec![(replica1_uuid(), 0)];
+        check_nexus_snapshot_status(&res, &replica_status);
+    })
+    .await;
+
+    // The third snapshot must reference the space of the other two snapshots.
+    let snap3 = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+        })
+        .await
+        .expect("Failed to list snapshots on replica node")
+        .into_inner()
+        .snapshots
+        .into_iter()
+        .find(|s| s.snapshot_name.eq(SNAP3_NAME))
+        .expect("Can't list the third snapshot");
+
+    assert_eq!(
+        snap3.referenced_bytes,
+        REPLICA_SIZE + cluster_size,
+        "Number of bytes referenced by ancestor snapshots doesn't match"
     );
 
     nvme_disconnect_all();
