@@ -114,7 +114,7 @@ impl RebuildTask {
         descriptor: &RebuildDescriptor,
     ) -> Result<(), RebuildError> {
         let mut copy_buffer: DmaBuf;
-        let mut source_hdl = descriptor.src_io_handle().await?;
+        let source_hdl = descriptor.src_io_handle().await?;
         let destination_hdl = descriptor.dst_io_handle().await?;
 
         let copy_buffer = if descriptor.get_segment_size_blks(blk)
@@ -136,9 +136,12 @@ impl RebuildTask {
             &mut copy_buffer
         };
 
-        source_hdl.set_read_mode(ReadMode::UnwrittenFail);
         let res = source_hdl
-            .read_at(blk * descriptor.block_size, copy_buffer)
+            .read_at_ex(
+                blk * descriptor.block_size,
+                copy_buffer,
+                Some(ReadMode::UnwrittenFail),
+            )
             .await;
 
         if let Err(CoreError::ReadingUnallocatedBlock {
