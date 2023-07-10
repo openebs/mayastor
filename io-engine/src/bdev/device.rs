@@ -250,16 +250,13 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         DmaBuf::new(size, self.device.alignment())
     }
 
-    async fn read_at(
+    async fn read_at_ex(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
+        mode: Option<ReadMode>,
     ) -> Result<u64, CoreError> {
-        self.handle.read_at(offset, buffer).await
-    }
-
-    fn set_read_mode(&mut self, mode: ReadMode) {
-        self.handle.set_read_mode(mode);
+        self.handle.read_at_ex(offset, buffer, mode).await
     }
 
     async fn write_at(

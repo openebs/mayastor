@@ -549,10 +549,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         DmaBuf::new(size, self.ns.alignment())
     }
 
-    async fn read_at(
+    async fn read_at_ex(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
+        mode: Option<ReadMode>,
     ) -> Result<u64, CoreError> {
         let (valid, offset_blocks, num_blocks) =
             self.bytes_to_blocks(offset, buffer.len());
@@ -576,6 +577,13 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             });
         }
 
+        let flags = mode.map_or(self.prchk_flags, |m| match m {
+            ReadMode::Normal => self.prchk_flags,
+            ReadMode::UnwrittenFail => {
+                self.prchk_flags | SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
+            }
+        });
+
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
@@ -592,7 +600,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 num_blocks as u32,
                 Some(nvme_async_io_completion),
                 cb_arg(s),
-                self.prchk_flags,
+                flags,
             )
         };
 
@@ -629,14 +637,6 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         };
         inner.discard_io();
         ret
-    }
-
-    /// TODO
-    fn set_read_mode(&mut self, mode: ReadMode) {
-        self.prchk_flags = match mode {
-            ReadMode::Normal => 0,
-            ReadMode::UnwrittenFail => SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
-        };
     }
 
     async fn write_at(
