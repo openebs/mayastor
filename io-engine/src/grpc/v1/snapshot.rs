@@ -137,10 +137,13 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
                 }
             }
         }
+
+        let usage = snap_lvol.usage();
+
         Self {
             snapshot_uuid: snap_lvol.uuid(),
             snapshot_name: snap_lvol.name(),
-            snapshot_size: snap_lvol.usage().allocated_bytes,
+            snapshot_size: usage.allocated_bytes,
             num_clones: 0, //TODO: Need to implement along with clone
             timestamp: snapshot_param
                 .create_time()
@@ -153,6 +156,7 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
             txn_id: snapshot_param.txn_id().unwrap_or_default(),
             valid_snapshot: true,
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
+            referenced_bytes: usage.allocated_bytes_snapshots,
         }
     }
 }
@@ -160,10 +164,12 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
 /// Generate SnapshotInfo for the ListSnapshot Response.
 impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
     fn from(s: VolumeSnapshotDescriptor) -> Self {
+        let usage = s.snapshot_lvol().usage();
+
         Self {
             snapshot_uuid: s.snapshot_lvol().uuid(),
             snapshot_name: s.snapshot_params().name().unwrap_or_default(),
-            snapshot_size: s.snapshot_lvol().usage().allocated_bytes,
+            snapshot_size: usage.allocated_bytes,
             num_clones: s.num_clones(),
             timestamp: s
                 .snapshot_params()
@@ -177,6 +183,7 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
             txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
             valid_snapshot: s.valid_snapshot(),
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
+            referenced_bytes: usage.allocated_bytes_snapshots,
         }
     }
 }
