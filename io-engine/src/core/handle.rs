@@ -47,8 +47,6 @@ pub struct BdevHandle<T: BdevOps> {
     channel: IoChannelGuard<T::ChannelData>,
     /// TODO
     desc: Arc<DescriptorGuard<T>>,
-    /// TODO
-    io_flags: u32,
 }
 
 pub type UntypedBdevHandle = BdevHandle<()>;
@@ -167,13 +165,27 @@ impl<T: BdevOps> BdevHandle<T> {
             }),
         }
     }
-
     /// read at given offset into the ['DmaBuf']
     pub async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError> {
+        self.read_at_ex(offset, buffer, None).await
+    }
+
+    /// read at given offset into the ['DmaBuf']
+    pub(crate) async fn read_at_ex(
+        &self,
+        offset: u64,
+        buffer: &mut DmaBuf,
+        mode: Option<ReadMode>,
+    ) -> Result<u64, CoreError> {
+        let flags = mode.map_or(0, |m| match m {
+            ReadMode::Normal => 0,
+            ReadMode::UnwrittenFail => SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
+        });
+
         let (s, r) = oneshot::channel::<NvmeStatus>();
         let errno = unsafe {
             spdk_bdev_read_with_flags(
@@ -184,7 +196,7 @@ impl<T: BdevOps> BdevHandle<T> {
                 buffer.len(),
                 Some(Self::io_completion_cb),
                 cb_arg(s),
-                self.io_flags,
+                flags,
             )
         };
 
@@ -210,13 +222,6 @@ impl<T: BdevOps> BdevHandle<T> {
                 len: buffer.len(),
             }),
         }
-    }
-
-    pub fn set_read_mode(&mut self, mode: ReadMode) {
-        self.io_flags = match mode {
-            ReadMode::Normal => 0,
-            ReadMode::UnwrittenFail => SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
-        };
     }
 
     pub async fn reset(&self) -> Result<(), CoreError> {
@@ -388,7 +393,6 @@ impl<T: BdevOps> TryFrom<Arc<DescriptorGuard<T>>> for BdevHandle<T> {
             return Ok(Self {
                 channel,
                 desc,
-                io_flags: 0,
             });
         }
 

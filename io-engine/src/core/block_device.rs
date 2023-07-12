@@ -151,10 +151,17 @@ pub trait BlockDeviceHandle {
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
-    ) -> Result<u64, CoreError>;
+    ) -> Result<u64, CoreError> {
+        self.read_at_ex(offset, buffer, None).await
+    }
 
     /// TODO
-    fn set_read_mode(&mut self, mode: ReadMode);
+    async fn read_at_ex(
+        &self,
+        offset: u64,
+        buffer: &mut DmaBuf,
+        mode: Option<ReadMode>,
+    ) -> Result<u64, CoreError>;
 
     /// TODO
     async fn write_at(

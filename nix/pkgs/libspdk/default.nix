@@ -56,13 +56,13 @@ let
   # 7. Copy SHA256 from 'got' of the error message to 'sha256' field.
   # 8. 'nix-shell' build must now succeed.
   drvAttrs = rec {
-    version = "23.01-2620df1";
+    version = "23.01-4b3b937";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "45c4b74576f9f45b380ff474ed46635f7596991c";
-      sha256 = "sha256-JyuP2poHfbUVJ61YT0pDZKGk+QjT5aDpg/rgxyuYPc4=";
+      rev = "4b3b937d1f0903d41c1252459b7578a2fcb00bee";
+      sha256 = "sha256-tCc+xFO9w9GmmwfxI8xp8Zs/QI1DqQ7voSGSp3K3Cic=";
       fetchSubmodules = true;
     };
 
