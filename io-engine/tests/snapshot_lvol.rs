@@ -125,6 +125,91 @@ async fn clean_snapshots(snapshot_list: Vec<VolumeSnapshotDescriptor>) {
     }
 }
 
+async fn test_lvol_alloc_after_snapshot(index: u32, thin: bool) {
+    let ms = get_ms();
+    const LVOL_SIZE: u64 = 24 * 1024 * 1024;
+    let pool_name = format!("pool_{index}");
+    let disk = format!("malloc:///disk{index}?size_mb=64");
+    let lvol_name = format!("lvol_{index}");
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(&pool_name, disk).await;
+        let cluster_size = pool.blob_cluster_size();
+        let lvol = pool
+            .create_lvol(
+                &lvol_name,
+                LVOL_SIZE,
+                Some(&Uuid::new_v4().to_string()),
+                thin,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a snapshot-1
+        let entity_id = format!("{lvol_name}_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = format!("{lvol_name}_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+        );
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+        // Original Lvol Size to be 0 after snapshot is created.
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            0,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+        // Write some data to original lvol.
+        bdev_io::write_some(&lvol_name, 0, 16, 0xccu8)
+            .await
+            .expect("Failed to write data to volume");
+
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            cluster_size,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+
+        // Create a snapshot-2 after io done to lvol.
+        let entity_id = format!("{lvol_name}_e2");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = format!("{lvol_name}_snap2");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+        );
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        // Original Lvol Size to be 0 after snapshot is created.
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            0,
+            "Volume still has some space allocated after taking a snapshot"
+        );
+    })
+    .await;
+}
+
 fn check_snapshot_descriptor(
     params: &SnapshotParams,
     descr: &VolumeSnapshotDescriptor,
@@ -720,10 +805,10 @@ async fn test_snapshot_referenced_size() {
         })
         .expect("No second snapshot found");
 
-        // Before a new data is written to the volume, volume's space accounts snapshot space too.
+        // Snapshot takes the ownership of the data and lvol allocation becomes 0.
         assert_eq!(
             lvol.usage().allocated_bytes,
-            2 * cluster_size,
+            0,
             "Volume still has some space allocated after taking a snapshot"
         );
 
@@ -910,4 +995,15 @@ async fn test_snapshot_volume_provisioning_mode() {
         assert!(lvol.is_thin(), "Volume is not reported as thin-provisioned after taking a snapshot");
     })
     .await;
+}
+#[tokio::test]
+async fn test_thin_provision_lvol_alloc_after_snapshot() {
+    const IDX: u32 = 11;
+    test_lvol_alloc_after_snapshot(IDX, true).await;
+}
+
+#[tokio::test]
+async fn test_thik_provision_lvol_alloc_after_snapshot() {
+    const IDX: u32 = 12;
+    test_lvol_alloc_after_snapshot(IDX, false).await;
 }
