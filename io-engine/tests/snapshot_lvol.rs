@@ -720,10 +720,10 @@ async fn test_snapshot_referenced_size() {
         })
         .expect("No second snapshot found");
 
-        // Before a new data is written to the volume, volume's space accounts snapshot space too.
+        // Volume size should be zero.
         assert_eq!(
             lvol.usage().allocated_bytes,
-            2 * cluster_size,
+            0,
             "Volume still has some space allocated after taking a snapshot"
         );
 
