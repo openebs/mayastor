@@ -56,13 +56,15 @@ async def nvme_remote_discover(remote, uri):
         raise ValueError("uri {} is not discovered".format(u.path[1:]))
 
 
-def nvme_connect(uri):
+def nvme_connect(uri, delay=10, tmo=600):
     u = urlparse(uri)
     port = u.port
     host = u.hostname
     nqn = u.path[1:]
 
-    command = "sudo nvme connect -t tcp -s {0} -a {1} -n {2}".format(port, host, nqn)
+    command = (
+        f"sudo nvme connect -t tcp -s {port} -a {host} -n {nqn} -c {delay} -l {tmo}"
+    )
     subprocess.run(command, check=True, shell=True, capture_output=False)
     time.sleep(1)
     command = "sudo nvme list -v -o json"
