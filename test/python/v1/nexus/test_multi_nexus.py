@@ -7,6 +7,7 @@ from v1.mayastor import containers, mayastors, create_temp_files, check_size
 import pytest
 import asyncio
 import uuid as guid
+import pytest_asyncio
 
 NEXUS_COUNT = 15
 DESTROY_COUNT = 7
@@ -139,11 +140,11 @@ def connect_devices(create_nexuses):
         nvme_disconnect(nexus)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def mount_devices(connect_devices):
     "Create and mount a filesystem on each nvmf connected device."
     for dev in connect_devices:
-        await run_cmd_async(f"sudo mkfs.xfs {dev}")
+        await run_cmd_async(f"sudo mkfs.ext4 {dev}")
         await run_cmd_async(f"sudo mkdir -p /mnt{dev}")
         await run_cmd_async(f"sudo mount {dev} /mnt{dev}")
 
@@ -151,6 +152,7 @@ async def mount_devices(connect_devices):
 
     for dev in connect_devices:
         await run_cmd_async(f"sudo umount /mnt{dev}")
+    await run_cmd_async(f"sudo rm -rf /mnt/dev")
 
 
 @pytest.mark.asyncio
