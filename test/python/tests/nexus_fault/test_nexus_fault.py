@@ -143,9 +143,9 @@ def _(mounted_nexus):
     """the initiator filesystem should not be shutdown."""
     try:
         # xfs_info should still be working as the fs is not shutdown
-        run_cmd(f"xfs_info {mounted_nexus}")
-    except:
-        pytest.fail(f"Filesystem on {mounted_nexus} should not be shutdown")
+        run_cmd(f"sudo xfs_info {mounted_nexus}")
+    except Exception as e:
+        pytest.fail(f"Filesystem on {mounted_nexus} should not be shutdown: {e}")
 
 
 @pytest.fixture(scope="module")
