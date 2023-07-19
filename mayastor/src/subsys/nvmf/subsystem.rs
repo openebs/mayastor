@@ -34,6 +34,7 @@ use spdk_rs::libspdk::{
     spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_subsystem_set_sn,
     spdk_nvmf_subsystem_start,
+    spdk_nvmf_subsystem_state_change_done,
     spdk_nvmf_subsystem_stop,
     spdk_nvmf_tgt,
     SPDK_NVMF_SUBTYPE_DISCOVERY,
@@ -340,188 +341,131 @@ impl NvmfSubsystem {
         })
     }
 
+    /// TODO
+    async fn change_state(
+        &self,
+        op: &str,
+        f: impl Fn(
+            *mut spdk_nvmf_subsystem,
+            spdk_nvmf_subsystem_state_change_done,
+            *mut c_void,
+        ) -> i32,
+    ) -> Result<(), Error> {
+        extern "C" fn state_change_cb(
+            _ss: *mut spdk_nvmf_subsystem,
+            arg: *mut c_void,
+            status: i32,
+        ) {
+            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
+            s.send(status).unwrap();
+        }
+
+        debug!(?self, "Subsystem {} in progress...", op);
+
+        let res = {
+            let mut n = 0;
+
+            let (rc, r) = loop {
+                let (s, r) = oneshot::channel::<i32>();
+
+                let rc = -f(self.0.as_ptr(), Some(state_change_cb), cb_arg(s));
+
+                if rc != libc::EBUSY || n >= 3 {
+                    break (rc, r);
+                }
+
+                n += 1;
+
+                warn!(
+                    "Failed to {} '{}': subsystem is busy, retrying {}...",
+                    op,
+                    self.get_nqn(),
+                    n
+                );
+
+                crate::sleep::mayastor_sleep(std::time::Duration::from_millis(
+                    100,
+                ))
+                .await
+                .unwrap();
+            };
+
+            match rc {
+                0 => r.await.unwrap().to_result(|e| Error::Subsystem {
+                    source: Errno::from_i32(e),
+                    nqn: self.get_nqn(),
+                    msg: format!("{} failed", op),
+                }),
+                libc::EBUSY => Err(Error::SubsystemBusy {
+                    nqn: self.get_nqn(),
+                    op: op.to_owned(),
+                }),
+                e => Err(Error::Subsystem {
+                    source: Errno::from_i32(e),
+                    nqn: self.get_nqn(),
+                    msg: format!("failed to initiate {}", op),
+                }),
+            }
+        };
+
+        if let Err(ref e) = res {
+            error!(?self, "Subsystem {} failed: {}", op, e.to_string());
+        } else {
+            debug!(?self, "Subsystem {} completed: Ok", op);
+        }
+
+        res
+    }
+
     /// start the subsystem previously created -- note that we destroy it on
     /// failure to ensure the state is not in limbo and to avoid leaking
     /// resources
     pub async fn start(self) -> Result<String, Error> {
-        extern "C" fn start_cb(
-            ss: *mut spdk_nvmf_subsystem,
-            arg: *mut c_void,
-            status: i32,
-        ) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-            let ss = NvmfSubsystem::from(ss);
-            if status != 0 {
-                error!(
-                    "Failed start subsystem state {} -- destroying it",
-                    ss.get_nqn()
-                );
-                ss.destroy();
-            }
-
-            s.send(status).unwrap();
-        }
-
         self.add_listener().await?;
 
-        let (s, r) = oneshot::channel::<i32>();
+        if let Err(e) = self
+            .change_state("start", |ss, cb, arg| unsafe {
+                spdk_nvmf_subsystem_start(ss, cb, arg)
+            })
+            .await
+        {
+            error!(
+                "Failed to start subsystem '{}': {}; destroying it",
+                self.get_nqn(),
+                e.to_string(),
+            );
 
-        unsafe {
-            spdk_nvmf_subsystem_start(
-                self.0.as_ptr(),
-                Some(start_cb),
-                cb_arg(s),
-            )
+            self.destroy();
+
+            Err(e)
+        } else {
+            Ok(self.get_nqn())
         }
-        .to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: self.get_nqn(),
-            msg: "out of memory".to_string(),
-        })?;
-
-        r.await.unwrap().to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: self.get_nqn(),
-            msg: "failed to start the subsystem".to_string(),
-        })?;
-
-        debug!(?self, "shared");
-        Ok(self.get_nqn())
     }
 
     /// stop the subsystem
     pub async fn stop(&self) -> Result<(), Error> {
-        extern "C" fn stop_cb(
-            ss: *mut spdk_nvmf_subsystem,
-            arg: *mut c_void,
-            status: i32,
-        ) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-
-            let ss = NvmfSubsystem::from(ss);
-            if status != 0 {
-                error!(
-                    "Failed change subsystem state {} -- to STOP",
-                    ss.get_nqn()
-                );
-            }
-
-            s.send(status).unwrap();
-        }
-
-        let (s, r) = oneshot::channel::<i32>();
-        debug!("stopping {:?}", self);
-        unsafe {
-            spdk_nvmf_subsystem_stop(self.0.as_ptr(), Some(stop_cb), cb_arg(s))
-        }
-        .to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: self.get_nqn(),
-            msg: "out of memory".to_string(),
-        })?;
-
-        r.await.unwrap().to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: self.get_nqn(),
-            msg: "failed to stop the subsystem".to_string(),
-        })?;
-
-        debug!("stopped {}", self.get_nqn());
-        Ok(())
+        self.change_state("stop", |ss, cb, arg| unsafe {
+            spdk_nvmf_subsystem_stop(ss, cb, arg)
+        })
+        .await
     }
 
     /// transition the subsystem to paused state
     /// intended to be a temporary state while changes are made
     pub async fn pause(&self) -> Result<(), Error> {
-        extern "C" fn pause_cb(
-            ss: *mut spdk_nvmf_subsystem,
-            arg: *mut c_void,
-            status: i32,
-        ) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-
-            let ss = NvmfSubsystem::from(ss);
-            if status != 0 {
-                error!(
-                    "Failed change subsystem state {} -- to pause",
-                    ss.get_nqn()
-                );
-            }
-
-            s.send(status).unwrap();
-        }
-
-        let (s, r) = oneshot::channel::<i32>();
-
-        unsafe {
-            spdk_nvmf_subsystem_pause(
-                self.0.as_ptr(),
-                1,
-                Some(pause_cb),
-                cb_arg(s),
-            )
-        }
-        .to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(-e),
-            nqn: self.get_nqn(),
-            msg: format!("subsystem_pause returned: {}", e),
-        })?;
-
-        r.await.unwrap().to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: self.get_nqn(),
-            msg: "failed to pause the subsystem".to_string(),
+        self.change_state("pause", |ss, cb, arg| unsafe {
+            spdk_nvmf_subsystem_pause(ss, 1, cb, arg)
         })
+        .await
     }
 
     /// transition the subsystem to active state
     pub async fn resume(&self) -> Result<(), Error> {
-        extern "C" fn resume_cb(
-            ss: *mut spdk_nvmf_subsystem,
-            arg: *mut c_void,
-            status: i32,
-        ) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-
-            let ss = NvmfSubsystem::from(ss);
-            if status != 0 {
-                error!(
-                    "Failed change subsystem state {} -- to RESUME",
-                    ss.get_nqn()
-                );
-            }
-
-            s.send(status).unwrap();
-        }
-
-        let (s, r) = oneshot::channel::<i32>();
-
-        let mut rc = unsafe {
-            spdk_nvmf_subsystem_resume(
-                self.0.as_ptr(),
-                Some(resume_cb),
-                cb_arg(s),
-            )
-        };
-
-        if rc != 0 {
-            return Err(Error::Subsystem {
-                source: Errno::from_i32(-rc),
-                nqn: self.get_nqn(),
-                msg: format!("subsystem_resume returned: {}", rc),
-            });
-        }
-
-        rc = r.await.unwrap();
-        if rc != 0 {
-            Err(Error::Subsystem {
-                source: Errno::UnknownErrno,
-                nqn: self.get_nqn(),
-                msg: "failed to resume the subsystem".to_string(),
-            })
-        } else {
-            Ok(())
-        }
+        self.change_state("resume", |ss, cb, arg| unsafe {
+            spdk_nvmf_subsystem_resume(ss, cb, arg)
+        })
+        .await
     }
 
     /// get ANA state
@@ -587,13 +531,20 @@ impl NvmfSubsystem {
 
     /// stop all subsystems
     pub async fn stop_all(tgt: *mut spdk_nvmf_tgt) {
-        let ss = unsafe {
-            NvmfSubsystem(
-                NonNull::new(spdk_nvmf_subsystem_get_first(tgt)).unwrap(),
-            )
+        let subsystem = unsafe {
+            NonNull::new(spdk_nvmf_subsystem_get_first(tgt)).map(NvmfSubsystem)
         };
-        for s in ss.into_iter() {
-            s.stop().await.unwrap();
+
+        if let Some(subsystem) = subsystem {
+            for s in subsystem.into_iter() {
+                if let Err(e) = s.stop().await {
+                    error!(
+                        "Failed to stop subsystem '{}': {}",
+                        s.get_nqn(),
+                        e.to_string()
+                    );
+                }
+            }
         }
     }
 

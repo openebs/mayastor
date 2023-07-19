@@ -166,7 +166,6 @@ impl From<nexus::ChildState> for ChildState {
             nexus::ChildState::Init => ChildState::ChildDegraded,
             nexus::ChildState::ConfigInvalid => ChildState::ChildFaulted,
             nexus::ChildState::Open => ChildState::ChildOnline,
-            nexus::ChildState::Destroying => ChildState::ChildDegraded,
             nexus::ChildState::Closed => ChildState::ChildDegraded,
             nexus::ChildState::Faulted(reason) => match reason {
                 Reason::OutOfSync => ChildState::ChildDegraded,

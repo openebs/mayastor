@@ -252,7 +252,7 @@ pub async fn device_monitor() {
                         if let Some(n) =
                             crate::bdev::nexus::nexus_lookup_mut(&nexus)
                         {
-                            if let Err(e) = n.destroy_child(&child).await {
+                            if let Err(e) = n.close_child(&child).await {
                                 error!(?e, "destroy child failed");
                             }
                         }

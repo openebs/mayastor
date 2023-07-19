@@ -25,7 +25,6 @@
 
 use std::{cmp::min, pin::Pin};
 
-use futures::future::join_all;
 use snafu::ResultExt;
 
 use super::{
@@ -299,17 +298,12 @@ impl<'n> Nexus<'n> {
             Some(val) => val,
         };
 
-        unsafe {
-            if let Err(e) = self.as_mut().get_unchecked_mut().children[idx]
-                .close()
-                .await
-            {
-                return Err(Error::CloseChild {
-                    name: self.name.clone(),
-                    child: self.children[idx].get_name().to_string(),
-                    source: e,
-                });
-            }
+        if let Err(e) = self.children[idx].close().await {
+            return Err(Error::CloseChild {
+                name: self.name.clone(),
+                child: self.children[idx].get_name().to_string(),
+                source: e,
+            });
         }
 
         let child_state = self.children[idx].state();
@@ -460,18 +454,25 @@ impl<'n> Nexus<'n> {
         }
     }
 
-    /// Close each child that belongs to this nexus.
-    pub(crate) async fn close_children(mut self: Pin<&mut Self>) {
-        let futures = unsafe {
-            self.as_mut()
-                .get_unchecked_mut()
-                .children
-                .iter_mut()
-                .map(|c| c.close())
-        };
-        let results = join_all(futures).await;
-        if results.iter().any(|c| c.is_err()) {
-            error!("{}: Failed to close children", self.name);
+    /// Unconditionally closes all children of this nexus.
+    pub(crate) async fn close_children(&self) {
+        info!(
+            "{:?}: closing {n} children...",
+            self,
+            n = self.children.len()
+        );
+
+        let mut failed = 0;
+        for child in self.children_iter() {
+            if child.close().await.is_err() {
+                failed += 1;
+            }
+        }
+
+        if failed == 0 {
+            info!("{:?}: all children closed", self);
+        } else {
+            error!("{:?}: failed to close some of the children", self);
         }
     }
 
@@ -520,20 +521,9 @@ impl<'n> Nexus<'n> {
         // completed yet so we fail the registration all together for now.
         if failed {
             // Close any children that WERE succesfully opened.
-            unsafe {
-                for child in
-                    self.as_mut().get_unchecked_mut().children.iter_mut()
-                {
-                    if child.state() == ChildState::Open {
-                        if let Err(error) = child.close().await {
-                            error!(
-                                "{}: failed to close child {}: {}",
-                                name,
-                                child.name,
-                                error.verbose()
-                            );
-                        }
-                    }
+            for child in self.children_iter() {
+                if child.is_healthy() {
+                    child.close().await.ok();
                 }
             }
 
@@ -563,20 +553,7 @@ impl<'n> Nexus<'n> {
         }
 
         if let Err(error) = write_ex_err {
-            unsafe {
-                for child in
-                    self.as_mut().get_unchecked_mut().children.iter_mut()
-                {
-                    if let Err(error) = child.close().await {
-                        error!(
-                            "{}: child {} failed to close with error {}",
-                            name,
-                            child.name,
-                            error.verbose()
-                        );
-                    }
-                }
-            }
+            self.close_children().await;
             return Err(error);
         }
 
@@ -609,9 +586,9 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub async fn destroy_child(&self, name: &str) -> Result<(), Error> {
+    pub async fn close_child(&self, name: &str) -> Result<(), Error> {
         if let Some(child) = self.lookup_child(name) {
-            child.destroy().await.map_err(|source| Error::DestroyChild {
+            child.close().await.map_err(|source| Error::DestroyChild {
                 source,
                 child: name.to_string(),
                 name: self.name.to_string(),

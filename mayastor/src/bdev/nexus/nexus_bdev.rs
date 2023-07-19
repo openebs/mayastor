@@ -479,9 +479,6 @@ pub struct Nexus<'n> {
     pub state: parking_lot::Mutex<NexusState>,
     /// The offset in blocks where the data partition starts.
     pub(crate) data_ent_offset: u64,
-    /// the handle to be used when sharing the nexus, this allows for the bdev
-    /// to be shared with vbdevs on top
-    pub(crate) share_handle: Option<String>,
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
@@ -588,7 +585,6 @@ impl<'n> Nexus<'n> {
             state: parking_lot::Mutex::new(NexusState::Init),
             bdev: None,
             data_ent_offset: 0,
-            share_handle: None,
             req_size: size,
             nexus_target: None,
             nvme_params,
@@ -714,6 +710,11 @@ impl<'n> Nexus<'n> {
     /// Returns the required alignment of the Nexus.
     pub fn required_alignment(&self) -> u8 {
         unsafe { self.bdev().required_alignment() }
+    }
+
+    /// TODO
+    pub fn children_iter(&self) -> std::slice::Iter<NexusChild<'n>> {
+        self.children.iter()
     }
 
     /// Reconfigures the child event handler.
@@ -879,7 +880,7 @@ impl<'n> Nexus<'n> {
     pub async fn destroy(mut self: Pin<&mut Self>) -> Result<(), Error> {
         info!("Destroying nexus {}", self.name);
 
-        self.as_mut().destroy_shares().await?;
+        self.as_mut().unshare_nexus().await?;
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
@@ -887,19 +888,7 @@ impl<'n> Nexus<'n> {
             self.cancel_child_rebuild_jobs(child.get_name()).await;
         }
 
-        unsafe {
-            for child in self.as_mut().get_unchecked_mut().children.iter_mut() {
-                info!("Destroying child bdev {}", child.get_name());
-                if let Err(e) = child.close().await {
-                    // TODO: should an error be returned here?
-                    error!(
-                        "Failed to close child {} with error {}",
-                        child.get_name(),
-                        e.verbose()
-                    );
-                }
-            }
-        }
+        self.close_children().await;
 
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
@@ -1287,16 +1276,9 @@ impl<'n> BdevOps for Nexus<'n> {
         Reactor::block_on(async move {
             let self_ref = unsafe { &mut *self_ptr };
 
-            for child in self_ref.children.iter_mut() {
-                if child.state() == ChildState::Open {
-                    if let Err(e) = child.close().await {
-                        error!(
-                            "{}: child {} failed to close with error {}",
-                            self_ref.name,
-                            child.get_name(),
-                            e.verbose()
-                        );
-                    }
+            for child in self_ref.children_iter() {
+                if child.is_healthy() {
+                    child.close().await.ok();
                 }
             }
 
@@ -1473,6 +1455,13 @@ async fn nexus_create_internal(
     children: &[String],
     nexus_info_key: Option<String>,
 ) -> Result<(), Error> {
+    info!(
+        "Creating new nexus '{}' ({} child(ren): {:?})...",
+        name,
+        children.len(),
+        children
+    );
+
     if let Some(nexus) = nexus_lookup_name_uuid(name, nexus_uuid) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.

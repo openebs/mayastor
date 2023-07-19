@@ -52,7 +52,12 @@ pub(crate) fn fault_nexus_child(nexus: Pin<&mut Nexus>, name: &str) -> bool {
     nexus
         .children
         .iter()
-        .filter(|c| c.state() == ChildState::Open)
+        .filter(|c| {
+            matches!(
+                c.state(),
+                ChildState::Open | ChildState::Faulted(Reason::OutOfSync)
+            )
+        })
         .filter(|c| {
             // If there were previous retires, we do not have a reference
             // to a BlockDevice. We do however, know it can't be the device
@@ -65,11 +70,16 @@ pub(crate) fn fault_nexus_child(nexus: Pin<&mut Nexus>, name: &str) -> bool {
             }
         })
         .any(|c| {
-            Ok(ChildState::Open)
+            Ok(ChildState::Faulted(Reason::OutOfSync))
                 == c.state.compare_exchange(
-                    ChildState::Open,
-                    ChildState::Faulted(Reason::IoError),
+                    ChildState::Faulted(Reason::OutOfSync),
+                    ChildState::Faulted(Reason::RebuildFailed),
                 )
+                || Ok(ChildState::Open)
+                    == c.state.compare_exchange(
+                        ChildState::Open,
+                        ChildState::Faulted(Reason::IoError),
+                    )
         })
 }
 
