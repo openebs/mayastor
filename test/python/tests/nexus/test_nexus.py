@@ -447,7 +447,7 @@ def test_nexus_preempt_key(
 
     # verify write error with nexus on ms3
     uri = create_nexus_v2
-    dev = nvme_connect(uri)
+    dev = nvme_connect(uri, 1, 1)
     job = "sudo dd if=/dev/urandom of={0} bs=512 count=1".format(dev)
 
     try:
