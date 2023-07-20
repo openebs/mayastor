@@ -602,29 +602,30 @@ impl<'n> Nexus<'n> {
 
     /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
+        let evt = event.to_string();
         info!(
-            "{self:?}: dynamic reconfiguration event: {event}, \
+            "{self:?}: dynamic reconfiguration event: {evt}, \
             reconfiguring I/O channels...",
         );
 
         let (sender, recv) = oneshot::channel::<ChannelTraverseStatus>();
 
         self.traverse_io_channels(
-            sender,
-            |chan, _sender| -> ChannelTraverseStatus {
-                chan.reconnect_all();
+            (sender, event),
+            |chan, (_sender, dev_ctx)| -> ChannelTraverseStatus {
+                chan.reconfigure_channel(dev_ctx);
                 ChannelTraverseStatus::Ok
             },
-            |status, sender| {
+            |status, ctx| {
                 debug!("{self:?}: all I/O channels reconfigured");
-                sender.send(status).expect("reconfigure channel gone");
+                ctx.0.send(status).expect("reconfigure channel gone");
             },
         );
 
         let result = recv.await.expect("reconfigure sender already dropped");
 
         info!(
-            "{self:?}: dynamic reconfiguration event: {event}, \
+            "{self:?}: dynamic reconfiguration event: {evt}, \
             reconfiguring I/O channels completed with result: {result:?}",
         );
     }

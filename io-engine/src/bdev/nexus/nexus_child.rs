@@ -1104,6 +1104,7 @@ impl<'c> NexusChild<'c> {
 
         let state = self.state();
         let is_destroying = self.is_destroying();
+        let child_dev = self.get_device_name();
 
         // Only drop the device and the device descriptor if the child is being
         // destroyed. For a hot remove event, keep the device and descriptor.
@@ -1129,12 +1130,16 @@ impl<'c> NexusChild<'c> {
         // device-related events directly.
         if state != ChildState::Faulted(FaultReason::IoError) {
             let nexus_name = self.parent.clone();
-            Reactor::block_on(async move {
-                match nexus_lookup_mut(&nexus_name) {
-                    Some(n) => n.reconfigure(DrEvent::ChildUnplug).await,
-                    None => error!("Nexus '{nexus_name}' not found"),
-                }
-            });
+            if let Some(child_dev) = child_dev {
+                Reactor::block_on(async move {
+                    match nexus_lookup_mut(&nexus_name) {
+                        Some(n) => {
+                            n.reconfigure(DrEvent::ChildUnplug(child_dev)).await
+                        }
+                        None => error!("Nexus '{nexus_name}' not found"),
+                    }
+                });
+            }
         }
 
         if is_destroying {

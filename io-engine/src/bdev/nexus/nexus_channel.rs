@@ -49,14 +49,16 @@ pub enum IoMode {
     Freeze,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::enum_variant_names)]
-/// Dynamic Reconfiguration Events occur when a child is added or removed
+/// Dynamic Reconfiguration Events occur when a child is added or removed.
 pub enum DrEvent {
-    /// Child unplug reconfiguration event.
-    ChildUnplug,
-    /// Child rebuild event.
-    ChildRebuild,
+    /// Child unplug reconfiguration event containing device name String.
+    ChildUnplug(String),
+    /// Child rebuild begin event containing device name String.
+    ChildRebuildBegin(String),
+    /// Child rebuild finish event containing device name String.
+    ChildRebuildEnd(String),
 }
 
 impl Display for DrEvent {
@@ -65,8 +67,9 @@ impl Display for DrEvent {
             f,
             "{}",
             match self {
-                Self::ChildUnplug => "unplug",
-                Self::ChildRebuild => "rebuild",
+                Self::ChildUnplug(_) => "unplug",
+                Self::ChildRebuildBegin(_) => "rebuild begin",
+                Self::ChildRebuildEnd(_) => "rebuild end",
             }
         )
     }
@@ -141,6 +144,20 @@ impl<'n> NexusChannel<'n> {
         self.readers.len()
     }
 
+    /// Check if the child with given device name is a writer in this channel.
+    pub fn is_writer(&self, dev_name: &str) -> bool {
+        self.writers
+            .iter()
+            .any(|h| h.get_device().device_name() == dev_name)
+    }
+
+    /// Check if the child with given device name is a reader in this channel.
+    pub fn is_reader(&self, dev_name: &str) -> bool {
+        self.readers
+            .iter()
+            .any(|h| h.get_device().device_name() == dev_name)
+    }
+
     /// Calls the given callback for each active writer.
     #[inline(always)]
     pub(super) fn for_each_writer<F>(&self, mut f: F) -> Result<(), CoreError>
@@ -193,67 +210,70 @@ impl<'n> NexusChannel<'n> {
         debug!("{self:?}: device '{device_name}' disconnected");
     }
 
-    /// Refreshing our channels simply means that we either have a child going
-    /// online or offline. We don't know which child has gone, or was added, so
-    /// we simply put back all the channels, and reopen the bdevs that are in
-    /// the online state.
-    pub(crate) fn reconnect_all(&mut self) {
-        // clear the vector of channels and reset other internal values,
-        // clearing the values will drop any existing handles in the
-        // channel
+    /// We receive this callback as a result of some reconfigure event regarding
+    /// a child. Depending on the event type and the child state, we'd
+    /// adjust the impacted child as a valid reader or writer in the channel.
+    /// ## ChildRebuildBegin -
+    /// newly added child or child undergoing partial rebuild.
+    /// ## ChildRebuildEnd -
+    /// a rebuild finished, may be successful or failed/stopped.
+    /// ## ChildUnplug -
+    /// a child device is being unplugged and destroyed.
+    pub(crate) fn reconfigure_channel(&mut self, dev_ctx: &DrEvent) {
         self.previous_reader = UnsafeCell::new(0);
 
-        // nvmx will drop the I/O qpairs which is different from all other
-        // bdevs we might be dealing with. So instead of clearing and refreshing
-        // which had no side effects before, we create a new vector and
-        // swap them out later
-
-        let mut writers = Vec::new();
-        let mut readers = Vec::new();
-
-        // iterate over all our children which are in the healthy state
-        self.nexus()
-            .children_iter()
-            .filter(|c| c.is_healthy())
-            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
-                (Ok(w), Ok(r)) => {
-                    writers.push(w);
-                    readers.push(r);
-                }
-                _ => {
-                    c.set_faulted_state(FaultReason::CantOpen);
-                    error!("{self:?}: failed to get I/O handle for {c:?}");
-                }
-            });
-
-        // then add write-only children
-        if !readers.is_empty() {
-            self.nexus()
-                .children_iter()
-                .filter(|c| c.is_rebuilding())
-                .for_each(|c| match c.get_io_handle() {
-                    Ok(hdl) => {
-                        debug!(
-                            "{self:?}: connecting child device \
-                                in write-only mode: {c:?}"
-                        );
-                        writers.push(hdl);
+        match dev_ctx {
+            DrEvent::ChildRebuildBegin(dev) => {
+                if let Ok(child) = self.nexus().child_by_device(dev.as_str()) {
+                    debug_assert!(!self.is_writer(dev.as_str()));
+                    if !self.readers.is_empty() && !self.is_writer(dev.as_str())
+                    {
+                        match child.get_io_handle() {
+                            Ok(hdl) => {
+                                debug!("{self:?}: connecting child device in write-only mode: {child:?}");
+                                self.writers.push(hdl);
+                            }
+                            Err(e) => {
+                                child.set_faulted_state(FaultReason::CantOpen);
+                                error!("{self:?}: failed to get I/O handle for {child:?}: {e}");
+                            }
+                        }
                     }
-                    Err(e) => {
-                        c.set_faulted_state(FaultReason::CantOpen);
-                        error!(
-                            "{self:?}: failed to get I/O handle \
-                                for {c:?}: {e}"
-                        );
+                }
+                // Also make sure the child is not in readers. Most likely
+                // the child won't be in readers already here.
+                self.readers
+                    .retain(|h| &h.get_device().device_name() != dev);
+            }
+            DrEvent::ChildRebuildEnd(dev) => {
+                if let Ok(child) = self.nexus().child_by_device(dev.as_str()) {
+                    debug_assert!(!self.is_reader(dev.as_str()));
+                    if child.is_healthy()
+                        && self.is_writer(dev.as_str())
+                        && !self.is_reader(dev.as_str())
+                    {
+                        match child.get_io_handle() {
+                            Ok(hdl) => {
+                                debug!("{self:?}: connecting child device as reader: {child:?}");
+                                self.readers.push(hdl);
+                            }
+                            Err(e) => {
+                                child.set_faulted_state(FaultReason::CantOpen);
+                                error!("{self:?}: failed to get I/O handle for {child:?}: {e}");
+                            }
+                        }
+                    } else {
+                        // child in unreliable state, disconnect it.
+                        self.disconnect_device(dev.as_str());
                     }
-                });
+                }
+            }
+            // Most likely the device must be already removed from channel
+            // before reaching here.
+            DrEvent::ChildUnplug(dev) => self.disconnect_device(dev.as_str()),
         }
 
-        self.writers = writers;
-        self.readers = readers;
-
         self.reconnect_io_logs();
-
         debug!("{self:?}: child devices reconnected");
     }
 

@@ -126,7 +126,11 @@ impl<'n> Nexus<'n> {
         // rebuilt would then need to be rebuilt again.
         // Ensuring that the dst child receives all frontend Write IO keeps all
         // rebuilt ranges in sync with the other children.
-        self.reconfigure(DrEvent::ChildRebuild).await;
+        self.reconfigure(DrEvent::ChildRebuildBegin(
+            // TODO: Free the rebuild job and backend perhaps?
+            self.get_child_device_name(dst_child_uri.as_str())?,
+        ))
+        .await;
 
         // Stop the I/O log and create a rebuild map from it.
         // As this is done after the reconfiguraion, any new write I/Os will
@@ -462,7 +466,11 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        self.reconfigure(DrEvent::ChildRebuild).await;
+        self.reconfigure(DrEvent::ChildRebuildEnd(
+            // TODO: Free the rebuild job and backend perhaps?
+            self.get_child_device_name(child_uri)?,
+        ))
+        .await;
 
         Ok(())
     }
