@@ -76,7 +76,7 @@ Then, updating the channel:
 
 ```bash
 $ sudo nix-channel --list
-nixos https://nixos.org/channels/nixos-20.09
+nixos https://nixos.org/channels/nixos-22.11
 $ sudo nix-channel --remove nixos
 $ sudo nix-channel --add https://nixos.org/channels/nixos-unstable nixos
 $ sudo nixos-rebuild switch --update
@@ -105,7 +105,7 @@ Using [`nix develop`][nix-develop] to enter a more persistent development shell 
 iteration time:
 
 ```bash
-nix develop -f . mayastor
+nix develop -f . io-engine
 ```
 
 Once entered, you can start any tooling (eg `code .`) to ensure the correct resources are available.
@@ -120,6 +120,13 @@ cargo build --release
 
 **Want to run or hack on Mayastor?** _You need more configuration!_ See
 [running][doc-running], then [testing][doc-testing].
+
+Whilst the nix develop will allow you to build mayastor exactly as the image build, it might not have all the necessary components required for testing.
+For that you might want to use the explicit shell configuration file: ci.nix:
+
+```bash
+nix-shell ci.nix
+```
 
 To ensure you are aware of this, we greet you with a nice cow.
 
@@ -141,7 +148,7 @@ use [`nix build`][nix-build] or [`nix bundle`][nix-bundle] depending on your nee
 You can build release binaries of Mayastor with [`nix build`][nix-build]:
 
 ```bash
-for PKG in mayastor; do
+for PKG in io-engine; do
   echo "Building ${PKG} to artifacts/pkgs/${PKG}"; \
   nix build -f . -o artifacts/pkgs/${PKG} ${PKG};
 done
@@ -150,7 +157,7 @@ done
 Try them as if they were installed:
 
 ```rust
-nix shell -f . mayastor
+nix shell -f . io-engine
 ```
 
 ### Building portable Nix bundles
@@ -161,7 +168,7 @@ In order to make an artifact which can be distributed, we use [`nix bundle`][nix
 > `io-engine-client`. This is coming.
 
 ```bash
-for BUNDLE in mayastor; do
+for BUNDLE in io-engine; do
   echo "Bundling ${BUNDLE} to artifacts/bundle/${BUNDLE}"; \
   nix bundle -f . -o artifacts/bundles/${BUNDLE} ${BUNDLE};
 done
@@ -178,49 +185,40 @@ done
 
 ### Building Docker images
 
+Build the Docker images with the CI build script:
+
+```bash
+  ❯ ./scripts/release.sh --help
+  Usage: release.sh [OPTIONS]
+
+  Options:
+    -d, --dry-run              Output actions that would be taken, but don't run them.
+    -h, --help                 Display this text.
+    --registry <host[:port]>   Push the built images to the provided registry.
+    --debug                    Build debug version of images where possible.
+    --skip-build               Don't perform nix-build.
+    --skip-publish             Don't publish built images.
+    --image           <image>  Specify what image to build.
+    --alias-tag       <tag>    Explicit alias for short commit hash tag.
+    --tag             <tag>    Explicit tag (overrides the git tag).
+
+  Examples:
+    release.sh --registry 127.0.0.1:5000
+
+  ❯ ./scripts/release.sh --registry localhost:5000 --image "mayastor-io-engine"
+```
+
 Build the Docker images with [`nix build`][nix-build]:
 
 ```bash
-for IMAGE in \
-  io-engine-client mayastor mayastor-csi io-engine-client kiiss-service \
-  node-service volume-service pool-service rest-service node-operator; \
-do
-  echo "Building ${IMAGE} to artifacts/docker/${IMAGE}.tar"; \
-  nix build -f . -o artifacts/docker/${IMAGE}.tar images.${IMAGE};
-done
+  nix-build --out-link artifacts/docker/mayastor-io-engine-image -A images.mayastor-io-engine
 ```
 
 **Optionally,** the generated Docker images will **not** tag to the `latest`. You may wish to do that if
 you want to run them locally:
 
 ```bash
-for FILE in artifacts/docker/*.tar; do
- echo "Loading ${FILE}..."
- docker load --quiet --input ${FILE} \
-   | awk '{ print $3 }' \
-   | ( \
-      read IMAGE; \
-      LATEST=$(echo ${IMAGE} | awk '{split($0,a,":"); print a[1]}'):latest; \
-      echo "Tagging ${IMAGE} to ${LATEST} (from ${FILE})."; \
-      docker tag ${IMAGE} ${LATEST}; \
-     );
-done
-```
-
-Then, to test the images:
-
-```bash
-for FILE in artifacts/docker/*.tar; do
-  echo "Loading ${FILE}..."
-  docker load --quiet --input ${FILE} \
-    | awk '{ print $3 }' \
-    | ( \
-        read IMAGE; \
-        echo "Testing ${IMAGE} (from ${FILE})."; \
-        docker run --rm --interactive ${IMAGE} --version; \
-        docker rmi ${IMAGE} > /dev/null
-      );
-done
+  ./scripts/release.sh --registry docker.io/your-registry --image "mayastor-io-engine --alias-tag latest"
 ```
 
 ### Building KVM images
