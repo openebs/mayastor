@@ -95,7 +95,7 @@ pub enum Error {
     #[snafu(display("failed to set property {} on {}", prop, name))]
     SetProperty {
         source: Errno,
-        prop: PropName,
+        prop: String,
         name: String,
     },
     #[snafu(display("failed to sync properties {}", name))]
