@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
-use mayastor_api::{v0 as rpc, v1 as v1_rpc};
+use mayastor_api::v1 as v1_rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
@@ -36,10 +36,40 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create_for_nexus = SubCommand::with_name("create_for_nexus")
         .about("Create a snapshot for nexus")
         .arg(
-            Arg::with_name("uuid")
+            Arg::with_name("nexus_uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
+        )
+        .arg(
+            Arg::with_name("entity_id")
+                .required(true)
+                .index(2)
+                .help("Entity Id"),
+        )
+        .arg(
+            Arg::with_name("txn_id")
+                .required(true)
+                .index(3)
+                .help("Transaction id"),
+        )
+        .arg(
+            Arg::with_name("snapshot_name")
+                .required(true)
+                .index(4)
+                .help("Snapshot name"),
+        )
+        .arg(
+            Arg::with_name("replica_uuid")
+                .required(true)
+                .index(5)
+                .help("replica uuid"),
+        )
+        .arg(
+            Arg::with_name("snapshot_uuid")
+                .required(true)
+                .index(6)
+                .help("snapshot uuid"),
         );
     let create_for_replica = SubCommand::with_name("create_for_replica")
         .about("Create a snapshot for replica")
@@ -158,21 +188,76 @@ async fn create_for_nexus(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
-    let uuid = matches
-        .value_of("uuid")
+    let nexus_uuid = matches
+        .value_of("nexus_uuid")
         .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
+            field: "nexus_uuid".to_string(),
         })?
-        .to_string();
+        .to_owned();
+    let entity_id = matches
+        .value_of("entity_id")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "entity_id".to_string(),
+        })?
+        .to_owned();
+    let txn_id = matches
+        .value_of("txn_id")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "txn_id".to_string(),
+        })?
+        .to_owned();
+    let snapshot_name = matches
+        .value_of("snapshot_name")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "snapshot_name".to_string(),
+        })?
+        .to_owned();
+    let replica_uuid = matches
+        .values_of("replica_uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "replica_uuid".to_string(),
+        })?
+        .map(|c| c.to_string())
+        .collect::<Vec<String>>();
+    let snapshot_uuid = matches
+        .values_of("snapshot_uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "snapshot_uuid".to_string(),
+        })?
+        .map(|c| c.to_string())
+        .collect::<Vec<String>>();
+    if replica_uuid.len() != snapshot_uuid.len() {
+        return Err(ClientError::MissingValue {
+                field: "Parameter count doesn't match between replica_uuid and snapshot_uuid".to_string()
+            });
+    }
+    let replicas: Vec<v1_rpc::snapshot::NexusCreateSnapshotReplicaDescriptor> =
+        replica_uuid
+            .into_iter()
+            .zip(snapshot_uuid)
+            .map(|(a, b)| {
+                v1_rpc::snapshot::NexusCreateSnapshotReplicaDescriptor {
+                    replica_uuid: a,
+                    snapshot_uuid: Some(b),
+                    skip: false,
+                }
+            })
+            .collect();
+
+    let request = v1_rpc::snapshot::NexusCreateSnapshotRequest {
+        nexus_uuid: nexus_uuid.clone(),
+        entity_id,
+        txn_id,
+        snapshot_name,
+        replicas,
+    };
 
     let response = ctx
-        .client
-        .create_snapshot(rpc::CreateSnapshotRequest {
-            uuid: uuid.clone(),
-        })
+        .v1
+        .snapshot
+        .create_nexus_snapshot(request)
         .await
         .context(GrpcStatus)?;
-
     match ctx.output {
         OutputFormat::Json => {
             println!(
@@ -184,7 +269,31 @@ async fn create_for_nexus(
             );
         }
         OutputFormat::Default => {
-            println!("{}", &uuid);
+            let replica_done = &response.get_ref().replicas_done;
+            let nexus = &response.get_ref().nexus;
+
+            let table = replica_done
+                .iter()
+                .map(|r| {
+                    vec![
+                        nexus.clone().unwrap().uuid,
+                        nexus.clone().unwrap().size.to_string(),
+                        nexus.clone().unwrap().state.to_string(),
+                        r.replica_uuid.clone(),
+                        r.status_code.clone().to_string(),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec![
+                    "NEXUS_UUID",
+                    "NEXUS_SIZE",
+                    "NEXUS_STATE",
+                    "REPLICA_UUID",
+                    "STATUS",
+                ],
+                table,
+            );
         }
     };
 
