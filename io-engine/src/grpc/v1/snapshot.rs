@@ -312,7 +312,7 @@ impl SnapshotRpc for SnapshotService {
         let args = request.into_inner();
 
         self.serialized(ctx, args.nexus_uuid.clone(), false, async move {
-            trace!("{:?}", args);
+            info!("{:?}", args);
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 let snapshot = SnapshotParams::new(
                     Some(args.entity_id.clone()),
@@ -339,7 +339,7 @@ impl SnapshotRpc for SnapshotService {
                     .into_iter()
                     .map(NexusCreateSnapshotReplicaStatus::from)
                     .collect::<Vec<_>>();
-
+                info!("Create Snapshot Success for {nexus:?}, {replicas_done:?}, replicas_skipped: {:?}", res.replicas_skipped);
                 Ok(NexusCreateSnapshotResponse {
                     nexus: Some(nexus.into_grpc().await),
                     snapshot_timestamp: res

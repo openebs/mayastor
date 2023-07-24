@@ -666,13 +666,15 @@ impl SnapshotOps for Lvol {
         bdev.into_iter()
             .filter(|b| b.driver() == "lvol")
             .map(|b| Lvol::try_from(b).unwrap())
-            .filter(|b| b.is_clone())
-            .filter(|b| {
-                let source_uuid =
-                    Lvol::get_blob_xattr(b, CloneXattrs::SourceUuid.name())
-                        .unwrap_or_default();
-                // If clone source uuid is match with snapshot uuid
-                source_uuid == self.uuid()
+            .filter_map(|b| {
+                let snap_lvol = b.is_snapshot_clone();
+                if snap_lvol.is_some()
+                    && snap_lvol.unwrap().uuid() == self.uuid()
+                {
+                    Some(b)
+                } else {
+                    None
+                }
             })
             .collect::<Vec<Lvol>>()
     }
@@ -686,11 +688,7 @@ impl SnapshotOps for Lvol {
         bdev.into_iter()
             .filter(|b| b.driver() == "lvol")
             .map(|b| Lvol::try_from(b).unwrap())
-            .filter(|b| b.is_clone())
-            .filter(|b| {
-                Lvol::get_blob_xattr(b, CloneXattrs::SourceUuid.name())
-                    .is_some()
-            })
+            .filter(|b| b.is_snapshot_clone().is_some())
             .collect::<Vec<Lvol>>()
     }
 }
