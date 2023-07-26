@@ -7,7 +7,7 @@ use pin_utils::core_reexport::fmt::Formatter;
 
 use std::{
     convert::TryFrom,
-    ffi::{c_void, CStr},
+    ffi::{c_ushort, c_void, CStr},
     fmt::{Debug, Display},
     os::raw::c_char,
     pin::Pin,
@@ -51,6 +51,7 @@ use crate::{
     },
     ffihelper::{
         cb_arg,
+        done_cb,
         errno_result_from_i32,
         pair,
         ErrnoResult,
@@ -89,6 +90,12 @@ impl From<&PropValue> for PropName {
 impl From<PropValue> for PropName {
     fn from(v: PropValue) -> Self {
         Self::from(&v)
+    }
+}
+
+impl Display for PropValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
     }
 }
 
@@ -392,6 +399,71 @@ impl Lvol {
                 },
                 |v| Some(v.to_string()),
             )
+        }
+    }
+
+    /// Low-level function to set blob attributes.
+    pub async fn set_blob_attr<A: AsRef<str>>(
+        &self,
+        attr: A,
+        value: String,
+        sync_metadata: bool,
+    ) -> Result<(), Error> {
+        extern "C" fn blob_attr_set_cb(cb_arg: *mut c_void, errno: i32) {
+            done_cb(cb_arg, errno);
+        }
+
+        let attr_name = attr.as_ref().into_cstring();
+        let attr_val = value.clone().into_cstring();
+
+        let r = unsafe {
+            spdk_blob_set_xattr(
+                self.blob_checked(),
+                attr_name.as_ptr() as *const c_char,
+                attr_val.as_ptr() as *const c_void,
+                attr_val.to_bytes().len() as c_ushort,
+            )
+        };
+
+        if r != 0 {
+            error!(
+                lvol = self.name(),
+                attr = attr.as_ref(),
+                value,
+                errno = r,
+                "Failed to set blob attribute"
+            );
+            return Err(Error::SetProperty {
+                source: Errno::from_i32(r),
+                prop: attr.as_ref().to_owned(),
+                name: self.name(),
+            });
+        }
+
+        if !sync_metadata {
+            return Ok(());
+        }
+
+        // Sync metadata if requested.
+        let (snd, rcv) = oneshot::channel::<i32>();
+
+        unsafe {
+            spdk_blob_sync_md(
+                self.blob_checked(),
+                Some(blob_attr_set_cb),
+                cb_arg(snd),
+            )
+        };
+
+        match rcv.await.expect("sync attribute callback disappeared") {
+            0 => Ok(()),
+            errno => {
+                error!(lvol=self.name(), errno,"Failed to sync blob metadata, properties might be out of sync");
+                Err(Error::SyncProperty {
+                    source: Errno::from_i32(errno),
+                    name: self.name(),
+                })
+            }
         }
     }
 }
@@ -748,7 +820,7 @@ impl LvsLvol for Lvol {
                 }
                 .to_result(|e| Error::SetProperty {
                     source: Errno::from_i32(e),
-                    prop: prop.into(),
+                    prop: prop.to_string(),
                     name: self.name(),
                 })?;
             }
@@ -765,7 +837,7 @@ impl LvsLvol for Lvol {
                 }
                 .to_result(|e| Error::SetProperty {
                     source: Errno::from_i32(e),
-                    prop: prop.into(),
+                    prop: prop.to_string(),
                     name: self.name(),
                 })?;
             }

@@ -5,7 +5,7 @@ use once_cell::sync::OnceCell;
 use common::{bdev_io, compose::MayastorTest};
 
 use io_engine::{
-    bdev::device_open,
+    bdev::{device_create, device_open},
     core::{
         CloneParams,
         CloneXattrs,
@@ -29,6 +29,9 @@ use log::info;
 use std::{convert::TryFrom, str};
 use uuid::Uuid;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
+
+static POOL_DISK_NAME: &str = "/tmp/disk1.img";
+static POOL_DEVICE_NAME: &str = "aio:///tmp/disk1.img";
 
 /// Get the global Mayastor test suite instance.
 fn get_ms() -> &'static MayastorTest<'static> {
@@ -1006,4 +1009,123 @@ async fn test_thin_provision_lvol_alloc_after_snapshot() {
 async fn test_thick_provision_lvol_alloc_after_snapshot() {
     const IDX: u32 = 12;
     test_lvol_alloc_after_snapshot(IDX, false).await;
+}
+
+#[tokio::test]
+async fn test_snapshot_attr() {
+    let ms = get_ms();
+
+    common::delete_file(&[POOL_DISK_NAME.into()]);
+    common::truncate_file(POOL_DISK_NAME, 128 * 1024);
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let mut pool =
+            create_test_pool("pool20", POOL_DEVICE_NAME.into()).await;
+        let lvol = pool
+            .create_lvol(
+                "lvol20",
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                false,
+            )
+            .await
+            .expect("Failed to create test lvol");
+
+        // Create a test snapshot.
+        let entity_id = String::from("lvol20_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol20_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+        );
+
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create a snapshot");
+
+        let mut snapshot_list = Lvol::list_all_snapshots();
+        assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
+        let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
+            snapshot_list
+                .get(0)
+                .unwrap()
+                .snapshot_params()
+                .snapshot_uuid()
+                .unwrap_or_default()
+                .as_str(),
+        )
+        .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
+        .unwrap();
+
+        // Set snapshot attribute.
+        let snap_attr_name = String::from("my.attr.name");
+        let snap_attr_value = String::from("top_secret");
+
+        snapshot_lvol
+            .set_blob_attr(
+                snap_attr_name.clone(),
+                snap_attr_value.clone(),
+                true,
+            )
+            .await
+            .expect("Failed to set snapshot attribute");
+
+        // Check attribute.
+        let v = Lvol::get_blob_xattr(&snapshot_lvol, &snap_attr_name)
+            .expect("Failed to get snapshot attribute");
+        assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
+
+        // Export pool, then reimport it again and check the attribute again.
+        pool.export().await.expect("Failed to export test pool");
+
+        // Make sure no snapshots exist after pool is exported.
+        assert_eq!(
+            Lvol::list_all_snapshots().len(),
+            0,
+            "Snapshots still exist after pool was exported"
+        );
+
+        // Recreate the pool device, as pool export destroys it.
+        device_create(POOL_DEVICE_NAME).await.unwrap();
+
+        pool = Lvs::import("pool20", POOL_DEVICE_NAME)
+            .await
+            .expect("Failed to import pool");
+
+        snapshot_list = Lvol::list_all_snapshots();
+        assert_eq!(
+            1,
+            snapshot_list.len(),
+            "No snapshots found after pool imported"
+        );
+
+        let imported_snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
+            snapshot_list
+                .get(0)
+                .unwrap()
+                .snapshot_params()
+                .snapshot_uuid()
+                .unwrap_or_default()
+                .as_str(),
+        )
+        .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
+        .unwrap();
+
+        // Get attribute from imported snapshot and check.
+        let v = Lvol::get_blob_xattr(&imported_snapshot_lvol, &snap_attr_name)
+            .expect("Failed to get snapshot attribute");
+        assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
+
+        pool.destroy().await.expect("Failed to destroy test pool");
+    })
+    .await;
 }
