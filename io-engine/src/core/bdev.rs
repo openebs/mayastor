@@ -279,27 +279,24 @@ where
     }
 
     /// return the URI that was used to construct the bdev
-    fn bdev_uri(&self) -> Option<String> {
-        for alias in self.aliases().iter() {
-            if let Ok(mut uri) = url::Url::parse(alias) {
-                if bdev_uri_eq(self, &uri) {
-                    if !uri.query_pairs().any(|e| e.0 == "uuid") {
-                        uri.query_pairs_mut()
-                            .append_pair("uuid", &self.uuid_as_string());
-                    }
-                    return Some(uri.to_string());
-                }
+    fn bdev_uri(&self) -> Option<url::Url> {
+        self.bdev_uri_original().map(|mut uri| {
+            if !uri.query_pairs().any(|e| e.0 == "uuid")
+                && !self.uuid().is_nil()
+            {
+                uri.query_pairs_mut()
+                    .append_pair("uuid", &self.uuid_as_string());
             }
-        }
-        None
+            uri
+        })
     }
 
     /// return the URI that was used to construct the bdev, without uuid
-    fn bdev_uri_original(&self) -> Option<String> {
+    fn bdev_uri_original(&self) -> Option<url::Url> {
         for alias in self.aliases().iter() {
             if let Ok(uri) = url::Url::parse(alias) {
                 if bdev_uri_eq(self, &uri) {
-                    return Some(uri.to_string());
+                    return Some(uri);
                 }
             }
         }

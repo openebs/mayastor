@@ -4,7 +4,10 @@ use snafu::Snafu;
 use std::{convert::TryFrom, num::ParseIntError, str::ParseBoolError};
 use url::ParseError;
 
-use crate::{bdev::uri, core::Bdev};
+use crate::{
+    bdev::uri,
+    core::{Bdev, Share},
+};
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
 #[derive(Debug, Snafu, Clone)]
@@ -152,19 +155,7 @@ where
     type Error = BdevError;
 
     fn try_from(bdev: Bdev<T>) -> Result<Self, Self::Error> {
-        for alias in bdev.aliases().iter() {
-            if let Ok(mut uri) = url::Url::parse(alias) {
-                if bdev_uri_eq(&bdev, &uri) {
-                    if !uri.query_pairs().any(|e| e.0 == "uuid") {
-                        uri.query_pairs_mut()
-                            .append_pair("uuid", &bdev.uuid_as_string());
-                    }
-                    return Ok(uri);
-                }
-            }
-        }
-
-        Err(BdevError::BdevNoMatchingUri {
+        bdev.bdev_uri().ok_or(BdevError::BdevNoMatchingUri {
             name: bdev.name().to_string(),
             aliases: bdev.aliases(),
         })

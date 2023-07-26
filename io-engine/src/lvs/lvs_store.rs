@@ -539,7 +539,7 @@ impl Lvs {
 
         info!("{}: lvs exported successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
@@ -633,7 +633,7 @@ impl Lvs {
 
         info!("{}: lvs destroyed successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,

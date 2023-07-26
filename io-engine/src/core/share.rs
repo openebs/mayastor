@@ -192,8 +192,14 @@ pub trait Share: std::fmt::Debug {
     fn allowed_hosts(&self) -> Vec<String>;
 
     /// TODO
-    fn bdev_uri(&self) -> Option<String>;
+    fn bdev_uri(&self) -> Option<url::Url>;
+    fn bdev_uri_str(&self) -> Option<String> {
+        self.bdev_uri().map(|uri| uri.to_string())
+    }
 
     /// TODO
-    fn bdev_uri_original(&self) -> Option<String>;
+    fn bdev_uri_original(&self) -> Option<url::Url>;
+    fn bdev_uri_original_str(&self) -> Option<String> {
+        self.bdev_uri_original().map(|uri| uri.to_string())
+    }
 }

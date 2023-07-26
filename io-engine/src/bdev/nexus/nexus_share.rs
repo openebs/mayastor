@@ -94,12 +94,12 @@ impl<'n> Share for Nexus<'n> {
     }
 
     /// TODO
-    fn bdev_uri(&self) -> Option<String> {
+    fn bdev_uri(&self) -> Option<url::Url> {
         unsafe { self.bdev().bdev_uri() }
     }
 
     /// TODO
-    fn bdev_uri_original(&self) -> Option<String> {
+    fn bdev_uri_original(&self) -> Option<url::Url> {
         unsafe { self.bdev().bdev_uri_original() }
     }
 }

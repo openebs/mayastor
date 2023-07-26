@@ -248,11 +248,11 @@ impl Share for Lvol {
     /// returns the URI that is used to construct the bdev. This is always None
     /// as lvols can not be created by URIs directly, but only through the
     /// ['Lvs'] interface.
-    fn bdev_uri(&self) -> Option<String> {
+    fn bdev_uri(&self) -> Option<url::Url> {
         None
     }
 
-    fn bdev_uri_original(&self) -> Option<String> {
+    fn bdev_uri_original(&self) -> Option<url::Url> {
         None
     }
 }

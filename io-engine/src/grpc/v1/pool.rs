@@ -140,7 +140,10 @@ impl From<Lvs> for Pool {
         Self {
             uuid: l.uuid(),
             name: l.name().into(),
-            disks: vec![l.base_bdev().bdev_uri().unwrap_or_else(|| "".into())],
+            disks: vec![l
+                .base_bdev()
+                .bdev_uri_str()
+                .unwrap_or_else(|| "".into())],
             state: PoolState::PoolOnline.into(),
             capacity: l.capacity(),
             used: l.used(),
