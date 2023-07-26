@@ -2,9 +2,6 @@
 
 We're excited to have you interested in contributing to MayaStor!
 
-> _Disclaimer:_ MayaStor is a **beta** project, and contributors at this stage of the project
-> lifecycle may experience minor hurdles to contribution.
->
 > **We want to overcome these. Please report them.**
 
 If you have any questions, our ecosystem can be connected with over [Discord][mayastor-discord]
