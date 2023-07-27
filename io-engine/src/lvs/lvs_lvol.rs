@@ -20,7 +20,6 @@ use spdk_rs::libspdk::{
     spdk_blob_get_num_clusters,
     spdk_blob_get_num_clusters_ancestors,
     spdk_blob_get_xattr_value,
-    spdk_blob_is_clone,
     spdk_blob_is_read_only,
     spdk_blob_is_snapshot,
     spdk_blob_is_thin_provisioned,
@@ -41,6 +40,7 @@ use crate::{
     core::{
         logical_volume::LogicalVolume,
         Bdev,
+        CloneXattrs,
         Protocol,
         PtplProps,
         Share,
@@ -528,8 +528,9 @@ pub trait LvsLvol: LogicalVolume + Share {
     /// Returns a boolean indicating if the lvol is a snapshot.
     fn is_snapshot(&self) -> bool;
 
-    /// Returns a boolean indicating if the lvol is a clone.
-    fn is_clone(&self) -> bool;
+    /// Lvol is considered as clone if its sourceuuid attribute is a valid
+    /// snapshot. if it is clone, return the snapshot lvol.
+    fn is_snapshot_clone(&self) -> Option<Lvol>;
 
     /// Get/Read a property from this lvol from disk.
     async fn get(&self, prop: PropName) -> Result<PropValue, Error>;
@@ -673,10 +674,26 @@ impl LvsLvol for Lvol {
     fn is_snapshot(&self) -> bool {
         unsafe { spdk_blob_is_snapshot(self.blob_checked()) }
     }
-    /// Returns a boolean indicating if the lvol is a clone.
-    fn is_clone(&self) -> bool {
-        unsafe { spdk_blob_is_clone(self.blob_checked()) }
+
+    /// Lvol is considered as clone if its sourceuuid attribute is a valid
+    /// snapshot. if it is clone, return the snapshot lvol.
+    fn is_snapshot_clone(&self) -> Option<Lvol> {
+        if let Some(source_uuid) =
+            Lvol::get_blob_xattr(self, CloneXattrs::SourceUuid.name())
+        {
+            let snap_lvol =
+                match UntypedBdev::lookup_by_uuid_str(source_uuid.as_str()) {
+                    Some(bdev) => match Lvol::try_from(bdev) {
+                        Ok(l) => l,
+                        _ => return None,
+                    },
+                    None => return None,
+                };
+            return Some(snap_lvol);
+        }
+        None
     }
+
     /// Get/Read a property from this lvol from disk.
     async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = self.blob_checked();

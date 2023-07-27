@@ -944,10 +944,19 @@ async fn test_snapshot_clone() {
             "Total number of Clones: {:?}",
             snapshot_lvol.list_clones_by_snapshot_uuid().len()
         );
-        assert_eq!(
-            snapshot_lvol.list_clones_by_snapshot_uuid().len(),
-            2,
-            "Number of Clones Doesn't match"
+        let clones = snapshot_lvol.list_clones_by_snapshot_uuid();
+
+        assert_eq!(clones.len(), 2, "Number of Clones Doesn't match");
+        for clone in clones {
+            assert!(
+                clone.is_snapshot_clone().is_some(),
+                "Wrongly judge as not a clone"
+            );
+        }
+        assert!(lvol.is_snapshot_clone().is_none(), "Wrongly judge as clone");
+        assert!(
+            snapshot_lvol.is_snapshot_clone().is_none(),
+            "Wrongly judge as clone"
         );
     })
     .await;

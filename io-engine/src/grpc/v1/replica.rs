@@ -101,7 +101,7 @@ impl From<Lvol> for Replica {
             usage: Some(usage.into()),
             allowed_hosts: l.allowed_hosts(),
             is_snapshot: l.is_snapshot(),
-            is_clone: l.is_clone(),
+            is_clone: l.is_snapshot_clone().is_some(),
             snapshot_uuid: source_uuid,
         }
     }
