@@ -185,7 +185,7 @@ impl From<LvsBdev> for Pool {
         Self {
             name: lvs_bdev.name(),
             disks: vec![base
-                .bdev_uri()
+                .bdev_uri_str()
                 .unwrap_or_else(|| base.name().to_string())],
             replicas: None,
         }
