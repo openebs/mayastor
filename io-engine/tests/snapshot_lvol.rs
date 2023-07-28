@@ -1408,7 +1408,7 @@ async fn test_snapshot_verify_restore_data() {
         .unwrap()
         .add_container_bin(
             "ms",
-            Binary::from_dbg("io-engine").with_args(vec!["-l", "1,2,3,4"]),
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1"]),
         )
         .with_clean(true)
         .build()
