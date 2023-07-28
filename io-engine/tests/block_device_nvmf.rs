@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -24,7 +26,6 @@ use io_engine::{
 };
 
 use std::{
-    alloc::Layout,
     slice,
     str,
     sync::{
@@ -33,12 +34,12 @@ use std::{
     },
 };
 
-use spdk_rs::{DmaBuf, IoVec};
+use spdk_rs::{AsIoVecs, DmaBuf};
 
 pub mod common;
 use io_engine::{
     constants::NVME_CONTROLLER_MODEL_ID,
-    core::{DeviceEventListener, DeviceEventSink},
+    core::{DeviceEventListener, DeviceEventSink, ReadOptions},
 };
 use uuid::Uuid;
 
@@ -385,8 +386,7 @@ async fn nvmf_io_stats() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: IoVec,
-        dma_buf: DmaBuf,
+        dma_buf: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
 
@@ -454,21 +454,21 @@ async fn nvmf_io_stats() {
             );
 
             let mut ctx = IoCtx {
-                iov: IoVec::default(),
-                dma_buf: create_io_buffer(alignment, 6 * BUF_SIZE, IO_PATTERN),
+                dma_buf: vec![create_io_buffer(
+                    alignment,
+                    6 * BUF_SIZE,
+                    IO_PATTERN,
+                )],
                 handle,
             };
-
-            ctx.iov.iov_base = *ctx.dma_buf;
-            ctx.iov.iov_len = 6 * BUF_SIZE;
 
             // Schedule asynchronous I/O operations and check stats later.
             ctx.handle
                 .readv_blocks(
-                    &mut ctx.iov,
-                    1,
+                    ctx.dma_buf.as_io_vecs_mut(),
                     (3 * 1024 * 1024) / block_len,
                     6 * BUF_SIZE / block_len,
+                    ReadOptions::None,
                     io_completion_callback,
                     MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
                 )
@@ -476,8 +476,7 @@ async fn nvmf_io_stats() {
 
             ctx.handle
                 .writev_blocks(
-                    &mut ctx.iov,
-                    1,
+                    ctx.dma_buf.as_io_vecs(),
                     (4 * 1024 * 1024) / block_len,
                     4 * BUF_SIZE / block_len,
                     io_completion_callback,
@@ -628,9 +627,7 @@ async fn nvmf_device_readv_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: IoVec,
-        iovcnt: i32,
-        dma_buf: DmaBuf,
+        dma_buf: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
 
@@ -688,23 +685,22 @@ async fn nvmf_device_readv_test() {
 
             // Create a buffer with the guard pattern.
             let mut io_ctx = IoCtx {
-                iov: IoVec::default(),
-                iovcnt: 1,
-                dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
+                dma_buf: vec![create_io_buffer(
+                    alignment,
+                    BUF_SIZE,
+                    GUARD_PATTERN,
+                )],
                 handle,
             };
-
-            io_ctx.iov.iov_base = *io_ctx.dma_buf;
-            io_ctx.iov.iov_len = BUF_SIZE;
 
             // Initiate a read operation into the buffer.
             io_ctx
                 .handle
                 .readv_blocks(
-                    &mut io_ctx.iov,
-                    io_ctx.iovcnt,
+                    io_ctx.dma_buf.as_io_vecs_mut(),
                     (3 * 1024 * 1024) / block_len,
                     BUF_SIZE / block_len,
+                    ReadOptions::None,
                     read_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
@@ -730,7 +726,7 @@ async fn nvmf_device_readv_test() {
     // with data pattern. We should see all zeroes in the buffer instead of
     // the guard pattern.
     let b = buf_ptr.into_inner();
-    check_buf_pattern(unsafe { &((*b).dma_buf) }, 0);
+    check_buf_pattern(unsafe { &((*b).dma_buf[0]) }, 0);
 
     // Turn placeholder structure into a box to trigger drop() action
     // on handle's resources once the box is dropped.
@@ -795,8 +791,7 @@ async fn nvmf_device_writev_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: IoVec,
-        dma_buf: DmaBuf,
+        dma_buf: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
 
@@ -829,21 +824,18 @@ async fn nvmf_device_writev_test() {
                 .unwrap();
             assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
-            let mut ctx = IoCtx {
-                iov: IoVec::default(),
-                dma_buf: create_io_buffer(alignment, BUF_SIZE, IO_PATTERN),
+            let ctx = IoCtx {
+                dma_buf: vec![create_io_buffer(
+                    alignment, BUF_SIZE, IO_PATTERN,
+                )],
                 handle,
             };
-
-            ctx.iov.iov_base = *ctx.dma_buf;
-            ctx.iov.iov_len = BUF_SIZE;
 
             // Write data buffer between guard buffers to catch writes outside
             // the range.
             ctx.handle
                 .writev_blocks(
-                    &mut ctx.iov,
-                    1,
+                    ctx.dma_buf.as_io_vecs(),
                     (OP_OFFSET + BUF_SIZE) / block_len,
                     BUF_SIZE / block_len,
                     write_completion_callback,
@@ -912,8 +904,7 @@ async fn nvmf_device_writev_test() {
 #[tokio::test]
 async fn nvmf_device_readv_iovs_test() {
     const OP_OFFSET: u64 = 6 * 1024 * 1024;
-    const IOVCNT: usize = 5;
-    const IOVSIZES: [u64; IOVCNT] = [
+    const IOVSIZES: [u64; 5] = [
         // Sizes of I/O vectors, in kilobytes.
         512 * 1024,
         128 * 1024,
@@ -966,7 +957,6 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iovs: *mut IoVec,
         buffers: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -987,26 +977,11 @@ async fn nvmf_device_readv_iovs_test() {
             // Store device name for further checking from I/O callback.
             DEVICE_NAME.set(device_name.clone()).unwrap();
 
-            let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
-
-            // Allocate phsycally continous memory for storing raw I/O vectors.
-            let l = Layout::array::<IoVec>(IOVCNT).unwrap();
-            let iovs = unsafe { std::alloc::alloc(l) } as *mut IoVec;
-
-            for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
-                let mut iov = IoVec::default();
-                let buf = create_io_buffer(alignment, *s, GUARD_PATTERN);
-
-                iov.iov_base = *buf;
-                iov.iov_len = buf.len();
-
-                buffers.push(buf);
-                unsafe { *iovs.add(i) = iov };
-            }
-
-            let io_ctx = IoCtx {
-                iovs,
-                buffers,
+            let mut io_ctx = IoCtx {
+                buffers: IOVSIZES
+                    .iter()
+                    .map(|s| create_io_buffer(alignment, *s, GUARD_PATTERN))
+                    .collect(),
                 handle,
             };
 
@@ -1019,10 +994,10 @@ async fn nvmf_device_readv_iovs_test() {
             io_ctx
                 .handle
                 .readv_blocks(
-                    io_ctx.iovs,
-                    IOVCNT as i32,
+                    io_ctx.buffers.as_io_vecs_mut(),
                     OP_OFFSET / block_len,
                     iosize / block_len,
+                    ReadOptions::None,
                     read_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
@@ -1128,7 +1103,6 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iovs: *mut IoVec,
         buffers: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
@@ -1146,25 +1120,14 @@ async fn nvmf_device_writev_iovs_test() {
             // Store device name for further checking from I/O callback.
             DEVICE_NAME.set(device_name.clone()).unwrap();
 
-            let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
+            let mut buffers = Vec::<DmaBuf>::with_capacity(IOVSIZES.len());
 
-            // Allocate phsycally continous memory for storing raw I/O vectors.
-            let l = Layout::array::<IoVec>(IOVCNT).unwrap();
-            let iovs = unsafe { std::alloc::alloc(l) } as *mut IoVec;
-
-            for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
-                let mut iov = IoVec::default();
+            for s in IOVSIZES.iter() {
                 let buf = create_io_buffer(alignment, *s, IO_PATTERN);
-
-                iov.iov_base = *buf;
-                iov.iov_len = buf.len();
-
                 buffers.push(buf);
-                unsafe { *iovs.add(i) = iov };
             }
 
             let io_ctx = IoCtx {
-                iovs,
                 buffers,
                 handle,
             };
@@ -1190,8 +1153,7 @@ async fn nvmf_device_writev_iovs_test() {
             io_ctx
                 .handle
                 .writev_blocks(
-                    io_ctx.iovs,
-                    IOVCNT as i32,
+                    io_ctx.buffers.as_io_vecs(),
                     OP_OFFSET / block_len,
                     iosize / block_len,
                     write_completion_callback,
@@ -1581,9 +1543,7 @@ async fn nvmf_reset_abort_io() {
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
-        iov: IoVec,
-        iovcnt: i32,
-        dma_buf: DmaBuf,
+        dma_buf: Vec<DmaBuf>,
         handle: Box<dyn BlockDeviceHandle>,
     }
 
@@ -1699,14 +1659,13 @@ async fn nvmf_reset_abort_io() {
             DEVICE_NAME.set(name.clone()).unwrap();
 
             let mut io_ctx = IoCtx {
-                iov: IoVec::default(),
-                iovcnt: 1,
-                dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
+                dma_buf: vec![create_io_buffer(
+                    alignment,
+                    BUF_SIZE,
+                    GUARD_PATTERN,
+                )],
                 handle,
             };
-
-            io_ctx.iov.iov_base = *io_ctx.dma_buf;
-            io_ctx.iov.iov_len = BUF_SIZE;
 
             // Initiate a 3 read and 3 write operations into the buffer.
             // We use the same IOVs as we don't care about the I/O result and
@@ -1715,10 +1674,10 @@ async fn nvmf_reset_abort_io() {
                 io_ctx
                     .handle
                     .readv_blocks(
-                        &mut io_ctx.iov,
-                        io_ctx.iovcnt,
+                        io_ctx.dma_buf.as_io_vecs_mut(),
                         (3 * 1024 * 1024) / block_len,
                         BUF_SIZE / block_len,
+                        ReadOptions::None,
                         read_completion_callback,
                         // Use a predefined string to check that we receive the
                         // same context pointer as we pass upon
@@ -1731,8 +1690,7 @@ async fn nvmf_reset_abort_io() {
                 io_ctx
                     .handle
                     .writev_blocks(
-                        &mut io_ctx.iov,
-                        io_ctx.iovcnt,
+                        io_ctx.dma_buf.as_io_vecs(),
                         (3 * 1024 * 1024) / block_len,
                         BUF_SIZE / block_len,
                         write_completion_callback,

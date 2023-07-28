@@ -28,8 +28,10 @@ use spdk_rs::{
     nvme_admin_opc,
     nvme_nvm_opcode,
     nvme_reservation_register_action,
+    AsIoVecPtr,
     DmaBuf,
     DmaError,
+    IoVec,
     MediaErrorStatusCode,
     NvmeStatus,
 };
@@ -58,7 +60,7 @@ use crate::{
         IoCompletionStatus,
         IoType,
         Reactors,
-        ReadMode,
+        ReadOptions,
         SnapshotParams,
     },
     ffihelper::{cb_arg, done_cb, FfiResult},
@@ -402,15 +404,14 @@ extern "C" fn nvme_flush_completion(
 
 fn check_io_args(
     op: IoType,
-    iov: *mut iovec,
-    iovcnt: i32,
+    iovs: &[IoVec],
     offset_blocks: u64,
     num_blocks: u64,
 ) -> Result<(), CoreError> {
     // Make sure I/O structures look sane.
     // As of now, we assume that I/O vector is fully prepared by the caller.
-    if iovcnt <= 0 {
-        error!("insufficient number of elements in I/O vector: {}", iovcnt);
+    if iovs.is_empty() {
+        error!("empty I/O vector");
         return Err(io_type_to_err(
             op,
             libc::EINVAL,
@@ -418,17 +419,17 @@ fn check_io_args(
             num_blocks,
         ));
     }
-    unsafe {
-        if (*iov).iov_base.is_null() {
-            error!("I/O vector is not initialized");
-            return Err(io_type_to_err(
-                op,
-                libc::EINVAL,
-                offset_blocks,
-                num_blocks,
-            ));
-        }
+
+    if !iovs[0].is_initialized() {
+        error!("I/O vector is not initialized");
+        return Err(io_type_to_err(
+            op,
+            libc::EINVAL,
+            offset_blocks,
+            num_blocks,
+        ));
     }
+
     Ok(())
 }
 
@@ -549,11 +550,10 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         DmaBuf::new(size, self.ns.alignment())
     }
 
-    async fn read_at_ex(
+    async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
-        mode: Option<ReadMode>,
     ) -> Result<u64, CoreError> {
         let (valid, offset_blocks, num_blocks) =
             self.bytes_to_blocks(offset, buffer.len());
@@ -577,13 +577,6 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             });
         }
 
-        let flags = mode.map_or(self.prchk_flags, |m| match m {
-            ReadMode::Normal => self.prchk_flags,
-            ReadMode::UnwrittenFail => {
-                self.prchk_flags | SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
-            }
-        });
-
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
@@ -595,12 +588,12 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             spdk_nvme_ns_cmd_read(
                 self.ns.as_ptr(),
                 inner.qpair_ptr(),
-                **buffer,
+                buffer.as_mut_ptr(),
                 offset_blocks,
                 num_blocks as u32,
                 Some(nvme_async_io_completion),
                 cb_arg(s),
-                flags,
+                self.prchk_flags,
             )
         };
 
@@ -630,7 +623,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 len: buffer.len(),
             }),
             status => Err(CoreError::ReadFailed {
-                status,
+                status: IoCompletionStatus::NvmeError(status),
                 offset,
                 len: buffer.len(),
             }),
@@ -677,7 +670,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             spdk_nvme_ns_cmd_write(
                 self.ns.as_ptr(),
                 inner.qpair_ptr(),
-                **buffer,
+                buffer.as_ptr() as *mut _,
                 offset_blocks,
                 num_blocks as u32,
                 Some(nvme_async_io_completion),
@@ -706,7 +699,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 Ok(buffer.len())
             }
             status => Err(CoreError::WriteFailed {
-                status,
+                status: IoCompletionStatus::NvmeError(status),
                 offset,
                 len: buffer.len(),
             }),
@@ -718,14 +711,22 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     // bdev_nvme_get_buf_cb
     fn readv_blocks(
         &self,
-        iov: *mut iovec,
-        iovcnt: i32,
+        iovs: &mut [IoVec],
         offset_blocks: u64,
         num_blocks: u64,
+        opts: ReadOptions,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        check_io_args(IoType::Read, iov, iovcnt, offset_blocks, num_blocks)?;
+        check_io_args(IoType::Read, iovs, offset_blocks, num_blocks)?;
+
+        // Get read flags.
+        let flags = match opts {
+            ReadOptions::None => self.prchk_flags,
+            ReadOptions::UnwrittenFail => {
+                self.prchk_flags | SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
+            }
+        };
 
         let channel = self.io_channel.as_ptr();
         let inner = NvmeIoChannel::inner_from_channel(channel);
@@ -738,8 +739,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             NvmeIoCtx {
                 cb,
                 cb_arg,
-                iov,
-                iovcnt: iovcnt as u64,
+                iov: iovs.as_io_vec_mut_ptr(),
+                iovcnt: iovs.len() as u64,
                 iovpos: 0,
                 iov_offset: 0,
                 channel,
@@ -750,17 +751,17 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             num_blocks,
         )?;
 
-        let rc = if iovcnt == 1 {
+        let rc = if iovs.len() == 1 {
             unsafe {
                 spdk_nvme_ns_cmd_read(
                     self.ns.as_ptr(),
                     inner.qpair_ptr(),
-                    (*iov).iov_base,
+                    iovs[0].as_mut_ptr(),
                     offset_blocks,
                     num_blocks as u32,
                     Some(nvme_io_done),
                     bio as *mut c_void,
-                    self.prchk_flags,
+                    flags,
                 )
             }
         } else {
@@ -772,7 +773,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                     num_blocks as u32,
                     Some(nvme_io_done),
                     bio as *mut c_void,
-                    self.prchk_flags,
+                    flags,
                     Some(nvme_queued_reset_sgl),
                     Some(nvme_queued_next_sge),
                 )
@@ -793,14 +794,13 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
     fn writev_blocks(
         &self,
-        iov: *mut iovec,
-        iovcnt: i32,
+        iovs: &[IoVec],
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        check_io_args(IoType::Write, iov, iovcnt, offset_blocks, num_blocks)?;
+        check_io_args(IoType::Write, iovs, offset_blocks, num_blocks)?;
 
         let channel = self.io_channel.as_ptr();
         let inner = NvmeIoChannel::inner_from_channel(channel);
@@ -813,8 +813,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             NvmeIoCtx {
                 cb,
                 cb_arg,
-                iov,
-                iovcnt: iovcnt as u64,
+                iov: iovs.as_ptr() as *mut _,
+                iovcnt: iovs.len() as u64,
                 iovpos: 0,
                 iov_offset: 0,
                 channel,
@@ -825,12 +825,12 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             num_blocks,
         )?;
 
-        let rc = if iovcnt == 1 {
+        let rc = if iovs.len() == 1 {
             unsafe {
                 spdk_nvme_ns_cmd_write(
                     self.ns.as_ptr(),
                     inner.qpair_ptr(),
-                    (*iov).iov_base,
+                    iovs[0].as_ptr() as *mut _,
                     offset_blocks,
                     num_blocks as u32,
                     Some(nvme_io_done),
@@ -1154,7 +1154,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         let (ptr, size) = match buffer {
-            Some(buf) => (**buf, buf.len()),
+            Some(buf) => (buf.as_mut_ptr(), buf.len()),
             None => (std::ptr::null_mut(), 0),
         };
 
@@ -1343,7 +1343,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         let (ptr, size) = match buffer {
-            Some(buf) => (**buf, buf.len()),
+            Some(buf) => (buf.as_mut_ptr(), buf.len()),
             None => (std::ptr::null_mut(), 0),
         };
 

@@ -201,14 +201,11 @@ impl RebuildJobBackend {
         };
 
         for _ in 0 .. tasks.total {
-            let copy_buffer = destination_hdl
+            let buffer = destination_hdl
                 .dma_malloc(segment_size_blks * block_size)
                 .context(NoCopyBuffer {})?;
-            tasks.push(RebuildTask {
-                buffer: copy_buffer,
-                sender: tasks.channel.0.clone(),
-                error: None,
-            });
+
+            tasks.push(RebuildTask::new(buffer, tasks.channel.0.clone()));
         }
 
         let nexus_descriptor = UntypedBdev::open_by_name(nexus_name, false)

@@ -32,6 +32,7 @@ use crate::core::{
     LvolFailure,
     Mthread,
     NvmeStatus,
+    ReadOptions,
 };
 
 #[cfg(feature = "nexus-io-tracing")]
@@ -331,10 +332,10 @@ impl<'n> NexusBio<'n> {
         self.inject_submission_error(hdl)?;
 
         hdl.readv_blocks(
-            self.iovs(),
-            self.iov_count(),
+            self.iovs_mut(),
             self.effective_offset(),
             self.num_blocks(),
+            ReadOptions::None,
             Self::child_completion,
             self.as_ptr().cast(),
         )
@@ -479,7 +480,6 @@ impl<'n> NexusBio<'n> {
 
         hdl.writev_blocks(
             self.iovs(),
-            self.iov_count(),
             self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,

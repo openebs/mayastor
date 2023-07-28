@@ -233,7 +233,7 @@ impl Io {
             if spdk_bdev_read(
                 self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
-                *self.buf,
+                self.buf.as_mut_ptr(),
                 offset,
                 self.buf.len(),
                 Some(Job::io_completion),
@@ -256,7 +256,7 @@ impl Io {
             if spdk_bdev_write(
                 self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
-                *self.buf,
+                self.buf.as_mut_ptr(),
                 offset,
                 self.buf.len(),
                 Some(Job::io_completion),

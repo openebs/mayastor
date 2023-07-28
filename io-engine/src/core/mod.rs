@@ -18,7 +18,7 @@ pub use block_device::{
     LbaRangeController,
     OpCompletionCallback,
     OpCompletionCallbackArg,
-    ReadMode,
+    ReadOptions,
 };
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};
@@ -216,7 +216,7 @@ pub enum CoreError {
         status
     ))]
     WriteFailed {
-        status: NvmeStatus,
+        status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },
@@ -227,7 +227,7 @@ pub enum CoreError {
         status
     ))]
     ReadFailed {
-        status: NvmeStatus,
+        status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },

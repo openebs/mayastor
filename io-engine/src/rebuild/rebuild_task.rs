@@ -1,19 +1,20 @@
-use futures::{channel::mpsc, stream::FusedStream, SinkExt, StreamExt};
+use futures::{
+    channel::mpsc,
+    lock::Mutex,
+    stream::FusedStream,
+    SinkExt,
+    StreamExt,
+};
 use snafu::ResultExt;
+use spdk_rs::{DmaBuf, LbaRange};
+
+use crate::core::{Reactors, VerboseError};
 
 use super::{
-    rebuild_error::{
-        NoCopyBuffer,
-        RangeLockFailed,
-        RangeUnlockFailed,
-        ReadIoFailed,
-        WriteIoFailed,
-    },
+    rebuild_error::{RangeLockFailed, RangeUnlockFailed},
     RebuildDescriptor,
     RebuildError,
 };
-use crate::core::{CoreError, Reactors, ReadMode, VerboseError};
-use spdk_rs::{DmaBuf, LbaRange};
 
 /// Result returned by each segment task worker.
 /// Used to communicate with the management task indicating that the
@@ -36,7 +37,7 @@ pub(super) struct TaskResult {
 #[derive(Debug)]
 pub(super) struct RebuildTask {
     /// The pre-allocated `DmaBuf` used to read/write.
-    pub(super) buffer: DmaBuf,
+    pub(super) buffer: Mutex<DmaBuf>,
     /// The channel used to notify when the task completes/fails.
     pub(super) sender: mpsc::Sender<TaskResult>,
     /// Last error seen by this particular task.
@@ -44,6 +45,17 @@ pub(super) struct RebuildTask {
 }
 
 impl RebuildTask {
+    pub(super) fn new(
+        buffer: DmaBuf,
+        sender: mpsc::Sender<TaskResult>,
+    ) -> Self {
+        Self {
+            buffer: Mutex::new(buffer),
+            sender,
+            error: None,
+        }
+    }
+
     /// Copies one segment worth of data from source into destination. During
     /// this time the LBA range being copied is locked so that there cannot be
     /// front end I/O to the same LBA range.
@@ -110,57 +122,16 @@ impl RebuildTask {
     /// Copies one segment worth of data from source into destination.
     async fn copy_one(
         &mut self,
-        blk: u64,
-        descriptor: &RebuildDescriptor,
+        offset_blk: u64,
+        desc: &RebuildDescriptor,
     ) -> Result<(), RebuildError> {
-        let mut copy_buffer: DmaBuf;
-        let source_hdl = descriptor.src_io_handle().await?;
-        let destination_hdl = descriptor.dst_io_handle().await?;
+        let buf_lock = self.buffer.lock().await;
+        let iov = desc.adjusted_iov(&buf_lock, offset_blk);
+        let iovs = &mut [iov];
 
-        let copy_buffer = if descriptor.get_segment_size_blks(blk)
-            == descriptor.segment_size_blks
-        {
-            &mut self.buffer
-        } else {
-            let segment_size_blks = descriptor.range.end - blk;
-
-            debug!(
-                    "Adjusting last segment size from {} to {}. offset: {}, range: {:?}",
-                    descriptor.segment_size_blks, segment_size_blks, blk, descriptor.range,
-                );
-
-            copy_buffer = destination_hdl
-                .dma_malloc(segment_size_blks * descriptor.block_size)
-                .context(NoCopyBuffer {})?;
-
-            &mut copy_buffer
-        };
-
-        let res = source_hdl
-            .read_at_ex(
-                blk * descriptor.block_size,
-                copy_buffer,
-                Some(ReadMode::UnwrittenFail),
-            )
-            .await;
-
-        if let Err(CoreError::ReadingUnallocatedBlock {
-            ..
-        }) = res
-        {
-            return Ok(());
+        if desc.read_src_segment(offset_blk, iovs).await? {
+            desc.write_dst_segment(offset_blk, iovs).await?;
         }
-
-        res.context(ReadIoFailed {
-            bdev: &descriptor.src_uri,
-        })?;
-
-        destination_hdl
-            .write_at(blk * descriptor.block_size, copy_buffer)
-            .await
-            .context(WriteIoFailed {
-                bdev: &descriptor.dst_uri,
-            })?;
 
         Ok(())
     }

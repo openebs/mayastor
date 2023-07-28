@@ -14,13 +14,12 @@ use spdk_rs::{
         spdk_bdev_free_io,
         spdk_bdev_io,
         spdk_bdev_nvme_admin_passthru_ro,
-        spdk_bdev_read_with_flags,
+        spdk_bdev_read,
         spdk_bdev_reset,
         spdk_bdev_write,
         spdk_bdev_write_zeroes,
         spdk_io_channel,
         spdk_nvme_cmd,
-        SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
     },
     nvme_admin_opc,
     BdevOps,
@@ -33,7 +32,13 @@ use spdk_rs::{
 };
 
 use crate::{
-    core::{Bdev, CoreError, DescriptorGuard, ReadMode, SnapshotParams},
+    core::{
+        Bdev,
+        CoreError,
+        DescriptorGuard,
+        IoCompletionStatus,
+        SnapshotParams,
+    },
     ffihelper::cb_arg,
     subsys,
 };
@@ -140,7 +145,7 @@ impl<T: BdevOps> BdevHandle<T> {
             spdk_bdev_write(
                 self.desc.legacy_as_ptr(),
                 self.channel.legacy_as_ptr(),
-                **buffer,
+                buffer.as_ptr() as *mut _,
                 offset,
                 buffer.len(),
                 Some(Self::io_completion_cb),
@@ -159,44 +164,29 @@ impl<T: BdevOps> BdevHandle<T> {
         match r.await.expect("Failed awaiting write IO") {
             NvmeStatus::Generic(GenericStatusCode::Success) => Ok(buffer.len()),
             status => Err(CoreError::WriteFailed {
-                status,
+                status: IoCompletionStatus::NvmeError(status),
                 offset,
                 len: buffer.len(),
             }),
         }
     }
+
     /// read at given offset into the ['DmaBuf']
     pub async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError> {
-        self.read_at_ex(offset, buffer, None).await
-    }
-
-    /// read at given offset into the ['DmaBuf']
-    pub(crate) async fn read_at_ex(
-        &self,
-        offset: u64,
-        buffer: &mut DmaBuf,
-        mode: Option<ReadMode>,
-    ) -> Result<u64, CoreError> {
-        let flags = mode.map_or(0, |m| match m {
-            ReadMode::Normal => 0,
-            ReadMode::UnwrittenFail => SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
-        });
-
         let (s, r) = oneshot::channel::<NvmeStatus>();
         let errno = unsafe {
-            spdk_bdev_read_with_flags(
+            spdk_bdev_read(
                 self.desc.legacy_as_ptr(),
                 self.channel.legacy_as_ptr(),
-                **buffer,
+                buffer.as_mut_ptr(),
                 offset,
                 buffer.len(),
                 Some(Self::io_completion_cb),
                 cb_arg(s),
-                flags,
             )
         };
 
@@ -217,7 +207,7 @@ impl<T: BdevOps> BdevHandle<T> {
                 len: buffer.len(),
             }),
             status => Err(CoreError::ReadFailed {
-                status,
+                status: IoCompletionStatus::NvmeError(status),
                 offset,
                 len: buffer.len(),
             }),
@@ -332,19 +322,18 @@ impl<T: BdevOps> BdevHandle<T> {
         let (s, r) = oneshot::channel::<NvmeStatus>();
         // Use the spdk-rs variant spdk_bdev_nvme_admin_passthru that
         // assumes read commands
+        let (ptr, len) = match buffer {
+            Some(b) => (b.as_mut_ptr(), b.len()),
+            None => (std::ptr::null_mut(), 0),
+        };
+
         let errno = unsafe {
             spdk_bdev_nvme_admin_passthru_ro(
                 self.desc.legacy_as_ptr(),
                 self.channel.legacy_as_ptr(),
                 nvme_cmd,
-                match buffer {
-                    Some(ref b) => ***b,
-                    None => std::ptr::null_mut(),
-                },
-                match buffer {
-                    Some(b) => b.len(),
-                    None => 0,
-                },
+                ptr,
+                len,
                 Some(Self::io_completion_cb),
                 cb_arg(s),
             )

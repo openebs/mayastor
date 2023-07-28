@@ -41,7 +41,7 @@ use io_engine::{
         },
         NexusInfo,
     },
-    core::{CoreError, MayastorCliArgs, Protocol},
+    core::{CoreError, IoCompletionStatus, MayastorCliArgs, Protocol},
     lvs::Lvs,
     persistent_store::PersistentStoreBuilder,
     pool_backend::PoolArgs,
@@ -448,9 +448,9 @@ async fn nexus_child_retire_persist_failure_with_bdev_io() {
         assert!(matches!(
             res,
             Err(CoreError::WriteFailed {
-                status: NvmeStatus::Generic(
+                status: IoCompletionStatus::NvmeError(NvmeStatus::Generic(
                     GenericStatusCode::InternalDeviceError
-                ),
+                )),
                 ..
             })
         ));

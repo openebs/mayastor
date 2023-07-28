@@ -14,21 +14,23 @@ use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_rs::{
     libspdk::{
-        iovec,
         spdk_bdev_flush,
         spdk_bdev_free_io,
         spdk_bdev_io,
-        spdk_bdev_readv_blocks,
+        spdk_bdev_readv_blocks_with_flags,
         spdk_bdev_reset,
         spdk_bdev_unmap_blocks,
         spdk_bdev_write_zeroes_blocks,
         spdk_bdev_writev_blocks,
+        SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
     },
     nvme_admin_opc,
+    AsIoVecPtr,
     BdevOps,
     DmaBuf,
     DmaError,
     IoType,
+    IoVec,
 };
 
 use crate::{
@@ -50,7 +52,7 @@ use crate::{
         IoCompletionCallbackArg,
         IoCompletionStatus,
         NvmeStatus,
-        ReadMode,
+        ReadOptions,
         SnapshotParams,
         ToErrno,
         UntypedBdev,
@@ -250,13 +252,12 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         DmaBuf::new(size, self.device.alignment())
     }
 
-    async fn read_at_ex(
+    async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
-        mode: Option<ReadMode>,
     ) -> Result<u64, CoreError> {
-        self.handle.read_at_ex(offset, buffer, mode).await
+        self.handle.read_at(offset, buffer).await
     }
 
     async fn write_at(
@@ -269,13 +270,20 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
     fn readv_blocks(
         &self,
-        iov: *mut iovec,
-        iovcnt: i32,
+        iovs: &mut [IoVec],
         offset_blocks: u64,
         num_blocks: u64,
+        opts: ReadOptions,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
+        let flags = match opts {
+            ReadOptions::None => 0,
+            ReadOptions::UnwrittenFail => {
+                SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
+            }
+        };
+
         let ctx = alloc_bdev_io_ctx(
             IoType::Read,
             IoCtx {
@@ -289,15 +297,16 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
         let (desc, chan) = self.handle.io_tuple();
         let rc = unsafe {
-            spdk_bdev_readv_blocks(
+            spdk_bdev_readv_blocks_with_flags(
                 desc,
                 chan,
-                iov,
-                iovcnt,
+                iovs.as_io_vec_mut_ptr(),
+                iovs.len() as i32,
                 offset_blocks,
                 num_blocks,
                 Some(bdev_io_completion),
                 ctx as *mut c_void,
+                flags,
             )
         };
 
@@ -314,8 +323,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
     fn writev_blocks(
         &self,
-        iov: *mut iovec,
-        iovcnt: i32,
+        iovs: &[IoVec],
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
@@ -337,8 +345,8 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
             spdk_bdev_writev_blocks(
                 desc,
                 chan,
-                iov,
-                iovcnt,
+                iovs.as_ptr() as *mut _,
+                iovs.len() as i32,
                 offset_blocks,
                 num_blocks,
                 Some(bdev_io_completion),
