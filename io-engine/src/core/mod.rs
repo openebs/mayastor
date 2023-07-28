@@ -82,6 +82,7 @@ mod device_events;
 mod device_monitor;
 pub mod diagnostics;
 mod env;
+pub mod fault_injection;
 mod handle;
 mod io_device;
 pub mod io_driver;

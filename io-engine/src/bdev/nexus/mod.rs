@@ -12,7 +12,6 @@ mod nexus_bdev_rebuild;
 mod nexus_bdev_snapshot;
 mod nexus_channel;
 mod nexus_child;
-mod nexus_injection;
 mod nexus_io;
 mod nexus_io_log;
 mod nexus_io_subsystem;
@@ -48,7 +47,6 @@ pub use nexus_child::{
     FaultReason,
     NexusChild,
 };
-pub use nexus_injection::{Injection, InjectionOp};
 use nexus_io::{NexusBio, NioCtx};
 use nexus_io_log::{IOLog, IOLogChannel};
 use nexus_io_subsystem::NexusIoSubsystem;

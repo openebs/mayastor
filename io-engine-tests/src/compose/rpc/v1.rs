@@ -100,6 +100,7 @@ impl RpcHandle {
             nexus::NexusRpcClient::connect(format!("http://{endpoint}"))
                 .await
                 .unwrap();
+
         let snapshot =
             snapshot::SnapshotRpcClient::connect(format!("http://{endpoint}"))
                 .await

@@ -33,6 +33,7 @@ pub mod nvmf;
 pub mod pool;
 pub mod replica;
 pub mod snapshot;
+pub mod test;
 
 pub use compose::MayastorTest;
 

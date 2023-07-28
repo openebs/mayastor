@@ -12,6 +12,7 @@ use super::{
         pool::PoolService,
         replica::ReplicaService,
         snapshot::SnapshotService,
+        test::TestService,
     },
 };
 
@@ -24,10 +25,7 @@ use mayastor_api::{
     v1,
 };
 
-use crate::{
-    grpc::v1::test::TestService,
-    subsys::registration::registration_grpc::ApiVersion,
-};
+use crate::subsys::registration::registration_grpc::ApiVersion;
 use futures::{select, FutureExt, StreamExt};
 use once_cell::sync::OnceCell;
 use std::{borrow::Cow, time::Duration};

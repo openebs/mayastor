@@ -9,16 +9,12 @@ use super::{
             ChildStateReason,
             CreateNexusRequest,
             DestroyNexusRequest,
-            InjectNexusFaultRequest,
-            InjectedFault,
-            ListInjectedNexusFaultsRequest,
             ListNexusOptions,
             Nexus,
             PublishNexusRequest,
             RebuildHistoryRecord,
             RebuildHistoryRequest,
             RemoveChildNexusRequest,
-            RemoveInjectedNexusFaultRequest,
         },
         SharedRpcHandle,
         Status,
@@ -301,53 +297,7 @@ impl NexusBuilder {
         self.offline_child_bdev(&self.replica_uri(r)).await
     }
 
-    pub async fn inject_nexus_fault(
-        &self,
-        inj_uri: &str,
-    ) -> Result<(), Status> {
-        self.rpc()
-            .lock()
-            .await
-            .nexus
-            .inject_nexus_fault(InjectNexusFaultRequest {
-                uuid: self.uuid(),
-                uri: inj_uri.to_owned(),
-            })
-            .await
-            .map(|r| r.into_inner())
-    }
-
-    pub async fn remove_injected_nexus_fault(
-        &self,
-        inj_uri: &str,
-    ) -> Result<(), Status> {
-        self.rpc()
-            .lock()
-            .await
-            .nexus
-            .remove_injected_nexus_fault(RemoveInjectedNexusFaultRequest {
-                uuid: self.uuid(),
-                uri: inj_uri.to_owned(),
-            })
-            .await
-            .map(|r| r.into_inner())
-    }
-
-    pub async fn list_injected_faults(
-        &self,
-    ) -> Result<Vec<InjectedFault>, Status> {
-        self.rpc()
-            .lock()
-            .await
-            .nexus
-            .list_injected_nexus_faults(ListInjectedNexusFaultsRequest {
-                uuid: self.uuid(),
-            })
-            .await
-            .map(|r| r.into_inner().injections)
-    }
-
-    pub async fn inject_fault_at_replica(
+    pub async fn add_injection_at_replica(
         &self,
         r: &ReplicaBuilder,
         inj_params: &str,
@@ -362,7 +312,7 @@ impl NexusBuilder {
         })?;
 
         let inj_uri = format!("inject://{dev}?{inj_params}",);
-        self.inject_nexus_fault(&inj_uri).await?;
+        super::test::add_fault_injection(self.rpc(), &inj_uri).await?;
 
         Ok(inj_uri)
     }

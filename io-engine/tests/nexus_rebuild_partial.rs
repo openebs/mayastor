@@ -16,14 +16,17 @@ use common::{
     replica::{validate_replicas, ReplicaBuilder},
 };
 
-#[cfg(feature = "nexus-fault-injection")]
+#[cfg(feature = "fault-injection")]
 use io_engine_tests::{
     fio::{Fio, FioJob},
     nexus::test_fio_to_nexus,
 };
 
-#[cfg(feature = "nexus-fault-injection")]
+#[cfg(feature = "fault-injection")]
 use common::compose::rpc::v1::nexus::RebuildJobState;
+
+#[cfg(feature = "fault-injection")]
+use common::test::{add_fault_injection, remove_fault_injection};
 
 use std::time::Duration;
 
@@ -147,7 +150,7 @@ async fn create_test_storage(test: &ComposeTest) -> StorageBuilder {
 }
 
 #[tokio::test]
-#[cfg(feature = "nexus-fault-injection")]
+#[cfg(feature = "fault-injection")]
 // 1. Create a nexus with two replicas.
 // 2. Create a fault injection on one replica, and write some data.
 // 3. Online the failed replica and wait until it gets back.
@@ -186,10 +189,11 @@ async fn nexus_partial_rebuild_io_fault() {
     // All write operations starting of segment #7 will fail.
     let dev_name_1 = children[1].device_name.as_ref().unwrap();
     let inj_uri = format!(
-        "inject://{dev_name_1}?op=write&offset={offset}",
+        "inject://{dev_name_1}?domain=nexus&op=write&offset={offset}",
         offset = 7 * SEG_BLK
     );
-    nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
+
+    add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // This write must be okay as the injection is not triggered yet.
     test_write_to_nexus(
@@ -253,7 +257,7 @@ async fn nexus_partial_rebuild_io_fault() {
     .unwrap();
 
     // Remove injection.
-    nex_0.remove_injected_nexus_fault(&inj_uri).await.unwrap();
+    remove_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // Bring the child online. That will trigger partial rebuild.
     nex_0.online_child_replica(&repl_1).await.unwrap();
@@ -360,7 +364,7 @@ async fn nexus_partial_rebuild_offline_online() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[cfg(feature = "nexus-fault-injection")]
+#[cfg(feature = "fault-injection")]
 /// I/O failure during rebuild.
 /// Initiate a (partial) rebuild, and force a replica to fail with I/O error
 /// while the rebuild job is running.
@@ -496,10 +500,11 @@ async fn nexus_partial_rebuild_double_fault() {
 
     // Inject a failure at FAULT_POS.
     let inj_uri = format!(
-        "inject://{child_0_dev_name}?op=write&offset={offset}&num_blk=1",
+        "inject://{child_0_dev_name}?\
+        domain=nexus&op=write&offset={offset}&num_blk=1",
         offset = FAULT_POS * 1024 * 1024 / BLK_SIZE
     );
-    nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
+    add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // Online the replica, triggering the rebuild.
     let j0 = tokio::spawn({

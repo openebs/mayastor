@@ -1,4 +1,4 @@
-#![cfg(feature = "nexus-fault-injection")]
+#![cfg(feature = "fault-injection")]
 
 pub mod common;
 
@@ -18,6 +18,7 @@ use common::{
     nexus::{test_write_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
+    test::{add_fault_injection, list_fault_injections},
 };
 
 static POOL_SIZE: u64 = 60;
@@ -139,10 +140,10 @@ async fn test_injection_uri(inj_part: &str) {
     let dev_name = children[0].device_name.as_ref().unwrap();
 
     let inj_uri = format!("inject://{dev_name}?{inj_part}");
-    nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
+    add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // List injected fault.
-    let lst = nex_0.list_injected_faults().await.unwrap();
+    let lst = list_fault_injections(nex_0.rpc()).await.unwrap();
     assert_eq!(lst.len(), 1);
     assert_eq!(&lst[0].device_name, dev_name);
 
@@ -164,22 +165,22 @@ async fn test_injection_uri(inj_part: &str) {
 
 #[tokio::test]
 async fn nexus_fault_injection_write_submission() {
-    test_injection_uri("op=swrite&offset=64").await;
+    test_injection_uri("domain=nexus&op=write&stage=submit&offset=64").await;
 }
 
 #[tokio::test]
 async fn nexus_fault_injection_write() {
-    test_injection_uri("op=write&offset=64").await;
+    test_injection_uri("domain=nexus&op=write&offset=64").await;
 }
 
 #[tokio::test]
 async fn nexus_fault_injection_read_submission() {
-    test_injection_uri("op=sread&offset=64").await;
+    test_injection_uri("domain=nexus&op=read&stage=submit&offset=64").await;
 }
 
 #[tokio::test]
 async fn nexus_fault_injection_read() {
-    test_injection_uri("op=read&offset=64").await;
+    test_injection_uri("domain=nexus&op=read&offset=64").await;
 }
 
 #[tokio::test]
@@ -201,12 +202,12 @@ async fn nexus_fault_injection_time_based() {
 
     // Create an injection that will start in 1 sec after first I/O
     // to the device, and end after 5s.
-    let inj_part = "op=write&begin=1000&end=5000";
+    let inj_part = "domain=nexus&op=write&begin=1000&end=5000";
     let inj_uri = format!("inject://{dev_name}?{inj_part}");
-    nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
+    add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // List injected fault.
-    let lst = nex_0.list_injected_faults().await.unwrap();
+    let lst = list_fault_injections(nex_0.rpc()).await.unwrap();
     assert_eq!(lst.len(), 1);
     assert_eq!(&lst[0].device_name, dev_name);
 
@@ -279,12 +280,12 @@ async fn nexus_fault_injection_range_based() {
 
     // Create injection that will fail at offset of 128 blocks, for a span
     // of 16 blocks.
-    let inj_part = "op=write&offset=128&num_blk=16";
+    let inj_part = "domain=nexus&op=write&offset=128&num_blk=16";
     let inj_uri = format!("inject://{dev_name}?{inj_part}");
-    nex_0.inject_nexus_fault(&inj_uri).await.unwrap();
+    add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // List injected fault.
-    let lst = nex_0.list_injected_faults().await.unwrap();
+    let lst = list_fault_injections(nex_0.rpc()).await.unwrap();
     assert_eq!(lst.len(), 1);
     assert_eq!(&lst[0].device_name, dev_name);
 

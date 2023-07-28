@@ -22,7 +22,6 @@ use uuid::Uuid;
 
 use super::{
     nexus_err,
-    nexus_injection::Injections,
     nexus_lookup_name_uuid,
     DrEvent,
     Error,
@@ -265,9 +264,6 @@ pub struct Nexus<'n> {
     event_sink: Option<DeviceEventSink>,
     /// Rebuild history of all children of this nexus instance.
     pub(super) rebuild_history: parking_lot::Mutex<Vec<HistoryRecord>>,
-    /// TODO
-    #[allow(dead_code)]
-    pub(super) injections: Injections,
     /// Flag to control shutdown from I/O path.
     pub(crate) shutdown_requested: AtomicCell<bool>,
     /// Prevent auto-Unpin.
@@ -377,7 +373,6 @@ impl<'n> Nexus<'n> {
             nexus_uuid: Default::default(),
             event_sink: None,
             rebuild_history: parking_lot::Mutex::new(Vec::new()),
-            injections: Injections::new(),
             shutdown_requested: AtomicCell::new(false),
             _pin: Default::default(),
         };
@@ -450,12 +445,12 @@ impl<'n> Nexus<'n> {
     }
 
     /// Returns nexus name.
-    pub(crate) fn nexus_name(&self) -> &str {
+    pub fn nexus_name(&self) -> &str {
         &self.name
     }
 
     /// Returns the Nexus uuid.
-    pub(crate) fn uuid(&self) -> Uuid {
+    pub fn uuid(&self) -> Uuid {
         self.nexus_uuid
     }
 
