@@ -21,6 +21,23 @@ use super::{
 };
 use crate::core::{Reactors, VerboseError};
 
+/// Rebuild I/O verification mode.
+#[derive(Debug, Clone)]
+pub enum RebuildVerifyMode {
+    /// Do not verify rebuild I/Os.
+    None,
+    /// Fail rebuild job if I/O verification fails.
+    Fail,
+    /// Panic if I/O verification fails.
+    Panic,
+}
+
+/// Rebuild job options.
+#[derive(Debug, Clone)]
+pub struct RebuildJobOptions {
+    pub verify_mode: RebuildVerifyMode,
+}
+
 /// Operations used to control the state of the job.
 #[derive(Debug)]
 pub(super) enum RebuildOperation {
@@ -80,6 +97,7 @@ impl RebuildJob {
         src_uri: &str,
         dst_uri: &str,
         range: Range<u64>,
+        options: RebuildJobOptions,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         // Allocate an instance of the rebuild back-end.
@@ -88,6 +106,7 @@ impl RebuildJob {
             src_uri,
             dst_uri,
             range.clone(),
+            options,
             notify_fn,
         )
         .await?;

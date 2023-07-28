@@ -308,6 +308,58 @@ pub trait BlockDeviceHandle {
             .await
     }
 
+    /// Submits a compare request to the block device.
+    ///
+    /// The given completion callback is called when the operation finishes.
+    /// This method may return error immediately in the case operation dispatch
+    /// fails.
+    ///
+    /// If compare fails, the operation completes with `IoCompletionStatus` set
+    /// to `NvmeError`, with
+    /// `NvmeStatus::MediaError(MediaErrorStatusCode::CompareFailure))`.
+    fn comparev_blocks(
+        &self,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError>;
+
+    /// Submits a compare request to the block device.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::CompareFailed` in the case of failure.
+    ///
+    /// If compare fails, the operation completes with `IoCompletionStatus` set
+    /// to `NvmeError`, with
+    /// `NvmeStatus::MediaError(MediaErrorStatusCode::CompareFailure))`.
+    async fn comparev_blocks_async(
+        &self,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<IoCompletionStatus>();
+
+        self.comparev_blocks(
+            iovs,
+            offset_blocks,
+            num_blocks,
+            block_device_io_completion,
+            cb_arg(s),
+        )?;
+
+        match r.await.expect("Failed awaiting at comparev_blocks()") {
+            IoCompletionStatus::Success => Ok(()),
+            status => Err(CoreError::CompareFailed {
+                status,
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
+
     /// TODO
     fn reset(
         &self,

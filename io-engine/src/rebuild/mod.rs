@@ -9,8 +9,8 @@ mod rebuild_task;
 
 use rebuild_descriptor::RebuildDescriptor;
 pub(crate) use rebuild_error::RebuildError;
-pub use rebuild_job::RebuildJob;
 use rebuild_job::RebuildOperation;
+pub use rebuild_job::{RebuildJob, RebuildJobOptions, RebuildVerifyMode};
 use rebuild_job_backend::{
     RebuildFBendChan,
     RebuildJobBackend,

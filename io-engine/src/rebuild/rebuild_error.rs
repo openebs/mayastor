@@ -25,6 +25,17 @@ pub enum RebuildError {
     ReadIoFailed { source: CoreError, bdev: String },
     #[snafu(display("Write IO failed for bdev {}", bdev))]
     WriteIoFailed { source: CoreError, bdev: String },
+    #[snafu(display("Verify IO failed for bdev {}", bdev))]
+    VerifyIoFailed { source: CoreError, bdev: String },
+    #[snafu(display(
+        "Verify compare failed for bdev {}: {}",
+        bdev,
+        verify_message
+    ))]
+    VerifyCompareFailed {
+        bdev: String,
+        verify_message: String,
+    },
     #[snafu(display("Failed to find rebuild job {}", job))]
     JobNotFound { job: String },
     #[snafu(display("Missing rebuild destination {}", job))]

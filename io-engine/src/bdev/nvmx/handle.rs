@@ -16,6 +16,8 @@ use spdk_rs::{
         spdk_nvme_ctrlr_cmd_admin_raw,
         spdk_nvme_ctrlr_cmd_io_raw,
         spdk_nvme_dsm_range,
+        spdk_nvme_ns_cmd_compare,
+        spdk_nvme_ns_cmd_comparev,
         spdk_nvme_ns_cmd_dataset_management,
         spdk_nvme_ns_cmd_flush,
         spdk_nvme_ns_cmd_read,
@@ -388,7 +390,7 @@ extern "C" fn nvme_io_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
 
     // Check if operation successfully completed.
     if nvme_cpl_is_pi_error(cpl) {
-        error!("readv completed with PI error");
+        error!("I/O completed with PI error");
     }
 
     complete_nvme_command(nvme_io_ctx, cpl);
@@ -466,6 +468,11 @@ fn io_type_to_err(
             len: num_blocks,
         },
         IoType::Write => CoreError::WriteDispatch {
+            source,
+            offset: offset_blocks,
+            len: num_blocks,
+        },
+        IoType::Compare => CoreError::CompareDispatch {
             source,
             offset: offset_blocks,
             len: num_blocks,
@@ -899,6 +906,87 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         if rc < 0 {
             Err(CoreError::WriteDispatch {
+                source: Errno::from_i32(-rc),
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        } else {
+            inner.account_io();
+            Ok(())
+        }
+    }
+
+    fn comparev_blocks(
+        &self,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        check_io_args(IoType::Compare, iovs, offset_blocks, num_blocks)?;
+
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
+
+        // Make sure channel allows I/O.
+        check_channel_for_io(
+            IoType::Compare,
+            inner,
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let bio = alloc_nvme_io_ctx(
+            IoType::Compare,
+            NvmeIoCtx {
+                cb,
+                cb_arg,
+                iov: iovs.as_ptr() as *mut _,
+                iovcnt: iovs.len() as u64,
+                iovpos: 0,
+                iov_offset: 0,
+                channel,
+                op: IoType::Compare,
+                num_blocks,
+                #[cfg(feature = "fault-injection")]
+                inj_op: Default::default(),
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let rc = if iovs.len() == 1 {
+            unsafe {
+                spdk_nvme_ns_cmd_compare(
+                    self.ns.as_ptr(),
+                    inner.qpair_ptr(),
+                    iovs[0].as_ptr() as *mut _,
+                    offset_blocks,
+                    num_blocks as u32,
+                    Some(nvme_io_done),
+                    bio as *mut c_void,
+                    self.prchk_flags,
+                )
+            }
+        } else {
+            unsafe {
+                spdk_nvme_ns_cmd_comparev(
+                    self.ns.as_ptr(),
+                    inner.qpair_ptr(),
+                    offset_blocks,
+                    num_blocks as u32,
+                    Some(nvme_io_done),
+                    bio as *mut c_void,
+                    self.prchk_flags,
+                    Some(nvme_queued_reset_sgl),
+                    Some(nvme_queued_next_sge),
+                )
+            }
+        };
+
+        if rc < 0 {
+            Err(CoreError::CompareDispatch {
                 source: Errno::from_i32(-rc),
                 offset: offset_blocks,
                 len: num_blocks,

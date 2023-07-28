@@ -273,6 +273,16 @@ impl NexusBuilder {
         self.online_child_bdev(&self.replica_uri(r)).await
     }
 
+    pub async fn online_child_replica_wait(
+        &self,
+        r: &ReplicaBuilder,
+        d: Duration,
+    ) -> Result<(), Status> {
+        self.online_child_replica(r).await?;
+        self.wait_replica_state(r, ChildState::Online, None, d)
+            .await
+    }
+
     pub async fn offline_child_bdev(
         &self,
         bdev: &str,
@@ -295,6 +305,21 @@ impl NexusBuilder {
         r: &ReplicaBuilder,
     ) -> Result<Nexus, Status> {
         self.offline_child_bdev(&self.replica_uri(r)).await
+    }
+
+    pub async fn offline_child_replica_wait(
+        &self,
+        r: &ReplicaBuilder,
+        d: Duration,
+    ) -> Result<(), Status> {
+        self.offline_child_replica(r).await?;
+        self.wait_replica_state(
+            r,
+            ChildState::Degraded,
+            Some(ChildStateReason::ByClient),
+            d,
+        )
+        .await
     }
 
     pub async fn add_injection_at_replica(
@@ -408,10 +433,11 @@ impl NexusBuilder {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
             if start.elapsed() > timeout {
-                return Err(Status::new(
-                    Code::Cancelled,
-                    "Waiting for children to get online timed out",
-                ));
+                let msg = format!(
+                    "Waiting for repica to go to '{state:?}' \
+                    state timed out"
+                );
+                return Err(Status::new(Code::Cancelled, msg));
             }
         }
     }

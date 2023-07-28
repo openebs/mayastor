@@ -14,6 +14,7 @@ use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_rs::{
     libspdk::{
+        spdk_bdev_comparev_blocks,
         spdk_bdev_flush,
         spdk_bdev_free_io,
         spdk_bdev_io,
@@ -399,6 +400,52 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         }
     }
 
+    fn comparev_blocks(
+        &self,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        let ctx = alloc_bdev_io_ctx(
+            IoType::Compare,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: Default::default(),
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let (desc, chan) = self.handle.io_tuple();
+        let rc = unsafe {
+            spdk_bdev_comparev_blocks(
+                desc,
+                chan,
+                iovs.as_ptr() as *mut _,
+                iovs.len() as i32,
+                offset_blocks,
+                num_blocks,
+                Some(bdev_io_completion),
+                ctx as *mut c_void,
+            )
+        };
+
+        if rc < 0 {
+            Err(CoreError::CompareDispatch {
+                source: Errno::from_i32(-rc),
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     fn reset(
         &self,
         cb: IoCompletionCallback,
@@ -644,6 +691,11 @@ pub fn io_type_to_err(
             len,
         },
         IoType::Write => CoreError::WriteDispatch {
+            source,
+            offset,
+            len,
+        },
+        IoType::Compare => CoreError::CompareDispatch {
             source,
             offset,
             len,

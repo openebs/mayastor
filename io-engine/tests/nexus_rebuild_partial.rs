@@ -313,16 +313,8 @@ async fn nexus_partial_rebuild_offline_online() {
     .unwrap();
 
     // Offline the replica.
-    nex_0.offline_child_replica(&repl_0).await.unwrap();
-
-    // Transition to offline state is not immediate,
     nex_0
-        .wait_replica_state(
-            &repl_0,
-            ChildState::Degraded,
-            None,
-            Duration::from_secs(1),
-        )
+        .offline_child_replica_wait(&repl_0, Duration::from_secs(1))
         .await
         .unwrap();
 
@@ -470,16 +462,11 @@ async fn nexus_partial_rebuild_double_fault() {
     let child_0_dev_name = children[0].device_name.as_ref().unwrap();
 
     // Offline the replica again.
-    nex_0.offline_child_replica(&repl_0).await.unwrap();
     nex_0
-        .wait_replica_state(
-            &repl_0,
-            ChildState::Degraded,
-            None,
-            Duration::from_secs(1),
-        )
+        .offline_child_replica_wait(&repl_0, Duration::from_secs(1))
         .await
         .unwrap();
+
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state(), ChildState::Degraded);
     assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
@@ -553,16 +540,11 @@ async fn nexus_partial_rebuild_double_fault() {
         .unwrap();
 
     // Offline the replica again.
-    nex_0.offline_child_replica(&repl_0).await.unwrap();
     nex_0
-        .wait_replica_state(
-            &repl_0,
-            ChildState::Degraded,
-            None,
-            Duration::from_secs(1),
-        )
+        .offline_child_replica_wait(&repl_0, Duration::from_secs(1))
         .await
         .unwrap();
+
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state(), ChildState::Degraded);
     assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);

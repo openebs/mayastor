@@ -1,12 +1,8 @@
-use futures::{
-    channel::mpsc,
-    lock::Mutex,
-    stream::FusedStream,
-    SinkExt,
-    StreamExt,
-};
+use futures::{channel::mpsc, stream::FusedStream, SinkExt, StreamExt};
+use parking_lot::Mutex;
 use snafu::ResultExt;
 use spdk_rs::{DmaBuf, LbaRange};
+use std::sync::Arc;
 
 use crate::core::{Reactors, VerboseError};
 
@@ -14,6 +10,7 @@ use super::{
     rebuild_error::{RangeLockFailed, RangeUnlockFailed},
     RebuildDescriptor,
     RebuildError,
+    RebuildVerifyMode,
 };
 
 /// Result returned by each segment task worker.
@@ -29,19 +26,19 @@ pub(super) struct TaskResult {
     pub(super) error: Option<RebuildError>,
     /// Indicates if the segment was actually transferred (partial rebuild may
     /// skip segments).
-    pub(super) is_transferred: bool,
+    is_transferred: bool,
 }
 
 /// Each rebuild task needs a unique buffer to read/write from source to target.
 /// An mpsc channel is used to communicate with the management task.
 #[derive(Debug)]
 pub(super) struct RebuildTask {
-    /// The pre-allocated `DmaBuf` used to read/write.
-    pub(super) buffer: Mutex<DmaBuf>,
+    /// The pre-allocated buffers used to read/write.
+    buffer: DmaBuf,
     /// The channel used to notify when the task completes/fails.
-    pub(super) sender: mpsc::Sender<TaskResult>,
+    sender: mpsc::Sender<TaskResult>,
     /// Last error seen by this particular task.
-    pub(super) error: Option<TaskResult>,
+    error: Option<TaskResult>,
 }
 
 impl RebuildTask {
@@ -50,7 +47,7 @@ impl RebuildTask {
         sender: mpsc::Sender<TaskResult>,
     ) -> Self {
         Self {
-            buffer: Mutex::new(buffer),
+            buffer,
             sender,
             error: None,
         }
@@ -125,12 +122,15 @@ impl RebuildTask {
         offset_blk: u64,
         desc: &RebuildDescriptor,
     ) -> Result<(), RebuildError> {
-        let buf_lock = self.buffer.lock().await;
-        let iov = desc.adjusted_iov(&buf_lock, offset_blk);
+        let iov = desc.adjusted_iov(&self.buffer, offset_blk);
         let iovs = &mut [iov];
 
         if desc.read_src_segment(offset_blk, iovs).await? {
             desc.write_dst_segment(offset_blk, iovs).await?;
+
+            if !matches!(desc.options.verify_mode, RebuildVerifyMode::None) {
+                desc.verify_segment(offset_blk, iovs).await?;
+            }
         }
 
         Ok(())
@@ -144,7 +144,7 @@ pub(super) struct RebuildTasks {
     /// All tasks managed by this entity.
     /// Each task can run off on its own, and thus why each is protected
     /// by a lock.
-    pub(super) tasks: Vec<std::sync::Arc<parking_lot::Mutex<RebuildTask>>>,
+    pub(super) tasks: Vec<Arc<Mutex<RebuildTask>>>,
     /// The channel is used to communicate with the tasks.
     pub(super) channel: (mpsc::Sender<TaskResult>, mpsc::Receiver<TaskResult>),
     /// How many active tasks at present.
@@ -172,8 +172,7 @@ impl std::fmt::Debug for RebuildTasks {
 impl RebuildTasks {
     /// Add the given `RebuildTask` to the task pool.
     pub(super) fn push(&mut self, task: RebuildTask) {
-        self.tasks
-            .push(std::sync::Arc::new(parking_lot::Mutex::new(task)));
+        self.tasks.push(Arc::new(Mutex::new(task)));
     }
     /// Check if there's at least one task still running.
     pub(super) fn running(&self) -> bool {
@@ -199,7 +198,7 @@ impl RebuildTasks {
         &mut self,
         id: usize,
         blk: u64,
-        descriptor: std::sync::Arc<RebuildDescriptor>,
+        descriptor: Arc<RebuildDescriptor>,
     ) {
         let task = self.tasks[id].clone();
 
