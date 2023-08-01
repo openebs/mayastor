@@ -9,6 +9,7 @@ use std::{
 };
 use strum::EnumCount;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
+
 /// Snapshot Captures all the Snapshot information for Lvol.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotParams {
@@ -18,6 +19,7 @@ pub struct SnapshotParams {
     snap_name: Option<String>,
     snapshot_uuid: Option<String>,
     create_time: Option<String>,
+    discarded_snapshot: bool,
 }
 
 /// Implement Snapshot Common Function.
@@ -29,6 +31,7 @@ impl SnapshotParams {
         snap_name: Option<String>,
         snapshot_uuid: Option<String>,
         create_time: Option<String>,
+        discarded_snapshot: bool,
     ) -> SnapshotParams {
         SnapshotParams {
             entity_id,
@@ -37,6 +40,7 @@ impl SnapshotParams {
             snap_name,
             snapshot_uuid,
             create_time,
+            discarded_snapshot,
         }
     }
 }
@@ -167,6 +171,11 @@ pub enum SnapshotXattrs {
     ParentId,
     SnapshotUuid,
     SnapshotCreateTime,
+    /// if any snapshot delete gRPC request came and there are valid clones
+    /// link to the snapshot, then snapshot can be marked as discarded,
+    /// delete of the last valid replica(clone) can delete the snapshot marked
+    /// as discarded.
+    DiscardedSnapshot,
 }
 
 impl SnapshotXattrs {
@@ -177,6 +186,7 @@ impl SnapshotXattrs {
             Self::ParentId => "io-engine.parent_id",
             Self::SnapshotUuid => "uuid",
             Self::SnapshotCreateTime => "io-engine.snapshot_create_time",
+            Self::DiscardedSnapshot => "io-engine.discarded_snapshot",
         }
     }
 }
@@ -214,6 +224,8 @@ pub trait SnapshotOps {
         nvmf_req: &NvmfReq,
         snapshot_params: SnapshotParams,
     );
+    /// Destroy snapshot.
+    async fn destroy_snapshot(mut self) -> Result<(), Self::Error>;
 
     /// List Snapshot details based on source UUID from which snapshot is
     /// created.
@@ -320,6 +332,16 @@ pub trait SnapshotOps {
         &self,
         parent: Option<&Lvol>,
     ) -> Option<VolumeSnapshotDescriptor>;
+
+    /// Return bool value to indicate, if the snapshot is marked as discarded.
+    fn is_discarded_snapshot(&self) -> bool;
+
+    /// During destroying the last linked cloned, if there is any fault
+    /// happened, it is possible that, last clone can be deleted, but linked
+    /// snapshot marked as discarded still present in the system. As part of
+    /// pool import, do the garbage collection to clean the discarded snapshots
+    /// leftout in the system.
+    async fn destroy_pending_discarded_snapshot();
 }
 
 /// Traits gives the Snapshots Related Parameters.
@@ -359,6 +381,12 @@ pub trait SnapshotDescriptor {
 
     /// Set snapshot create time.
     fn set_create_time(&mut self, time: String);
+
+    /// Check if the snapshot has been discarded.
+    fn discarded_snapshot(&self) -> bool;
+
+    /// Set discarded_snapshot
+    fn set_discarded_snapshot(&mut self, discarded: bool);
 }
 
 /// Trait to give interface for all Snapshot Parameters.
@@ -415,5 +443,15 @@ impl SnapshotDescriptor for SnapshotParams {
     /// Set snapshot create time.
     fn set_create_time(&mut self, time: String) {
         self.create_time = Some(time);
+    }
+
+    /// Check if the snapshot has been discarded.
+    fn discarded_snapshot(&self) -> bool {
+        self.discarded_snapshot
+    }
+
+    /// Set discarded_snapshot
+    fn set_discarded_snapshot(&mut self, discarded: bool) {
+        self.discarded_snapshot = discarded;
     }
 }

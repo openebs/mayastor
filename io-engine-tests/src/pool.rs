@@ -2,7 +2,7 @@ pub use super::compose::rpc::v1::pool::Pool;
 use super::{
     compose::rpc::v1::{
         pool::{CreatePoolRequest, ListPoolOptions},
-        replica::{ListReplicaOptions, Replica},
+        replica::{ListReplicaOptions, Replica, ReplicaType},
         SharedRpcHandle,
         Status,
     },
@@ -104,6 +104,7 @@ impl PoolBuilder {
                 poolname: None,
                 uuid: None,
                 pooluuid: self.uuid.clone(),
+                replicatype: ReplicaType::AllReplicas as i32,
             })
             .await
             .map(|r| r.into_inner().replicas)

@@ -32,6 +32,7 @@ use std::{
 use strum::{EnumCount, IntoEnumIterator};
 
 use super::Error;
+use futures::future::join_all;
 
 #[async_trait(?Send)]
 trait AsyncIterator {
@@ -119,6 +120,7 @@ impl SnapshotOps for Lvol {
             Some(snap_name),
             snap_uuid,
             Some(Utc::now().to_string()),
+            false,
         ))
     }
     /// Prepare snapshot xattrs.
@@ -177,6 +179,9 @@ impl SnapshotOps for Lvol {
                             })
                         }
                     }
+                }
+                SnapshotXattrs::DiscardedSnapshot => {
+                    params.discarded_snapshot().to_string()
                 }
             };
             let attr_name = attr.name().to_string().into_cstring();
@@ -442,6 +447,11 @@ impl SnapshotOps for Lvol {
                 SnapshotXattrs::SnapshotCreateTime => {
                     snapshot_param.set_create_time(curr_attr_val);
                 }
+                SnapshotXattrs::DiscardedSnapshot => {
+                    snapshot_param.set_discarded_snapshot(
+                        curr_attr_val.parse().unwrap_or_default(),
+                    );
+                }
             }
         }
         // set remaining snapshot parameters for snapshot list
@@ -550,7 +560,20 @@ impl SnapshotOps for Lvol {
     async fn snapshot_iter(self) -> LvolSnapshotIter {
         LvolSnapshotIter::new(self)
     }
-
+    /// Destroy snapshot.
+    async fn destroy_snapshot(mut self) -> Result<(), Self::Error> {
+        if self.list_clones_by_snapshot_uuid().is_empty() {
+            self.destroy().await?;
+        } else {
+            self.set_blob_attr(
+                SnapshotXattrs::DiscardedSnapshot.name(),
+                true.to_string(),
+                true,
+            )
+            .await?;
+        }
+        Ok(())
+    }
     /// List Snapshot details based on source UUID from which snapshot is
     /// created.
     fn list_snapshot_by_source_uuid(&self) -> Vec<VolumeSnapshotDescriptor> {
@@ -690,5 +713,43 @@ impl SnapshotOps for Lvol {
             .map(|b| Lvol::try_from(b).unwrap())
             .filter(|b| b.is_snapshot_clone().is_some())
             .collect::<Vec<Lvol>>()
+    }
+    /// Check if the snapshot has been discarded.
+    fn is_discarded_snapshot(&self) -> bool {
+        Lvol::get_blob_xattr(self, SnapshotXattrs::DiscardedSnapshot.name())
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or_default()
+    }
+
+    /// During destroying the last linked cloned, if there is any fault
+    /// happened, it is possible that, last clone can be deleted, but linked
+    /// snapshot marked as discarded still present in the system. As part of
+    /// pool import, do the garbage collection to clean the discarded snapshots
+    /// leftout in the system.
+    async fn destroy_pending_discarded_snapshot() {
+        let Some(bdev) = UntypedBdev::bdev_first() else {
+            return; /* No devices available */
+        };
+        let futures = bdev
+            .into_iter()
+            .filter(|b| b.driver() == "lvol")
+            .map(|b| Lvol::try_from(b).unwrap())
+            .filter(|b| {
+                b.is_snapshot()
+                    && b.is_discarded_snapshot()
+                    && b.list_clones_by_snapshot_uuid().is_empty()
+            })
+            .map(|s| s.destroy())
+            .collect::<Vec<_>>();
+        let result = join_all(futures).await;
+        for r in result {
+            match r {
+                Ok(r) => {
+                    debug!("Pending discarded snapshot {r:?} destroy success")
+                }
+                _ => warn!("Pending discarded snapshot destroy failed"),
+            }
+        }
     }
 }

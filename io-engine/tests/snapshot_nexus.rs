@@ -11,7 +11,7 @@ use common::{
             bdev::ListBdevOptions,
             pool::CreatePoolRequest,
             replica::{CreateReplicaRequest, ListReplicaOptions},
-            snapshot::{ListSnapshotsRequest, SnapshotInfo},
+            snapshot::{ListSnapshotsRequest, SnapshotInfo, SnapshotQueryType},
             GrpcConnect,
         },
         Builder,
@@ -250,6 +250,7 @@ async fn test_replica_handle_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -269,6 +270,7 @@ async fn test_replica_handle_snapshot() {
         Some(String::from(SNAP_NAME)),
         Some(Uuid::new_v4().to_string()),
         Some(Utc::now().to_string()),
+        false,
     );
     let mut snapshot_params_clone = snapshot_params.clone();
 
@@ -291,6 +293,7 @@ async fn test_replica_handle_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -320,6 +323,7 @@ async fn test_multireplica_nexus_snapshot() {
             Some(String::from("s1")),
             Some(Uuid::new_v4().to_string()),
             Some(Utc::now().to_string()),
+            false,
         );
 
         let replicas = vec![
@@ -371,6 +375,7 @@ async fn test_list_no_snapshots() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -443,6 +448,7 @@ async fn test_nexus_snapshot() {
         Some(String::from(SNAP_NAME)),
         Some(snapshot_uuid.clone()),
         Some(Utc::now().to_string()),
+        false,
     );
     let snapshot_params_clone = snapshot_params.clone();
 
@@ -452,6 +458,7 @@ async fn test_nexus_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -494,6 +501,7 @@ async fn test_nexus_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -527,6 +535,7 @@ async fn test_duplicated_snapshot_uuid_name() {
         Some(String::from("snapshot51")),
         Some(snapshot_uuid.clone()),
         Some(Utc::now().to_string()),
+        false,
     );
     let snapshot_params_clone = snapshot_params.clone();
 
@@ -580,6 +589,7 @@ async fn test_duplicated_snapshot_uuid_name() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -629,6 +639,7 @@ async fn test_snapshot_ancestor_usage() {
             Some(String::from(SNAP1_NAME)),
             Some(snapshot_uuid.clone()),
             Some(Utc::now().to_string()),
+            false,
         );
 
         let r = NexusReplicaSnapshotDescriptor {
@@ -755,6 +766,7 @@ async fn test_snapshot_ancestor_usage() {
             Some(String::from(SNAP2_NAME)),
             Some(Uuid::new_v4().to_string()),
             Some(Utc::now().to_string()),
+            false,
         );
 
         let replicas = vec![NexusReplicaSnapshotDescriptor {
@@ -817,6 +829,7 @@ async fn test_snapshot_ancestor_usage() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -859,6 +872,7 @@ async fn test_snapshot_ancestor_usage() {
             Some(String::from(SNAP3_NAME)),
             Some(Uuid::new_v4().to_string()),
             Some(Utc::now().to_string()),
+            false,
         );
 
         let replicas = vec![NexusReplicaSnapshotDescriptor {
@@ -883,6 +897,7 @@ async fn test_snapshot_ancestor_usage() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
+            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
         })
         .await
         .expect("Failed to list snapshots on replica node")

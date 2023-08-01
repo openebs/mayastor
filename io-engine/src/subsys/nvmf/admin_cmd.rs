@@ -246,6 +246,7 @@ pub fn create_snapshot(
         Some(snapshot_name),
         Some(Uuid::generate().to_string()),
         Some(Utc::now().to_string()),
+        false,
     );
     // Blobfs operations must be on md_thread
     Reactors::master().send_future(async move {
