@@ -150,6 +150,10 @@ pub enum Error {
         attr: String,
         name: String,
     },
+    #[snafu(display("Failed to wipe the replica"))]
+    WipeFailed {
+        source: crate::core::wiper::Error,
+    },
 }
 
 /// Map CoreError to errno code.
@@ -231,6 +235,17 @@ impl ToErrno for Error {
             Self::SetXAttr {
                 source, ..
             } => source,
+            Self::WipeFailed {
+                ..
+            } => Errno::EINVAL,
+        }
+    }
+}
+
+impl From<crate::core::wiper::Error> for Error {
+    fn from(source: crate::core::wiper::Error) -> Self {
+        Self::WipeFailed {
+            source,
         }
     }
 }

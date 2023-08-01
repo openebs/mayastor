@@ -96,6 +96,7 @@ pub(crate) mod segment_map;
 mod share;
 pub mod snapshot;
 pub(crate) mod thread;
+pub(crate) mod wiper;
 mod work_queue;
 
 /// Obtain the full error chain
@@ -307,6 +308,10 @@ pub enum CoreError {
         reason: String,
         source: Errno,
     },
+    #[snafu(display("Failed to wipe the device"))]
+    WipeFailed {
+        source: wiper::Error,
+    },
 }
 
 /// Represent error as Errno value.
@@ -411,6 +416,9 @@ impl ToErrno for CoreError {
             Self::SnapshotCreate {
                 source, ..
             } => source,
+            Self::WipeFailed {
+                ..
+            } => Errno::EIO,
         }
     }
 }

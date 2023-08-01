@@ -517,7 +517,7 @@ impl<'n> Nexus<'n> {
         // even if some of the children failed to open. This is work is not
         // completed yet so we fail the registration all together for now.
         if let Some(error) = error {
-            // Close any children that WERE succesfully opened.
+            // Close any children that WERE successfully opened.
             for child in self.children_iter() {
                 if child.is_opened() {
                     child.close().await.ok();

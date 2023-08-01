@@ -82,6 +82,11 @@ impl ReplicaBuilder {
         self
     }
 
+    pub fn with_nvmf(mut self) -> Self {
+        self.share = mayastor_api::v1::common::ShareProtocol::Nvmf as i32;
+        self
+    }
+
     pub fn rpc(&self) -> SharedRpcHandle {
         self.rpc.clone()
     }

@@ -24,7 +24,10 @@ use mayastor_api::{
     v1,
 };
 
-use crate::subsys::registration::registration_grpc::ApiVersion;
+use crate::{
+    grpc::v1::test::TestService,
+    subsys::registration::registration_grpc::ApiVersion,
+};
 use futures::{select, FutureExt, StreamExt};
 use once_cell::sync::OnceCell;
 use std::{borrow::Cow, time::Duration};
@@ -68,6 +71,8 @@ impl MayastorGrpcServer {
 
         let address = Cow::from(rpc_addr);
 
+        let replica_v1 = ReplicaService::new();
+
         let enable_v0 = api_versions.contains(&ApiVersion::V0).then_some(true);
         let enable_v1 = api_versions.contains(&ApiVersion::V1).then_some(true);
         info!(
@@ -87,7 +92,10 @@ impl MayastorGrpcServer {
                     .map(|_| v1::pool::PoolRpcServer::new(PoolService::new())),
             )
             .add_optional_service(enable_v1.map(|_| {
-                v1::replica::ReplicaRpcServer::new(ReplicaService::new())
+                v1::replica::ReplicaRpcServer::new(replica_v1.clone())
+            }))
+            .add_optional_service(enable_v1.map(|_| {
+                v1::test::TestRpcServer::new(TestService::new(replica_v1))
             }))
             .add_optional_service(enable_v1.map(|_| {
                 v1::snapshot::SnapshotRpcServer::new(SnapshotService::new())

@@ -406,10 +406,10 @@ pub fn compare_devices(
     second_device: &str,
     size: u64,
     expected_pass: bool,
-) -> String {
+) {
     let (exit, stdout, stderr) = run_script::run(
         r#"
-        cmp -b $1 $2 5M 5M -n $3
+        cmp -b $1 $2 -n $3
         test $? -eq $4
     "#,
         &vec![
@@ -422,7 +422,6 @@ pub fn compare_devices(
     )
     .unwrap();
     assert_eq!(exit, 0, "stdout: {stdout}\nstderr: {stderr}");
-    stdout
 }
 
 pub fn device_path_from_uri(device_uri: &str) -> String {

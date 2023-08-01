@@ -39,6 +39,7 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         logical_volume::LogicalVolume,
+        wiper::{WipeMethod, Wiper},
         Bdev,
         CloneXattrs,
         Protocol,
@@ -47,6 +48,7 @@ use crate::{
         ShareProps,
         SnapshotOps,
         SnapshotParams,
+        ToErrno,
         UntypedBdev,
         UpdateProps,
     },
@@ -280,8 +282,8 @@ impl Lvol {
         blob
     }
 
-    // wipe the first 8MB if unmap is not supported on failure the operation
-    // needs to be repeated
+    /// Wipe the first 8MB if unmap is not supported on failure the operation
+    /// needs to be repeated.
     pub async fn wipe_super(&self) -> Result<(), Error> {
         if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
             let hdl = Bdev::open(&self.as_bdev(), true)
@@ -309,6 +311,22 @@ impl Lvol {
             })?;
         }
         Ok(())
+    }
+
+    /// Get a wiper for this replica.
+    pub(crate) fn wiper(
+        &self,
+        wipe_method: WipeMethod,
+    ) -> Result<Wiper, Error> {
+        let hdl = Bdev::open(&self.as_bdev(), true)
+            .and_then(|desc| desc.into_handle())
+            .map_err(|e| Error::Invalid {
+                msg: e.to_string(),
+                source: e.to_errno(),
+            })?;
+
+        let wiper = Wiper::new(hdl, wipe_method)?;
+        Ok(wiper)
     }
 
     /// generic callback for lvol operations
