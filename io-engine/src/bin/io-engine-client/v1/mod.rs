@@ -9,6 +9,7 @@ pub mod pool_cli;
 pub mod rebuild_cli;
 pub mod replica_cli;
 pub mod snapshot_cli;
+mod test_cli;
 
 pub(crate) use super::context;
 use crate::ContextCreate;
@@ -75,6 +76,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         .subcommand(snapshot_cli::subcommands())
         .subcommand(jsonrpc_cli::subcommands())
         .subcommand(controller_cli::subcommands())
+        .subcommand(test_cli::subcommands())
         .get_matches();
 
     let ctx = context::Context::new(&matches)
@@ -92,6 +94,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         ("snapshot", Some(args)) => snapshot_cli::handler(ctx, args).await,
         ("controller", Some(args)) => controller_cli::handler(ctx, args).await,
         ("jsonrpc", Some(args)) => jsonrpc_cli::json_rpc_call(ctx, args).await,
+        ("test", Some(args)) => test_cli::handler(ctx, args).await,
         _ => panic!("Command not found"),
     };
     status

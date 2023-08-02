@@ -66,6 +66,7 @@ mod v1 {
     pub type HostRpcClient = host::HostRpcClient<Channel>;
     pub type NexusRpcClient = nexus::NexusRpcClient<Channel>;
     pub type SnapshotRpcClient = snapshot::SnapshotRpcClient<Channel>;
+    pub type TestRpcClient = test::TestRpcClient<Channel>;
 
     pub struct Context {
         pub bdev: BdevRpcClient,
@@ -75,6 +76,7 @@ mod v1 {
         pub host: HostRpcClient,
         pub nexus: NexusRpcClient,
         pub snapshot: SnapshotRpcClient,
+        pub test: TestRpcClient,
     }
 
     impl Context {
@@ -86,6 +88,7 @@ mod v1 {
             let host = HostRpcClient::connect(h.clone()).await.unwrap();
             let nexus = NexusRpcClient::connect(h.clone()).await.unwrap();
             let snapshot = SnapshotRpcClient::connect(h.clone()).await.unwrap();
+            let test = TestRpcClient::connect(h.clone()).await.unwrap();
 
             Ok(Self {
                 bdev,
@@ -95,6 +98,7 @@ mod v1 {
                 host,
                 nexus,
                 snapshot,
+                test,
             })
         }
     }
@@ -243,5 +247,76 @@ impl Context {
 
             println!("{}", vals.collect::<Vec<String>>().join(" "));
         }
+    }
+
+    /// Print the list with the given header and data.
+    /// The data is streamed out of a channel, allowing for long-running
+    /// operations to update the output on-the-fly.
+    pub(crate) async fn print_streamed_list(
+        &self,
+        headers: Vec<&str>,
+        mut recv: tokio::sync::mpsc::Receiver<
+            Result<Vec<String>, tonic::Status>,
+        >,
+    ) -> Result<(), tonic::Status> {
+        let Some(data) = recv.recv().await else {
+            return Ok(());
+        };
+        let mut data = vec![data?];
+        let ncols = data.first().unwrap().len();
+        assert_eq!(headers.len(), ncols);
+
+        let columns = if self.verbosity > 0 {
+            data.insert(
+                0,
+                headers
+                    .iter()
+                    .map(|h| {
+                        if let Some(stripped) = h.strip_prefix('>') {
+                            stripped.to_string()
+                        } else {
+                            h.to_string()
+                        }
+                    })
+                    .collect(),
+            );
+
+            data.iter().fold(
+                headers
+                    .iter()
+                    .map(|h| (h.starts_with('>'), 0usize))
+                    .collect(),
+                |thus_far: Vec<(bool, usize)>, elem| {
+                    thus_far
+                        .iter()
+                        .zip(elem)
+                        .map(|((a, l), s)| (*a, max(*l, s.len())))
+                        .collect()
+                },
+            )
+        } else {
+            vec![(false, 0usize); ncols]
+        };
+
+        data.reverse();
+        while let Some(row) = {
+            if let Some(data) = data.pop() {
+                Some(Ok(data))
+            } else {
+                recv.recv().await
+            }
+        } {
+            let vals = row?.into_iter().enumerate().map(|(idx, s)| {
+                if columns[idx].0 {
+                    format!("{:>1$}", s, columns[idx].1)
+                } else {
+                    format!("{:<1$}", s, columns[idx].1)
+                }
+            });
+
+            println!("{}", vals.collect::<Vec<String>>().join("  "));
+        }
+
+        Ok(())
     }
 }

@@ -279,6 +279,9 @@ impl From<LvsError> for tonic::Status {
             LvsError::InvalidBdev {
                 source, ..
             } => source.into(),
+            LvsError::WipeFailed {
+                source,
+            } => source.into(),
             _ => Status::internal(e.verbose()),
         }
     }

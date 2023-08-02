@@ -21,11 +21,12 @@ use nix::errno::Errno;
 use std::{convert::TryFrom, panic::AssertUnwindSafe, pin::Pin};
 use tonic::{Request, Response, Status};
 
-#[derive(Debug)]
-#[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct ReplicaService {
+    #[allow(unused)]
     name: String,
-    client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
+    client_context:
+        std::sync::Arc<tokio::sync::Mutex<Option<GrpcClientContext>>>,
 }
 
 #[async_trait::async_trait]
@@ -117,7 +118,7 @@ impl ReplicaService {
     pub fn new() -> Self {
         Self {
             name: String::from("ReplicaSvc"),
-            client_context: tokio::sync::Mutex::new(None),
+            client_context: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 }
@@ -398,7 +399,7 @@ impl ReplicaRpc for ReplicaService {
                     .map(Response::new)
             },
         )
-        .await
+            .await
     }
 
     #[named]

@@ -51,6 +51,7 @@ pub struct RpcHandle {
     pub host: host::HostRpcClient<Channel>,
     pub nexus: nexus::NexusRpcClient<Channel>,
     pub snapshot: snapshot::SnapshotRpcClient<Channel>,
+    pub test: test::TestRpcClient<Channel>,
 }
 
 impl RpcHandle {
@@ -104,6 +105,10 @@ impl RpcHandle {
                 .await
                 .unwrap();
 
+        let test = test::TestRpcClient::connect(format!("http://{endpoint}"))
+            .await
+            .unwrap();
+
         Ok(Self {
             name,
             endpoint,
@@ -114,6 +119,7 @@ impl RpcHandle {
             host,
             nexus,
             snapshot,
+            test,
         })
     }
 }
