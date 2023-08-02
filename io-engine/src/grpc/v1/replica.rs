@@ -122,7 +122,45 @@ impl ReplicaService {
         }
     }
 }
-
+fn filter_replicas_by_replica_type(
+    replicas: Vec<Replica>,
+    replica_type: Option<ReplicaType>,
+) -> Vec<Replica> {
+    let Some(replica_type) = replica_type else {
+        return replicas
+    };
+    replicas
+        .into_iter()
+        .filter_map(|r| match replica_type {
+            // AllReplicas
+            ReplicaType::AllReplicas => Some(r),
+            // AllReplicasExceptSnapshots
+            ReplicaType::AllReplicasExceptSnapshots => {
+                if !r.is_snapshot {
+                    Some(r)
+                } else {
+                    None
+                }
+            }
+            // OnlySnapshotClones
+            ReplicaType::OnlySnapshotClones => {
+                if r.is_clone {
+                    Some(r)
+                } else {
+                    None
+                }
+            }
+            // OnlyReplicas
+            ReplicaType::OnlyReplicas => {
+                if !r.is_snapshot && !r.is_clone {
+                    Some(r)
+                } else {
+                    None
+                }
+            }
+        })
+        .collect()
+}
 #[tonic::async_trait]
 impl ReplicaRpc for ReplicaService {
     #[named]
@@ -313,7 +351,10 @@ impl ReplicaRpc for ReplicaService {
                 } else if let Some(uuid) = args.uuid {
                     replicas.retain(|r| r.uuid == uuid);
                 }
-
+                let replicas = filter_replicas_by_replica_type(
+                    replicas,
+                    ReplicaType::from_i32(args.replicatype),
+                );
                 Ok(ListReplicasResponse {
                     replicas,
                 })

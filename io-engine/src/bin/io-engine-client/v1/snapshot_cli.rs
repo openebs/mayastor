@@ -11,7 +11,6 @@ use colored_json::ToColoredJson;
 use mayastor_api::v1 as v1_rpc;
 use snafu::ResultExt;
 use tonic::Status;
-use v1_rpc::snapshot::*;
 
 pub async fn handler(
     ctx: Context,
@@ -412,7 +411,8 @@ async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
     let request = v1_rpc::snapshot::ListSnapshotsRequest {
         source_uuid,
         snapshot_uuid,
-        snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+        snapshot_query_type: v1_rpc::snapshot::SnapshotQueryType::AllSnapshots
+            as i32,
     };
 
     let response = ctx

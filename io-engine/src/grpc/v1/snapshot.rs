@@ -308,6 +308,54 @@ impl SnapshotService {
     }
 }
 
+/// Filter snapshots based on snapshot_query_type came in gRPC request.
+fn filter_snapshots_by_snapshot_query_type(
+    snapshot_list: Vec<SnapshotInfo>,
+    snap_query_type: Option<SnapshotQueryType>,
+) -> Vec<SnapshotInfo> {
+    let Some(snap_query_type) = snap_query_type else {
+        return snapshot_list
+    };
+    snapshot_list
+        .into_iter()
+        .filter_map(|s| match snap_query_type {
+            // AllSnapshots
+            SnapshotQueryType::AllSnapshots => Some(s),
+            // AllSnapshotsExceptDiscardedSnapshots
+            SnapshotQueryType::AllSnapshotsExceptDiscardedSnapshots => {
+                if !s.discarded_snapshot {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
+            // OnlyDiscardedSnapshots
+            SnapshotQueryType::OnlyDiscardedSnapshots => {
+                if s.discarded_snapshot {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
+            // OnlyInvalidSnapshots
+            SnapshotQueryType::OnlyInvalidSnapshots => {
+                if !s.valid_snapshot {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
+            // OnlyUsableSnapshots
+            SnapshotQueryType::OnlyUsableSnapshots => {
+                if !s.discarded_snapshot && s.valid_snapshot {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
+        })
+        .collect()
+}
 #[tonic::async_trait]
 impl SnapshotRpc for SnapshotService {
     #[named]
@@ -458,10 +506,11 @@ impl SnapshotRpc for SnapshotService {
                 let args = request.into_inner();
                 trace!("{:?}", args);
                 let rx = rpc_submit(async move {
+                    let snapshots: Vec<SnapshotInfo>;
                     // if snapshot_uuid is input, get specific snapshot result
-                    if let Some(snapshot_uuid) = args.snapshot_uuid {
+                    if let Some(ref snapshot_uuid) = args.snapshot_uuid {
                         let lvol = match UntypedBdev::lookup_by_uuid_str(
-                            &snapshot_uuid,
+                            snapshot_uuid,
                         ) {
                             Some(bdev) => Lvol::try_from(bdev)?,
                             None => {
@@ -473,49 +522,47 @@ impl SnapshotRpc for SnapshotService {
                                 })
                             }
                         };
-                        let snapshots = lvol
+                        snapshots = lvol
                             .list_snapshot_by_snapshot_uuid()
                             .into_iter()
                             .map(SnapshotInfo::from)
                             .collect();
-                        Ok(ListSnapshotsResponse {
-                            snapshots,
-                        })
-                    } else if let Some(replica_uuid) = args.source_uuid {
+                    } else if let Some(ref replica_uuid) = args.source_uuid {
                         // if replica_uuid is valid, filter snapshot based
                         // on source_uuid
-                        let lvol = match UntypedBdev::lookup_by_uuid_str(
-                            &replica_uuid,
-                        ) {
-                            Some(bdev) => Lvol::try_from(bdev)?,
-                            None => {
-                                return Err(LvsError::Invalid {
-                                    source: Errno::ENOENT,
-                                    msg: format!(
-                                        "Replica {replica_uuid} not found",
-                                    ),
-                                })
-                            }
-                        };
-                        let snapshots = lvol
+                        let lvol =
+                            match UntypedBdev::lookup_by_uuid_str(replica_uuid)
+                            {
+                                Some(bdev) => Lvol::try_from(bdev)?,
+                                None => {
+                                    return Err(LvsError::Invalid {
+                                        source: Errno::ENOENT,
+                                        msg: format!(
+                                            "Replica {replica_uuid} not found",
+                                        ),
+                                    })
+                                }
+                            };
+                        snapshots = lvol
                             .list_snapshot_by_source_uuid()
                             .into_iter()
                             .map(SnapshotInfo::from)
                             .collect();
-                        Ok(ListSnapshotsResponse {
-                            snapshots,
-                        })
                     } else {
                         // if source_uuid is not input, list all snapshot
                         // present in system
-                        let snapshots = Lvol::list_all_snapshots()
+                        snapshots = Lvol::list_all_snapshots()
                             .into_iter()
                             .map(SnapshotInfo::from)
                             .collect();
-                        Ok(ListSnapshotsResponse {
-                            snapshots,
-                        })
                     }
+                    let snapshots = filter_snapshots_by_snapshot_query_type(
+                        snapshots,
+                        SnapshotQueryType::from_i32(args.snapshot_query_type),
+                    );
+                    Ok(ListSnapshotsResponse {
+                        snapshots,
+                    })
                 })?;
                 rx.await
                     .map_err(|_| Status::cancelled("cancelled"))?

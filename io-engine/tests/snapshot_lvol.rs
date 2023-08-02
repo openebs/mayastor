@@ -1,5 +1,18 @@
 pub mod common;
 
+use common::{
+    compose::{rpc::v1::GrpcConnect, Binary, Builder},
+    pool::PoolBuilder,
+    replica::ReplicaBuilder,
+    snapshot::ReplicaSnapshotBuilder,
+};
+use io_engine_tests::{
+    file_io::DataSize,
+    nvmf::test_write_to_nvmf,
+    replica::validate_replicas,
+    snapshot::SnapshotCloneBuilder,
+};
+
 use once_cell::sync::OnceCell;
 
 use common::{bdev_io, compose::MayastorTest};
@@ -1383,4 +1396,80 @@ async fn test_delete_snapshot_with_valid_clone_fail_1() {
         );
     })
     .await;
+}
+
+#[tokio::test]
+async fn test_snapshot_verify_restore_data() {
+    common::composer_init();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1"]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+
+    let ms = conn.grpc_handle_shared("ms").await.unwrap();
+
+    const POOL_SIZE: u64 = 200;
+    const REPL_SIZE: u64 = 40;
+
+    let mut pool = PoolBuilder::new(ms.clone())
+        .with_name("pool0")
+        .with_new_uuid()
+        .with_malloc("mem0", POOL_SIZE);
+    let mut repl_1 = ReplicaBuilder::new(ms.clone())
+        .with_pool(&pool)
+        .with_name("repl1")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(false);
+    // Create pool.
+    pool.create().await.unwrap();
+    // Create replica.
+    repl_1.create().await.unwrap();
+    // Share replica.
+    repl_1.share().await.unwrap();
+    // Write some data to replica.
+    test_write_to_nvmf(
+        &repl_1.nvmf_location(),
+        DataSize::from_bytes(0),
+        30,
+        DataSize::from_mb(1),
+    )
+    .await
+    .unwrap();
+    // Create snapshot for the replica.
+    let mut snap_1 = ReplicaSnapshotBuilder::new(ms.clone())
+        .with_replica_uuid(repl_1.uuid().as_str())
+        .with_snapshot_uuid()
+        .with_snapshot_name("snap1")
+        .with_entity_id("snap1_e1")
+        .with_txn_id("snap1-t1");
+    snap_1.create_replica_snapshot().await.unwrap();
+
+    // Create a clone from the replica.
+    let mut clone_1 = SnapshotCloneBuilder::new(ms.clone())
+        .with_snapshot_uuid(snap_1.snapshot_uuid().as_str())
+        .with_clone_name("clone1")
+        .with_clone_uuid(Uuid::new_v4().to_string().as_str());
+    clone_1.create_snapshot_clone().await.unwrap();
+
+    // Create restore object.
+    let mut restore_1 = ReplicaBuilder::new(ms.clone())
+        .with_uuid(clone_1.clone_uuid().as_str())
+        .with_name(clone_1.clone_name().as_str());
+
+    restore_1.share().await.unwrap();
+
+    // Check the original replica and restore clone is identical.
+    validate_replicas(&vec![repl_1.clone(), restore_1.clone()]).await;
 }

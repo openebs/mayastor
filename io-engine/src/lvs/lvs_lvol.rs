@@ -982,7 +982,7 @@ impl LvsLvol for Lvol {
 
         // If destroy replica is a snapshot clone and it is the last
         // clone from the snapshot, destroy the snapshot
-        // if it is already marked as discardedSnapshot.
+        // if it is already marked as discarded snapshot.
         if let Some(snapshot_lvol) = snapshot_lvol {
             if snapshot_lvol.list_clones_by_snapshot_uuid().is_empty()
                 && snapshot_lvol.is_discarded_snapshot()
