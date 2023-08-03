@@ -637,9 +637,17 @@ impl LogicalVolume for Lvol {
         unsafe { spdk_blob_is_read_only(self.blob_checked()) }
     }
 
-    /// Return the size of the Snapshot in bytes.
+    /// Return the size of the Logical Volume in bytes.
     fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
+    }
+
+    /// Return the committed size of the Logical Volume in bytes.
+    fn committed(&self) -> u64 {
+        match self.is_snapshot() {
+            true => self.usage().allocated_bytes,
+            false => self.size(),
+        }
     }
 
     /// Returns Lvol disk space usage.
