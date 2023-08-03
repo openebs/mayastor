@@ -191,7 +191,7 @@ impl Lvs {
     /// returns committed size
     pub fn committed(&self) -> u64 {
         self.lvols()
-            .map_or(0, |vols| vols.fold(0, |acc, r| acc + r.size()))
+            .map_or(0, |vols| vols.fold(0, |acc, r| acc + r.committed()))
     }
 
     /// returns the base bdev of this lvs
