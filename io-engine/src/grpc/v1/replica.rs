@@ -81,6 +81,8 @@ impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
             allocated_bytes_snapshots: u.allocated_bytes_snapshots,
             num_allocated_clusters_snapshots: u
                 .num_allocated_clusters_snapshots,
+            allocated_bytes_snapshot_from_clone: u
+                .allocated_bytes_snapshot_from_clone,
         }
     }
 }

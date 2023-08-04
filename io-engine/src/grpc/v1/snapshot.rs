@@ -161,7 +161,10 @@ impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
             txn_id: snapshot_param.txn_id().unwrap_or_default(),
             valid_snapshot: true,
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
-            referenced_bytes: usage.allocated_bytes_snapshots,
+            referenced_bytes: match usage.allocated_bytes_snapshot_from_clone {
+                Some(size) => size,
+                _ => usage.allocated_bytes_snapshots,
+            },
             discarded_snapshot: snapshot_param.discarded_snapshot(),
         }
     }
@@ -189,7 +192,10 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
             txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
             valid_snapshot: s.valid_snapshot(),
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
-            referenced_bytes: usage.allocated_bytes_snapshots,
+            referenced_bytes: match usage.allocated_bytes_snapshot_from_clone {
+                Some(size) => size,
+                _ => usage.allocated_bytes_snapshots,
+            },
             discarded_snapshot: s.snapshot_params().discarded_snapshot(),
         }
     }

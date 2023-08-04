@@ -752,4 +752,44 @@ impl SnapshotOps for Lvol {
             }
         }
     }
+    // if self is clone or a snapshot whose parent is clone, then do ancestor
+    // calculation for all snapshot linked to clone.
+    fn calculate_clone_source_snap_usage(
+        &self,
+        total_ancestor_snap_size: u64,
+    ) -> Option<u64> {
+        // if self is snapshot created from clone.
+        if self.is_snapshot() {
+            match UntypedBdev::lookup_by_uuid_str(
+                &Lvol::get_blob_xattr(self, SnapshotXattrs::ParentId.name())
+                    .unwrap_or_default(),
+            ) {
+                Some(bdev) => match Lvol::try_from(bdev) {
+                    Ok(l) => match l.is_snapshot_clone() {
+                        Some(parent_snap_lvol) => {
+                            let usage = parent_snap_lvol.usage();
+                            Some(
+                                total_ancestor_snap_size
+                                    - (usage.allocated_bytes_snapshots
+                                        + usage.allocated_bytes),
+                            )
+                        }
+                        None => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            }
+        // if self is clone.
+        } else if self.is_snapshot_clone().is_some() {
+            Some(
+                self.list_snapshot_by_source_uuid()
+                    .iter()
+                    .map(|v| v.snapshot_lvol().usage().allocated_bytes)
+                    .sum(),
+            )
+        } else {
+            None
+        }
+    }
 }
