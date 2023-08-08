@@ -150,7 +150,7 @@ pub fn mayastor_test_init_ex(log_format: LogFormat) {
             }
         });
 
-    logger::init_ex("info,io_engine=DEBUG", log_format);
+    logger::init_ex("info,io_engine=DEBUG", log_format, None);
 
     io_engine::CPS_INIT!();
 }

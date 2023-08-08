@@ -2,16 +2,24 @@ use ansi_term::{Colour, Style};
 use once_cell::sync::OnceCell;
 use std::{ffi::CStr, fmt::Write, os::raw::c_char, path::Path, str::FromStr};
 
+use crate::{
+    constants::{EVENTING_TARGET, SERVICE_NAME},
+    core::spawn,
+};
+use event_publisher::event_handler::EventHandle;
 use tracing_core::{event::Event, Level, Metadata};
 use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{
+    filter::{filter_fn, Targets},
     fmt::{
-        format::{FmtSpan, FormatEvent, FormatFields},
+        format::{FmtSpan, FormatEvent, FormatFields, Writer},
         FmtContext,
         FormattedFields,
     },
+    layer::{Layer, SubscriberExt},
     registry::LookupSpan,
     EnvFilter,
+    Registry,
 };
 
 /// Returns hostname.
@@ -101,7 +109,7 @@ impl<'a> FormatLevel<'a> {
         }
     }
 
-    fn fmt_line(&self, f: &mut dyn Write, line: &str) -> std::fmt::Result {
+    fn fmt_line(&self, mut f: Writer<'_>, line: &str) -> std::fmt::Result {
         if self.ansi {
             write!(
                 f,
@@ -304,7 +312,7 @@ where
     fn format_event(
         &self,
         ctx: &FmtContext<'_, S, N>,
-        w: &mut dyn Write,
+        w: Writer<'_>,
         evt: &Event<'_>,
     ) -> std::fmt::Result {
         match self.style {
@@ -327,7 +335,7 @@ impl LogFormat {
     fn default_style<S, N>(
         &self,
         context: &FmtContext<'_, S, N>,
-        writer: &mut dyn Write,
+        mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> std::fmt::Result
     where
@@ -353,7 +361,7 @@ impl LogFormat {
             Location::new(meta)
         )?;
 
-        context.format_fields(writer, event)?;
+        context.format_fields(writer.by_ref(), event)?;
 
         writeln!(writer)
     }
@@ -362,7 +370,7 @@ impl LogFormat {
     fn compact_style<S, N>(
         &self,
         context: &FmtContext<'_, S, N>,
-        writer: &mut dyn Write,
+        mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> std::fmt::Result
     where
@@ -396,9 +404,9 @@ impl LogFormat {
             write!(buf, "{}: ", &ctx[1 ..])?;
         }
 
-        context.format_fields(&mut buf, event)?;
+        fmt.fmt_line(writer.by_ref(), &buf)?;
 
-        fmt.fmt_line(writer, &buf)?;
+        context.format_fields(writer.by_ref(), event)?;
 
         writeln!(writer)
     }
@@ -420,26 +428,50 @@ impl LogFormat {
 ///
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
-pub fn init_ex(level: &str, format: LogFormat) {
+pub fn init_ex(level: &str, format: LogFormat, events_url: Option<url::Url>) {
     // Set up a "logger" that simply translates any "log" messages it receives
     // to trace events. This is for our custom spdk log messages, but also
     // for any other third party crates still using the logging facade.
+
     LogTracer::init().expect("failed to initialise LogTracer");
 
     // Create a default subscriber.
-    let builder = tracing_subscriber::fmt::Subscriber::builder()
+    let builder = tracing_subscriber::fmt::layer()
         .with_span_events(FmtSpan::FULL)
-        .event_format(format);
+        .event_format(format)
+        .with_filter(filter_fn(|metadata| {
+            // Exclude spans or events that have the target
+            // "mbus-events-target".
+            metadata.target() != EVENTING_TARGET
+        }));
 
-    let subscriber = match EnvFilter::try_from_default_env() {
-        Ok(filter) => builder.with_env_filter(filter).finish(),
-        Err(_) => builder.with_env_filter(level).finish(),
+    let filter = match EnvFilter::try_from_default_env() {
+        Ok(filter) => filter,
+        Err(_) => tracing_subscriber::EnvFilter::new(level),
     };
+
+    // Get the optional eventing layer.
+    let events_layer = match events_url {
+        Some(url) => {
+            let events_filter =
+                Targets::new().with_target(EVENTING_TARGET, Level::INFO);
+            Some(
+                EventHandle::init(url.to_string(), SERVICE_NAME, Some(spawn))
+                    .with_filter(events_filter),
+            )
+        }
+        None => None,
+    };
+
+    let subscriber = Registry::default()
+        .with(filter)
+        .with(Some(builder))
+        .with(events_layer);
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("failed to set default subscriber");
 }
 
 pub fn init(level: &str) {
-    init_ex(level, Default::default())
+    init_ex(level, Default::default(), None)
 }
