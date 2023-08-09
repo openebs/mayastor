@@ -169,7 +169,7 @@ impl CreateDestroy for Malloc {
         let errno = unsafe {
             let mut bdev: *mut spdk_bdev = std::ptr::null_mut();
             let opts = malloc_bdev_opts {
-                name: cname.as_ptr() as *mut i8,
+                name: cname.as_ptr() as *mut std::os::raw::c_char,
                 uuid: Default::default(),
                 num_blocks: self.num_blocks,
                 block_size: self.blk_size,
