@@ -98,7 +98,7 @@ You can use a tool like [`direnv`][direnv] to automate `nix shell` entry.
 If you are unable to use the Nix provided Rust for some reason, there are `norust` and
 `nospdk` arguments to Nix shell. `nix-shell --arg norust true`
 
-After closing the repository don't forget to run a:
+After cloning the repository don't forget to run a:
 
 ```bash
 git submodule update --init --recursive
