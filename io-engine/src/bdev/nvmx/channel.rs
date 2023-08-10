@@ -442,7 +442,7 @@ impl NvmeControllerIoChannel {
     /// Callback function to be invoked by SPDK to deinitialize I/O channel for
     /// NVMe controller.
     pub extern "C" fn destroy(device: *mut c_void, ctx: *mut c_void) {
-        trace!(
+        info!(
             "Destroying IO channel for controller ID 0x{:X}",
             device as u64
         );

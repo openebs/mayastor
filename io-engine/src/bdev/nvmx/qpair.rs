@@ -204,6 +204,14 @@ impl QPair {
             return 0;
         }
 
+        if self.state() == QPairState::Connecting {
+            // An async connect attempt has been made in parallel for this
+            // qpair. Can't proceed until that is finished. Drop the
+            // reference on channel and let go of newly acquired
+            // handle.
+            return Errno::EAGAIN as i32;
+        }
+
         // During synchronous connection we shouldn't be preemped by any other
         // SPDK thread, so we can't see QPairState::Connecting.
         assert_eq!(

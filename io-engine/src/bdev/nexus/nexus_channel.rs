@@ -1,5 +1,6 @@
 //!
 //! IO is driven by means of so called channels.
+use nix::errno::Errno;
 use std::{
     cell::UnsafeCell,
     fmt::{Debug, Display, Formatter},
@@ -197,7 +198,8 @@ impl<'n> NexusChannel<'n> {
     /// online or offline. We don't know which child has gone, or was added, so
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
-    pub(crate) fn reconnect_all(&mut self) {
+    pub(crate) fn reconnect_all(&mut self) -> i32 {
+        let mut ret = 0;
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
@@ -220,6 +222,18 @@ impl<'n> NexusChannel<'n> {
                     writers.push(w);
                     readers.push(r);
                 }
+                (
+                    Err(CoreError::OpenBdev {
+                        source: _,
+                    }),
+                    _,
+                )
+                | (
+                    _,
+                    Err(CoreError::OpenBdev {
+                        source: _,
+                    }),
+                ) => ret = Errno::EAGAIN as i32,
                 _ => {
                     c.set_faulted_state(FaultReason::CantOpen);
                     error!("{self:?}: failed to get I/O handle for {c:?}");
@@ -239,14 +253,26 @@ impl<'n> NexusChannel<'n> {
                         );
                         writers.push(hdl);
                     }
-                    Err(e) => {
-                        c.set_faulted_state(FaultReason::CantOpen);
-                        error!(
-                            "{self:?}: failed to get I/O handle \
-                                for {c:?}: {e}"
-                        );
-                    }
+                    Err(e) => match e {
+                        CoreError::OpenBdev {
+                            source: _,
+                        } => ret = Errno::EAGAIN as i32,
+                        _ => {
+                            c.set_faulted_state(FaultReason::CantOpen);
+                            error!(
+                                "{self:?}: failed to get I/O handle \
+                                            for {c:?}: {e}"
+                            );
+                        }
+                    },
                 });
+        }
+
+        if ret == Errno::EAGAIN as i32 {
+            // This would mean that we'll re-attempt to get the block device
+            // handles for all the child devices again, and not only
+            // the one for which we received EAGAIN.
+            return ret;
         }
 
         self.writers = writers;
@@ -255,6 +281,7 @@ impl<'n> NexusChannel<'n> {
         self.reconnect_io_logs();
 
         debug!("{self:?}: child devices reconnected");
+        ret
     }
 
     /// Reconnects all active I/O logs.

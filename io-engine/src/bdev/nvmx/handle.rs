@@ -173,8 +173,16 @@ impl NvmeDeviceHandle {
         prchk_flags: u32,
     ) -> Result<NvmeDeviceHandle, CoreError> {
         let mut handle = Self::create_handle(name, id, ctrlr, ns, prchk_flags)?;
-        handle.connect_sync();
-        Ok(handle)
+        match handle.connect_sync() {
+            0 => Ok(handle),
+            11 => {
+                error!("failed(EAGAIN) to connect for {name}");
+                Err(CoreError::OpenBdev {
+                    source: Errno::EAGAIN,
+                })
+            }
+            _ => Err(CoreError::NoDevicesAvailable {}),
+        }
     }
 
     // Create and perform an asynchronous connect.
@@ -197,15 +205,16 @@ impl NvmeDeviceHandle {
     }
 
     /// TODO:
-    fn connect_sync(&mut self) {
+    fn connect_sync(&mut self) -> i32 {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         match inner.qpair_mut() {
-            Some(q) => {
-                q.connect();
+            Some(q) => q.connect(),
+            None => {
+                warn!("No I/O qpair in NvmeDeviceHandle, can't connect()");
+                Errno::EINVAL as i32
             }
-            None => warn!("No I/O qpair in NvmeDeviceHandle, can't connect()"),
-        };
+        }
     }
 
     #[cfg(feature = "spdk-async-qpair-connect")]

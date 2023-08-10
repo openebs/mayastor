@@ -607,8 +607,12 @@ impl<'n> Nexus<'n> {
         self.traverse_io_channels(
             sender,
             |chan, _sender| -> ChannelTraverseStatus {
-                chan.reconnect_all();
-                ChannelTraverseStatus::Ok
+                loop {
+                    match chan.reconnect_all() {
+                        11 => continue, // EAGAIN
+                        _ => return ChannelTraverseStatus::Ok,
+                    }
+                }
             },
             |status, sender| {
                 debug!("{self:?}: all I/O channels reconfigured");
