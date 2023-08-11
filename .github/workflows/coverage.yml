@@ -26,7 +26,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           override: true
-          components: llvm-tools-preview
+          components: llvm-tools-preview, xtask
 
       - uses: Swatinem/rust-cache@v1
 
@@ -41,10 +41,4 @@ jobs:
         with:
           command: xtask
           args: coverage
-          
-
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v3
-        with:
-          files: coverage/*.lcov
 
