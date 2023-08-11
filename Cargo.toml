@@ -11,6 +11,7 @@ members = [
 	"rpc/mayastor-api",
 	"sysfs",
 	"spdk-rs",
+	"xtask",
 	"utils/io-engine-dependencies/version-info",
 	"utils/io-engine-dependencies/composer",
 	"utils/io-engine-dependencies/devinfo",
