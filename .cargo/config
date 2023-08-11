@@ -4,3 +4,7 @@ rustflags = ["-C", "target-cpu=nehalem"]
 [profile.release]
 lto = "fat"
 codegen-units = 1
+
+[alias]
+xtask = "run --package xtask --"
+
