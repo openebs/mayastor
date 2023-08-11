@@ -429,7 +429,6 @@ impl SnapshotOps for Lvol {
                     if let Some(parent_lvol) = parent {
                         // Skip snapshots if it's parent is not matched.
                         if curr_attr_val != parent_lvol.uuid() {
-                            warn!("presisted parent ?curr_attr_val not matched to input parent ?parent_lvol.uuid()");
                             return None;
                         }
                     }
@@ -589,6 +588,7 @@ impl SnapshotOps for Lvol {
                 if !snapshot_lvol.is_snapshot() {
                     continue;
                 }
+
                 match snapshot_lvol.snapshot_descriptor(Some(self)) {
                     Some(snapshot_descriptor) => {
                         snapshot_list.push(snapshot_descriptor)
