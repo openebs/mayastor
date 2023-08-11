@@ -454,6 +454,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
                         r.txn_id.clone(),
                         r.valid_snapshot.to_string(),
                         r.discarded_snapshot.to_string(),
+                        r.referenced_bytes.to_string(),
                     ]
                 })
                 .collect();
@@ -470,7 +471,8 @@ async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
                     "ENTITY_ID",
                     "TXN_ID",
                     "VALID_SNAPSHOT",
-                    "discarded_SNAPSHOT",
+                    "DISCARD_SNAPSHOT",
+                    "ANCESTOR_SIZE",
                 ],
                 table,
             );

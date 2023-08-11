@@ -342,6 +342,13 @@ pub trait SnapshotOps {
     /// pool import, do the garbage collection to clean the discarded snapshots
     /// leftout in the system.
     async fn destroy_pending_discarded_snapshot();
+
+    /// If self is clone or a snapshot whose parent is clone, then do ancestor
+    /// calculation for all snapshot linked to clone.
+    fn calculate_clone_source_snap_usage(
+        &self,
+        total_ancestor_snap_size: u64,
+    ) -> Option<u64>;
 }
 
 /// Traits gives the Snapshots Related Parameters.

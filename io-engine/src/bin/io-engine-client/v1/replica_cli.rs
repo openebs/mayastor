@@ -315,6 +315,11 @@ async fn replica_list(
                         r.uri.clone(),
                         r.is_snapshot.to_string(),
                         r.is_clone.to_string(),
+                        usage.allocated_bytes_snapshots.to_string(),
+                        usage
+                            .allocated_bytes_snapshot_from_clone
+                            .unwrap_or_default()
+                            .to_string(),
                     ]
                 })
                 .collect();
@@ -331,6 +336,8 @@ async fn replica_list(
                     "URI",
                     "IS_SNAPSHOT",
                     "IS_CLONE",
+                    "SNAP_ANCESTOR_SIZE",
+                    "CLONE_SNAP_ANCESTOR_SIZE",
                 ],
                 table,
             );

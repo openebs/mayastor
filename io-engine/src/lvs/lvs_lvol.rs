@@ -129,6 +129,9 @@ pub struct LvolSpaceUsage {
     pub allocated_bytes_snapshots: u64,
     /// Number of clusters allocated by snapshots of this volume.
     pub num_allocated_clusters_snapshots: u64,
+    /// Actual Amount of disk space allocated by snapshot which is created from
+    /// clone.
+    pub allocated_bytes_snapshot_from_clone: Option<u64>,
 }
 #[derive(Clone)]
 /// struct representing an lvol
@@ -272,14 +275,6 @@ impl Lvol {
     #[inline(always)]
     fn as_inner_ref(&self) -> &spdk_lvol {
         unsafe { self.inner.as_ref() }
-    }
-
-    /// TODO
-    #[inline(always)]
-    fn blob_checked(&self) -> *mut spdk_blob {
-        let blob = self.as_inner_ref().blob;
-        assert!(!blob.is_null());
-        blob
     }
 
     /// Wipe the first 8MB if unmap is not supported on failure the operation
@@ -602,6 +597,7 @@ pub trait LvsLvol: LogicalVolume + Share {
 ///  LogicalVolume implement Generic interface for Lvol.
 impl LogicalVolume for Lvol {
     type InnerPtr = *mut spdk_lvol;
+    type BlobPtr = *mut spdk_blob;
 
     /// Get lvol inner ptr.
     fn as_inner_ptr(&self) -> Self::InnerPtr {
@@ -642,6 +638,13 @@ impl LogicalVolume for Lvol {
         self.as_bdev().size_in_bytes()
     }
 
+    /// Get BlobPtr from spdk_lvol.
+    fn blob_checked(&self) -> Self::BlobPtr {
+        let blob = self.as_inner_ref().blob;
+        assert!(!blob.is_null());
+        blob
+    }
+
     /// Return the committed size of the Logical Volume in bytes.
     fn committed(&self) -> u64 {
         match self.is_snapshot() {
@@ -649,7 +652,6 @@ impl LogicalVolume for Lvol {
             false => self.size(),
         }
     }
-
     /// Returns Lvol disk space usage.
     fn usage(&self) -> LvolSpaceUsage {
         let bs = self.lvs().blob_store();
@@ -673,7 +675,8 @@ impl LogicalVolume for Lvol {
                     }
                 }
             };
-
+            let allocated_bytes_snapshots =
+                cluster_size * num_allocated_clusters_snapshots;
             LvolSpaceUsage {
                 capacity_bytes: self.size(),
                 allocated_bytes: cluster_size * num_allocated_clusters,
@@ -681,8 +684,19 @@ impl LogicalVolume for Lvol {
                 num_clusters,
                 num_allocated_clusters,
                 num_allocated_clusters_snapshots,
-                allocated_bytes_snapshots: cluster_size
-                    * num_allocated_clusters_snapshots,
+                allocated_bytes_snapshots,
+                // If there are multiple snapshots created from replica and
+                // then a clone is created from snapshot, following multiple
+                // snapshots created from clones in following sequence,
+                // R1 => S1 -> S2 => S3 => C1 => S4 => S5
+                // For S5, allocated_bytes_snapshots will be S1+S2+S3+S4+S5
+                // Where as allocated_bytes_snapshot_from_clone will S4 + S5
+                // for the clone C1. For S5 allocated_bytes_snapshot_from_clone
+                // will consider ancestor value from C1.
+                allocated_bytes_snapshot_from_clone: self
+                    .calculate_clone_source_snap_usage(
+                        allocated_bytes_snapshots,
+                    ),
             }
         }
     }
