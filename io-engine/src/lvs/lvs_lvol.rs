@@ -21,7 +21,6 @@ use spdk_rs::libspdk::{
     spdk_blob_get_num_clusters_ancestors,
     spdk_blob_get_xattr_value,
     spdk_blob_is_read_only,
-    spdk_blob_is_snapshot,
     spdk_blob_is_thin_provisioned,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
@@ -48,6 +47,7 @@ use crate::{
         ShareProps,
         SnapshotOps,
         SnapshotParams,
+        SnapshotXattrs,
         ToErrno,
         UntypedBdev,
         UpdateProps,
@@ -716,8 +716,15 @@ impl LvsLvol for Lvol {
     }
 
     /// Returns a boolean indicating if the lvol is a snapshot.
+    /// Currently in place of SPDK native API to judge lvol as snapshot, xattr
+    /// is checked here. When there is only single Lvol(snapshot) present in
+    /// the system and there is restart of io-engine and pool import
+    /// happens, SPDK native API consider lvol(snapshot) as normal lvol.
+    /// Looks like a bug in SPDK, but all snapshot attribute are intact in
+    /// SPDK after io-engine restarts.
     fn is_snapshot(&self) -> bool {
-        unsafe { spdk_blob_is_snapshot(self.blob_checked()) }
+        Lvol::get_blob_xattr(self, SnapshotXattrs::SnapshotCreateTime.name())
+            .is_some()
     }
 
     /// Lvol is considered as clone if its sourceuuid attribute is a valid

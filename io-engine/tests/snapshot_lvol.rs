@@ -451,10 +451,26 @@ async fn test_lvol_list_snapshot() {
             .await
             .expect("Failed to create a snapshot");
 
-        let snapshot_list = lvol.list_snapshot_by_source_uuid();
+        let mut snapshot_list = lvol.list_snapshot_by_source_uuid();
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(2, snapshot_list.len(), "Snapshot Count not matched!!");
-        clean_snapshots(snapshot_list).await;
+        lvol.destroy()
+            .await
+            .expect("Failed to destroy the original replica");
+        let snap_lvol_1 = snapshot_list.remove(0).snapshot_lvol;
+        let snap_lvol_2 = snapshot_list.remove(0).snapshot_lvol;
+        snap_lvol_1
+            .destroy()
+            .await
+            .expect("Failed to destroy first snapshot");
+        assert!(
+            snap_lvol_2.is_snapshot(),
+            "It is a snapshot, wrongly recognized as normal replica"
+        );
+        snap_lvol_2
+            .destroy()
+            .await
+            .expect("Failed to destroy last snapshot");
     })
     .await;
 }
