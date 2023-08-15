@@ -79,7 +79,9 @@ fn nvmf_target() {
                     assert!(bdev.is_claimed());
                     assert_eq!(bdev.claimed_by().unwrap(), "NVMe-oF Target");
 
-                    s.destroy();
+                    unsafe {
+                        s.shutdown_unsafe();
+                    }
                     assert!(!bdev.is_claimed());
                     assert_eq!(bdev.claimed_by(), None);
                 }

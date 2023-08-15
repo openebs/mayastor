@@ -40,6 +40,7 @@ use spdk_rs::libspdk::{
     spdk_nvmf_subsystem_listener_get_trid,
     spdk_nvmf_subsystem_pause,
     spdk_nvmf_subsystem_remove_host,
+    spdk_nvmf_subsystem_remove_ns,
     spdk_nvmf_subsystem_resume,
     spdk_nvmf_subsystem_set_allow_any_host,
     spdk_nvmf_subsystem_set_ana_reporting,
@@ -185,7 +186,9 @@ impl NvmfSubsystem {
         ss.set_ana_reporting(false)?;
         ss.allow_any(false);
         if let Err(e) = ss.add_namespace(bdev, ptpl) {
-            ss.destroy();
+            unsafe {
+                ss.destroy_unsafe();
+            }
             return Err(e);
         }
         Ok(ss)
@@ -535,19 +538,31 @@ impl NvmfSubsystem {
         }
     }
 
-    /// destroy the subsystem
-    pub fn destroy(&self) -> i32 {
-        unsafe {
-            if (*self.0.as_ptr()).destroying {
-                warn!("Subsystem destruction already started");
-                return -libc::EALREADY;
-            }
-            spdk_nvmf_subsystem_destroy(
-                self.0.as_ptr(),
-                None,
-                std::ptr::null_mut(),
-            )
+    /// Removes the namespace and destroys the subsystem.
+    ///
+    /// # Safety
+    ///
+    /// The subsystem must paused or stopped.
+    pub unsafe fn shutdown_unsafe(&self) -> i32 {
+        if spdk_nvmf_subsystem_remove_ns(self.0.as_ptr(), 1) != 0 {
+            error!(?self, "failed to remove namespace while destroying");
         }
+
+        self.destroy_unsafe()
+    }
+
+    /// Destroys the SPDK object for subsystem.
+    ///
+    /// # Safety
+    ///
+    /// The subsystem must paused or stopped.
+    unsafe fn destroy_unsafe(&self) -> i32 {
+        if (*self.0.as_ptr()).destroying {
+            warn!("Subsystem destruction already started");
+            return -libc::EALREADY;
+        }
+
+        spdk_nvmf_subsystem_destroy(self.0.as_ptr(), None, std::ptr::null_mut())
     }
 
     /// Get NVMe subsystem's NQN
@@ -876,7 +891,9 @@ impl NvmfSubsystem {
                 e.to_string(),
             );
 
-            self.destroy();
+            unsafe {
+                self.shutdown_unsafe();
+            }
 
             Err(e)
         } else {
