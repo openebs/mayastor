@@ -15,6 +15,7 @@ use super::{
             RebuildHistoryRecord,
             RebuildHistoryRequest,
             RemoveChildNexusRequest,
+            ShutdownNexusRequest,
         },
         SharedRpcHandle,
         Status,
@@ -177,6 +178,18 @@ impl NexusBuilder {
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn shutdown(&mut self) -> Result<(), Status> {
+        self.rpc()
+            .lock()
+            .await
+            .nexus
+            .shutdown_nexus(ShutdownNexusRequest {
+                uuid: self.uuid(),
+            })
+            .await
+            .map(|_| ())
     }
 
     pub async fn destroy(&mut self) -> Result<(), Status> {
