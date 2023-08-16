@@ -45,9 +45,6 @@ use super::{
     PersistOp,
 };
 
-#[allow(unused_imports)]
-use super::nexus_injection::InjectionOp;
-
 use crate::{
     bdev::{dev::device_name, device_create, device_destroy, device_lookup},
     bdev_api::BdevError,

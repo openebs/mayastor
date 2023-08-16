@@ -19,6 +19,7 @@ use super::{
     rebuild_error::{BdevInvalidUri, BdevNotFound, NoCopyBuffer},
     RebuildDescriptor,
     RebuildError,
+    RebuildJobOptions,
     RebuildMap,
     RebuildState,
     RebuildStates,
@@ -30,6 +31,7 @@ use super::{
     SEGMENT_SIZE,
     SEGMENT_TASKS,
 };
+
 use crate::{
     bdev::device_open,
     bdev_api::bdev_get_name,
@@ -149,6 +151,7 @@ impl RebuildJobBackend {
         src_uri: &str,
         dst_uri: &str,
         range: std::ops::Range<u64>,
+        options: RebuildJobOptions,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         let src_descriptor = device_open(
@@ -201,14 +204,11 @@ impl RebuildJobBackend {
         };
 
         for _ in 0 .. tasks.total {
-            let copy_buffer = destination_hdl
+            let buffer = destination_hdl
                 .dma_malloc(segment_size_blks * block_size)
                 .context(NoCopyBuffer {})?;
-            tasks.push(RebuildTask {
-                buffer: copy_buffer,
-                sender: tasks.channel.0.clone(),
-                error: None,
-            });
+
+            tasks.push(RebuildTask::new(buffer, tasks.channel.0.clone()));
         }
 
         let nexus_descriptor = UntypedBdev::open_by_name(nexus_name, false)
@@ -236,6 +236,7 @@ impl RebuildJobBackend {
                 src_uri: src_uri.to_string(),
                 dst_uri: dst_uri.to_string(),
                 range,
+                options,
                 block_size,
                 segment_size_blks,
                 src_descriptor,

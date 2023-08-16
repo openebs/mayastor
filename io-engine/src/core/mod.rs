@@ -18,7 +18,7 @@ pub use block_device::{
     LbaRangeController,
     OpCompletionCallback,
     OpCompletionCallbackArg,
-    ReadMode,
+    ReadOptions,
 };
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};
@@ -82,6 +82,7 @@ mod device_events;
 mod device_monitor;
 pub mod diagnostics;
 mod env;
+pub mod fault_injection;
 mod handle;
 mod io_device;
 pub mod io_driver;
@@ -154,6 +155,16 @@ pub enum CoreError {
         len: u64,
     },
     #[snafu(display(
+        "Failed to dispatch compare at offset {} length {}",
+        offset,
+        len
+    ))]
+    CompareDispatch {
+        source: Errno,
+        offset: u64,
+        len: u64,
+    },
+    #[snafu(display(
         "Failed to dispatch read at offset {} length {}",
         offset,
         len
@@ -216,7 +227,7 @@ pub enum CoreError {
         status
     ))]
     WriteFailed {
-        status: NvmeStatus,
+        status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },
@@ -227,7 +238,18 @@ pub enum CoreError {
         status
     ))]
     ReadFailed {
-        status: NvmeStatus,
+        status: IoCompletionStatus,
+        offset: u64,
+        len: u64,
+    },
+    #[snafu(display(
+        "Compare failed at offset {} length {} with status {:?}",
+        offset,
+        len,
+        status
+    ))]
+    CompareFailed {
+        status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },
@@ -344,6 +366,9 @@ impl ToErrno for CoreError {
             Self::ReadDispatch {
                 source, ..
             } => source,
+            Self::CompareDispatch {
+                source, ..
+            } => source,
             Self::ResetDispatch {
                 source, ..
             } => source,
@@ -366,6 +391,9 @@ impl ToErrno for CoreError {
                 ..
             }
             | Self::ReadFailed {
+                ..
+            }
+            | Self::CompareFailed {
                 ..
             }
             | Self::ReadingUnallocatedBlock {

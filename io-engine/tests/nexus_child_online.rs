@@ -136,25 +136,13 @@ async fn nexus_child_online() {
     .await
     .unwrap();
 
-    nex_0.offline_child_replica(&repl_0).await.unwrap();
     nex_0
-        .wait_replica_state(
-            &repl_0,
-            ChildState::Degraded,
-            Some(ChildStateReason::ByClient),
-            Duration::from_secs(1),
-        )
+        .offline_child_replica_wait(&repl_0, Duration::from_secs(1))
         .await
         .unwrap();
 
-    nex_0.online_child_replica(&repl_0).await.unwrap();
     nex_0
-        .wait_replica_state(
-            &repl_0,
-            ChildState::Online,
-            None,
-            Duration::from_secs(1),
-        )
+        .online_child_replica_wait(&repl_0, Duration::from_secs(1))
         .await
         .unwrap();
 

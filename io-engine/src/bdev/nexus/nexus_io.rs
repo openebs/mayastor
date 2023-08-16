@@ -13,12 +13,6 @@ use spdk_rs::{
 
 use super::{FaultReason, IOLogChannel, Nexus, NexusChannel, NEXUS_PRODUCT_ID};
 
-#[allow(unused_imports)]
-use super::{
-    nexus_injection::injections_enabled,
-    nexus_injection::InjectionOp,
-};
-
 use crate::core::{
     BlockDevice,
     BlockDeviceHandle,
@@ -32,6 +26,7 @@ use crate::core::{
     LvolFailure,
     Mthread,
     NvmeStatus,
+    ReadOptions,
 };
 
 #[cfg(feature = "nexus-io-tracing")]
@@ -240,7 +235,7 @@ impl<'n> NexusBio<'n> {
         child: &dyn BlockDevice,
         status: IoCompletionStatus,
     ) {
-        #[cfg(feature = "nexus-fault-injection")]
+        #[cfg(feature = "fault-injection")]
         let status = self.inject_completion_error(child, status);
 
         debug_assert!(self.ctx().in_flight > 0);
@@ -327,14 +322,14 @@ impl<'n> NexusBio<'n> {
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
-        #[cfg(feature = "nexus-fault-injection")]
+        #[cfg(feature = "fault-injection")]
         self.inject_submission_error(hdl)?;
 
         hdl.readv_blocks(
-            self.iovs(),
-            self.iov_count(),
+            self.iovs_mut(),
             self.effective_offset(),
             self.num_blocks(),
+            ReadOptions::None,
             Self::child_completion,
             self.as_ptr().cast(),
         )
@@ -474,12 +469,11 @@ impl<'n> NexusBio<'n> {
             name = hdl.get_device().device_name()
         );
 
-        #[cfg(feature = "nexus-fault-injection")]
+        #[cfg(feature = "fault-injection")]
         self.inject_submission_error(hdl)?;
 
         hdl.writev_blocks(
             self.iovs(),
-            self.iov_count(),
             self.effective_offset(),
             self.num_blocks(),
             Self::child_completion,
@@ -515,7 +509,7 @@ impl<'n> NexusBio<'n> {
             name = hdl.get_device().device_name()
         );
 
-        #[cfg(feature = "nexus-fault-injection")]
+        #[cfg(feature = "fault-injection")]
         self.inject_submission_error(hdl)?;
 
         hdl.write_zeroes(
@@ -744,66 +738,54 @@ impl<'n> NexusBio<'n> {
     }
 
     /// Checks if an error is to be injected upon submission.
-    #[cfg(feature = "nexus-fault-injection")]
+    #[cfg(feature = "fault-injection")]
     #[inline]
     fn inject_submission_error(
         &self,
         hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
-        if !injections_enabled() {
-            return Ok(());
-        }
-
-        let op = match self.io_type() {
-            IoType::Read => InjectionOp::ReadSubmission,
-            _ => InjectionOp::WriteSubmission,
+        use crate::core::fault_injection::{
+            inject_submission_error,
+            FaultDomain::Nexus,
+            InjectIoCtx,
         };
 
-        if self.nexus().inject_is_faulted(
-            hdl.get_device(),
-            op,
-            self.offset(),
-            self.num_blocks(),
-        ) {
-            Err(crate::bdev::device::io_type_to_err(
+        inject_submission_error(
+            Nexus,
+            &InjectIoCtx::with_iovs(
+                hdl.get_device(),
                 self.io_type(),
-                Errno::ENXIO,
                 self.offset(),
                 self.num_blocks(),
-            ))
-        } else {
-            Ok(())
-        }
+                self.iovs(),
+            ),
+        )
     }
 
     /// Checks if an error is to be injected upon completion.
-    #[cfg(feature = "nexus-fault-injection")]
+    #[cfg(feature = "fault-injection")]
     #[inline]
     fn inject_completion_error(
         &self,
         child: &dyn BlockDevice,
         status: IoCompletionStatus,
     ) -> IoCompletionStatus {
-        if !injections_enabled() {
-            return status;
-        }
-
-        let op = match self.io_type() {
-            IoType::Read => InjectionOp::Read,
-            _ => InjectionOp::Write,
+        use crate::core::fault_injection::{
+            inject_completion_error,
+            FaultDomain::Nexus,
+            InjectIoCtx,
         };
 
-        if self.nexus().inject_is_faulted(
-            child,
-            op,
-            self.offset(),
-            self.num_blocks(),
-        ) {
-            IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                GenericStatusCode::DataTransferError,
-            ))
-        } else {
-            status
-        }
+        inject_completion_error(
+            Nexus,
+            &InjectIoCtx::with_iovs(
+                child,
+                self.io_type(),
+                self.offset(),
+                self.num_blocks(),
+                self.iovs(),
+            ),
+            status,
+        )
     }
 }

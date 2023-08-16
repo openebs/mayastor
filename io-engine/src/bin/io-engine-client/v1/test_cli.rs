@@ -16,6 +16,29 @@ use strum_macros::{AsRefStr, EnumString, EnumVariantNames};
 use tonic::Status;
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
+    let inject = SubCommand::with_name("inject")
+        .about("manage fault injections")
+        .arg(
+            Arg::with_name("add")
+                .short("a")
+                .long("add")
+                .required(false)
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1)
+                .help("new injection uri"),
+        )
+        .arg(
+            Arg::with_name("remove")
+                .short("r")
+                .long("remove")
+                .required(false)
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1)
+                .help("injection uri"),
+        );
+
     let wipe = SubCommand::with_name("wipe")
         .about("Wipe Resource")
         .arg(
@@ -75,6 +98,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             AppSettings::ColorAlways,
         ])
         .about("Test management")
+        .subcommand(inject)
         .subcommand(wipe)
 }
 
@@ -118,6 +142,7 @@ pub async fn handler(
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
     match matches.subcommand() {
+        ("inject", Some(args)) => injections(ctx, args).await,
         ("wipe", Some(args)) => wipe(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
@@ -270,4 +295,64 @@ fn adjust_bytes(bytes: u64) -> String {
     let byte = Byte::from_bytes(bytes as u128);
     let adjusted_byte = byte.get_appropriate_unit(true);
     adjusted_byte.to_string()
+}
+
+async fn injections(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let inj_add = matches.values_of("add");
+    let inj_remove = matches.values_of("remove");
+    if inj_add.is_none() && inj_remove.is_none() {
+        return list_injections(ctx).await;
+    }
+
+    if let Some(uris) = inj_add {
+        for uri in uris {
+            println!("Injection: '{uri}'");
+            ctx.v1
+                .test
+                .add_fault_injection(v1_rpc::test::AddFaultInjectionRequest {
+                    uri: uri.to_owned(),
+                })
+                .await
+                .context(GrpcStatus)?;
+        }
+    }
+
+    if let Some(uris) = inj_remove {
+        for uri in uris {
+            println!("Removing injected fault: {uri}");
+            ctx.v1
+                .test
+                .remove_fault_injection(
+                    v1_rpc::test::RemoveFaultInjectionRequest {
+                        uri: uri.to_owned(),
+                    },
+                )
+                .await
+                .context(GrpcStatus)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn list_injections(mut ctx: Context) -> crate::Result<()> {
+    let response = ctx
+        .v1
+        .test
+        .list_fault_injections(v1_rpc::test::ListFaultInjectionsRequest {})
+        .await
+        .context(GrpcStatus)?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(response.get_ref())
+            .unwrap()
+            .to_colored_json_auto()
+            .unwrap()
+    );
+
+    Ok(())
 }

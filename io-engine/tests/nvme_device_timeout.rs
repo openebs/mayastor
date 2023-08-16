@@ -20,10 +20,11 @@ use io_engine::{
         DeviceTimeoutAction,
         IoCompletionStatus,
         MayastorCliArgs,
+        ReadOptions,
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use spdk_rs::{DmaBuf, IoVec};
+use spdk_rs::{AsIoVecs, DmaBuf};
 
 pub mod common;
 
@@ -37,9 +38,8 @@ static CALLBACK_FLAG: AtomicCell<bool> = AtomicCell::new(false);
 const BUF_SIZE: u64 = 32768;
 
 struct IoOpCtx {
-    iov: IoVec,
     device_url: String,
-    dma_buf: DmaBuf,
+    dma_buf: Vec<DmaBuf>,
     handle: Box<dyn BlockDeviceHandle>,
 }
 
@@ -181,24 +181,20 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
             };
 
             let mut io_ctx = IoOpCtx {
-                iov: IoVec::default(),
                 device_url: ctx.device_url,
-                dma_buf: DmaBuf::new(BUF_SIZE, alignment).unwrap(),
+                dma_buf: vec![DmaBuf::new(BUF_SIZE, alignment).unwrap()],
                 handle: ctx.handle,
             };
-
-            io_ctx.iov.iov_base = *io_ctx.dma_buf;
-            io_ctx.iov.iov_len = BUF_SIZE;
 
             CALLBACK_FLAG.store(false);
 
             io_ctx
                 .handle
                 .readv_blocks(
-                    &mut io_ctx.iov,
-                    1,
+                    io_ctx.dma_buf.as_io_vecs_mut(),
                     (3 * 1024 * 1024) / block_len,
                     BUF_SIZE / block_len,
+                    ReadOptions::None,
                     read_completion_callback,
                     TEST_CTX_STRING.as_ptr() as *mut c_void,
                 )
@@ -377,24 +373,20 @@ async fn io_timeout_ignore() {
             };
 
             let mut io_ctx = IoOpCtx {
-                iov: IoVec::default(),
                 device_url: ctx.device_url,
-                dma_buf: DmaBuf::new(BUF_SIZE, alignment).unwrap(),
+                dma_buf: vec![DmaBuf::new(BUF_SIZE, alignment).unwrap()],
                 handle: ctx.handle,
             };
-
-            io_ctx.iov.iov_base = *io_ctx.dma_buf;
-            io_ctx.iov.iov_len = BUF_SIZE;
 
             CALLBACK_FLAG.store(false);
 
             io_ctx
                 .handle
                 .readv_blocks(
-                    &mut io_ctx.iov,
-                    1,
+                    io_ctx.dma_buf.as_io_vecs_mut(),
                     (3 * 1024 * 1024) / block_len,
                     BUF_SIZE / block_len,
+                    ReadOptions::None,
                     read_completion_callback,
                     TEST_CTX_STRING.as_ptr() as *mut c_void,
                 )

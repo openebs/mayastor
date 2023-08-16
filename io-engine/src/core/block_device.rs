@@ -9,8 +9,10 @@ use super::{
 use spdk_rs::{DmaBuf, DmaError, IoVec};
 
 use async_trait::async_trait;
+use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
+use spdk_rs::ffihelper::{cb_arg, done_cb};
 use std::os::raw::c_void;
 use uuid::Uuid;
 
@@ -124,10 +126,10 @@ pub type OpCompletionCallbackArg = *mut c_void;
 /// TODO
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
-/// Read modes.
-pub enum ReadMode {
+/// Read options.
+pub enum ReadOptions {
     /// Normal read operation.
-    Normal,
+    None,
     /// Fail when reading an unwritten block of a thin-provisioned device.
     UnwrittenFail,
 }
@@ -136,63 +138,227 @@ pub enum ReadMode {
 /// TODO: Add text.
 #[async_trait(?Send)]
 pub trait BlockDeviceHandle {
-    // Generic functions.
-
     /// TODO
     fn get_device(&self) -> &dyn BlockDevice;
 
     /// TODO
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError>;
 
-    // Futures-based I/O functions.
-
     /// TODO
+    #[deprecated(note = "use read_buf_blocks_async()")]
     async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
-    ) -> Result<u64, CoreError> {
-        self.read_at_ex(offset, buffer, None).await
-    }
-
-    /// TODO
-    async fn read_at_ex(
-        &self,
-        offset: u64,
-        buffer: &mut DmaBuf,
-        mode: Option<ReadMode>,
     ) -> Result<u64, CoreError>;
 
     /// TODO
+    #[deprecated(note = "use write_buf_blocks_async()")]
     async fn write_at(
         &self,
         offset: u64,
         buffer: &DmaBuf,
     ) -> Result<u64, CoreError>;
 
-    // Callback-based I/O functions.
-
-    /// TODO
+    /// Reads the given number of blocks into the list of buffers from the
+    /// device, starting at the given offset.
+    ///
+    /// The caller must ensure that the number of blocks to read is equal to
+    /// the total size of `iovs` buffer list.
+    ///
+    /// The given completion callback is called when the operation finishes.
+    /// This method may return error immediately in the case operation dispatch
+    /// fails.
     fn readv_blocks(
         &self,
-        iov: *mut IoVec,
-        iovcnt: i32,
+        iovs: &mut [IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+        opts: ReadOptions,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError>;
+
+    /// Reads the given number of blocks into the list of buffers from the
+    /// device, starting at the given offset.
+    ///
+    /// The caller must ensure that the number of blocks to read is equal to
+    /// the total size of `iovs` buffer list.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::ReadFailed` in the case of failure.
+    async fn readv_blocks_async(
+        &self,
+        iovs: &mut [IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+        opts: ReadOptions,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<IoCompletionStatus>();
+
+        self.readv_blocks(
+            iovs,
+            offset_blocks,
+            num_blocks,
+            opts,
+            block_device_io_completion,
+            cb_arg(s),
+        )?;
+
+        match r.await.expect("Failed awaiting at readv_blocks()") {
+            IoCompletionStatus::Success => Ok(()),
+            status => Err(CoreError::ReadFailed {
+                status,
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
+
+    /// Reads the given number of blocks into the buffer from the device,
+    /// starting at the given offset.
+    ///
+    /// The caller must ensure that the `buf` buffer has enough space allocated.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::ReadFailed` in the case of failure.
+    async fn read_buf_blocks_async(
+        &self,
+        buf: &mut DmaBuf,
+        offset_blocks: u64,
+        num_blocks: u64,
+        opts: ReadOptions,
+    ) -> Result<(), CoreError> {
+        self.readv_blocks_async(
+            &mut [buf.to_io_vec()],
+            offset_blocks,
+            num_blocks,
+            opts,
+        )
+        .await
+    }
+
+    /// Writes the given number of blocks from the list of buffers to the
+    /// device, starting at the given offset.
+    ///
+    /// The caller must ensure that the number of blocks to write does not go
+    /// beyond the size of `iovs` array.
+    ///
+    /// The given completion callback is called when the operation finishes.
+    /// This method may return error immediately in the case operation dispatch
+    /// fails.
+    fn writev_blocks(
+        &self,
+        iovs: &[IoVec],
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
-    /// TODO
-    fn writev_blocks(
+    /// Writes the given number of blocks from the list of buffers to the
+    /// device, starting at the given offset.
+    ///
+    /// The caller must ensure that the number of blocks to write does not go
+    /// beyond the size of `iovs` array.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::WriteFailed` in the case of failure.
+    async fn writev_blocks_async(
         &self,
-        iov: *mut IoVec,
-        iovcnt: i32,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<IoCompletionStatus>();
+
+        self.writev_blocks(
+            iovs,
+            offset_blocks,
+            num_blocks,
+            block_device_io_completion,
+            cb_arg(s),
+        )?;
+
+        match r.await.expect("Failed awaiting at writev_blocks()") {
+            IoCompletionStatus::Success => Ok(()),
+            status => Err(CoreError::WriteFailed {
+                status,
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
+
+    /// Writes the given number of blocks from the buffer to the device,
+    /// starting at the given offset.
+    ///
+    /// The caller must ensure that the `buf` buffer is large enough to write
+    /// `num_blocks`.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::WriteFailed` in the case of failure.
+    async fn write_buf_blocks_async(
+        &self,
+        buf: &DmaBuf,
+        offset_blocks: u64,
+        num_blocks: u64,
+    ) -> Result<(), CoreError> {
+        self.writev_blocks_async(&[buf.to_io_vec()], offset_blocks, num_blocks)
+            .await
+    }
+
+    /// Submits a compare request to the block device.
+    ///
+    /// The given completion callback is called when the operation finishes.
+    /// This method may return error immediately in the case operation dispatch
+    /// fails.
+    ///
+    /// If compare fails, the operation completes with `IoCompletionStatus` set
+    /// to `NvmeError`, with
+    /// `NvmeStatus::MediaError(MediaErrorStatusCode::CompareFailure))`.
+    fn comparev_blocks(
+        &self,
+        iovs: &[IoVec],
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
+
+    /// Submits a compare request to the block device.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::CompareFailed` in the case of failure.
+    ///
+    /// If compare fails, the operation completes with `IoCompletionStatus` set
+    /// to `NvmeError`, with
+    /// `NvmeStatus::MediaError(MediaErrorStatusCode::CompareFailure))`.
+    async fn comparev_blocks_async(
+        &self,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<IoCompletionStatus>();
+
+        self.comparev_blocks(
+            iovs,
+            offset_blocks,
+            num_blocks,
+            block_device_io_completion,
+            cb_arg(s),
+        )?;
+
+        match r.await.expect("Failed awaiting at comparev_blocks()") {
+            IoCompletionStatus::Success => Ok(()),
+            status => Err(CoreError::CompareFailed {
+                status,
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
 
     /// TODO
     fn reset(
@@ -313,6 +479,14 @@ pub trait BlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
+}
+
+fn block_device_io_completion(
+    _device: &dyn BlockDevice,
+    status: IoCompletionStatus,
+    ctx: *mut c_void,
+) {
+    done_cb(ctx, status);
 }
 
 /// TODO

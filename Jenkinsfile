@@ -151,7 +151,11 @@ pipeline {
         sh 'nix-shell --run "./scripts/rust-style.sh" ci.nix'
         sh 'nix-shell --run "./scripts/rust-linter.sh" ci.nix'
         sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
-        sh 'nix-shell --run "./scripts/check-submodule-branches.sh" ci.nix'
+        script {
+          if (env.BRANCH_NAME != "trying") {
+            sh 'nix-shell --run "./scripts/check-submodule-branches.sh" ci.nix'
+          }
+        }
       }
     }
     stage('test') {

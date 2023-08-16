@@ -14,21 +14,24 @@ use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_rs::{
     libspdk::{
-        iovec,
+        spdk_bdev_comparev_blocks,
         spdk_bdev_flush,
         spdk_bdev_free_io,
         spdk_bdev_io,
-        spdk_bdev_readv_blocks,
+        spdk_bdev_readv_blocks_with_flags,
         spdk_bdev_reset,
         spdk_bdev_unmap_blocks,
         spdk_bdev_write_zeroes_blocks,
         spdk_bdev_writev_blocks,
+        SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
     },
     nvme_admin_opc,
+    AsIoVecPtr,
     BdevOps,
     DmaBuf,
     DmaError,
     IoType,
+    IoVec,
 };
 
 use crate::{
@@ -50,7 +53,7 @@ use crate::{
         IoCompletionCallbackArg,
         IoCompletionStatus,
         NvmeStatus,
-        ReadMode,
+        ReadOptions,
         SnapshotParams,
         ToErrno,
         UntypedBdev,
@@ -58,6 +61,14 @@ use crate::{
         UntypedDescriptorGuard,
     },
     lvs::Lvol,
+};
+
+#[cfg(feature = "fault-injection")]
+use crate::core::fault_injection::{
+    inject_completion_error,
+    inject_submission_error,
+    FaultDomain,
+    InjectIoCtx,
 };
 
 /// TODO
@@ -250,13 +261,12 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         DmaBuf::new(size, self.device.alignment())
     }
 
-    async fn read_at_ex(
+    async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
-        mode: Option<ReadMode>,
     ) -> Result<u64, CoreError> {
-        self.handle.read_at_ex(offset, buffer, mode).await
+        self.handle.read_at(offset, buffer).await
     }
 
     async fn write_at(
@@ -269,35 +279,56 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
     fn readv_blocks(
         &self,
-        iov: *mut iovec,
-        iovcnt: i32,
+        iovs: &mut [IoVec],
         offset_blocks: u64,
         num_blocks: u64,
+        opts: ReadOptions,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
+        let flags = match opts {
+            ReadOptions::None => 0,
+            ReadOptions::UnwrittenFail => {
+                SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
+            }
+        };
+
         let ctx = alloc_bdev_io_ctx(
             IoType::Read,
             IoCtx {
                 device: self.device,
                 cb,
                 cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: InjectIoCtx::with_iovs(
+                    self.get_device(),
+                    IoType::Read,
+                    offset_blocks,
+                    num_blocks,
+                    iovs,
+                ),
             },
             offset_blocks,
             num_blocks,
         )?;
 
+        #[cfg(feature = "fault-injection")]
+        inject_submission_error(FaultDomain::BlockDevice, unsafe {
+            &(*ctx).inj_op
+        })?;
+
         let (desc, chan) = self.handle.io_tuple();
         let rc = unsafe {
-            spdk_bdev_readv_blocks(
+            spdk_bdev_readv_blocks_with_flags(
                 desc,
                 chan,
-                iov,
-                iovcnt,
+                iovs.as_io_vec_mut_ptr(),
+                iovs.len() as i32,
                 offset_blocks,
                 num_blocks,
                 Some(bdev_io_completion),
                 ctx as *mut c_void,
+                flags,
             )
         };
 
@@ -314,8 +345,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
     fn writev_blocks(
         &self,
-        iov: *mut iovec,
-        iovcnt: i32,
+        iovs: &[IoVec],
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
@@ -327,18 +357,31 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 device: self.device,
                 cb,
                 cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: InjectIoCtx::with_iovs(
+                    self.get_device(),
+                    IoType::Write,
+                    offset_blocks,
+                    num_blocks,
+                    iovs,
+                ),
             },
             offset_blocks,
             num_blocks,
         )?;
+
+        #[cfg(feature = "fault-injection")]
+        inject_submission_error(FaultDomain::BlockDevice, unsafe {
+            &(*ctx).inj_op
+        })?;
 
         let (desc, chan) = self.handle.io_tuple();
         let rc = unsafe {
             spdk_bdev_writev_blocks(
                 desc,
                 chan,
-                iov,
-                iovcnt,
+                iovs.as_ptr() as *mut _,
+                iovs.len() as i32,
                 offset_blocks,
                 num_blocks,
                 Some(bdev_io_completion),
@@ -348,6 +391,52 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
 
         if rc < 0 {
             Err(CoreError::WriteDispatch {
+                source: Errno::from_i32(-rc),
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn comparev_blocks(
+        &self,
+        iovs: &[IoVec],
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        let ctx = alloc_bdev_io_ctx(
+            IoType::Compare,
+            IoCtx {
+                device: self.device,
+                cb,
+                cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: Default::default(),
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let (desc, chan) = self.handle.io_tuple();
+        let rc = unsafe {
+            spdk_bdev_comparev_blocks(
+                desc,
+                chan,
+                iovs.as_ptr() as *mut _,
+                iovs.len() as i32,
+                offset_blocks,
+                num_blocks,
+                Some(bdev_io_completion),
+                ctx as *mut c_void,
+            )
+        };
+
+        if rc < 0 {
+            Err(CoreError::CompareDispatch {
                 source: Errno::from_i32(-rc),
                 offset: offset_blocks,
                 len: num_blocks,
@@ -368,6 +457,8 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 device: self.device,
                 cb,
                 cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: InjectIoCtx::default(),
             },
             0,
             0,
@@ -405,6 +496,8 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 device: self.device,
                 cb,
                 cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: InjectIoCtx::default(),
             },
             offset_blocks,
             num_blocks,
@@ -446,6 +539,8 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 device: self.device,
                 cb,
                 cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: InjectIoCtx::default(),
             },
             offset_blocks,
             num_blocks,
@@ -542,6 +637,8 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 device: self.device,
                 cb,
                 cb_arg,
+                #[cfg(feature = "fault-injection")]
+                inj_op: InjectIoCtx::default(),
             },
             0,
             0,
@@ -575,6 +672,8 @@ struct IoCtx {
     device: SpdkBlockDevice,
     cb: IoCompletionCallback,
     cb_arg: IoCompletionCallbackArg,
+    #[cfg(feature = "fault-injection")]
+    inj_op: InjectIoCtx,
 }
 
 /// TODO
@@ -592,6 +691,11 @@ pub fn io_type_to_err(
             len,
         },
         IoType::Write => CoreError::WriteDispatch {
+            source,
+            offset,
+            len,
+        },
+        IoType::Compare => CoreError::CompareDispatch {
             source,
             offset,
             len,
@@ -655,6 +759,10 @@ extern "C" fn bdev_io_completion(
     } else {
         IoCompletionStatus::from(NvmeStatus::from(child_bio))
     };
+
+    #[cfg(feature = "fault-injection")]
+    let status =
+        inject_completion_error(FaultDomain::BlockDevice, &bio.inj_op, status);
 
     (bio.cb)(&bio.device, status, bio.cb_arg);
 

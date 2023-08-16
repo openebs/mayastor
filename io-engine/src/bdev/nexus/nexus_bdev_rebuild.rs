@@ -19,8 +19,10 @@ use crate::{
         HistoryRecord,
         RebuildError,
         RebuildJob,
+        RebuildJobOptions,
         RebuildState,
         RebuildStats,
+        RebuildVerifyMode,
     },
 };
 
@@ -151,6 +153,31 @@ impl<'n> Nexus<'n> {
         src_child_uri: &str,
         dst_child_uri: &str,
     ) -> Result<(), Error> {
+        let verify_mode = match std::env::var("NEXUS_REBUILD_VERIFY")
+            .unwrap_or_default()
+            .as_str()
+        {
+            "fail" => {
+                warn!(
+                    "{self:?}: starting rebuild for '{dst_child_uri}' with \
+                    fail verification mode"
+                );
+                RebuildVerifyMode::Fail
+            }
+            "panic" => {
+                warn!(
+                    "{self:?}: starting rebuild for '{dst_child_uri}' with \
+                    panic verification mode"
+                );
+                RebuildVerifyMode::Panic
+            }
+            _ => RebuildVerifyMode::None,
+        };
+
+        let opts = RebuildJobOptions {
+            verify_mode,
+        };
+
         RebuildJob::new(
             &self.name,
             src_child_uri,
@@ -159,6 +186,7 @@ impl<'n> Nexus<'n> {
                 start: self.data_ent_offset,
                 end: self.num_blocks() + self.data_ent_offset,
             },
+            opts,
             |nexus, job| {
                 Reactors::current().send_future(async move {
                     Nexus::notify_rebuild(nexus, job).await;

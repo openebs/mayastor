@@ -108,6 +108,7 @@ async fn nexus_share() -> String {
     device
 }
 
+#[allow(deprecated)]
 async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
     let ms = get_ms();
 

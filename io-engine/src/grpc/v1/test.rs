@@ -5,22 +5,34 @@ use crate::{
         Bdev,
         VerboseError,
     },
-    grpc::{rpc_submit, GrpcClientContext, Serializer},
+    grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, Lvs, LvsLvol},
 };
 use ::function_name::named;
-use mayastor_api::v1::test::{
-    wipe_options::WipeMethod,
-    wipe_replica_request,
-    StreamWipeOptions,
-    TestRpc,
-    WipeReplicaRequest,
-    WipeReplicaResponse,
+use mayastor_api::{
+    v1,
+    v1::test::{
+        wipe_options::WipeMethod,
+        wipe_replica_request,
+        StreamWipeOptions,
+        TestRpc,
+        WipeReplicaRequest,
+        WipeReplicaResponse,
+    },
 };
 use nix::errno::Errno;
 use std::convert::{TryFrom, TryInto};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
+
+#[cfg(feature = "fault-injection")]
+use crate::core::fault_injection::{
+    add_fault_injection,
+    list_fault_injections,
+    remove_fault_injection,
+    FaultInjection,
+    FaultInjectionError,
+};
 
 #[derive(Debug, Clone)]
 pub struct TestService {
@@ -106,6 +118,98 @@ impl TestRpc for TestService {
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn add_fault_injection(
+        &self,
+        request: Request<v1::test::AddFaultInjectionRequest>,
+    ) -> GrpcResult<()> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+
+        #[cfg(feature = "fault-injection")]
+        {
+            let rx = rpc_submit::<_, _, FaultInjectionError>(async move {
+                let uri = args.uri.clone();
+                let inj = FaultInjection::from_uri(&uri)?;
+                add_fault_injection(inj);
+                Ok(())
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        }
+
+        #[cfg(not(feature = "fault-injection"))]
+        GrpcResult::Err(tonic::Status::unimplemented(
+            "Fault injection feature is disabled",
+        ))
+    }
+
+    async fn remove_fault_injection(
+        &self,
+        request: Request<v1::test::RemoveFaultInjectionRequest>,
+    ) -> GrpcResult<()> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+
+        #[cfg(feature = "fault-injection")]
+        {
+            let rx = rpc_submit::<_, _, FaultInjectionError>(async move {
+                let uri = args.uri.clone();
+
+                // Validate injection URI by trying to parse it.
+                FaultInjection::from_uri(&uri)?;
+
+                remove_fault_injection(&uri);
+
+                Ok(())
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        }
+
+        #[cfg(not(feature = "fault-injection"))]
+        GrpcResult::Err(tonic::Status::unimplemented(
+            "Fault injection feature is disabled",
+        ))
+    }
+
+    async fn list_fault_injections(
+        &self,
+        request: Request<v1::test::ListFaultInjectionsRequest>,
+    ) -> GrpcResult<v1::test::ListFaultInjectionsReply> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+
+        #[cfg(feature = "fault-injection")]
+        {
+            let rx = rpc_submit::<_, _, FaultInjectionError>(async move {
+                let injections = list_fault_injections()
+                    .into_iter()
+                    .map(v1::test::FaultInjection::from)
+                    .collect();
+
+                Ok(v1::test::ListFaultInjectionsReply {
+                    injections,
+                })
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        }
+
+        #[cfg(not(feature = "fault-injection"))]
+        GrpcResult::Err(tonic::Status::unimplemented(
+            "Fault injection feature is disabled",
+        ))
     }
 }
 
@@ -220,6 +324,7 @@ fn validate_pool(
         msg,
     })
 }
+
 fn lookup_pool(pool: wipe_replica_request::Pool) -> Result<Lvs, LvsError> {
     match pool {
         wipe_replica_request::Pool::PoolUuid(uuid) => {
@@ -240,6 +345,7 @@ fn lookup_pool(pool: wipe_replica_request::Pool) -> Result<Lvs, LvsError> {
 struct WiperStream(
     tokio::sync::mpsc::Sender<Result<WipeReplicaResponse, tonic::Status>>,
 );
+
 impl crate::core::wiper::NotifyStream for WiperStream {
     fn notify(&self, stats: &WipeStats) -> Result<(), String> {
         let response = WipeReplicaResponse::from(stats);
@@ -251,5 +357,26 @@ impl crate::core::wiper::NotifyStream for WiperStream {
 
     fn is_closed(&self) -> bool {
         self.0.is_closed()
+    }
+}
+
+#[cfg(feature = "fault-injection")]
+impl From<FaultInjectionError> for tonic::Status {
+    fn from(e: FaultInjectionError) -> Self {
+        match e {
+            e => Status::invalid_argument(e.to_string()),
+        }
+    }
+}
+
+#[cfg(feature = "fault-injection")]
+impl From<FaultInjection> for v1::test::FaultInjection {
+    fn from(src: FaultInjection) -> Self {
+        let is_active = src.is_active();
+        Self {
+            uri: src.uri,
+            device_name: src.device_name,
+            is_active,
+        }
     }
 }

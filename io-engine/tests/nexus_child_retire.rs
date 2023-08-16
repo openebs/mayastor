@@ -1,4 +1,4 @@
-#![cfg(feature = "nexus-fault-injection")]
+#![cfg(feature = "fault-injection")]
 
 use std::time::Duration;
 
@@ -35,13 +35,24 @@ use io_engine::{
             nexus_lookup_mut,
             ChildState,
             FaultReason,
-            Injection,
-            InjectionOp,
             NexusStatus,
         },
         NexusInfo,
     },
-    core::{CoreError, MayastorCliArgs, Protocol},
+    core::{
+        fault_injection::{
+            add_fault_injection,
+            FaultDomain,
+            FaultInjection,
+            FaultIoStage,
+            FaultIoType,
+            FaultType,
+        },
+        CoreError,
+        IoCompletionStatus,
+        MayastorCliArgs,
+        Protocol,
+    },
     lvs::Lvs,
     persistent_store::PersistentStoreBuilder,
     pool_backend::PoolArgs,
@@ -227,9 +238,9 @@ async fn nexus_child_retire_persist_unresponsive_with_fio() {
 
     // Fault replica #0 at block 10.
     nex_0
-        .inject_fault_at_replica(
+        .add_injection_at_replica(
             &repl_0,
-            &format!("op=write&offset={offset}", offset = 10),
+            &format!("domain=nexus&op=write&offset={offset}", offset = 10),
         )
         .await
         .unwrap();
@@ -346,9 +357,12 @@ async fn nexus_child_retire_persist_unresponsive_with_bdev_io() {
 
     let inj_device = nex.child_at(0).get_device_name().unwrap();
 
-    nex.inject_add(Injection::new(
+    add_fault_injection(FaultInjection::new(
+        FaultDomain::Nexus,
         &inj_device,
-        InjectionOp::Write,
+        FaultIoType::Write,
+        FaultIoStage::Completion,
+        FaultType::status_data_transfer_error(),
         Duration::ZERO,
         Duration::MAX,
         0 .. 1,
@@ -422,9 +436,12 @@ async fn nexus_child_retire_persist_failure_with_bdev_io() {
 
     let inj_device = nex.child_at(0).get_device_name().unwrap();
 
-    nex.inject_add(Injection::new(
+    add_fault_injection(FaultInjection::new(
+        FaultDomain::Nexus,
         &inj_device,
-        InjectionOp::Write,
+        FaultIoType::Write,
+        FaultIoStage::Completion,
+        FaultType::status_data_transfer_error(),
         Duration::ZERO,
         Duration::MAX,
         0 .. 1,
@@ -448,9 +465,9 @@ async fn nexus_child_retire_persist_failure_with_bdev_io() {
         assert!(matches!(
             res,
             Err(CoreError::WriteFailed {
-                status: NvmeStatus::Generic(
+                status: IoCompletionStatus::NvmeError(NvmeStatus::Generic(
                     GenericStatusCode::InternalDeviceError
-                ),
+                )),
                 ..
             })
         ));
