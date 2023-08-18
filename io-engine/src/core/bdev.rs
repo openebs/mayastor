@@ -240,7 +240,9 @@ where
             Some(Protocol::Nvmf) => {
                 if let Some(ss) = NvmfSubsystem::nqn_lookup(self.name()) {
                     ss.stop().await.context(UnshareNvmf {})?;
-                    ss.destroy();
+                    unsafe {
+                        ss.shutdown_unsafe();
+                    }
                 }
             }
             Some(Protocol::Off) | None => {}

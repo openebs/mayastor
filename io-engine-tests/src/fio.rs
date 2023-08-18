@@ -67,7 +67,7 @@ impl FioJob {
         let mut r = vec![
             format!("--name={}", self.name),
             format!("--ioengine={}", self.ioengine),
-            format!("--filename='{}'", self.filename),
+            format!("--filename={}", self.filename),
             format!("--thread=1"),
             format!("--direct={}", if self.direct { "1" } else { "0" }),
             format!("--norandommap=1"),
@@ -109,6 +109,12 @@ impl FioJob {
     /// Filename.
     pub fn with_filename(mut self, v: &str) -> Self {
         self.filename = v.to_string();
+        self
+    }
+
+    /// Read-write FIO mode.
+    pub fn with_rw(mut self, rw: &str) -> Self {
+        self.rw = rw.to_string();
         self
     }
 
@@ -171,8 +177,8 @@ impl Fio {
         Default::default()
     }
 
-    pub fn with_jobs(mut self, jobs: Vec<FioJob>) -> Self {
-        self.jobs = jobs;
+    pub fn with_jobs(mut self, jobs: impl Iterator<Item = FioJob>) -> Self {
+        jobs.for_each(|j| self.jobs.push(j));
         self
     }
 
@@ -201,11 +207,11 @@ impl Fio {
             .collect::<Vec<_>>()
             .join(" ");
 
-        if self.verbose {
-            println!("{cmd} {args}");
-        }
-
         let script = format!("{cmd} {args}");
+
+        if self.verbose {
+            println!("{script}");
+        }
 
         let (exit, stdout, stderr) = run_script::run(
             &script,
@@ -215,11 +221,18 @@ impl Fio {
         .unwrap();
 
         if exit == 0 {
+            if self.verbose {
+                println!("FIO:");
+                println!("{script}");
+                println!("Output:");
+                println!("{stdout}");
+            }
+
             Ok(())
         } else {
             if self.verbose_err {
                 println!("Error running FIO:");
-                println!("{cmd} {args}");
+                println!("{script}");
                 println!("Exit code: {exit}");
                 println!("Output:");
                 println!("{stdout}");

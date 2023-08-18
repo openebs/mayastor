@@ -164,6 +164,13 @@ pub struct MayastorCliArgs {
     #[structopt(short = "T", long = "tgt-iface", env = "NVMF_TGT_IFACE")]
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
+    /// NVMF target Command Retry Delay.
+    #[structopt(
+        long = "tgt-crdt",
+        env = "NVMF_TGT_CRDT",
+        default_value = "30"
+    )]
+    pub nvmf_tgt_crdt: u16,
     /// api Version
     #[structopt(
         long,
@@ -230,6 +237,7 @@ impl Default for MayastorCliArgs {
             nvme_ctl_io_ctx_pool_size: 65535,
             registration_endpoint: None,
             nvmf_tgt_interface: None,
+            nvmf_tgt_crdt: 30,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             diagnose_stack: None,
             reactor_freeze_detection: false,
@@ -328,6 +336,7 @@ pub struct MayastorEnvironment {
     bdev_io_ctx_pool_size: u64,
     nvme_ctl_io_ctx_pool_size: u64,
     nvmf_tgt_interface: Option<String>,
+    pub nvmf_tgt_crdt: u16,
     api_versions: Vec<ApiVersion>,
 }
 
@@ -372,6 +381,7 @@ impl Default for MayastorEnvironment {
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             nvmf_tgt_interface: None,
+            nvmf_tgt_crdt: 30,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
         }
     }
@@ -489,6 +499,7 @@ impl MayastorEnvironment {
             bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
             nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
             nvmf_tgt_interface: args.nvmf_tgt_interface,
+            nvmf_tgt_crdt: args.nvmf_tgt_crdt,
             api_versions: args.api_versions,
             ..Default::default()
         }

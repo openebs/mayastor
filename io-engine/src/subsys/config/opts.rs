@@ -27,6 +27,8 @@ use std::{
     str::FromStr,
 };
 
+use crate::core::MayastorEnvironment;
+
 pub trait GetOpts {
     fn get(&self) -> Self;
     fn set(&self) -> bool {
@@ -78,6 +80,8 @@ pub struct NvmfTgtConfig {
     pub name: String,
     /// the max number of namespaces this target should allow for
     pub max_namespaces: u32,
+    /// Command Retry Delay.
+    pub crdt: u16,
     /// TCP transport options
     pub opts: NvmfTcpTransportOpts,
 }
@@ -87,15 +91,18 @@ impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
         let mut out = Self::default();
         copy_str_with_null(&o.name, &mut out.name);
         out.max_subsystems = o.max_namespaces;
+        out.crdt[0] = o.crdt;
         out
     }
 }
 
 impl Default for NvmfTgtConfig {
     fn default() -> Self {
+        let args = MayastorEnvironment::global_or_default();
         Self {
             name: "mayastor_target".to_string(),
             max_namespaces: 2048,
+            crdt: args.nvmf_tgt_crdt,
             opts: NvmfTcpTransportOpts::default(),
         }
     }

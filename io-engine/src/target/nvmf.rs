@@ -26,7 +26,9 @@ where
 pub async fn unshare(uuid: &str) -> Result<(), NvmfError> {
     if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
         ss.stop().await?;
-        ss.destroy();
+        unsafe {
+            ss.shutdown_unsafe();
+        }
     }
     Ok(())
 }

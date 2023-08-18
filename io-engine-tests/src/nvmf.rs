@@ -77,7 +77,7 @@ pub async fn test_fio_to_nvmf(
     nvmf: &NvmfLocation,
     mut fio: Fio,
 ) -> std::io::Result<()> {
-    let tgt = nvmf.as_args().join(" ");
+    let tgt = format!("'{}'", nvmf.as_args().join(" "));
 
     fio.jobs = fio
         .jobs
