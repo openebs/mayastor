@@ -1,6 +1,6 @@
-mod nexus_events;
+pub(crate) mod nexus_events;
 mod pool_events;
-use events_api::event::{EventAction, EventMessage};
+use events_api::event::{EventAction, EventMessage, EventMeta};
 
 /// Event trait definition for creating events.
 pub(crate) trait Event {
@@ -8,14 +8,14 @@ pub(crate) trait Event {
     fn event(&self, event_action: EventAction) -> EventMessage;
 }
 
-/// Rebuild event trait definition for creating rebuild events.
-pub(crate) trait RebuildEvent {
-    /// Create rebuild event message.
-    fn rebuild_event(
-        &self,
-        event_action: EventAction,
-        source: Option<&str>,
-        destination: &str,
-        error: Option<&str>,
-    ) -> EventMessage;
+/// Event trait definition for creating events and adding meta data.
+pub(crate) trait EventWithMeta {
+    /// Create event message with meta data.
+    fn event(&self, action: EventAction, meta: EventMeta) -> EventMessage;
+}
+
+/// A trait for generating event metadata.
+pub(crate) trait EventMetaGen {
+    /// Create metadata to be included with the event.
+    fn meta(&self) -> EventMeta;
 }

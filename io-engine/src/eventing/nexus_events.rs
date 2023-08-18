@@ -4,18 +4,47 @@ use events_api::event::{
     EventMessage,
     EventMeta,
     EventSource,
+    RebuildStatus,
 };
 
 use crate::{
     bdev::nexus,
-    eventing::{Event, RebuildEvent},
-    grpc::node_name,
+    core::{MayastorEnvironment, VerboseError},
+    eventing::{Event, EventMetaGen, EventWithMeta},
+    rebuild::{RebuildJob, RebuildState},
 };
 
-// Nexus event messages from Nexus data.
+impl EventMetaGen for RebuildJob {
+    fn meta(&self) -> EventMeta {
+        let rebuild_status = match self.state() {
+            RebuildState::Init | RebuildState::Running => {
+                RebuildStatus::Started
+            }
+            RebuildState::Stopped => RebuildStatus::Stopped,
+            RebuildState::Failed => RebuildStatus::Failed,
+            RebuildState::Completed => RebuildStatus::Completed,
+            _ => RebuildStatus::Unknown,
+        };
+
+        let event_source = EventSource::new(
+            MayastorEnvironment::global_or_default().node_name,
+        )
+        .add_rebuild_data(
+            rebuild_status,
+            self.src_uri(),
+            self.dst_uri(),
+            self.error().map(|e| e.verbose()),
+        );
+
+        EventMeta::from_source(event_source)
+    }
+}
+
 impl<'n> Event for nexus::Nexus<'n> {
     fn event(&self, event_action: EventAction) -> EventMessage {
-        let event_source = EventSource::new(node_name(&None));
+        let event_source = EventSource::new(
+            MayastorEnvironment::global_or_default().node_name,
+        );
         EventMessage {
             category: EventCategory::Nexus as i32,
             action: event_action as i32,
@@ -25,25 +54,17 @@ impl<'n> Event for nexus::Nexus<'n> {
     }
 }
 
-// Rebuild event messages from Nexus data.
-impl<'n> RebuildEvent for nexus::Nexus<'n> {
-    fn rebuild_event(
+impl<'n> EventWithMeta for nexus::Nexus<'n> {
+    fn event(
         &self,
         event_action: EventAction,
-        source: Option<&str>,
-        destination: &str,
-        error: Option<&str>,
+        meta: EventMeta,
     ) -> EventMessage {
-        let event_source = EventSource::new(node_name(&None)).add_rebuild_data(
-            source,
-            destination,
-            error,
-        );
         EventMessage {
             category: EventCategory::Nexus as i32,
             action: event_action as i32,
             target: self.uuid().to_string(),
-            metadata: Some(EventMeta::from_source(event_source)),
+            metadata: Some(meta),
         }
     }
 }
