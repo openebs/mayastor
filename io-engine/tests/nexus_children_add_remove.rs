@@ -12,6 +12,10 @@ static DISKNAME1: &str = "/tmp/disk1.img";
 static DISKNAME2: &str = "/tmp/disk2.img";
 static DISKNAME3: &str = "/tmp/disk3.img";
 
+const POOL_SIZE: u64 = 1000;
+const REPL_SIZE: u64 = 900;
+const NEXUS_SIZE: u64 = REPL_SIZE;
+
 use crate::common::MayastorTest;
 
 pub mod common;
@@ -187,10 +191,6 @@ async fn nexus_add_child() {
 /// Remove a child while I/O is running.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nexus_remove_child_with_io() {
-    const POOL_SIZE: u64 = 1000;
-    const REPL_SIZE: u64 = 900;
-    const NEXUS_SIZE: u64 = REPL_SIZE;
-
     common::composer_init();
 
     let test = Builder::new()
@@ -296,4 +296,138 @@ async fn nexus_remove_child_with_io() {
     });
 
     let _ = tokio::join!(j0, j1);
+}
+
+/// Test added to reproduce assertion failure caused by parallel running
+/// async and sync connect for a qpair.
+/// This test:
+/// 1. Creates 3 pools, and a replica on each pool(repl_0, repl_1, repl_2).
+/// 2. Creates nexus with repl_1 and repl_2.
+/// 3. In a loop:Adds replica repl_0.Removes replica repl_2 (not being used as
+/// rebuild source).
+/// Removes repl_0 and adds repl_2 back.
+#[tokio::test]
+//#[ignore]
+async fn nexus_channel_get_handles() {
+    common::composer_init();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "qms_0",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1,2"]),
+        )
+        .add_container_bin(
+            "qms_1",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "3,4"]),
+        )
+        .add_container_bin(
+            "qms_nex",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "5,6",
+                "-Fnodate,compact,color",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let ms_0 = conn.grpc_handle_shared("qms_0").await.unwrap();
+    let ms_1 = conn.grpc_handle_shared("qms_1").await.unwrap();
+    let ms_nex = conn.grpc_handle_shared("qms_nex").await.unwrap();
+
+    // Node #0
+    let mut pool_0 = PoolBuilder::new(ms_0.clone())
+        .with_name("pool0")
+        .with_new_uuid()
+        .with_malloc("qmem0", POOL_SIZE);
+
+    let mut repl_0 = ReplicaBuilder::new(ms_0.clone())
+        .with_pool(&pool_0)
+        .with_name("qr0")
+        .with_new_uuid()
+        .with_thin(false)
+        .with_size_mb(REPL_SIZE);
+
+    pool_0.create().await.unwrap();
+    repl_0.create().await.unwrap();
+    repl_0.share().await.unwrap();
+
+    // Node #1
+    let mut pool_1 = PoolBuilder::new(ms_1.clone())
+        .with_name("pool1")
+        .with_new_uuid()
+        .with_malloc("qmem1", POOL_SIZE);
+
+    let mut repl_1 = ReplicaBuilder::new(ms_1.clone())
+        .with_pool(&pool_1)
+        .with_name("qr1")
+        .with_new_uuid()
+        .with_thin(false)
+        .with_size_mb(REPL_SIZE);
+
+    pool_1.create().await.unwrap();
+    repl_1.create().await.unwrap();
+    repl_1.share().await.unwrap();
+
+    // Node #2 - local to nexus
+    let mut pool_2 = PoolBuilder::new(ms_nex.clone())
+        .with_name("pool2")
+        .with_new_uuid()
+        .with_malloc("qmem2", POOL_SIZE);
+
+    let mut repl_2 = ReplicaBuilder::new(ms_nex.clone())
+        .with_pool(&pool_2)
+        .with_name("qr2")
+        .with_new_uuid()
+        .with_thin(false)
+        .with_size_mb(REPL_SIZE);
+
+    pool_2.create().await.unwrap();
+    repl_2.create().await.unwrap();
+    repl_2.share().await.unwrap();
+
+    // Nexus
+    let mut nex_0 = NexusBuilder::new(ms_nex.clone())
+        .with_name("qnexus0")
+        .with_new_uuid()
+        .with_size_mb(NEXUS_SIZE)
+        .with_replica(&repl_1)
+        .with_replica(&repl_2);
+
+    nex_0.create().await.unwrap();
+    nex_0.publish().await.unwrap();
+
+    for _ in 0 .. 20 {
+        let j_repl0 = tokio::spawn({
+            let nex_0 = nex_0.clone();
+            let repl_0 = repl_0.clone();
+            async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                nex_0.add_replica(&repl_0, false).await.unwrap();
+            }
+        });
+
+        let j_repl2 = tokio::spawn({
+            let nex_0 = nex_0.clone();
+            let repl_2 = repl_2.clone();
+            async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                nex_0.remove_child_replica(&repl_2).await.unwrap();
+            }
+        });
+
+        let _ = tokio::join!(j_repl0, j_repl2);
+
+        // Come back to same state for next loop iteration.
+        nex_0.remove_child_replica(&repl_0).await.unwrap();
+        nex_0.add_replica(&repl_2, false).await.unwrap();
+        assert_eq!(nex_0.get_nexus().await.unwrap().children.len(), 2);
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 }
