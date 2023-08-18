@@ -25,6 +25,9 @@ use crate::{
         RebuildVerifyMode,
     },
 };
+// use crate::Event;
+use crate::eventing::RebuildEvent;
+use events_api::event::EventAction;
 
 /// Rebuild pause guard ensures rebuild jobs are resumed before it is dropped.
 pub(crate) struct RebuildPauseGuard<'a> {
@@ -119,6 +122,14 @@ impl<'n> Nexus<'n> {
         // Create a rebuild job for the child.
         self.create_rebuild_job(&src_child_uri, &dst_child_uri)
             .await?;
+
+        self.rebuild_event(
+            EventAction::RebuildBegin,
+            Some(&src_child_uri),
+            &dst_child_uri,
+            None,
+        )
+        .generate();
 
         // We're now rebuilding the `dst_child` which means it HAS to become an
         // active participant in the frontend nexus bdev for Writes.
@@ -417,6 +428,13 @@ impl<'n> Nexus<'n> {
 
         match job_state {
             RebuildState::Completed => {
+                self.rebuild_event(
+                    EventAction::RebuildEnd,
+                    None,
+                    child_uri,
+                    None,
+                )
+                .generate();
                 c.set_sync_state(ChildSyncState::Synced);
 
                 if c.is_healthy() {
@@ -447,6 +465,13 @@ impl<'n> Nexus<'n> {
             }
             RebuildState::Stopped => {
                 info!("{c:?}: rebuild job stopped");
+                self.rebuild_event(
+                    EventAction::RebuildStop,
+                    None,
+                    child_uri,
+                    None,
+                )
+                .generate();
             }
             RebuildState::Failed => {
                 // rebuild has failed so we need to set the child as faulted
@@ -463,6 +488,16 @@ impl<'n> Nexus<'n> {
                     "{c:?}: rebuild job failed with error: {e}",
                     e = job.error_desc()
                 );
+                self.rebuild_event(
+                    EventAction::RebuildFail,
+                    None,
+                    child_uri,
+                    Some(&format!(
+                        "{c:?}: rebuild job failed with error: {e}",
+                        e = job.error_desc()
+                    )),
+                )
+                .generate();
                 c.close_faulted(FaultReason::RebuildFailed).await;
             }
             _ => {
@@ -470,6 +505,16 @@ impl<'n> Nexus<'n> {
                     "{c:?}: rebuild job failed with state {s:?}",
                     s = job_state
                 );
+                self.rebuild_event(
+                    EventAction::RebuildFail,
+                    None,
+                    child_uri,
+                    Some(&format!(
+                        "{c:?}: rebuild job failed with state {s:?}",
+                        s = job_state
+                    )),
+                )
+                .generate();
                 c.close_faulted(FaultReason::RebuildFailed).await;
             }
         }

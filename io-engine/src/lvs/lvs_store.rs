@@ -523,7 +523,7 @@ impl Lvs {
                         Err(create)
                     }
                     Ok(pool) => {
-                        pool.event(Some(EventAction::Create)).generate();
+                        pool.event(EventAction::Create).generate();
                         Ok(pool)
                     }
                 }
@@ -657,7 +657,7 @@ impl Lvs {
 
         info!("{}: lvs destroyed successfully", self_str);
 
-        self.event(Some(EventAction::Delete)).generate();
+        self.event(EventAction::Delete).generate();
 
         bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
             .await
