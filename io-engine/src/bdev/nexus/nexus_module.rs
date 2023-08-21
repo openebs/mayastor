@@ -21,12 +21,17 @@ pub(crate) struct NexusModule {}
 
 impl NexusModule {
     /// Returns Nexus Bdev module instance.
+    /// # Warning
     /// Panics if the Nexus module was not registered.
     pub fn current() -> BdevModule {
         match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
             Ok(m) => m,
             Err(err) => panic!("{}", err),
         }
+    }
+    /// Returns Nexus Bdev module instance, if registered.
+    pub fn current_opt() -> Option<BdevModule> {
+        BdevModule::find_by_name(NEXUS_MODULE_NAME).ok()
     }
 }
 
