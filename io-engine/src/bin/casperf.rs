@@ -401,6 +401,7 @@ fn main() {
 
     MayastorEnvironment::new(args).init();
     sig_override();
+    io_engine::bdev::nexus::register_module(false);
     Reactors::master().send_future(async move {
         let jobs = uris
             .iter_mut()

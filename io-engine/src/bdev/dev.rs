@@ -44,6 +44,7 @@ pub(crate) mod uri {
             null_bdev,
             nvme,
             nvmx,
+            nx,
             uring,
             BdevCreateDestroy,
         },
@@ -59,13 +60,15 @@ pub(crate) mod uri {
 
         match url.scheme() {
             "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
-            "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
-            "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
+            "bdev" | "loopback" => {
+                Ok(Box::new(loopback::Loopback::try_from(&url)?))
+            }
             "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
             "null" => Ok(Box::new(null_bdev::Null::try_from(&url)?)),
             "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
             "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
             "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
+            "nexus" => Ok(Box::new(nx::Nexus::try_from(&url)?)),
 
             scheme => Err(BdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),
