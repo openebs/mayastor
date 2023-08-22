@@ -149,6 +149,11 @@ pub fn register_module() {
 /// so that a possible remove event from SPDK also results in bdev removal
 #[allow(clippy::needless_collect)]
 pub async fn shutdown_nexuses() {
+    if NexusModule::current_opt().is_none() {
+        info!("Skipping nexus shutdown - Nexus Module not registered...");
+        return;
+    }
+
     info!("Shutting down nexuses...");
 
     // TODO: We need to collect list of Nexuses before destroying them,

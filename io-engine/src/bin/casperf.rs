@@ -33,7 +33,7 @@ use spdk_rs::{
 };
 use version_info::version_info_str;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum IoType {
     /// perform random read operations
     Read,
@@ -62,7 +62,7 @@ struct Job {
     /// io_size the io_size is the number of blocks submit per IO
     io_size: u64,
     /// blk_size of the underlying device
-    blk_size: u32,
+    blk_size: u64,
     /// num_blocks the device has
     num_blocks: u64,
     /// aligned set of IOs we can do
@@ -130,12 +130,12 @@ impl Job {
             return;
         }
 
-        let offset = (job.rng.gen::<u64>() % job.io_size) * job.io_blocks;
+        let offset = job.rng.gen_range(0 .. job.io_blocks) * job.io_size;
         ioq.next(offset);
     }
 
     /// construct a new job
-    async fn new(bdev: &str, size: u64, qd: u64) -> Box<Self> {
+    async fn new(bdev: &str, size: u64, qd: u64, io_type: IoType) -> Box<Self> {
         let bdev = bdev_create(bdev)
             .await
             .map_err(|e| {
@@ -147,10 +147,10 @@ impl Job {
 
         let desc = bdev.open(true).unwrap();
 
-        let blk_size = bdev.block_len();
+        let blk_size = bdev.block_len() as u64;
         let num_blocks = bdev.num_blocks();
 
-        let io_size = size / blk_size as u64;
+        let io_size = size / blk_size;
         let io_blocks = num_blocks / io_size;
 
         let mut queue = Vec::new();
@@ -158,7 +158,7 @@ impl Job {
         (0 ..= qd).for_each(|offset| {
             queue.push(Io {
                 buf: DmaBuf::new(size, bdev.alignment()).unwrap(),
-                iot: IoType::Read,
+                iot: io_type,
                 offset,
                 job: NonNull::dangling(),
             });
@@ -229,13 +229,14 @@ impl Io {
 
     /// dispatch the read IO at given offset
     fn read(&mut self, offset: u64) {
+        let nbytes = self.buf.len();
         unsafe {
             if spdk_bdev_read(
                 self.job.as_ref().desc.legacy_as_ptr(),
                 self.job.as_ref().ch.as_ref().unwrap().legacy_as_ptr(),
                 self.buf.as_mut_ptr(),
                 offset,
-                self.buf.len(),
+                nbytes,
                 Some(Job::io_completion),
                 self as *const _ as *mut _,
             ) == 0
@@ -243,7 +244,7 @@ impl Io {
                 self.job.as_mut().n_inflight += 1;
             } else {
                 eprintln!(
-                    "failed to submit read IO to {}",
+                    "failed to submit read IO to {}, offset={offset}, nbytes={nbytes}",
                     self.job.as_ref().bdev.name()
                 );
             }
@@ -349,6 +350,14 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("io_type")
+                .value_name("io_type")
+                .short("t")
+                .help("type of IOs")
+                .possible_values(&["randread", "randwrite"])
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("queue_depth")
                 .value_name("queue_depth")
                 .short("q")
@@ -371,10 +380,22 @@ fn main() {
         .map(|u| u.to_string())
         .collect::<Vec<_>>();
 
-    let io_size = value_t!(matches.value_of("io_size"), u64).unwrap_or(IO_SIZE);
+    let io_size = match matches.value_of("io_size") {
+        Some(io_size) => {
+            byte_unit::Byte::from_str(io_size).unwrap().get_bytes() as u64
+        }
+        None => IO_SIZE,
+    };
+    let io_type = match matches.value_of("io_type").unwrap_or("randread") {
+        "randread" => IoType::Read,
+        "randwrite" => IoType::Write,
+        io_type => panic!("Invalid io_type: {}", io_type),
+    };
+
     let qd = value_t!(matches.value_of("queue_depth"), u64).unwrap_or(QD);
     let args = MayastorCliArgs {
         reactor_mask: "0x2".to_string(),
+        skip_sig_handler: true,
         ..Default::default()
     };
 
@@ -383,7 +404,7 @@ fn main() {
     Reactors::master().send_future(async move {
         let jobs = uris
             .iter_mut()
-            .map(|u| Job::new(u, io_size, qd))
+            .map(|u| Job::new(u, io_size, qd, io_type))
             .collect::<Vec<_>>();
 
         for j in jobs {

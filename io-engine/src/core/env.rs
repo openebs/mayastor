@@ -171,7 +171,7 @@ pub struct MayastorCliArgs {
         default_value = "30"
     )]
     pub nvmf_tgt_crdt: u16,
-    /// api Version
+    /// The gRPC api version.
     #[structopt(
         long,
         value_delimiter = ",",
@@ -192,6 +192,10 @@ pub struct MayastorCliArgs {
         env = "REACTOR_FREEZE_TIMEOUT"
     )]
     pub reactor_freeze_timeout: Option<u64>,
+    /// Skip install of the signal handler which will trigger process graceful
+    /// termination.
+    #[structopt(long, hidden = true)]
+    pub skip_sig_handler: bool,
 }
 
 /// Mayastor features.
@@ -242,6 +246,7 @@ impl Default for MayastorCliArgs {
             diagnose_stack: None,
             reactor_freeze_detection: false,
             reactor_freeze_timeout: None,
+            skip_sig_handler: false,
         }
     }
 }
@@ -338,6 +343,7 @@ pub struct MayastorEnvironment {
     nvmf_tgt_interface: Option<String>,
     pub nvmf_tgt_crdt: u16,
     api_versions: Vec<ApiVersion>,
+    skip_sig_handler: bool,
 }
 
 impl Default for MayastorEnvironment {
@@ -383,6 +389,7 @@ impl Default for MayastorEnvironment {
             nvmf_tgt_interface: None,
             nvmf_tgt_crdt: 30,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
+            skip_sig_handler: false,
         }
     }
 }
@@ -501,6 +508,7 @@ impl MayastorEnvironment {
             nvmf_tgt_interface: args.nvmf_tgt_interface,
             nvmf_tgt_crdt: args.nvmf_tgt_crdt,
             api_versions: args.api_versions,
+            skip_sig_handler: args.skip_sig_handler,
             ..Default::default()
         }
         .setup_static()
@@ -880,7 +888,9 @@ impl MayastorEnvironment {
         );
 
         // setup our signal handlers
-        self.install_signal_handlers();
+        if !self.skip_sig_handler {
+            self.install_signal_handlers();
+        }
 
         // allocate a Reactor per core
         Reactors::init();
