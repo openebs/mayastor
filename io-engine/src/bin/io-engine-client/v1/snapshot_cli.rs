@@ -411,8 +411,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
     let request = v1_rpc::snapshot::ListSnapshotsRequest {
         source_uuid,
         snapshot_uuid,
-        snapshot_query_type: v1_rpc::snapshot::SnapshotQueryType::AllSnapshots
-            as i32,
+        query: None,
     };
 
     let response = ctx
