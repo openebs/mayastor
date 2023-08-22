@@ -11,7 +11,7 @@ use common::{
             bdev::ListBdevOptions,
             pool::CreatePoolRequest,
             replica::{CreateReplicaRequest, ListReplicaOptions},
-            snapshot::{ListSnapshotsRequest, SnapshotInfo, SnapshotQueryType},
+            snapshot::{ListSnapshotsRequest, SnapshotInfo},
             GrpcConnect,
         },
         Builder,
@@ -250,7 +250,7 @@ async fn test_replica_handle_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -293,7 +293,7 @@ async fn test_replica_handle_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -375,7 +375,7 @@ async fn test_list_no_snapshots() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -458,7 +458,7 @@ async fn test_nexus_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -501,7 +501,7 @@ async fn test_nexus_snapshot() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -589,7 +589,7 @@ async fn test_duplicated_snapshot_uuid_name() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -829,7 +829,7 @@ async fn test_snapshot_ancestor_usage() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
@@ -897,7 +897,7 @@ async fn test_snapshot_ancestor_usage() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .expect("Failed to list snapshots on replica node")
