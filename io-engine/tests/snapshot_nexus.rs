@@ -40,6 +40,13 @@ use io_engine::{
 use io_engine_tests::file_io::{test_write_to_file, DataSize};
 use nix::errno::Errno;
 
+use mayastor_api::v1::snapshot::{
+    destroy_snapshot_request::Pool,
+    list_snapshots_request::Query,
+    CreateReplicaSnapshotRequest,
+    CreateSnapshotCloneRequest,
+    DestroySnapshotRequest,
+};
 use std::{pin::Pin, str};
 use uuid::Uuid;
 
@@ -914,4 +921,163 @@ async fn test_snapshot_ancestor_usage() {
     );
 
     nvme_disconnect_all();
+}
+
+/// This tests creates 2 replicas --> 2 snapshots --> 1 restore --> deletes snap
+/// 1 --> Validates listing.
+#[tokio::test]
+async fn test_replica_snapshot_listing_with_query() {
+    let _ = get_ms();
+    let (test, _urls) = launch_instance(true).await;
+    let conn = GrpcConnect::new(&test);
+    let snap1 = Uuid::new_v4();
+
+    let mut ms1 = conn
+        .grpc_handle("ms1")
+        .await
+        .expect("Can't connect to remote I/O agent");
+
+    ms1.snapshot
+        .create_replica_snapshot(CreateReplicaSnapshotRequest {
+            replica_uuid: replica1_uuid(),
+            snapshot_uuid: snap1.to_string(),
+            snapshot_name: "snaprep1/2".to_string(),
+            entity_id: "snaprep1".to_string(),
+            txn_id: "1".to_string(),
+        })
+        .await
+        .expect("Should create replica snapshot");
+
+    ms1.snapshot
+        .create_replica_snapshot(CreateReplicaSnapshotRequest {
+            replica_uuid: replica2_uuid(),
+            snapshot_uuid: Uuid::new_v4().to_string(),
+            snapshot_name: "snaprep2/1".to_string(),
+            entity_id: "snaprep2".to_string(),
+            txn_id: "1".to_string(),
+        })
+        .await
+        .expect("Should create replica snapshot");
+
+    // List only non discarded snapshots before restore.
+    let snaps = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+            query: Some(Query {
+                invalid: None,
+                discarded: Some(false),
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .snapshots;
+    assert_eq!(snaps.len(), 2);
+    assert!(!snaps[0].discarded_snapshot);
+    assert!(!snaps[1].discarded_snapshot);
+
+    ms1.snapshot
+        .create_snapshot_clone(CreateSnapshotCloneRequest {
+            snapshot_uuid: snap1.to_string(),
+            clone_name: "snaprep1clone".to_string(),
+            clone_uuid: Uuid::new_v4().to_string(),
+        })
+        .await
+        .expect("Should create snapshot clone");
+
+    // List only non discarded snapshots after restore.
+    let snaps = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+            query: Some(Query {
+                invalid: None,
+                discarded: Some(false),
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .snapshots;
+    assert_eq!(snaps.len(), 2);
+    assert!(!snaps[0].discarded_snapshot);
+    assert!(!snaps[1].discarded_snapshot);
+
+    ms1.snapshot
+        .destroy_snapshot(DestroySnapshotRequest {
+            snapshot_uuid: snap1.to_string(),
+            pool: Some(Pool::PoolUuid(pool_uuid())),
+        })
+        .await
+        .expect("Destroy should not fail");
+
+    // List only non discarded snapshots.
+    let snaps = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+            query: Some(Query {
+                invalid: None,
+                discarded: Some(false),
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .snapshots;
+    assert_eq!(snaps.len(), 1);
+    assert!(!snaps[0].discarded_snapshot);
+
+    // List only discarded snapshots.
+    let snaps = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+            query: Some(Query {
+                invalid: None,
+                discarded: Some(true),
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .snapshots;
+    assert_eq!(snaps.len(), 1);
+    assert!(snaps[0].discarded_snapshot);
+
+    // List all with query fields as None.
+    let snaps = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+            query: Some(Query {
+                invalid: None,
+                discarded: None,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .snapshots;
+    assert_eq!(snaps.len(), 2);
+
+    // List all with query None.
+    let snaps = ms1
+        .snapshot
+        .list_snapshot(ListSnapshotsRequest {
+            source_uuid: None,
+            snapshot_uuid: None,
+            query: None,
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .snapshots;
+    assert_eq!(snaps.len(), 2);
 }
