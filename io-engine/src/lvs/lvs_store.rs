@@ -52,6 +52,10 @@ use crate::{
     pool_backend::PoolArgs,
 };
 
+use events_api::event::EventAction;
+
+use crate::eventing::Event;
+
 impl Debug for Lvs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -518,7 +522,10 @@ impl Lvs {
                         });
                         Err(create)
                     }
-                    Ok(pool) => Ok(pool),
+                    Ok(pool) => {
+                        pool.event(Some(EventAction::Create)).generate();
+                        Ok(pool)
+                    }
                 }
             }
             // some other error, bubble it back up
@@ -650,7 +657,9 @@ impl Lvs {
 
         info!("{}: lvs destroyed successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
+        self.event(Some(EventAction::Delete)).generate();
+
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,

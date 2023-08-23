@@ -17,6 +17,7 @@ pub mod delay;
 pub use spdk_rs::ffihelper;
 pub mod bdev_api;
 pub mod constants;
+pub mod eventing;
 pub mod grpc;
 pub mod host;
 pub mod jsonrpc;

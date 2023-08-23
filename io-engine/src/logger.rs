@@ -456,7 +456,7 @@ pub fn init_ex(level: &str, format: LogFormat, events_url: Option<url::Url>) {
             let events_filter =
                 Targets::new().with_target(EVENTING_TARGET, Level::INFO);
             Some(
-                EventHandle::init(url.to_string(), SERVICE_NAME, Some(spawn))
+                EventHandle::init_ext(url.to_string(), SERVICE_NAME, spawn)
                     .with_filter(events_filter),
             )
         }
