@@ -40,12 +40,15 @@ use io_engine::{
 use io_engine_tests::file_io::{test_write_to_file, DataSize};
 use nix::errno::Errno;
 
-use mayastor_api::v1::snapshot::{
-    destroy_snapshot_request::Pool,
-    list_snapshots_request::Query,
-    CreateReplicaSnapshotRequest,
-    CreateSnapshotCloneRequest,
-    DestroySnapshotRequest,
+use mayastor_api::v1::{
+    replica::list_replica_options,
+    snapshot::{
+        destroy_snapshot_request::Pool,
+        list_snapshots_request,
+        CreateReplicaSnapshotRequest,
+        CreateSnapshotCloneRequest,
+        DestroySnapshotRequest,
+    },
 };
 use std::{pin::Pin, str};
 use uuid::Uuid;
@@ -965,7 +968,7 @@ async fn test_replica_snapshot_listing_with_query() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            query: Some(Query {
+            query: Some(list_snapshots_request::Query {
                 invalid: None,
                 discarded: Some(false),
             }),
@@ -993,7 +996,7 @@ async fn test_replica_snapshot_listing_with_query() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            query: Some(Query {
+            query: Some(list_snapshots_request::Query {
                 invalid: None,
                 discarded: Some(false),
             }),
@@ -1020,7 +1023,7 @@ async fn test_replica_snapshot_listing_with_query() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            query: Some(Query {
+            query: Some(list_snapshots_request::Query {
                 invalid: None,
                 discarded: Some(false),
             }),
@@ -1038,7 +1041,7 @@ async fn test_replica_snapshot_listing_with_query() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            query: Some(Query {
+            query: Some(list_snapshots_request::Query {
                 invalid: None,
                 discarded: Some(true),
             }),
@@ -1056,7 +1059,7 @@ async fn test_replica_snapshot_listing_with_query() {
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            query: Some(Query {
+            query: Some(list_snapshots_request::Query {
                 invalid: None,
                 discarded: None,
             }),
@@ -1080,4 +1083,201 @@ async fn test_replica_snapshot_listing_with_query() {
         .into_inner()
         .snapshots;
     assert_eq!(snaps.len(), 2);
+}
+
+/// This tests creates 2 replicas --> 2 snapshots --> 1 restore --> Validates
+/// listing.
+#[tokio::test]
+async fn test_replica_listing_with_query() {
+    let _ = get_ms();
+    let (test, _urls) = launch_instance(true).await;
+    let conn = GrpcConnect::new(&test);
+    let snap1 = Uuid::new_v4();
+
+    let mut ms1 = conn
+        .grpc_handle("ms1")
+        .await
+        .expect("Can't connect to remote I/O agent");
+
+    ms1.snapshot
+        .create_replica_snapshot(CreateReplicaSnapshotRequest {
+            replica_uuid: replica1_uuid(),
+            snapshot_uuid: snap1.to_string(),
+            snapshot_name: "snap1rep1/2".to_string(),
+            entity_id: "snap1rep1".to_string(),
+            txn_id: "1".to_string(),
+        })
+        .await
+        .expect("Should create replica snapshot");
+
+    ms1.snapshot
+        .create_replica_snapshot(CreateReplicaSnapshotRequest {
+            replica_uuid: replica2_uuid(),
+            snapshot_uuid: Uuid::new_v4().to_string(),
+            snapshot_name: "snap2rep2/1".to_string(),
+            entity_id: "snap2rep2".to_string(),
+            txn_id: "1".to_string(),
+        })
+        .await
+        .expect("Should create replica snapshot");
+
+    ms1.snapshot
+        .create_snapshot_clone(CreateSnapshotCloneRequest {
+            snapshot_uuid: snap1.to_string(),
+            clone_name: "snaprep1clone".to_string(),
+            clone_uuid: Uuid::new_v4().to_string(),
+        })
+        .await
+        .expect("Should create snapshot clone");
+
+    // List all with query None, all replicas including snapshots and clones.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: None,
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 5);
+
+    // List all replicas except snapshots.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: Some(list_replica_options::Query {
+                replica: true,
+                snapshot: false,
+                clone: true,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 3);
+    assert!(!replicas[0].is_snapshot);
+    assert!(!replicas[1].is_snapshot);
+    assert!(!replicas[2].is_snapshot);
+
+    // List all replicas except clones.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: Some(list_replica_options::Query {
+                replica: true,
+                snapshot: true,
+                clone: false,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 4);
+    assert!(!replicas[0].is_clone);
+    assert!(!replicas[1].is_clone);
+    assert!(!replicas[2].is_clone);
+    assert!(!replicas[3].is_clone);
+
+    // List only clones and snapshots.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: Some(list_replica_options::Query {
+                replica: false,
+                snapshot: true,
+                clone: true,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 3);
+    assert!(replicas[0].is_clone || replicas[0].is_snapshot);
+    assert!(replicas[1].is_clone || replicas[1].is_snapshot);
+    assert!(replicas[2].is_clone || replicas[2].is_snapshot);
+
+    // List only snapshots.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: Some(list_replica_options::Query {
+                replica: false,
+                snapshot: true,
+                clone: false,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 2);
+    assert!(replicas[0].is_snapshot);
+    assert!(replicas[1].is_snapshot);
+
+    // List only clones.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: Some(list_replica_options::Query {
+                replica: false,
+                snapshot: false,
+                clone: true,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 1);
+    assert!(replicas[0].is_clone);
+
+    // List all only replicas.
+    let replicas = ms1
+        .replica
+        .list_replicas(ListReplicaOptions {
+            name: None,
+            poolname: None,
+            uuid: None,
+            pooluuid: None,
+            query: Some(list_replica_options::Query {
+                replica: true,
+                snapshot: false,
+                clone: false,
+            }),
+        })
+        .await
+        .expect("List should not fail")
+        .into_inner()
+        .replicas;
+    assert_eq!(replicas.len(), 2);
+    assert!(!replicas[0].is_clone && !replicas[0].is_snapshot);
+    assert!(!replicas[1].is_clone && !replicas[1].is_snapshot);
 }
