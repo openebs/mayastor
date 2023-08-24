@@ -84,7 +84,7 @@ fn recv_from<T>(r: Receiver<T>) -> T {
     }
 }
 
-#[test]
+#[common::spdk_test]
 // Test acquiring and releasing a lock.
 fn lock_unlock() {
     test_ini();
@@ -103,7 +103,7 @@ fn lock_unlock() {
     test_fini();
 }
 
-#[test]
+#[common::spdk_test]
 // Test taking out multiple locks on an overlapping block range.
 // The second lock should only succeeded after the first lock is released.
 fn multiple_locks() {
@@ -152,7 +152,7 @@ fn multiple_locks() {
     test_fini();
 }
 
-#[test]
+#[common::spdk_test]
 // Test locking a block range and then issuing a front-end I/O to an overlapping
 // range.
 // TODO: Add additional test for issuing front-end I/O then taking a lock

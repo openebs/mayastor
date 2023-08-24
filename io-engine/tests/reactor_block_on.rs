@@ -13,7 +13,7 @@ pub mod common;
 
 static COUNT: Lazy<AtomicCell<u32>> = Lazy::new(|| AtomicCell::new(0));
 
-#[test]
+#[common::spdk_test]
 fn reactor_block_on() {
     common::mayastor_test_init();
     MayastorEnvironment::new(MayastorCliArgs::default()).init();

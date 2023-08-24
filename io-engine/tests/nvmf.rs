@@ -25,7 +25,7 @@ use regex::Regex;
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
-#[test]
+#[common::spdk_test]
 fn nvmf_target() {
     common::mayastor_test_init();
     common::truncate_file(DISKNAME1, 64 * 1024);

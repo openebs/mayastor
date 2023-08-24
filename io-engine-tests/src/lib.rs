@@ -34,6 +34,7 @@ pub mod pool;
 pub mod replica;
 pub mod snapshot;
 pub mod test;
+pub mod test_task;
 
 pub use compose::MayastorTest;
 
@@ -565,3 +566,5 @@ macro_rules! test_diag {
         println!($($arg)*);
     }}
 }
+
+pub use io_engine_tests_macros::spdk_test;

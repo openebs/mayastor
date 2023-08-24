@@ -19,7 +19,7 @@ fn test_fn(a: u32, b: u32) -> u32 {
     a + b
 }
 
-#[test]
+#[common::spdk_test]
 fn poller() {
     common::mayastor_test_init();
     MayastorEnvironment::new(MayastorCliArgs {

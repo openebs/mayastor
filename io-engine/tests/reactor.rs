@@ -15,7 +15,7 @@ use pin_utils::core_reexport::time::Duration;
 pub mod common;
 
 // This test requires the system to have at least 2 cpus
-#[test]
+#[common::spdk_test]
 fn reactor_start_stop() {
     let args = MayastorCliArgs {
         reactor_mask: "0x3".into(),
