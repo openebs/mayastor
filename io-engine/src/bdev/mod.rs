@@ -17,6 +17,7 @@ pub(crate) use dev::uri;
 
 pub(crate) mod device;
 mod loopback;
+mod lvs;
 mod malloc;
 pub mod nexus;
 mod null_bdev;

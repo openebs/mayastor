@@ -31,7 +31,7 @@ use crate::{
 };
 
 /// A nexus specified via URI.
-pub struct Nexus {
+pub(super) struct Nexus {
     /// Name of the nexus we created, this is equal to the URI path minus
     /// the leading '/'.
     name: String,
