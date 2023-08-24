@@ -10,7 +10,6 @@ use mayastor_api::v1::snapshot::{
     // ListSnapshotsResponse,
     Replica,
     SnapshotInfo,
-    SnapshotQueryType,
 };
 use tonic::Status;
 
@@ -109,7 +108,7 @@ pub async fn list_snapshot(
         .list_snapshot(ListSnapshotsRequest {
             source_uuid: None,
             snapshot_uuid: None,
-            snapshot_query_type: SnapshotQueryType::AllSnapshots as i32,
+            query: None,
         })
         .await
         .map(|r| r.into_inner().snapshots)
