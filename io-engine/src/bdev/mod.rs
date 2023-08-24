@@ -24,6 +24,7 @@ pub mod null_ng;
 mod nvme;
 mod nvmf;
 pub(crate) mod nvmx;
+mod nx;
 mod uring;
 pub mod util;
 

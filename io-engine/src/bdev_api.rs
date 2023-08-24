@@ -91,6 +91,10 @@ pub enum BdevError {
     // Generic destruction failure.
     #[snafu(display("Failed to destroy a BDEV '{}'", name))]
     DestroyBdevFailed { source: Errno, name: String },
+    #[snafu(display("Failed to create BDEV '{name}': {error}"))]
+    CreateBdevFailedStr { name: String, error: String },
+    #[snafu(display("Failed to destroy BDEV '{name}': {error}"))]
+    DestroyBdevFailedStr { name: String, error: String },
     // Command canceled.
     #[snafu(display("Command canceled for a BDEV '{}'", name))]
     BdevCommandCanceled { source: Canceled, name: String },

@@ -92,8 +92,12 @@ struct NexusShareReply {
 }
 
 /// public function which simply calls register module
-pub fn register_module() {
+pub fn register_module(register_json: bool) {
     nexus_module::register_module();
+
+    if !register_json {
+        return;
+    }
 
     use crate::{
         core::{Share, ShareProps, UntypedBdev},

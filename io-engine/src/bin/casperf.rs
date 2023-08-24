@@ -396,11 +396,13 @@ fn main() {
     let args = MayastorCliArgs {
         reactor_mask: "0x2".to_string(),
         skip_sig_handler: true,
+        no_pci: false,
         ..Default::default()
     };
 
     MayastorEnvironment::new(args).init();
     sig_override();
+    io_engine::bdev::nexus::register_module(false);
     Reactors::master().send_future(async move {
         let jobs = uris
             .iter_mut()
