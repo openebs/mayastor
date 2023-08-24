@@ -138,16 +138,16 @@ fn filter_replicas_by_replica_type(
             let query = &query;
 
             let query_fields = vec![
+                (query.replica, (!replica.is_snapshot && !replica.is_clone)),
                 (query.snapshot, replica.is_snapshot),
                 (query.clone, replica.is_clone),
                 // ... add other fields here as needed
             ];
 
-            query_fields.iter().all(|(query_field, replica_field)| {
+            query_fields.iter().any(|(query_field, replica_field)| {
                 match query_field {
-                    Some(true) => *replica_field,
-                    Some(false) => !(*replica_field),
-                    None => true,
+                    true => *replica_field,
+                    false => false,
                 }
             })
         })
