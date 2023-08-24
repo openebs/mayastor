@@ -11,7 +11,6 @@ use mayastor_api::v1::replica::{
     DestroyReplicaRequest,
     ListReplicaOptions,
     Replica,
-    ReplicaType,
     ShareReplicaRequest,
 };
 
@@ -211,7 +210,7 @@ pub async fn list_replicas(
             poolname: None,
             uuid: None,
             pooluuid: None,
-            replicatype: ReplicaType::AllReplicas as i32,
+            query: None,
         })
         .await
         .map(|r| r.into_inner().replicas)
@@ -229,7 +228,7 @@ pub async fn find_replica_by_uuid(
             poolname: None,
             uuid: Some(uuid.to_owned()),
             pooluuid: None,
-            replicatype: ReplicaType::AllReplicas as i32,
+            query: None,
         })
         .await
         .map(|r| r.into_inner().replicas)?

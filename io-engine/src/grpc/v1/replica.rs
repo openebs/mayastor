@@ -125,41 +125,31 @@ impl ReplicaService {
     }
 }
 fn filter_replicas_by_replica_type(
-    replicas: Vec<Replica>,
-    replica_type: Option<ReplicaType>,
+    replica_list: Vec<Replica>,
+    query: Option<list_replica_options::Query>,
 ) -> Vec<Replica> {
-    let Some(replica_type) = replica_type else {
-        return replicas
+    let query = match query {
+        None => return replica_list,
+        Some(query) => query,
     };
-    replicas
+    replica_list
         .into_iter()
-        .filter_map(|r| match replica_type {
-            // AllReplicas
-            ReplicaType::AllReplicas => Some(r),
-            // AllReplicasExceptSnapshots
-            ReplicaType::AllReplicasExceptSnapshots => {
-                if !r.is_snapshot {
-                    Some(r)
-                } else {
-                    None
+        .filter(|replica| {
+            let query = &query;
+
+            let query_fields = vec![
+                (query.snapshot, replica.is_snapshot),
+                (query.clone, replica.is_clone),
+                // ... add other fields here as needed
+            ];
+
+            query_fields.iter().all(|(query_field, replica_field)| {
+                match query_field {
+                    Some(true) => *replica_field,
+                    Some(false) => !(*replica_field),
+                    None => true,
                 }
-            }
-            // OnlySnapshotClones
-            ReplicaType::OnlySnapshotClones => {
-                if r.is_clone {
-                    Some(r)
-                } else {
-                    None
-                }
-            }
-            // OnlyReplicas
-            ReplicaType::OnlyReplicas => {
-                if !r.is_snapshot && !r.is_clone {
-                    Some(r)
-                } else {
-                    None
-                }
-            }
+            })
         })
         .collect()
 }
@@ -353,10 +343,8 @@ impl ReplicaRpc for ReplicaService {
                 } else if let Some(uuid) = args.uuid {
                     replicas.retain(|r| r.uuid == uuid);
                 }
-                let replicas = filter_replicas_by_replica_type(
-                    replicas,
-                    ReplicaType::from_i32(args.replicatype),
-                );
+                let replicas =
+                    filter_replicas_by_replica_type(replicas, args.query);
                 Ok(ListReplicasResponse {
                     replicas,
                 })
