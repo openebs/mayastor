@@ -349,6 +349,14 @@ pub trait SnapshotOps {
         &self,
         total_ancestor_snap_size: u64,
     ) -> Option<u64>;
+
+    /// When snapshot is destroyed, reset the parent lvol usage cache and its
+    /// successor snapshot and clone usage cache.
+    fn reset_snapshot_parent_successor_usage_cache(&self);
+
+    /// When snapshot is destroyed, reset cache of successor snapshots and
+    /// clones based on snapshot parent uuid.
+    fn reset_successor_lvol_usage_cache(&self, snapshot_parent_uuid: String);
 }
 
 /// Traits gives the Snapshots Related Parameters.
