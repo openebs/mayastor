@@ -1016,6 +1016,7 @@ impl LvsLvol for Lvol {
             if snapshot_lvol.list_clones_by_snapshot_uuid().is_empty()
                 && snapshot_lvol.is_discarded_snapshot()
             {
+                snapshot_lvol.reset_snapshot_parent_successor_usage_cache();
                 snapshot_lvol.destroy().await?;
             }
         }

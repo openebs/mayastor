@@ -19,6 +19,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use spdk_rs::libspdk::{
     spdk_blob,
+    spdk_blob_reset_used_clusters_cache,
     spdk_lvol,
     spdk_xattr_descriptor,
     vbdev_lvol_create_clone_ext,
@@ -562,6 +563,7 @@ impl SnapshotOps for Lvol {
     /// Destroy snapshot.
     async fn destroy_snapshot(mut self) -> Result<(), Self::Error> {
         if self.list_clones_by_snapshot_uuid().is_empty() {
+            self.reset_snapshot_parent_successor_usage_cache();
             self.destroy().await?;
         } else {
             self.set_blob_attr(
@@ -731,7 +733,7 @@ impl SnapshotOps for Lvol {
         let Some(bdev) = UntypedBdev::bdev_first() else {
             return; /* No devices available */
         };
-        let futures = bdev
+        let snap_list = bdev
             .into_iter()
             .filter(|b| b.driver() == "lvol")
             .map(|b| Lvol::try_from(b).unwrap())
@@ -740,8 +742,11 @@ impl SnapshotOps for Lvol {
                     && b.is_discarded_snapshot()
                     && b.list_clones_by_snapshot_uuid().is_empty()
             })
-            .map(|s| s.destroy())
-            .collect::<Vec<_>>();
+            .collect::<Vec<Lvol>>();
+        snap_list
+            .iter()
+            .for_each(|s| s.reset_snapshot_parent_successor_usage_cache());
+        let futures = snap_list.into_iter().map(|s| s.destroy());
         let result = join_all(futures).await;
         for r in result {
             match r {
@@ -790,6 +795,70 @@ impl SnapshotOps for Lvol {
             )
         } else {
             None
+        }
+    }
+    /// When snapshot is destroyed, reset the parent lvol usage cache and its
+    /// successor snapshot and clone usage cache.
+    fn reset_snapshot_parent_successor_usage_cache(&self) {
+        if let Some(snapshot_parent_uuid) =
+            Lvol::get_blob_xattr(self, SnapshotXattrs::ParentId.name())
+        {
+            if let Some(bdev) =
+                UntypedBdev::lookup_by_uuid_str(snapshot_parent_uuid.as_str())
+            {
+                if let Ok(parent_lvol) = Lvol::try_from(bdev) {
+                    unsafe {
+                        spdk_blob_reset_used_clusters_cache(
+                            parent_lvol.blob_checked(),
+                        );
+                    }
+                }
+            }
+            self.reset_successor_lvol_usage_cache(snapshot_parent_uuid);
+        }
+    }
+
+    /// When snapshot is destroyed, reset cache of successor snapshots and
+    /// clones based on snapshot parent uuid.
+    fn reset_successor_lvol_usage_cache(&self, snapshot_parent_uuid: String) {
+        let mut successor_snapshots = Lvol::list_all_snapshots()
+            .iter()
+            .map(|v| v.snapshot_lvol())
+            .filter_map(|l| {
+                let uuid =
+                    Lvol::get_blob_xattr(self, SnapshotXattrs::ParentId.name());
+                match uuid {
+                    Some(uuid) if uuid == snapshot_parent_uuid => {
+                        Some(l.clone())
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<Lvol>>();
+        let mut successor_clones: Vec<Lvol> = vec![];
+
+        while !successor_snapshots.is_empty() || !successor_clones.is_empty() {
+            if let Some(snapshot) = successor_snapshots.pop() {
+                unsafe {
+                    spdk_blob_reset_used_clusters_cache(
+                        snapshot.blob_checked(),
+                    );
+                }
+                let new_clone_list = snapshot.list_clones_by_snapshot_uuid();
+                successor_clones.extend(new_clone_list);
+            }
+
+            if let Some(clone) = successor_clones.pop() {
+                unsafe {
+                    spdk_blob_reset_used_clusters_cache(clone.blob_checked());
+                }
+                let new_snap_list = clone
+                    .list_snapshot_by_source_uuid()
+                    .iter()
+                    .map(|v| v.snapshot_lvol().clone())
+                    .collect::<Vec<Lvol>>();
+                successor_snapshots.extend(new_snap_list);
+            }
         }
     }
 }

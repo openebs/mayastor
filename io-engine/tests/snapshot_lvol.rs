@@ -1055,7 +1055,7 @@ async fn test_snapshot_clone() {
         let clones = snapshot_lvol.list_clones_by_snapshot_uuid();
 
         assert_eq!(clones.len(), 2, "Number of Clones Doesn't match");
-        for clone in clones {
+        for clone in &clones {
             assert!(
                 clone.is_snapshot_clone().is_some(),
                 "Wrongly judge as not a clone"
@@ -1066,6 +1066,10 @@ async fn test_snapshot_clone() {
             snapshot_lvol.is_snapshot_clone().is_none(),
             "Wrongly judge as clone"
         );
+        for clone in clones {
+            clone.destroy().await.expect("destroy clone failed");
+        }
+        clean_snapshots(Lvol::list_all_snapshots()).await;
     })
     .await;
 }
@@ -1553,4 +1557,229 @@ async fn test_snapshot_verify_restore_data() {
 
     // Check the original replica and restore clone is identical.
     validate_replicas(&vec![repl_1.clone(), restore_1.clone()]).await;
+}
+
+#[tokio::test]
+async fn test_snapshot_parent_usage_post_snapshot_destroy() {
+    let ms = get_ms();
+    const LVOL_NAME: &str = "lvol16";
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool16",
+            "malloc:///disk16?size_mb=128".to_string(),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                LVOL_NAME,
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                true,
+            )
+            .await
+            .expect("Failed to create test lvol");
+        let cluster_size = pool.blob_cluster_size();
+        // Create a test snapshot.
+        let entity_id = String::from("lvol16_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol16_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+            false,
+        );
+
+        bdev_io::write_some(LVOL_NAME, 2 * cluster_size, 16, 0xaau8)
+            .await
+            .expect("Failed to write data to volume");
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the first snapshot for test volume");
+        let snapshot_list = Lvol::list_all_snapshots();
+        assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
+
+        let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
+            snapshot_list
+                .get(0)
+                .unwrap()
+                .snapshot_params()
+                .snapshot_uuid()
+                .unwrap_or_default()
+                .as_str(),
+        )
+        .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
+        .unwrap();
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            0,
+            "Source Lvol size should be 0, after snapshot created from it"
+        );
+
+        bdev_io::write_some(LVOL_NAME, 3 * cluster_size, 16, 0xbbu8)
+            .await
+            .expect("Failed to write data to volume");
+        bdev_io::write_some(LVOL_NAME, 4 * cluster_size, 16, 0xccu8)
+            .await
+            .expect("Failed to write data to volume");
+        snapshot_lvol
+            .destroy()
+            .await
+            .expect("Destroy snapshot failed");
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            5 * cluster_size,
+            "Source Lvol size should be restored after snapshot destroy"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_clone_snapshot_usage_post_clone_destroy() {
+    let ms = get_ms();
+    const LVOL_NAME: &str = "lvol17";
+
+    ms.spawn(async move {
+        // Create a pool and lvol.
+        let pool = create_test_pool(
+            "pool17",
+            "malloc:///disk17?size_mb=128".to_string(),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                LVOL_NAME,
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                true,
+            )
+            .await
+            .expect("Failed to create test lvol");
+        let cluster_size = pool.blob_cluster_size();
+        // Create a test snapshot.
+        let entity_id = String::from("lvol17_e1");
+        let parent_id = lvol.uuid();
+        let txn_id = Uuid::new_v4().to_string();
+        let snap_name = String::from("lvol17_snap1");
+        let snapshot_uuid = Uuid::new_v4().to_string();
+
+        let mut snapshot_params = SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            Some(snapshot_uuid),
+            Some(Utc::now().to_string()),
+            false,
+        );
+
+        bdev_io::write_some(LVOL_NAME, 2 * cluster_size, 16, 0xaau8)
+            .await
+            .expect("Failed to write data to volume");
+        lvol.create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the first snapshot for test volume");
+        let snapshot_list = Lvol::list_all_snapshots();
+        assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
+
+        let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
+            snapshot_list
+                .get(0)
+                .unwrap()
+                .snapshot_params()
+                .snapshot_uuid()
+                .unwrap_or_default()
+                .as_str(),
+        )
+        .map(|b| Lvol::try_from(b).expect("Can't create Lvol from device"))
+        .unwrap();
+        assert_eq!(
+            lvol.usage().allocated_bytes,
+            0,
+            "Source Lvol size should be 0, after snapshot created from it"
+        );
+
+        let clone_name = String::from("lvol17_snap1_clone_1");
+        let clone_uuid = Uuid::new_v4().to_string();
+        let source_uuid = snapshot_lvol.uuid();
+
+        let clone_param = CloneParams::new(
+            Some(clone_name),
+            Some(clone_uuid),
+            Some(source_uuid),
+            Some(Utc::now().to_string()),
+        );
+        let clone1 = snapshot_lvol
+            .create_clone(clone_param.clone())
+            .await
+            .expect("Failed to create a clone");
+        bdev_io::write_some("lvol17_snap1_clone_1", 0, 16, 0xbbu8)
+            .await
+            .expect("Failed to write data to volume");
+        snapshot_params.set_parent_id(clone1.uuid());
+        snapshot_params.set_entity_id(String::from("lvol17_clone1_e1"));
+        snapshot_params.set_name(String::from("lvol17_clone_1_snap1"));
+        snapshot_params.set_snapshot_uuid(Uuid::new_v4().to_string());
+        snapshot_params.set_txn_id(Uuid::new_v4().to_string());
+
+        clone1
+            .create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the first snapshot for test volume");
+        snapshot_params.set_parent_id(clone1.uuid());
+        snapshot_params.set_entity_id(String::from("lvol17_clone1_e2"));
+        snapshot_params.set_name(String::from("lvol17_clone_1_snap2"));
+        snapshot_params.set_snapshot_uuid(Uuid::new_v4().to_string());
+        snapshot_params.set_txn_id(Uuid::new_v4().to_string());
+        bdev_io::write_some(
+            "lvol17_snap1_clone_1",
+            3 * cluster_size,
+            16,
+            0xbbu8,
+        )
+        .await
+        .expect("Failed to write data to volume");
+        clone1
+            .create_snapshot(snapshot_params.clone())
+            .await
+            .expect("Failed to create the first snapshot for test volume");
+        let mut clone_snapshot: Vec<Lvol> = clone1
+            .list_snapshot_by_source_uuid()
+            .iter()
+            .map(|v| v.snapshot_lvol().clone())
+            .collect();
+        lvol.destroy()
+            .await
+            .expect("Original replica destroy failed");
+        clone1
+            .destroy_replica()
+            .await
+            .expect("Destroy Clone failed");
+        assert_eq!(
+            clone_snapshot.len(),
+            2,
+            "Number of Clone Snapshot not matched"
+        );
+        assert_eq!(
+            clone_snapshot.remove(0).usage().allocated_bytes,
+            cluster_size,
+            "Clone1 snap1 cache is not cleared"
+        );
+        assert_eq!(
+            clone_snapshot.remove(0).usage().allocated_bytes,
+            cluster_size,
+            "Clone1 snap2 cache is not cleared"
+        );
+        clean_snapshots(Lvol::list_all_snapshots()).await;
+    })
+    .await;
 }
