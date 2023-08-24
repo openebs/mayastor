@@ -314,54 +314,38 @@ impl SnapshotService {
     }
 }
 
-/// Filter snapshots based on snapshot_query_type came in gRPC request.
+/// Filter snapshots based on query came in gRPC request.
 fn filter_snapshots_by_snapshot_query_type(
     snapshot_list: Vec<SnapshotInfo>,
-    snap_query_type: Option<SnapshotQueryType>,
+    query: Option<list_snapshots_request::Query>,
 ) -> Vec<SnapshotInfo> {
-    let Some(snap_query_type) = snap_query_type else {
-        return snapshot_list
+    let query = match query {
+        None => return snapshot_list,
+        Some(query) => query,
     };
+
     snapshot_list
         .into_iter()
-        .filter_map(|s| match snap_query_type {
-            // AllSnapshots
-            SnapshotQueryType::AllSnapshots => Some(s),
-            // AllSnapshotsExceptDiscardedSnapshots
-            SnapshotQueryType::AllSnapshotsExceptDiscardedSnapshots => {
-                if !s.discarded_snapshot {
-                    Some(s)
-                } else {
-                    None
+        .filter(|snapshot| {
+            let query = &query;
+
+            let query_fields = vec![
+                (query.invalid, snapshot.valid_snapshot),
+                (query.discarded, snapshot.discarded_snapshot),
+                // ... add other fields here as needed
+            ];
+
+            query_fields.iter().all(|(query_field, snapshot_field)| {
+                match query_field {
+                    Some(true) => *snapshot_field,
+                    Some(false) => !(*snapshot_field),
+                    None => true,
                 }
-            }
-            // OnlyDiscardedSnapshots
-            SnapshotQueryType::OnlyDiscardedSnapshots => {
-                if s.discarded_snapshot {
-                    Some(s)
-                } else {
-                    None
-                }
-            }
-            // OnlyInvalidSnapshots
-            SnapshotQueryType::OnlyInvalidSnapshots => {
-                if !s.valid_snapshot {
-                    Some(s)
-                } else {
-                    None
-                }
-            }
-            // OnlyUsableSnapshots
-            SnapshotQueryType::OnlyUsableSnapshots => {
-                if !s.discarded_snapshot && s.valid_snapshot {
-                    Some(s)
-                } else {
-                    None
-                }
-            }
+            })
         })
         .collect()
 }
+
 #[tonic::async_trait]
 impl SnapshotRpc for SnapshotService {
     #[named]
@@ -563,8 +547,7 @@ impl SnapshotRpc for SnapshotService {
                             .collect();
                     }
                     let snapshots = filter_snapshots_by_snapshot_query_type(
-                        snapshots,
-                        SnapshotQueryType::from_i32(args.snapshot_query_type),
+                        snapshots, args.query,
                     );
                     Ok(ListSnapshotsResponse {
                         snapshots,
