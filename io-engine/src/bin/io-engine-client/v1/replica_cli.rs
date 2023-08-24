@@ -271,7 +271,7 @@ async fn replica_list(
             poolname: None,
             uuid: None,
             pooluuid: None,
-            replicatype: v1_rpc::replica::ReplicaType::AllReplicas as i32,
+            query: None,
         })
         .await
         .context(GrpcStatus)?;
