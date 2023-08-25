@@ -33,7 +33,7 @@ use spdk_rs::libspdk::{
 };
 use url::Url;
 
-use super::{Error, Lvol, LvsIter, PropName, PropValue};
+use super::{Error, ImportErrorReason, Lvol, LvsIter, PropName, PropValue};
 
 use crate::{
     bdev::{uri, PtplFileOps},
@@ -258,6 +258,7 @@ impl Lvs {
             return Err(Error::Import {
                 source: Errno::EBUSY,
                 name: bdev.name().to_string(),
+                reason: ImportErrorReason::None,
             });
         }
 
@@ -279,6 +280,7 @@ impl Lvs {
             .map_err(|err| Error::Import {
                 source: err,
                 name: name.into(),
+                reason: ImportErrorReason::None,
             })?;
 
         if name != lvs.name() {
@@ -293,7 +295,10 @@ impl Lvs {
             lvs.export().await?;
             Err(Error::Import {
                 source: Errno::EINVAL,
-                name: pool_name,
+                name: name.to_string(),
+                reason: ImportErrorReason::NameMismatch {
+                    name: pool_name,
+                },
             })
         } else {
             lvs.share_all().await;
@@ -315,15 +320,20 @@ impl Lvs {
         // At any point two pools with the same name should
         // not exists so returning error
         if let Some(pool) = Self::lookup(&args.name) {
-            return if pool.base_bdev().name() == parsed.get_name() {
+            let pool_name = pool.base_bdev().name().to_string();
+            return if pool_name.as_str() == parsed.get_name() {
                 Err(Error::Import {
                     source: Errno::EEXIST,
                     name: args.name.clone(),
+                    reason: ImportErrorReason::None,
                 })
             } else {
                 Err(Error::Import {
                     source: Errno::EINVAL,
                     name: args.name.clone(),
+                    reason: ImportErrorReason::NameClash {
+                        name: pool_name,
+                    },
                 })
             };
         }
@@ -354,13 +364,17 @@ impl Lvs {
         // if the uuid is provided for the import request check
         // for the pool uuid to make sure it is the correct one
         if let Some(uuid) = args.uuid {
-            if pool.uuid() == uuid {
+            let pool_uuid = pool.uuid();
+            if pool_uuid == uuid {
                 Ok(pool)
             } else {
                 pool.export().await?;
                 Err(Error::Import {
                     source: Errno::EINVAL,
                     name: args.name,
+                    reason: ImportErrorReason::UuidMismatch {
+                        uuid: pool_uuid,
+                    },
                 })
             }
         } else {
@@ -490,17 +504,6 @@ impl Lvs {
 
         match Self::import_from_args(args.clone()).await {
             Ok(pool) => Ok(pool),
-            Err(Error::Import {
-                source,
-                name,
-            }) if source == Errno::EINVAL => {
-                // there is a pool here, but it does not match the name
-                error!("pool name mismatch");
-                Err(Error::Import {
-                    source,
-                    name: format!("a pool currently exists on the device with name: {name}"),
-                })
-            }
             // try to create the pool
             Err(Error::Import {
                 source, ..

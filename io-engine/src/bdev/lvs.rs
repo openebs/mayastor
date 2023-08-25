@@ -236,7 +236,29 @@ impl Lvs {
                 Ok(_)
                 | Err(BdevError::BdevNotFound {
                     ..
-                }) => crate::lvs::Lvs::create_or_import(args).await,
+                }) => match crate::lvs::Lvs::create_or_import(args.clone())
+                    .await
+                {
+                    Ok(lvs) => Ok(lvs),
+                    Err(crate::lvs::Error::Import {
+                        reason:
+                            crate::lvs::ImportErrorReason::NameMismatch {
+                                name,
+                            },
+                        ..
+                    }) => {
+                        let mut eargs = args.clone();
+                        eargs.name = name;
+                        match crate::lvs::Lvs::create_or_import(eargs).await {
+                            Ok(lvs) => {
+                                lvs.destroy().await.ok();
+                                crate::lvs::Lvs::create_or_import(args).await
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                    Err(error) => Err(error),
+                },
                 Err(error) => return Err(error),
             },
         }

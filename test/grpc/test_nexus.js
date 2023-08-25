@@ -779,7 +779,7 @@ describe('nexus', function () {
       };
       client.createNexusV2(args, (err) => {
         if (!err) return done(new Error('Expected error'));
-        assert.equal(err.code, grpc.status.INTERNAL);
+        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
       });
     });
@@ -799,7 +799,7 @@ describe('nexus', function () {
       };
       client.createNexusV2(args, (err) => {
         if (!err) return done(new Error('Expected error'));
-        assert.equal(err.code, grpc.status.INTERNAL);
+        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
       });
     });
