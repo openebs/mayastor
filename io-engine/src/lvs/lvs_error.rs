@@ -10,23 +10,37 @@ use crate::{
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
+pub enum ImportErrorReason {
+    #[snafu(display(""))]
+    None,
+    #[snafu(display(": existing pool disk has different name: {name}"))]
+    NameMismatch { name: String },
+    #[snafu(display(": another pool already exists with this name: {name}"))]
+    NameClash { name: String },
+    #[snafu(display(": existing pool has different uuid: {uuid}"))]
+    UuidMismatch { uuid: String },
+}
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum Error {
-    #[snafu(display("failed to import pool {}", name))]
+    #[snafu(display("{source}, failed to import pool {name}{reason}"))]
     Import {
         source: Errno,
         name: String,
+        reason: ImportErrorReason,
     },
-    #[snafu(display("errno: {} failed to create pool {}", source, name))]
+    #[snafu(display("{source}, failed to create pool {name}"))]
     PoolCreate {
         source: Errno,
         name: String,
     },
-    #[snafu(display("failed to export pool {}", name))]
+    #[snafu(display("{source}, failed to export pool {name}"))]
     Export {
         source: Errno,
         name: String,
     },
-    #[snafu(display("failed to destroy pool {}", name))]
+    #[snafu(display("{source}, failed to destroy pool {name}"))]
     Destroy {
         source: BdevError,
         name: String,
@@ -55,7 +69,7 @@ pub enum Error {
         source: Errno,
         name: String,
     },
-    #[snafu(display("failed to destroy lvol {}{}", name, if msg.is_empty() { "" } else { msg.as_str() }))]
+    #[snafu(display("failed to destroy lvol {} {}", name, if msg.is_empty() { "" } else { msg.as_str() }))]
     RepDestroy {
         source: Errno,
         name: String,

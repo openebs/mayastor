@@ -11,7 +11,12 @@ use url::Url;
 
 use spdk_rs::{
     ffihelper::copy_str_with_null,
-    libspdk::{bdev_nvme_create, bdev_nvme_delete, spdk_nvme_transport_id},
+    libspdk::{
+        bdev_nvme_create,
+        bdev_nvme_delete,
+        nvme_path_id,
+        spdk_nvme_transport_id,
+    },
 };
 
 use crate::{
@@ -130,12 +135,21 @@ impl CreateDestroy for NVMe {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
             bdev.remove_alias(self.url.as_ref());
+
+            let mut path_id = nvme_path_id::default();
+            copy_str_with_null(&self.name, &mut path_id.trid.traddr);
+            path_id.trid.trtype = spdk_rs::libspdk::SPDK_NVME_TRANSPORT_PCIE;
+
             let errno = unsafe {
                 bdev_nvme_delete(
                     self.name.clone().into_cstring().as_ptr(),
-                    std::ptr::null(),
+                    &path_id,
                 )
             };
+            if errno != 0 {
+                UntypedBdev::lookup_by_name(&self.get_name())
+                    .map(|mut b| b.add_alias(self.url.as_ref()));
+            }
             errno_result_from_i32((), errno).context(
                 bdev_api::DestroyBdevFailed {
                     name: self.name.clone(),

@@ -40,6 +40,7 @@ pub(crate) mod uri {
         bdev::{
             aio,
             loopback,
+            lvs,
             malloc,
             null_bdev,
             nvme,
@@ -69,6 +70,7 @@ pub(crate) mod uri {
             "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
             "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
             "nexus" => Ok(Box::new(nx::Nexus::try_from(&url)?)),
+            "lvol" => Ok(Box::new(lvs::Lvol::try_from(&url)?)),
 
             scheme => Err(BdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),
