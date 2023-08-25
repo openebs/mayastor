@@ -294,6 +294,9 @@ impl From<Error> for tonic::Status {
             Error::NameExists {
                 ..
             } => Status::already_exists(e.to_string()),
+            Error::InvalidArguments {
+                ..
+            } => Status::invalid_argument(e.to_string()),
             e => Status::new(Code::Internal, e.verbose()),
         }
     }

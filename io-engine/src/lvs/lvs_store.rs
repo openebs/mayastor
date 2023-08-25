@@ -333,10 +333,16 @@ impl Lvs {
                 BdevError::BdevExists {
                     ..
                 } => Ok(parsed.get_name()),
-                _ => Err(Error::InvalidBdev {
-                    source: e,
-                    name: args.disks[0].clone(),
-                }),
+                BdevError::CreateBdevInvalidParams {
+                    source, ..
+                } if source == Errno::EEXIST => Ok(parsed.get_name()),
+                _ => {
+                    tracing::error!("Failed to create pool bdev: {e:?}");
+                    Err(Error::InvalidBdev {
+                        source: e,
+                        name: args.disks[0].clone(),
+                    })
+                }
             },
             Ok(name) => Ok(name),
         }?;
@@ -468,10 +474,16 @@ impl Lvs {
                 BdevError::BdevExists {
                     ..
                 } => Ok(parsed.get_name()),
-                _ => Err(Error::InvalidBdev {
-                    source: e,
-                    name: args.disks[0].clone(),
-                }),
+                BdevError::CreateBdevInvalidParams {
+                    source, ..
+                } if source == Errno::EEXIST => Ok(parsed.get_name()),
+                _ => {
+                    tracing::error!("Failed to create pool bdev: {e:?}");
+                    Err(Error::InvalidBdev {
+                        source: e,
+                        name: args.disks[0].clone(),
+                    })
+                }
             },
             Ok(name) => Ok(name),
         }?;
