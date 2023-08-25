@@ -248,7 +248,7 @@ impl TimeoutConfig {
     }
 
     pub fn from_ptr(ptr: *mut TimeoutConfig) -> &'static mut TimeoutConfig {
-        unsafe { &mut *(ptr as *mut TimeoutConfig) }
+        unsafe { &mut *ptr }
     }
 }
 

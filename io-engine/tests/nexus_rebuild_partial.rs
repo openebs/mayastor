@@ -368,8 +368,8 @@ async fn nexus_partial_rebuild_offline_online() {
 /// 3) Create injection that will fail at offset == FAULT_POS.
 /// 4a) Online r0 so it rebuilds in background.
 /// 4b) Write new data to the nexus: data start < FAULT_POS < data end.
-/// 5) I/O must fail _before_ rebuild finishes. This will prevent creartion of
-///    a rebuild log.
+/// 5) I/O must fail _before_ rebuild finishes. This will prevent creartion of a
+///    rebuild log.
 /// 6) Remove the injection.
 /// 7) Online r0: a full rebuild must now run.
 /// 8) Offline, write and online again to have a successfull partial rebuild.

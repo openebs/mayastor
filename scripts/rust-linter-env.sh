@@ -46,10 +46,10 @@ fi
 # rustfmt and clippy "2021-11-29".
 # When upgrading Rust toolchain version, check 'cargo --version',
 # 'cargo fmt --version', 'cargo clippy --version' and put them here.
-RUST_TOOLCHAIN_VER="2023-01-08"
-WANTED_CARGO_VER="cargo 1.68.0-nightly (* 2023-01-04)"
-WANTED_RUSTFMT_VER="rustfmt 1.5.1-nightly (* 2023-01-07)"
-WANTED_CLIPPY_VER="clippy 0.1.68 (* 2023-01-07)"
+RUST_TOOLCHAIN_VER="2023-08-25"
+WANTED_CARGO_VER="cargo 1.74.0-nightly (* 2023-08-22)"
+WANTED_RUSTFMT_VER="rustfmt 1.6.0-nightly (* 2023-08-24)"
+WANTED_CLIPPY_VER="clippy 0.1.73 (* 2023-08-24)"
 CARGO="cargo"
 CARGO_MODE="system"
 

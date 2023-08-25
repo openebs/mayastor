@@ -258,7 +258,7 @@ impl<'a> NvmeController<'a> {
     /// populate name spaces, current we only populate the first namespace
     fn populate_namespaces(&mut self) -> bool {
         let ctrlr = self.ctrlr_as_ptr();
-        let mut ctrlr_inner = self.inner.as_mut().unwrap();
+        let ctrlr_inner = self.inner.as_mut().unwrap();
         let ns = unsafe { spdk_nvme_ctrlr_get_ns(ctrlr, 1) };
         let ns_active = unsafe { spdk_nvme_ctrlr_is_active_ns(ctrlr, 1) };
         let mut notify_listeners = false;

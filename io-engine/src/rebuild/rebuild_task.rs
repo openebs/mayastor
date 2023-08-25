@@ -2,7 +2,7 @@ use futures::{channel::mpsc, stream::FusedStream, SinkExt, StreamExt};
 use parking_lot::Mutex;
 use snafu::ResultExt;
 use spdk_rs::{DmaBuf, LbaRange};
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::core::{Reactors, VerboseError};
 
@@ -198,7 +198,7 @@ impl RebuildTasks {
         &mut self,
         id: usize,
         blk: u64,
-        descriptor: Arc<RebuildDescriptor>,
+        descriptor: Rc<RebuildDescriptor>,
     ) {
         let task = self.tasks[id].clone();
 

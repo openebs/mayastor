@@ -6,3 +6,6 @@ $CARGO clippy --all --all-targets -- -D warnings \
     -A clippy::await-holding-refcell-ref \
     -A clippy::result-large-err \
     -A clippy::type-complexity \
+    -A clippy::option_env_unwrap \
+    -A clippy::redundant-guards \
+    -A clippy::suspicious-doc-comments

@@ -329,7 +329,7 @@ fn filter_snapshots_by_snapshot_query_type(
         .filter(|snapshot| {
             let query = &query;
 
-            let query_fields = vec![
+            let query_fields = [
                 (query.invalid, snapshot.valid_snapshot),
                 (query.discarded, snapshot.discarded_snapshot),
                 // ... add other fields here as needed

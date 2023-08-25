@@ -221,7 +221,11 @@ async fn replica_wipe(
 
     fn bandwidth(response: &v1_rpc::test::WipeReplicaResponse) -> String {
         let unknown = "??".to_string();
-        let Some(Ok(elapsed)) = response.since.clone().map(TryInto::<std::time::Duration>::try_into) else {
+        let Some(Ok(elapsed)) = response
+            .since
+            .clone()
+            .map(TryInto::<std::time::Duration>::try_into)
+        else {
             return unknown;
         };
         let elapsed_f = elapsed.as_secs_f64();

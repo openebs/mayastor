@@ -271,7 +271,9 @@ impl Lvs {
     async fn destroy(&self) -> Result<(), BdevError> {
         debug!("{self:?}: deleting");
         let Some(lvs) = crate::lvs::Lvs::lookup(&self.name) else {
-            return Err(BdevError::BdevNotFound { name: self.name.to_owned() });
+            return Err(BdevError::BdevNotFound {
+                name: self.name.to_owned(),
+            });
         };
         lvs.destroy()
             .await
@@ -283,7 +285,9 @@ impl Lvs {
 
     async fn destroy_lvol(&self, name: &str) -> Result<(), BdevError> {
         let Some(lvs) = crate::lvs::Lvs::lookup(&self.name) else {
-            return Err(BdevError::BdevNotFound { name: self.name.to_owned() });
+            return Err(BdevError::BdevNotFound {
+                name: self.name.to_owned(),
+            });
         };
         let Some(lvols) = lvs.lvols() else {
             return Ok(());

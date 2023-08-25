@@ -1254,7 +1254,6 @@ async fn test_snapshot_attr() {
 #[tokio::test]
 async fn test_delete_snapshot_with_valid_clone() {
     let ms = get_ms();
-    const LVOL_NAME: &str = "lvol13";
 
     ms.spawn(async move {
         // Create a pool and lvol.
@@ -1378,7 +1377,6 @@ async fn test_delete_snapshot_with_valid_clone() {
 #[tokio::test]
 async fn test_delete_snapshot_with_valid_clone_fail_1() {
     let ms = get_ms();
-    const LVOL_NAME: &str = "lvol14";
 
     ms.spawn(async move {
         // Create a pool and lvol.

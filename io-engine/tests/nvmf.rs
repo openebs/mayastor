@@ -99,7 +99,7 @@ async fn nvmf_set_target_interface() {
     async fn start_ms(network: &str, args: Vec<&str>) -> ComposeTest {
         common::composer_init();
 
-        let test = Builder::new()
+        Builder::new()
             .name("cargo-test")
             .network(network)
             .unwrap()
@@ -110,9 +110,7 @@ async fn nvmf_set_target_interface() {
             .with_clean(true)
             .build()
             .await
-            .unwrap();
-
-        test
+            .unwrap()
     }
 
     async fn test_ok(network: &str, args: Vec<&str>, tgt_ip: Option<&str>) {

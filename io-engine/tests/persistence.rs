@@ -352,7 +352,7 @@ async fn start_infrastructure(test_name: &str) -> ComposeTest {
     common::composer_init();
 
     let etcd_endpoint = format!("http://etcd.{test_name}:2379");
-    let test = Builder::new()
+    Builder::new()
         .name(test_name)
         .add_container_spec(
             ContainerSpec::from_binary(
@@ -387,8 +387,7 @@ async fn start_infrastructure(test_name: &str) -> ComposeTest {
         )
         .build()
         .await
-        .unwrap();
-    test
+        .unwrap()
 }
 
 /// Creates and publishes a nexus.
