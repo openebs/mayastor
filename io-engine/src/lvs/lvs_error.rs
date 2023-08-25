@@ -11,22 +11,22 @@ use crate::{
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum Error {
-    #[snafu(display("failed to import pool {}", name))]
+    #[snafu(display("{source}, failed to import pool {name}"))]
     Import {
         source: Errno,
         name: String,
     },
-    #[snafu(display("errno: {} failed to create pool {}", source, name))]
+    #[snafu(display("{source}, failed to create pool {name}"))]
     PoolCreate {
         source: Errno,
         name: String,
     },
-    #[snafu(display("failed to export pool {}", name))]
+    #[snafu(display("{source}, failed to export pool {name}"))]
     Export {
         source: Errno,
         name: String,
     },
-    #[snafu(display("failed to destroy pool {}", name))]
+    #[snafu(display("{source}, failed to destroy pool {name}"))]
     Destroy {
         source: BdevError,
         name: String,

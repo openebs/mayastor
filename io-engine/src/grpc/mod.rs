@@ -6,6 +6,7 @@ use std::{
 };
 
 use futures::channel::oneshot::Receiver;
+use nix::errno::Errno;
 pub use server::MayastorGrpcServer;
 use tonic::{Request, Response, Status};
 
@@ -26,6 +27,20 @@ impl From<BdevError> for tonic::Status {
             BdevError::InvalidUri {
                 ..
             } => Status::invalid_argument(e.to_string()),
+            BdevError::IntParamParseFailed {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            BdevError::BoolParamParseFailed {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            BdevError::CreateBdevInvalidParams {
+                source, ..
+            } => match source {
+                Errno::EINVAL => Status::invalid_argument(e.to_string()),
+                Errno::ENOENT => Status::not_found(e.to_string()),
+                Errno::EEXIST => Status::already_exists(e.to_string()),
+                _ => Status::invalid_argument(e.to_string()),
+            },
             e => Status::internal(e.to_string()),
         }
     }
