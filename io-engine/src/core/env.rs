@@ -165,11 +165,7 @@ pub struct MayastorCliArgs {
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
     /// NVMF target Command Retry Delay.
-    #[structopt(
-        long = "tgt-crdt",
-        env = "NVMF_TGT_CRDT",
-        default_value = "30"
-    )]
+    #[structopt(long = "tgt-crdt", env = "NVMF_TGT_CRDT", default_value = "0")]
     pub nvmf_tgt_crdt: u16,
     /// The gRPC api version.
     #[structopt(
@@ -241,7 +237,7 @@ impl Default for MayastorCliArgs {
             nvme_ctl_io_ctx_pool_size: 65535,
             registration_endpoint: None,
             nvmf_tgt_interface: None,
-            nvmf_tgt_crdt: 30,
+            nvmf_tgt_crdt: 0,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             diagnose_stack: None,
             reactor_freeze_detection: false,
@@ -387,7 +383,7 @@ impl Default for MayastorEnvironment {
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             nvmf_tgt_interface: None,
-            nvmf_tgt_crdt: 30,
+            nvmf_tgt_crdt: 0,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             skip_sig_handler: false,
         }
