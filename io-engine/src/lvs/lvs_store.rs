@@ -290,7 +290,7 @@ impl Lvs {
                 lvs.name()
             );
             let pool_name = lvs.name().to_string();
-            lvs.export().await.unwrap();
+            lvs.export().await?;
             Err(Error::Import {
                 source: Errno::EINVAL,
                 name: pool_name,
@@ -553,7 +553,7 @@ impl Lvs {
 
         info!("{}: lvs exported successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
@@ -647,7 +647,7 @@ impl Lvs {
 
         info!("{}: lvs destroyed successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
