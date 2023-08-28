@@ -290,7 +290,7 @@ impl Lvs {
                 lvs.name()
             );
             let pool_name = lvs.name().to_string();
-            lvs.export().await.unwrap();
+            lvs.export().await?;
             Err(Error::Import {
                 source: Errno::EINVAL,
                 name: pool_name,
@@ -333,10 +333,16 @@ impl Lvs {
                 BdevError::BdevExists {
                     ..
                 } => Ok(parsed.get_name()),
-                _ => Err(Error::InvalidBdev {
-                    source: e,
-                    name: args.disks[0].clone(),
-                }),
+                BdevError::CreateBdevInvalidParams {
+                    source, ..
+                } if source == Errno::EEXIST => Ok(parsed.get_name()),
+                _ => {
+                    tracing::error!("Failed to create pool bdev: {e:?}");
+                    Err(Error::InvalidBdev {
+                        source: e,
+                        name: args.disks[0].clone(),
+                    })
+                }
             },
             Ok(name) => Ok(name),
         }?;
@@ -468,10 +474,16 @@ impl Lvs {
                 BdevError::BdevExists {
                     ..
                 } => Ok(parsed.get_name()),
-                _ => Err(Error::InvalidBdev {
-                    source: e,
-                    name: args.disks[0].clone(),
-                }),
+                BdevError::CreateBdevInvalidParams {
+                    source, ..
+                } if source == Errno::EEXIST => Ok(parsed.get_name()),
+                _ => {
+                    tracing::error!("Failed to create pool bdev: {e:?}");
+                    Err(Error::InvalidBdev {
+                        source: e,
+                        name: args.disks[0].clone(),
+                    })
+                }
             },
             Ok(name) => Ok(name),
         }?;
@@ -541,7 +553,7 @@ impl Lvs {
 
         info!("{}: lvs exported successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
@@ -635,7 +647,7 @@ impl Lvs {
 
         info!("{}: lvs destroyed successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,

@@ -218,8 +218,12 @@ impl From<LvsError> for tonic::Status {
     fn from(e: LvsError) -> Self {
         match e {
             LvsError::Import {
-                ..
-            } => Status::invalid_argument(e.to_string()),
+                source, ..
+            } => match source {
+                Errno::EINVAL => Status::invalid_argument(e.to_string()),
+                Errno::EEXIST => Status::already_exists(e.to_string()),
+                _ => Status::invalid_argument(e.to_string()),
+            },
             LvsError::RepCreate {
                 source, ..
             } => {
