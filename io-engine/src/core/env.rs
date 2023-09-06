@@ -192,6 +192,9 @@ pub struct MayastorCliArgs {
     /// termination.
     #[structopt(long, hidden = true)]
     pub skip_sig_handler: bool,
+    /// Events message-bus endpoint url.
+    #[structopt(long)]
+    pub events_url: Option<url::Url>,
 }
 
 /// Mayastor features.
@@ -243,6 +246,7 @@ impl Default for MayastorCliArgs {
             reactor_freeze_detection: false,
             reactor_freeze_timeout: None,
             skip_sig_handler: false,
+            events_url: None,
         }
     }
 }
