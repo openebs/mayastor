@@ -250,16 +250,14 @@ impl QPair {
         };
 
         let qpair = self.as_ptr();
-        let res = recv.await.map_err(|_| {
+        recv.await.map_err(|_| {
             // Receiver failure may be caused by qpair having been dropped,
             // so we cannot use `self` here.
             error!(?qpair, "I/O qpair connection canceled");
             CoreError::OpenBdev {
                 source: Errno::ECANCELED,
             }
-        })?;
-
-        res
+        })?
     }
 
     /// Starts a new async connection and returns a receiver for it.

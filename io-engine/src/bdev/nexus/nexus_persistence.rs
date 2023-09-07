@@ -86,7 +86,7 @@ impl<'n> Nexus<'n> {
         // the persistent store is slow to response, or has failed.
         self.set_nexus_io_mode(IoMode::Freeze).await;
 
-        let mut nexus_info = persistent_nexus_info.inner_mut();
+        let nexus_info = persistent_nexus_info.inner_mut();
 
         match &op {
             PersistOp::Create => {

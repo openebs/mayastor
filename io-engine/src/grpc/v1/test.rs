@@ -222,7 +222,9 @@ impl TryFrom<&Option<StreamWipeOptions>>
         value: &Option<StreamWipeOptions>,
     ) -> Result<Self, Self::Error> {
         let Some(wipe) = value else {
-            return Err(tonic::Status::invalid_argument("Missing StreamWipeOptions"));
+            return Err(tonic::Status::invalid_argument(
+                "Missing StreamWipeOptions",
+            ));
         };
         let Some(options) = &wipe.options else {
             return Err(tonic::Status::invalid_argument("Missing WipeOptions"));

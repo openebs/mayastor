@@ -128,8 +128,11 @@ impl CreateDestroy for Nexus {
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         debug!("{:?}: deleting", self);
-        let Some(nexus) = crate::bdev::nexus::nexus_lookup_mut(&self.name) else {
-            return Err(BdevError::BdevNotFound { name: self.name.to_owned() });
+        let Some(nexus) = crate::bdev::nexus::nexus_lookup_mut(&self.name)
+        else {
+            return Err(BdevError::BdevNotFound {
+                name: self.name.to_owned(),
+            });
         };
         nexus
             .destroy()

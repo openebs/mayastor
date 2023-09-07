@@ -92,8 +92,7 @@ pub async fn test_write_to_file(
 ) -> std::io::Result<()> {
     let src_buf = create_test_buf(buf_size);
 
-    let mut dst_buf: Vec<u8> = vec![];
-    dst_buf.resize(src_buf.len(), 0);
+    let mut dst_buf: Vec<u8> = vec![0; src_buf.len()];
 
     let mut f = OpenOptions::new()
         .write(true)

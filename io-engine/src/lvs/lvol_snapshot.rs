@@ -503,15 +503,13 @@ impl SnapshotOps for Lvol {
 
         let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
 
-        let create_snapshot = self
-            .do_create_snapshot(
-                snap_param,
-                snapshot_create_done_cb,
-                cb_arg(s),
-                r,
-            )
-            .await;
-        create_snapshot
+        self.do_create_snapshot(
+            snap_param,
+            snapshot_create_done_cb,
+            cb_arg(s),
+            r,
+        )
+        .await
     }
     /// Create a snapshot in Remote.
     async fn create_snapshot_remote(
@@ -676,10 +674,8 @@ impl SnapshotOps for Lvol {
 
         let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
 
-        let create_clone = self
-            .do_create_clone(clone_param, clone_done_cb, cb_arg(s), r)
-            .await;
-        create_clone
+        self.do_create_clone(clone_param, clone_done_cb, cb_arg(s), r)
+            .await
     }
 
     /// List clones based on snapshot_uuid.

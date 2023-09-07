@@ -25,7 +25,7 @@ use regex::Regex;
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
-#[test]
+#[common::spdk_test]
 fn nvmf_target() {
     common::mayastor_test_init();
     common::truncate_file(DISKNAME1, 64 * 1024);
@@ -99,7 +99,7 @@ async fn nvmf_set_target_interface() {
     async fn start_ms(network: &str, args: Vec<&str>) -> ComposeTest {
         common::composer_init();
 
-        let test = Builder::new()
+        Builder::new()
             .name("cargo-test")
             .network(network)
             .unwrap()
@@ -110,9 +110,7 @@ async fn nvmf_set_target_interface() {
             .with_clean(true)
             .build()
             .await
-            .unwrap();
-
-        test
+            .unwrap()
     }
 
     async fn test_ok(network: &str, args: Vec<&str>, tgt_ip: Option<&str>) {

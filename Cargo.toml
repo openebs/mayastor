@@ -2,6 +2,7 @@
 panic = "abort"
 
 [workspace]
+resolver="1"
 members = [
 	"jsonrpc",
 	"libnvme-rs",

@@ -68,6 +68,7 @@ libnvme-rs = { path = "../libnvme-rs" }
 mayastor-api = { path = "../rpc/mayastor-api" }
 version-info = { path = "../utils/io-engine-dependencies/version-info" }
 io-engine = { path = "../io-engine" }
+io-engine-tests-macros = { path = "./io-engine-tests-macros" }
 
 [dependencies.serde]
 features = ["derive"]

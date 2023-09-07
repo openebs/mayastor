@@ -137,7 +137,7 @@ fn filter_replicas_by_replica_type(
         .filter(|replica| {
             let query = &query;
 
-            let query_fields = vec![
+            let query_fields = [
                 (query.replica, (!replica.is_snapshot && !replica.is_clone)),
                 (query.snapshot, replica.is_snapshot),
                 (query.clone, replica.is_clone),

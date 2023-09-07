@@ -1040,7 +1040,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             NvmeIoCtx {
                 cb,
                 cb_arg,
-                iov: std::ptr::null_mut() as *mut iovec, // No I/O vec involved.
+                iov: std::ptr::null_mut(), // No I/O vec involved.
                 iovcnt: 0,
                 iovpos: 0,
                 iov_offset: 0,
@@ -1103,7 +1103,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             NvmeIoCtx {
                 cb,
                 cb_arg,
-                iov: std::ptr::null_mut() as *mut iovec, // No I/O vec involved.
+                iov: std::ptr::null_mut(), // No I/O vec involved.
                 iovcnt: 0,
                 iovpos: 0,
                 iov_offset: 0,
@@ -1202,7 +1202,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             NvmeIoCtx {
                 cb,
                 cb_arg,
-                iov: std::ptr::null_mut() as *mut iovec, // No I/O vec involved.
+                iov: std::ptr::null_mut(), // No I/O vec involved.
                 iovcnt: 0,
                 iovpos: 0,
                 iov_offset: 0,

@@ -2,9 +2,10 @@ use super::{RebuildError, RebuildOperation};
 use crate::rebuild::RebuildStats;
 
 /// Allowed states for a rebuild job.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Default, Debug, PartialEq, Copy, Clone)]
 pub enum RebuildState {
     /// Init when the job is newly created
+    #[default]
     Init,
     /// Running when the job is rebuilding
     Running,
@@ -62,12 +63,6 @@ pub(super) struct RebuildStates {
 impl std::fmt::Display for RebuildStates {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{self:?}")
-    }
-}
-
-impl Default for RebuildState {
-    fn default() -> Self {
-        RebuildState::Init
     }
 }
 

@@ -162,8 +162,8 @@ async fn nexus_thin_nospc_remote_single() {
 /// 2. Create a thick-provisioned replica occupying some space on pool #1.
 /// 3. Create two thin-provisioned replica on these pools.
 /// 4. Create a nexus on these two replicas.
-/// 5. Write amount data less than replica size and pool capacity,
-///    but more than pool #1 free space.
+/// 5. Write amount data less than replica size and pool capacity, but more than
+///    pool #1 free space.
 /// 6. First child must degrade with no space.
 /// 7. Delete the thick-provisioned replica, thus freeing space on pool #1.
 /// 8. Online child #1.

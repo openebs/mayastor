@@ -1,5 +1,6 @@
 use std::{
     fmt::Display,
+    rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -109,7 +110,7 @@ pub(super) struct RebuildJobBackend {
     /// Channel to share information between frontend and backend.
     pub(super) info_chan: RebuildFBendChan,
     /// All the rebuild related descriptors.
-    pub(super) descriptor: Arc<RebuildDescriptor>,
+    pub(super) descriptor: Rc<RebuildDescriptor>,
     /// Job serial number.
     serial: u64,
 }
@@ -232,7 +233,7 @@ impl RebuildJobBackend {
             states: Default::default(),
             complete_chan: Default::default(),
             info_chan: RebuildFBendChan::new(),
-            descriptor: Arc::new(RebuildDescriptor {
+            descriptor: Rc::new(RebuildDescriptor {
                 src_uri: src_uri.to_string(),
                 dst_uri: dst_uri.to_string(),
                 range,

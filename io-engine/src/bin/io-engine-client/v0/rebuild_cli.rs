@@ -424,7 +424,7 @@ async fn stats(
                     "tasks_total",
                     "tasks_active",
                 ],
-                vec![vec![
+                vec![[
                     response.blocks_total,
                     response.blocks_recovered,
                     response.progress,
