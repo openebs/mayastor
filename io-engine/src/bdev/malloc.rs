@@ -173,6 +173,7 @@ impl CreateDestroy for Malloc {
                 uuid: Default::default(),
                 num_blocks: self.num_blocks,
                 block_size: self.blk_size,
+                physical_block_size: 0,
                 optimal_io_boundary: 0,
                 md_size: 0,
                 md_interleave: false,

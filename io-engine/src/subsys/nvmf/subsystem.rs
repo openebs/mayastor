@@ -665,12 +665,18 @@ impl NvmfSubsystem {
     /// Allows a host to connect to the subsystem.
     pub fn allow_host(&self, host: &str) -> Result<(), Error> {
         let host = Self::cstr(host)?;
-        unsafe { spdk_nvmf_subsystem_add_host(self.0.as_ptr(), host.as_ptr()) }
-            .to_result(|errno| Error::Subsystem {
-                source: Errno::from_i32(errno),
-                nqn: self.get_nqn(),
-                msg: format!("failed to add allowed host: {host:?}"),
-            })
+        unsafe {
+            spdk_nvmf_subsystem_add_host(
+                self.0.as_ptr(),
+                host.as_ptr(),
+                std::ptr::null_mut(),
+            )
+        }
+        .to_result(|errno| Error::Subsystem {
+            source: Errno::from_i32(errno),
+            nqn: self.get_nqn(),
+            msg: format!("failed to add allowed host: {host:?}"),
+        })
     }
 
     /// Disallow hosts from connecting to the subsystem.

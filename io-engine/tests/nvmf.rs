@@ -65,7 +65,7 @@ fn nvmf_target() {
             Reactor::block_on(async {
                 let bdev = UntypedBdev::bdev_first().unwrap();
                 assert!(bdev.is_claimed());
-                assert_eq!(bdev.claimed_by().unwrap(), "NVMe-oF Target");
+                assert!(bdev.is_claimed_by("NVMe-oF Target"));
 
                 let ss = NvmfSubsystem::first().unwrap();
                 for s in ss {
@@ -77,13 +77,12 @@ fn nvmf_target() {
                     assert_eq!(sbdev.name(), bdev.name());
 
                     assert!(bdev.is_claimed());
-                    assert_eq!(bdev.claimed_by().unwrap(), "NVMe-oF Target");
+                    assert!(bdev.is_claimed_by("NVMe-oF Target"));
 
                     unsafe {
                         s.shutdown_unsafe();
                     }
                     assert!(!bdev.is_claimed());
-                    assert_eq!(bdev.claimed_by(), None);
                 }
             });
             // this should clean/up kill the discovery controller

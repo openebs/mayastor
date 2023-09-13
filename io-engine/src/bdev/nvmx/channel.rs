@@ -9,6 +9,7 @@ use spdk_rs::{
         spdk_io_channel,
         spdk_nvme_poll_group_process_completions,
         spdk_nvme_qpair,
+        spdk_nvme_qpair_set_abort_dnr,
         spdk_put_io_channel,
     },
     Poller,
@@ -305,8 +306,9 @@ extern "C" fn disconnected_qpair_cb(
 
     if let Some(qpair) = inner.qpair() {
         unsafe {
-            nvme_qpair_abort_all_queued_reqs(qpair.as_ptr(), 1);
-            nvme_transport_qpair_abort_reqs(qpair.as_ptr(), 1);
+            spdk_nvme_qpair_set_abort_dnr(qpair.as_ptr(), true);
+            nvme_qpair_abort_all_queued_reqs(qpair.as_ptr());
+            nvme_transport_qpair_abort_reqs(qpair.as_ptr());
         }
     }
 

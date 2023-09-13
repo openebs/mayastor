@@ -67,9 +67,6 @@ pub trait BlockDevice {
     /// Obtains I/O statistics for the device.
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError>;
 
-    /// Checks if block device has been claimed.
-    fn claimed_by(&self) -> Option<String>;
-
     /// Open device and obtain a descriptor.
     fn open(
         &self,

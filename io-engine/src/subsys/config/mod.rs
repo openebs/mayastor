@@ -25,6 +25,7 @@ use crate::{
     subsys::config::opts::{
         BdevOpts,
         GetOpts,
+        IoBufOpts,
         NexusOpts,
         NvmeBdevOpts,
         NvmfTgtConfig,
@@ -127,6 +128,8 @@ pub struct Config {
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
+    /// iobuf specific options
+    pub iobuf_opts: IoBufOpts,
 }
 
 impl Config {
@@ -188,6 +191,7 @@ impl Config {
             nvme_bdev_opts: self.nvme_bdev_opts.get(),
             bdev_opts: self.bdev_opts.get(),
             nexus_opts: self.nexus_opts.get(),
+            iobuf_opts: self.iobuf_opts.get(),
         }
     }
 
@@ -216,6 +220,7 @@ impl Config {
         info!("Applying Mayastor configuration settings");
         assert!(self.nvme_bdev_opts.set());
         assert!(self.bdev_opts.set());
+        assert!(self.iobuf_opts.set());
 
         debug!("{:#?}", self);
     }

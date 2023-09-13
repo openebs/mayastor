@@ -25,7 +25,7 @@ use spdk_rs::libspdk::{
     vbdev_lvs_create,
     vbdev_lvs_create_with_uuid,
     vbdev_lvs_destruct,
-    vbdev_lvs_examine,
+    vbdev_lvs_import,
     vbdev_lvs_unload,
     LVOL_CLEAR_WITH_NONE,
     LVOL_CLEAR_WITH_UNMAP,
@@ -266,14 +266,22 @@ impl Lvs {
             });
         }
 
-        unsafe {
+        let rc = unsafe {
             // EXISTS is SHOULD be returned when we import a lvs with different
             // names this however is not the case.
-            vbdev_lvs_examine(
+            vbdev_lvs_import(
                 bdev.unsafe_inner_mut_ptr(),
                 Some(Self::lvs_cb),
                 cb_arg(sender),
-            );
+            )
+        };
+
+        if rc != 0 {
+            return Err(Error::Import {
+                source: Errno::EINVAL,
+                name: name.to_string(),
+                reason: ImportErrorReason::None,
+            });
         }
 
         // when no pool name can be determined the or failed to compare to the

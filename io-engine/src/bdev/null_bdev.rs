@@ -141,6 +141,7 @@ impl CreateDestroy for Null {
             uuid: std::ptr::null(),
             num_blocks: self.num_blocks,
             block_size: self.blk_size,
+            physical_block_size: 0,
             md_size: 0,
             md_interleave: false,
             dif_type: spdk_rs::libspdk::SPDK_DIF_DISABLE,

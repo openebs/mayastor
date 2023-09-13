@@ -151,10 +151,6 @@ impl BlockDevice for SpdkBlockDevice {
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
         self.0.stats_async().await
     }
-    /// returns which module has returned driver
-    fn claimed_by(&self) -> Option<String> {
-        self.0.claimed_by()
-    }
     /// open the device returning descriptor to the device
     fn open(
         &self,
