@@ -607,7 +607,9 @@ impl<'n> Nexus<'n> {
         self.traverse_io_channels(
             sender,
             |chan, _sender| -> ChannelTraverseStatus {
-                chan.reconnect_all();
+                if chan.is_io_channel() {
+                    chan.reconnect_all();
+                }
                 ChannelTraverseStatus::Ok
             },
             |status, sender| {
