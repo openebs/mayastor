@@ -30,7 +30,12 @@ const META_SIZE: u64 = 128 * 1024 * 1024; // 128MiB
 const MAX_CHILDREN: u64 = 16;
 
 fn get_ms() -> &'static MayastorTest<'static> {
-    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
+    MAYASTOR.get_or_init(|| {
+        MayastorTest::new(MayastorCliArgs {
+            enable_io_all_thrd_nexus_channels: true,
+            ..Default::default()
+        })
+    })
 }
 
 fn test_ini(name: &'static str) {

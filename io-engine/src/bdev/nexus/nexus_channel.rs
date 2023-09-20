@@ -4,11 +4,13 @@ use std::{
     cell::UnsafeCell,
     fmt::{Debug, Display, Formatter},
     pin::Pin,
+    sync::atomic::Ordering,
 };
 
 use super::{FaultReason, IOLogChannel, Nexus, NexusBio};
 
 use crate::core::{BlockDeviceHandle, CoreError, Cores};
+use spdk_rs::Thread;
 
 /// I/O channel, per core.
 #[repr(C)]
@@ -22,6 +24,7 @@ pub struct NexusChannel<'n> {
     frozen_ios: Vec<NexusBio<'n>>,
     nexus: Pin<&'n mut Nexus<'n>>,
     core: u32,
+    is_io_chan: bool,
 }
 
 impl<'n> Debug for NexusChannel<'n> {
@@ -77,26 +80,45 @@ impl<'n> NexusChannel<'n> {
     pub(crate) fn new(nexus: Pin<&mut Nexus<'n>>) -> Self {
         debug!("{nexus:?}: new channel on core {c}", c = Cores::current());
 
+        let b_init_thrd_hdls =
+            super::ENABLE_IO_ALL_THRD_NX_CHAN.load(Ordering::SeqCst);
+        let is_io_chan =
+            Thread::current().unwrap() != Thread::primary() || b_init_thrd_hdls;
+
         let mut writers = Vec::new();
         let mut readers = Vec::new();
 
-        nexus
-            .children_iter()
-            .filter(|c| c.is_healthy())
-            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
-                (Ok(w), Ok(r)) => {
-                    writers.push(w);
-                    readers.push(r);
-                }
-                _ => {
-                    c.set_faulted_state(FaultReason::CantOpen);
-                    error!(
-                        "Failed to get I/O handle for {c}, \
-                        skipping block device",
-                        c = c.uri()
-                    )
-                }
-            });
+        if is_io_chan {
+            nexus.children_iter().filter(|c| c.is_healthy()).for_each(
+                |c| match (c.get_io_handle(), c.get_io_handle()) {
+                    (Ok(w), Ok(r)) => {
+                        writers.push(w);
+                        readers.push(r);
+                    }
+                    _ => {
+                        c.set_faulted_state(FaultReason::CantOpen);
+                        error!(
+                            "Failed to get I/O handle for {c}, \
+                            skipping block device",
+                            c = c.uri()
+                        )
+                    }
+                },
+            );
+        } else {
+            // If we are here, this means the nexus channel being created is not
+            // the one to be used for normal IOs. Such a channel is
+            // created in rebuild path today, and it's on the init
+            // thread. The channels that we use for normal nexus IO
+            // are not on init thread however, those are on spdk threads
+            // created for nvmf target during poll group init. Those are the
+            // spdk threads named mayastor_nvmf_tcp_pg_core_*. The
+            // channel on init thread is only used for rebuild IOs.
+            // And the rebuild IOs are dispatched by
+            // directly calling write API without going via writers abstraction.
+            // Refer GTM-1075 for the race condition details.
+            debug!("{nexus:?}: skip nexus channel setup({t:?}). is_io_channel: {is_io_chan}", t = Thread::current().unwrap());
+        }
 
         Self {
             writers,
@@ -108,6 +130,7 @@ impl<'n> NexusChannel<'n> {
             io_mode: IoMode::Normal,
             frozen_ios: Vec::new(),
             core: Cores::current(),
+            is_io_chan,
         }
     }
 
@@ -139,6 +162,11 @@ impl<'n> NexusChannel<'n> {
     /// Returns the total number of available readers in this channel.
     pub(crate) fn num_readers(&self) -> usize {
         self.readers.len()
+    }
+
+    // Returns a bool indicating whether this channel is setup for normal IOs.
+    pub(crate) fn is_io_channel(&self) -> bool {
+        self.is_io_chan
     }
 
     /// Calls the given callback for each active writer.

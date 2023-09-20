@@ -396,6 +396,7 @@ fn main() {
     let args = MayastorCliArgs {
         reactor_mask: "0x2".to_string(),
         skip_sig_handler: true,
+        enable_io_all_thrd_nexus_channels: true,
         no_pci: false,
         ..Default::default()
     };

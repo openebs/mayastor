@@ -84,7 +84,10 @@ async fn replica_snapshot() {
         .await
         .unwrap();
 
-    let mayastor = MayastorTest::new(MayastorCliArgs::default());
+    let mayastor = MayastorTest::new(MayastorCliArgs {
+        enable_io_all_thrd_nexus_channels: true,
+        ..Default::default()
+    });
     let ip0 = hdls[0].endpoint.ip();
 
     let t = mayastor

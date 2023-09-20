@@ -188,3 +188,7 @@ pub static ENABLE_PARTIAL_REBUILD: AtomicBool = AtomicBool::new(true);
 
 /// Enables/disables nexus reset logic.
 pub static ENABLE_NEXUS_RESET: AtomicBool = AtomicBool::new(false);
+
+/// Whether the nexus channel should have readers/writers configured.
+/// This must be set true ONLY from tests.
+pub static ENABLE_IO_ALL_THRD_NX_CHAN: AtomicBool = AtomicBool::new(false);
