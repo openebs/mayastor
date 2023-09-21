@@ -23,7 +23,7 @@ npm install --legacy-peer-deps
 sudo pkill io-engine || true
 
 for ts in cli replica nexus rebuild; do
-  ./node_modules/mocha/bin/mocha test_${ts}.js \
+  ./node_modules/mocha/bin/_mocha test_${ts}.js \
       --reporter ./multi_reporter.js \
       --reporter-options reporters="xunit spec",output=../../${ts}-xunit-report.xml
 done
