@@ -958,6 +958,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
+name = "dunce"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56ce8c6da7551ec6c462cbaf3bfbc75131ebbfa1c944aeaa9dab51ca1c5f0c3b"
+
+[[package]]
 name = "ed25519"
 version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1177,12 +1183,12 @@ dependencies = [
 
 [[package]]
 name = "fsio"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a50045aa8931ae01afbc5d72439e8f57f326becb8c70d07dfc816778eff3d167"
+checksum = "dad0ce30be0cc441b325c5d705c8b613a0ca0d92b6a8953d41bd236dc09a36d0"
 dependencies = [
+ "dunce",
  "rand",
- "users",
 ]
 
 [[package]]
@@ -2782,9 +2788,9 @@ dependencies = [
 
 [[package]]
 name = "run_script"
-version = "0.8.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fa4becc694242c537d43695743701f362b43c42cb11a3d44c8a01eb0cd18ded"
+checksum = "829f98fdc58d78989dd9af83be28bc15c94a7d77f9ecdb54abbbc0b1829ba9c7"
 dependencies = [
  "fsio",
 ]
@@ -3888,16 +3894,6 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
-]
-
-[[package]]
-name = "users"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24cc0f6d6f267b73e5a2cadf007ba8f9bc39c6a6f9666f8cf25ea809a153b032"
-dependencies = [
- "libc",
- "log",
 ]
 
 [[package]]
