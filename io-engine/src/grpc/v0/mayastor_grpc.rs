@@ -209,6 +209,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
                 name: args.name,
                 disks: args.disks,
                 uuid: None,
+                cluster_size: None,
             }),
         }
     }

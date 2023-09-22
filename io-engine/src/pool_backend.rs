@@ -8,6 +8,7 @@ pub struct PoolArgs {
     pub name: String,
     pub disks: Vec<String>,
     pub uuid: Option<String>,
+    pub cluster_size: Option<u32>,
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc

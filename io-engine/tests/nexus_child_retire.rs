@@ -558,6 +558,7 @@ async fn init_ms_etcd_test() -> ComposeTest {
                 name: POOL_NAME_0.to_string(),
                 disks: vec![BDEV_NAME_0.to_string()],
                 uuid: None,
+                cluster_size: None,
             })
             .await
             .unwrap();
@@ -572,6 +573,7 @@ async fn init_ms_etcd_test() -> ComposeTest {
                 name: POOL_NAME_1.to_string(),
                 disks: vec![DISK_NAME_1.to_string()],
                 uuid: None,
+                cluster_size: None,
             })
             .await
             .unwrap();

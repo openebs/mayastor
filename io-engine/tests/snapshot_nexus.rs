@@ -135,6 +135,7 @@ async fn launch_instance(create_replicas: bool) -> (ComposeTest, Vec<String>) {
             uuid: Some(pool_uuid()),
             pooltype: 0,
             disks: vec!["malloc:///disk0?size_mb=128".into()],
+            cluster_size: None,
         })
         .await
         .unwrap();

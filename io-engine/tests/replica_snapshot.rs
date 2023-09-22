@@ -96,6 +96,7 @@ async fn replica_snapshot() {
                 name: POOL1_NAME.to_string(),
                 disks: vec![format!("aio://{DISKNAME1}")],
                 uuid: None,
+                cluster_size: None,
             })
             .await
             .unwrap();

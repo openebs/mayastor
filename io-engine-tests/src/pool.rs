@@ -78,6 +78,7 @@ impl PoolBuilder {
                 uuid: Some(self.uuid()),
                 pooltype: 0,
                 disks: vec![self.bdev.as_ref().unwrap().clone()],
+                cluster_size: None,
             })
             .await
             .map(|r| r.into_inner())

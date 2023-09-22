@@ -214,6 +214,7 @@ impl Lvs {
             name: self.name.to_owned(),
             disks: vec![self.disk.to_owned()],
             uuid: None,
+            cluster_size: None,
         };
         match &self.mode {
             LvsMode::Create => {

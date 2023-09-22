@@ -96,6 +96,7 @@ async fn init_nvmf_share() -> String {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEV_NAME.to_string()],
                 uuid: None,
+                cluster_size: None,
             })
             .await
             .unwrap();

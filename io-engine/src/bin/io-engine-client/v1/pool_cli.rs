@@ -1,5 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
+    parse_size,
     ClientError,
     GrpcStatus,
 };
@@ -25,6 +26,13 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .required(false)
                 .takes_value(true)
                 .help("Storage pool uuid"),
+        )
+        .arg(
+            Arg::with_name("cluster-size")
+                .long("cluster-size")
+                .required(false)
+                .takes_value(true)
+                .help("SPDK cluster size"),
         )
         .arg(
             Arg::with_name("disk")
@@ -124,7 +132,10 @@ async fn create(
         })?
         .map(|dev| dev.to_owned())
         .collect();
-
+    let cluster_size =
+        parse_size(matches.value_of("cluster-size").unwrap_or_default())
+            .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
+            .context(GrpcStatus)?;
     let response = ctx
         .v1
         .pool
@@ -133,6 +144,7 @@ async fn create(
             uuid: uuid.map(ToString::to_string),
             disks: disks_list,
             pooltype: v1rpc::pool::PoolType::Lvs as i32,
+            cluster_size: Some(cluster_size.get_bytes() as u32),
         })
         .await
         .context(GrpcStatus)?;
