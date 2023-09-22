@@ -35,9 +35,11 @@ ansible-hosts
 /test/python/nexus_pb2_grpc.py
 /test/python/replica_pb2.py
 /test/python/replica_pb2_grpc.py
+/test/python/registration_pb2.py
+/test/python/registration_pb2_grpc.py
+/test/python/snapshot_pb2.py
+/test/python/snapshot_pb2_grpc.py
 /test/python/venv/*
 /package.json
 /rust-toolchain.toml
-/test/python/registration_pb2.py
-/test/python/registration_pb2_grpc.py
 *.xml
