@@ -1,6 +1,13 @@
 use ansi_term::{Colour, Style};
 use once_cell::sync::OnceCell;
-use std::{ffi::CStr, fmt::Write, os::raw::c_char, path::Path, str::FromStr};
+use std::{
+    ffi::CStr,
+    fmt::Write,
+    io::IsTerminal,
+    os::raw::c_char,
+    path::Path,
+    str::FromStr,
+};
 
 use crate::{
     constants::{EVENTING_TARGET, SERVICE_NAME},
@@ -271,7 +278,7 @@ pub struct LogFormat {
 impl Default for LogFormat {
     fn default() -> Self {
         Self {
-            ansi: atty::is(atty::Stream::Stdout),
+            ansi: std::io::stdout().is_terminal(),
             style: LogStyle::Default,
             show_date: true,
             show_host: false,
