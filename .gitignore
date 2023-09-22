@@ -40,3 +40,4 @@ ansible-hosts
 /rust-toolchain.toml
 /test/python/registration_pb2.py
 /test/python/registration_pb2_grpc.py
+*.xml
