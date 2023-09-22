@@ -56,7 +56,8 @@ use crate::{
     subsys::NvmfSubsystem,
 };
 
-use crate::bdev::PtplFileOps;
+use crate::{bdev::PtplFileOps, eventing::Event};
+use events_api::event::EventAction;
 use spdk_rs::{
     BdevIo,
     BdevOps,
@@ -820,6 +821,7 @@ impl<'n> Nexus<'n> {
             match self.as_mut().bdev_mut().unregister_bdev_async().await {
                 Ok(_) => {
                     info!("Nexus '{name}': nexus destroyed ok");
+                    self.event(EventAction::Delete).generate();
                     Ok(())
                 }
                 Err(err) => {

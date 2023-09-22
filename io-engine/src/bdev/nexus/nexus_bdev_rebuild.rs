@@ -15,6 +15,7 @@ use super::{
 
 use crate::{
     core::{Reactors, VerboseError},
+    eventing::{EventMetaGen, EventWithMeta},
     rebuild::{
         HistoryRecord,
         RebuildError,
@@ -25,6 +26,7 @@ use crate::{
         RebuildVerifyMode,
     },
 };
+use events_api::event::EventAction;
 
 /// Rebuild pause guard ensures rebuild jobs are resumed before it is dropped.
 pub(crate) struct RebuildPauseGuard<'a> {
@@ -119,6 +121,12 @@ impl<'n> Nexus<'n> {
         // Create a rebuild job for the child.
         self.create_rebuild_job(&src_child_uri, &dst_child_uri)
             .await?;
+
+        self.event(
+            EventAction::RebuildBegin,
+            self.rebuild_job(&dst_child_uri)?.meta(),
+        )
+        .generate();
 
         // We're now rebuilding the `dst_child` which means it HAS to become an
         // active participant in the frontend nexus bdev for Writes.
@@ -417,6 +425,7 @@ impl<'n> Nexus<'n> {
 
         match job_state {
             RebuildState::Completed => {
+                self.event(EventAction::RebuildEnd, job.meta()).generate();
                 c.set_sync_state(ChildSyncState::Synced);
 
                 if c.is_healthy() {
@@ -447,6 +456,7 @@ impl<'n> Nexus<'n> {
             }
             RebuildState::Stopped => {
                 info!("{c:?}: rebuild job stopped");
+                self.event(EventAction::RebuildEnd, job.meta()).generate();
             }
             RebuildState::Failed => {
                 // rebuild has failed so we need to set the child as faulted
@@ -463,6 +473,7 @@ impl<'n> Nexus<'n> {
                     "{c:?}: rebuild job failed with error: {e}",
                     e = job.error_desc()
                 );
+                self.event(EventAction::RebuildEnd, job.meta()).generate();
                 c.close_faulted(FaultReason::RebuildFailed).await;
             }
             _ => {
@@ -470,6 +481,7 @@ impl<'n> Nexus<'n> {
                     "{c:?}: rebuild job failed with state {s:?}",
                     s = job_state
                 );
+                self.event(EventAction::RebuildEnd, job.meta()).generate();
                 c.close_faulted(FaultReason::RebuildFailed).await;
             }
         }

@@ -34,7 +34,10 @@ struct UnixStream(tokio::net::UnixStream);
 
 use crate::bdev::{dev::device_name, nexus::NexusPtpl, PtplFileOps};
 use ::function_name::named;
+use events_api::event::EventAction;
 use std::panic::AssertUnwindSafe;
+
+use crate::eventing::Event;
 
 /// RPC service for mayastor nexus operations
 #[derive(Debug)]
@@ -442,6 +445,7 @@ impl NexusRpc for NexusService {
                 )
                 .await?;
                 let nexus = nexus_lookup(&args.uuid)?;
+                nexus.event(EventAction::Create).generate();
                 info!("Created nexus {}/{}", &args.name, &args.uuid);
                 Ok(nexus.into_grpc().await)
             })?;
