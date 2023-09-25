@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use byte_unit::Byte;
 use chrono::Utc;
+use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
@@ -52,6 +53,7 @@ use crate::{
         UntypedBdev,
         UpdateProps,
     },
+    eventing::Event,
     ffihelper::{
         cb_arg,
         done_cb,
@@ -1007,7 +1009,8 @@ impl LvsLvol for Lvol {
     async fn destroy_replica(mut self) -> Result<String, Error> {
         let snapshot_lvol = self.is_snapshot_clone();
         let name = self.name();
-        self.destroy().await?;
+        self.clone().destroy().await?;
+        self.event(EventAction::Delete).generate();
 
         // If destroy replica is a snapshot clone and it is the last
         // clone from the snapshot, destroy the snapshot
