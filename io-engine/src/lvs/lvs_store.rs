@@ -877,6 +877,7 @@ impl Lvs {
         }
 
         info!("{:?}: created", lvol);
+        lvol.event(EventAction::Create).generate();
         Ok(lvol)
     }
 

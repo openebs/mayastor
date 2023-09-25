@@ -824,6 +824,7 @@ impl LvsLvol for Lvol {
     }
     /// Destroy the lvol.
     async fn destroy(mut self) -> Result<String, Error> {
+        let event = self.event(EventAction::Delete);
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
                 unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
@@ -860,6 +861,7 @@ impl LvsLvol for Lvol {
         }
 
         info!("destroyed lvol {}", name);
+        event.generate();
         Ok(name)
     }
 
@@ -1009,8 +1011,7 @@ impl LvsLvol for Lvol {
     async fn destroy_replica(mut self) -> Result<String, Error> {
         let snapshot_lvol = self.is_snapshot_clone();
         let name = self.name();
-        self.clone().destroy().await?;
-        self.event(EventAction::Delete).generate();
+        self.destroy().await?;
 
         // If destroy replica is a snapshot clone and it is the last
         // clone from the snapshot, destroy the snapshot

@@ -11,12 +11,10 @@ use crate::{
         UntypedBdev,
         UpdateProps,
     },
-    eventing::Event,
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol},
 };
 use ::function_name::named;
-use events_api::event::EventAction;
 use futures::FutureExt;
 use mayastor_api::v1::replica::*;
 use nix::errno::Errno;
@@ -209,7 +207,6 @@ impl ReplicaRpc for ReplicaService {
                         match Pin::new(&mut lvol).share_nvmf(Some(props)).await {
                             Ok(s) => {
                                 debug!("created and shared {:?} as {}", lvol, s);
-                                lvol.event(EventAction::Create).generate();
                                 Ok(Replica::from(lvol))
                             }
                             Err(e) => {
@@ -225,7 +222,6 @@ impl ReplicaRpc for ReplicaService {
                     }
                     Ok(lvol) => {
                         debug!("created lvol {:?}", lvol);
-                        lvol.event(EventAction::Create).generate();
                         Ok(Replica::from(lvol))
                     }
                     Err(e) => Err(e),

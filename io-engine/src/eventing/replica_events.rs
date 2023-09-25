@@ -9,20 +9,25 @@ use events_api::event::{
 use crate::{
     core::{logical_volume::LogicalVolume, MayastorEnvironment},
     eventing::Event,
-    lvs::Lvol,
+    lvs::lvs_lvol::{Lvol, LvsLvol},
 };
 
-// Pool event messages from Lvs data.
+// Replica event messages from Lvol data.
 impl Event for Lvol {
     fn event(&self, event_action: EventAction) -> EventMessage {
         let event_source = EventSource::new(
             MayastorEnvironment::global_or_default().node_name,
         )
-        .add_replica_data(&self.pool_name());
+        .with_replica_data(
+            self.lvs().name(),
+            &self.lvs().uuid(),
+            &self.name(),
+        );
+
         EventMessage {
             category: EventCategory::Replica as i32,
             action: event_action as i32,
-            target: self.name(),
+            target: self.uuid(),
             metadata: Some(EventMeta::from_source(event_source)),
         }
     }
