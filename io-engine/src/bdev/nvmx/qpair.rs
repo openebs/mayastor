@@ -19,6 +19,7 @@ use spdk_rs::libspdk::{
     spdk_nvme_ctrlr_get_default_io_qpair_opts,
     spdk_nvme_io_qpair_opts,
     spdk_nvme_qpair,
+    spdk_nvme_qpair_set_abort_dnr,
 };
 
 #[cfg(feature = "spdk-async-qpair-connect")]
@@ -85,8 +86,9 @@ impl Drop for QPair {
     fn drop(&mut self) {
         unsafe {
             let qpair = self.as_ptr();
-            nvme_qpair_abort_all_queued_reqs(qpair, 1);
-            nvme_transport_qpair_abort_reqs(qpair, 1);
+            spdk_nvme_qpair_set_abort_dnr(qpair, true);
+            nvme_qpair_abort_all_queued_reqs(qpair);
+            nvme_transport_qpair_abort_reqs(qpair);
             spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
             spdk_nvme_ctrlr_free_io_qpair(qpair);
         }

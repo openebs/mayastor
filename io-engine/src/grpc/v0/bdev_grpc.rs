@@ -29,7 +29,9 @@ impl From<UntypedBdev> for RpcBdev {
             num_blocks: b.num_blocks(),
             blk_size: b.block_len(),
             claimed: b.is_claimed(),
-            claimed_by: b.claimed_by().unwrap_or_else(|| "Orphaned".into()),
+            claimed_by: b
+                .first_claim_module_name()
+                .unwrap_or_else(|| "Orphaned".into()),
             aliases: b.aliases().join(","),
             product_name: b.product_name().to_string(),
             share_uri: b.share_uri().unwrap_or_else(|| "".into()),

@@ -10,8 +10,7 @@ with pkgs;
 let
   nospdk_moth =
     "You have requested environment without SPDK, you should provide it!";
-  norust_moth =
-    "You have requested environment without RUST, you should provide it!";
+  norustc_msg = "no rustc, use rustup tool to install it";
   channel = import ./nix/lib/rust.nix { inherit sources; };
   # python environment for test/python
   pytest_inputs = python3.withPackages
@@ -62,11 +61,15 @@ mkShell {
   ETCDCTL_API = "3";
 
   shellHook = ''
+    ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK version    :' $(echo $SPDK_PATH | sed 's/.*libspdk-//g')"}
+    ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK path       :' $SPDK_PATH"}
+    ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK FIO plugin :' $FIO_SPDK"}
+    echo 'Rust version    :' $(rustc --version 2> /dev/null || echo '${norustc_msg}')
+    echo 'Rust path       :' $(which rustc 2> /dev/null || echo '${norustc_msg}')
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
     ${pkgs.lib.optionalString (nospdk) "echo"}
 
-    echo 'Hint: use rustup tool.'
     echo
 
     # SRCDIR is needed by docker-compose files as it requires absolute paths

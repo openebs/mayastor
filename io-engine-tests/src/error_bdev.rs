@@ -23,9 +23,11 @@ pub fn create_error_bdev(error_device: &str, backing_device: &str) {
     let err_bdev_name_str = std::ffi::CString::new(error_device.to_string())
         .expect("Failed to create name string");
     unsafe {
-        retval = vbdev_error_create(err_bdev_name_str.as_ptr()); // create the
-                                                                 // error bdev
-                                                                 // around it
+        // create the error bdev around it
+        retval = vbdev_error_create(
+            err_bdev_name_str.as_ptr(),
+            std::ptr::null_mut(),
+        );
     }
     assert_eq!(retval, 0);
 }

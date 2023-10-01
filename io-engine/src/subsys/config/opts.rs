@@ -14,6 +14,9 @@ use spdk_rs::{
         spdk_bdev_nvme_opts,
         spdk_bdev_opts,
         spdk_bdev_set_opts,
+        spdk_iobuf_get_opts,
+        spdk_iobuf_opts,
+        spdk_iobuf_set_opts,
         spdk_nvmf_target_opts,
         spdk_nvmf_transport_opts,
         spdk_sock_impl_get_opts,
@@ -376,18 +379,14 @@ pub struct BdevOpts {
     bdev_io_pool_size: u32,
     /// number of bdev IO structures cached per thread
     bdev_io_cache_size: u32,
-    /// small buffer pool size
-    small_buf_pool_size: u32,
-    /// large buffer pool size
-    large_buf_pool_size: u32,
 }
 
 impl GetOpts for BdevOpts {
     fn get(&self) -> Self {
-        let opts = spdk_bdev_opts::default();
+        let mut opts = spdk_bdev_opts::default();
         unsafe {
             spdk_bdev_get_opts(
-                &opts as *const _ as *mut spdk_bdev_opts,
+                &mut opts,
                 std::mem::size_of::<spdk_bdev_opts>() as u64,
             )
         };
@@ -408,8 +407,6 @@ impl Default for BdevOpts {
         Self {
             bdev_io_pool_size: try_from_env("BDEV_IO_POOL_SIZE", 65535),
             bdev_io_cache_size: try_from_env("BDEV_IO_CACHE_SIZE", 512),
-            small_buf_pool_size: try_from_env("BDEV_SMALL_BUF_POOL_SIZE", 8191),
-            large_buf_pool_size: try_from_env("BDEV_LARGE_BUF_POOL_SIZE", 1023),
         }
     }
 }
@@ -419,8 +416,6 @@ impl From<spdk_bdev_opts> for BdevOpts {
         Self {
             bdev_io_pool_size: o.bdev_io_pool_size,
             bdev_io_cache_size: o.bdev_io_cache_size,
-            small_buf_pool_size: o.small_buf_pool_size,
-            large_buf_pool_size: o.large_buf_pool_size,
         }
     }
 }
@@ -433,8 +428,7 @@ impl From<&BdevOpts> for spdk_bdev_opts {
             bdev_auto_examine: false,
             reserved9: Default::default(),
             opts_size: std::mem::size_of::<spdk_bdev_opts>() as u64,
-            small_buf_pool_size: o.small_buf_pool_size,
-            large_buf_pool_size: o.large_buf_pool_size,
+            reserved: Default::default(),
         }
     }
 }
@@ -519,7 +513,11 @@ impl GetOpts for PosixSocketOpts {
             tls_version: 0,
             enable_ktls: false,
             psk_key: std::ptr::null_mut(),
+            psk_key_size: 0,
             psk_identity: std::ptr::null_mut(),
+            get_key: None,
+            get_key_ctx: std::ptr::null_mut(),
+            tls_cipher_suites: std::ptr::null_mut(),
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;
@@ -531,6 +529,65 @@ impl GetOpts for PosixSocketOpts {
                 size,
             );
             rc == 0
+        }
+    }
+}
+
+/// I/O buffer pool options.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct IoBufOpts {
+    /// Maximum number of small buffers.
+    pub small_pool_count: u64,
+    /// Maximum number of large buffers.
+    pub large_pool_count: u64,
+    /// Size of a single small buffer.
+    pub small_bufsize: u32,
+    /// Size of a single large buffer.
+    pub large_bufsize: u32,
+}
+
+impl GetOpts for IoBufOpts {
+    fn get(&self) -> Self {
+        let mut opts = spdk_iobuf_opts::default();
+        unsafe { spdk_iobuf_get_opts(&mut opts) };
+        opts.into()
+    }
+
+    fn set(&self) -> bool {
+        unsafe { spdk_iobuf_set_opts(&self.into()) == 0 }
+    }
+}
+
+impl Default for IoBufOpts {
+    fn default() -> Self {
+        Self {
+            small_pool_count: try_from_env("IOBUF_SMALL_POOL_COUNT", 8192),
+            large_pool_count: try_from_env("IOBUF_LARGE_POOL_COUNT", 1024),
+            small_bufsize: try_from_env("IOBUF_SMALL_BUFSIZE", 8 * 1024),
+            large_bufsize: try_from_env("IOBUF_LARGE_BUFSIZE", 132 * 1024),
+        }
+    }
+}
+
+impl From<spdk_iobuf_opts> for IoBufOpts {
+    fn from(o: spdk_iobuf_opts) -> Self {
+        Self {
+            small_pool_count: o.small_pool_count,
+            large_pool_count: o.large_pool_count,
+            small_bufsize: o.small_bufsize,
+            large_bufsize: o.large_bufsize,
+        }
+    }
+}
+
+impl From<&IoBufOpts> for spdk_iobuf_opts {
+    fn from(o: &IoBufOpts) -> Self {
+        Self {
+            small_pool_count: o.small_pool_count,
+            large_pool_count: o.large_pool_count,
+            small_bufsize: o.small_bufsize,
+            large_bufsize: o.large_bufsize,
         }
     }
 }

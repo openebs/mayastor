@@ -232,10 +232,6 @@ impl BlockDevice for NvmeBlockDevice {
         r.await.expect("Failed awaiting at io_stats")
     }
 
-    fn claimed_by(&self) -> Option<String> {
-        None
-    }
-
     fn open(
         &self,
         read_write: bool,

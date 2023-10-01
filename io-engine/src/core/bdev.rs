@@ -251,12 +251,13 @@ where
         Ok(())
     }
 
-    /// returns if the bdev is currently shared
-    /// TODO: we could do better here
+    /// Returns the share protocol if the bdev is currently shared.
     fn shared(&self) -> Option<Protocol> {
-        match self.claimed_by() {
-            Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
-            _ => Some(Protocol::Off),
+        // TODO: we could do better here
+        if self.is_claimed_by("NVMe-oF Target") {
+            Some(Protocol::Nvmf)
+        } else {
+            Some(Protocol::Off)
         }
     }
 
@@ -268,6 +269,7 @@ where
         }
     }
 
+    /// TODO
     fn allowed_hosts(&self) -> Vec<String> {
         match self.shared() {
             Some(Protocol::Nvmf) => {
