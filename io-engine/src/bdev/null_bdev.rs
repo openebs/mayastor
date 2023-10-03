@@ -66,7 +66,7 @@ impl TryFrom<&Url> for Null {
             });
         }
 
-        let size: u32 = if let Some(value) = parameters.remove("size_mb") {
+        let size: u64 = if let Some(value) = parameters.remove("size_mb") {
             value.parse().context(bdev_api::IntParamParseFailed {
                 uri: uri.to_string(),
                 parameter: String::from("size_mb"),
@@ -76,7 +76,7 @@ impl TryFrom<&Url> for Null {
             0
         };
 
-        let num_blocks: u32 =
+        let num_blocks: u64 =
             if let Some(value) = parameters.remove("num_blocks") {
                 value.parse().context(bdev_api::IntParamParseFailed {
                     uri: uri.to_string(),
@@ -109,8 +109,8 @@ impl TryFrom<&Url> for Null {
             num_blocks: if num_blocks != 0 {
                 num_blocks
             } else {
-                (size << 20) / blk_size
-            } as u64,
+                (size << 20) / (blk_size as u64)
+            },
             blk_size,
             uuid: uuid.or_else(|| Some(Uuid::new_v4())),
         })
@@ -135,7 +135,6 @@ impl CreateDestroy for Null {
         }
 
         let cname = self.name.clone().into_cstring();
-
         let opts = spdk_rs::libspdk::spdk_null_bdev_opts {
             name: cname.as_ptr(),
             uuid: std::ptr::null(),
