@@ -85,7 +85,6 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     }
 
     print_feature!("Async QPair connection", "spdk-async-qpair-connect");
-    print_feature!("SPDK subsystem events", "spdk-subsystem-events");
     print_feature!("Fault injection", "fault-injection");
 
     // Initialize Lock manager.

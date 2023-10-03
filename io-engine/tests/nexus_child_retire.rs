@@ -26,7 +26,7 @@ use common::{
     MayastorTest,
 };
 
-pub use spdk_rs::{GenericStatusCode, NvmeStatus};
+pub use spdk_rs::{libspdk::SPDK_NVME_SC_INTERNAL_DEVICE_ERROR, NvmeStatus};
 
 use io_engine::{
     bdev::{
@@ -471,7 +471,7 @@ async fn nexus_child_retire_persist_failure_with_bdev_io() {
             res,
             Err(CoreError::WriteFailed {
                 status: IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                    GenericStatusCode::InternalDeviceError
+                    SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
                 )),
                 ..
             })

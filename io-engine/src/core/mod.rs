@@ -1,6 +1,9 @@
 //!
 //! core contains the primary abstractions around the SPDK primitives.
-use std::{fmt::Debug, sync::atomic::AtomicUsize};
+use std::{
+    fmt::{Debug, Formatter},
+    sync::atomic::AtomicUsize,
+};
 
 use nix::errno::Errno;
 use snafu::Snafu;
@@ -62,7 +65,7 @@ pub use lock::{
 pub use runtime::spawn;
 pub(crate) use segment_map::SegmentMap;
 pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
-pub use spdk_rs::{cpu_cores, GenericStatusCode, IoStatus, IoType, NvmeStatus};
+pub use spdk_rs::{cpu_cores, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
@@ -466,13 +469,29 @@ pub enum IoSubmissionFailure {
 
 // Generic I/O completion status for block devices, which supports per-protocol
 // error domains.
-#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum IoCompletionStatus {
     Success,
     NvmeError(NvmeStatus),
     LvolError(LvolFailure),
     IoSubmissionError(IoSubmissionFailure),
     AdminCommandError,
+}
+
+impl Debug for IoCompletionStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IoCompletionStatus::Success => write!(f, "Success"),
+            IoCompletionStatus::NvmeError(s) => write!(f, "NvmeError/{s:?}"),
+            IoCompletionStatus::LvolError(s) => write!(f, "LvolError/{s:?}"),
+            IoCompletionStatus::IoSubmissionError(s) => {
+                write!(f, "IoSubmissionError/{s:?}")
+            }
+            IoCompletionStatus::AdminCommandError => {
+                write!(f, "AdminCommandError")
+            }
+        }
+    }
 }
 
 impl From<NvmeStatus> for IoCompletionStatus {

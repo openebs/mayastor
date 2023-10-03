@@ -118,10 +118,10 @@ impl Display for FaultType {
 
 impl FaultType {
     pub fn status_data_transfer_error() -> Self {
-        use spdk_rs::{GenericStatusCode, NvmeStatus};
+        use spdk_rs::{libspdk::SPDK_NVME_SC_DATA_TRANSFER_ERROR, NvmeStatus};
 
         Self::Status(IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-            GenericStatusCode::DataTransferError,
+            SPDK_NVME_SC_DATA_TRANSFER_ERROR,
         )))
     }
 }

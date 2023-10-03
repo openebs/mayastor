@@ -26,6 +26,7 @@ use spdk_rs::{
         spdk_nvme_ns_cmd_write_zeroes,
         spdk_nvme_ns_cmd_writev,
         SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
+        SPDK_NVME_SC_INTERNAL_DEVICE_ERROR,
     },
     nvme_admin_opc,
     nvme_nvm_opcode,
@@ -34,7 +35,6 @@ use spdk_rs::{
     DmaBuf,
     DmaError,
     IoVec,
-    MediaErrorStatusCode,
     NvmeStatus,
 };
 
@@ -56,7 +56,6 @@ use crate::{
         BlockDevice,
         BlockDeviceHandle,
         CoreError,
-        GenericStatusCode,
         IoCompletionCallback,
         IoCompletionCallbackArg,
         IoCompletionStatus,
@@ -557,7 +556,7 @@ fn reset_callback(success: bool, arg: *mut c_void) {
         IoCompletionStatus::Success
     } else {
         IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-            GenericStatusCode::InternalDeviceError,
+            SPDK_NVME_SC_INTERNAL_DEVICE_ERROR,
         ))
     };
 
@@ -632,7 +631,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         inner.account_io();
         let ret = match r.await.expect("Failed awaiting at read_at()") {
-            NvmeStatus::Generic(GenericStatusCode::Success) => {
+            NvmeStatus::SUCCESS => {
                 inner.get_io_stats_controller().account_block_io(
                     IoType::Read,
                     1,
@@ -640,12 +639,12 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 );
                 Ok(buffer.len())
             }
-            NvmeStatus::MediaError(
-                MediaErrorStatusCode::DeallocatedOrUnwrittenBlock,
-            ) => Err(CoreError::ReadingUnallocatedBlock {
-                offset,
-                len: buffer.len(),
-            }),
+            NvmeStatus::UNWRITTEN_BLOCK => {
+                Err(CoreError::ReadingUnallocatedBlock {
+                    offset,
+                    len: buffer.len(),
+                })
+            }
             status => Err(CoreError::ReadFailed {
                 status: IoCompletionStatus::NvmeError(status),
                 offset,
@@ -714,7 +713,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         inner.account_io();
         let ret = match r.await.expect("Failed awaiting at write_at()") {
-            NvmeStatus::Generic(GenericStatusCode::Success) => {
+            NvmeStatus::SUCCESS => {
                 inner.get_io_stats_controller().account_block_io(
                     IoType::Write,
                     1,

@@ -44,6 +44,27 @@ pub fn nexus_lookup_uuid_mut<'n>(
     NexusIterMut::new().find(|n| n.uuid().to_string() == uuid)
 }
 
+/// Tries to extract nexus name from an NQN.
+fn try_nqn_to_nexus_name(nqn: &str) -> Option<String> {
+    let vec: Vec<&str> = nqn.split(':').collect();
+    vec.get(1).map(ToString::to_string)
+}
+
+/// Looks up a Nexus by its subsystem NQN, and returns a reference to it.
+pub fn nexus_lookup_nqn<'n>(
+    nqn: &str,
+) -> Option<<NexusIter<'n> as Iterator>::Item> {
+    try_nqn_to_nexus_name(nqn).and_then(|n| nexus_lookup(&n))
+}
+
+/// Looks up a Nexus by its subsystem NQN, and returns a mutable reference to
+/// it.
+pub fn nexus_lookup_nqn_mut<'n>(
+    nqn: &str,
+) -> Option<<NexusIterMut<'n> as Iterator>::Item> {
+    try_nqn_to_nexus_name(nqn).and_then(|n| nexus_lookup_mut(&n))
+}
+
 /// TODO
 pub struct NexusIter<'n> {
     iter: BdevModuleIter<Nexus<'n>>,
