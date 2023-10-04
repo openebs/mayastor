@@ -6,11 +6,11 @@ addAssignees: false
 
 # A list of reviewers to be added to pull requests (GitHub user name)
 reviewers:
-  - blaisedias
   - chriswldenyer
-  - tiagolobocastro
-  - mtzaurus
   - dsavitskiy
+  - dsharma-dc
+  - hrudaya21
+  - tiagolobocastro
 
 # A list of keywords to be skipped the process that add reviewers if pull requests include it
 skipKeywords:
