@@ -42,6 +42,7 @@ async fn lvs_pool_test() {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
             uuid: None,
+            cluster_size: None,
         })
         .await
         .unwrap();
@@ -53,7 +54,7 @@ async fn lvs_pool_test() {
     // have an idempotent snafu, we dont crash and
     // burn
     ms.spawn(async {
-        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img", None)
+        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img", None, None)
             .await
             .is_err())
     })
@@ -109,7 +110,7 @@ async fn lvs_pool_test() {
         assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err());
 
         assert_eq!(Lvs::iter().count(), 0);
-        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img", None)
+        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img", None, None)
             .await
             .is_ok());
 
@@ -138,6 +139,7 @@ async fn lvs_pool_test() {
             name: "tpool2".to_string(),
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
             uuid: None,
+            cluster_size: None,
         })
         .await
         .unwrap();
@@ -172,6 +174,7 @@ async fn lvs_pool_test() {
             name: "tpool".to_string(),
             disks: vec!["aio:///tmp/disk1.img".to_string()],
             uuid: None,
+            cluster_size: None,
         })
         .await
         .unwrap();
@@ -304,6 +307,7 @@ async fn lvs_pool_test() {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
             uuid: None,
+            cluster_size: None,
         })
         .await
         .unwrap();
@@ -333,6 +337,7 @@ async fn lvs_pool_test() {
             name: "jpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
             uuid: None,
+            cluster_size: None,
         })
         .await
         .err()
@@ -348,6 +353,7 @@ async fn lvs_pool_test() {
             name: "tpool2".into(),
             disks: vec!["/tmp/disk2.img".into()],
             uuid: None,
+            cluster_size: None,
         })
         .await
         .unwrap();

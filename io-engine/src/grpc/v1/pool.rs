@@ -89,6 +89,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             name: args.name,
             disks: args.disks,
             uuid: args.uuid,
+            cluster_size: args.cluster_size,
         })
     }
 }
@@ -116,6 +117,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             name: args.name,
             disks: args.disks,
             uuid: args.uuid,
+            cluster_size: None,
         })
     }
 }
@@ -149,6 +151,7 @@ impl From<Lvs> for Pool {
             used: l.used(),
             committed: l.committed(),
             pooltype: PoolType::Lvs as i32,
+            cluster_size: l.blob_cluster_size() as u32,
         }
     }
 }

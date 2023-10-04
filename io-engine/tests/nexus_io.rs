@@ -1072,6 +1072,7 @@ async fn nexus_io_write_zeroes() {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEVNAME1.to_string()],
                 uuid: None,
+                cluster_size: None,
             })
             .await
             .unwrap();

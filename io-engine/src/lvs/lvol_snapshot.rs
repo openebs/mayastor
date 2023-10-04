@@ -500,7 +500,6 @@ impl SnapshotOps for Lvol {
             }
             s.send((errno, lvol_ptr)).ok();
         }
-
         let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
 
         self.do_create_snapshot(

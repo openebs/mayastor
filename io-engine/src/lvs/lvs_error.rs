@@ -59,6 +59,17 @@ pub enum Error {
         source: Errno,
         msg: String,
     },
+    #[snafu(display(
+        "errno {}: Invalid cluster-size {}, for pool {}",
+        source,
+        msg,
+        name
+    ))]
+    InvalidClusterSize {
+        source: Errno,
+        name: String,
+        msg: String,
+    },
     #[snafu(display("lvol exists {}", name))]
     RepExists {
         source: Errno,
@@ -193,6 +204,9 @@ impl ToErrno for Error {
                 ..
             } => Errno::ENXIO,
             Self::Invalid {
+                source, ..
+            } => source,
+            Self::InvalidClusterSize {
                 source, ..
             } => source,
             Self::RepExists {

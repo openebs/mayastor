@@ -57,11 +57,16 @@ fn get_ms() -> &'static MayastorTest<'static> {
 }
 
 /// Must be called only in Mayastor context !s
-async fn create_test_pool(pool_name: &str, disk: String) -> Lvs {
+async fn create_test_pool(
+    pool_name: &str,
+    disk: String,
+    cluster_size: Option<u32>,
+) -> Lvs {
     Lvs::create_or_import(PoolArgs {
         name: pool_name.to_string(),
         disks: vec![disk],
         uuid: None,
+        cluster_size,
     })
     .await
     .expect("Failed to create test pool");
@@ -155,7 +160,7 @@ async fn test_lvol_alloc_after_snapshot(index: u32, thin: bool) {
 
     ms.spawn(async move {
         // Create a pool and lvol.
-        let pool = create_test_pool(&pool_name, disk).await;
+        let pool = create_test_pool(&pool_name, disk, None).await;
         let cluster_size = pool.blob_cluster_size();
         let lvol = pool
             .create_lvol(
@@ -293,9 +298,12 @@ async fn test_lvol_bdev_snapshot() {
 
     ms.spawn(async move {
         // Create a pool and lvol.
-        let pool =
-            create_test_pool("pool1", "malloc:///disk0?size_mb=64".to_string())
-                .await;
+        let pool = create_test_pool(
+            "pool1",
+            "malloc:///disk0?size_mb=64".to_string(),
+            None,
+        )
+        .await;
         let lvol = pool
             .create_lvol(
                 "lvol1",
@@ -347,9 +355,12 @@ async fn test_lvol_handle_snapshot() {
 
     ms.spawn(async move {
         // Create a pool and lvol.
-        let pool =
-            create_test_pool("pool2", "malloc:///disk1?size_mb=64".to_string())
-                .await;
+        let pool = create_test_pool(
+            "pool2",
+            "malloc:///disk1?size_mb=64".to_string(),
+            None,
+        )
+        .await;
 
         pool.create_lvol(
             "lvol2",
@@ -401,9 +412,12 @@ async fn test_lvol_list_snapshot() {
 
     ms.spawn(async move {
         // Create a pool and lvol.
-        let pool =
-            create_test_pool("pool3", "malloc:///disk3?size_mb=64".to_string())
-                .await;
+        let pool = create_test_pool(
+            "pool3",
+            "malloc:///disk3?size_mb=64".to_string(),
+            None,
+        )
+        .await;
         let lvol = pool
             .create_lvol(
                 "lvol3",
@@ -489,6 +503,7 @@ async fn test_list_all_snapshots() {
         let pool = create_test_pool(
             "pool4",
             "malloc:///disk4?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool
@@ -610,9 +625,12 @@ async fn test_list_pool_snapshots() {
 
     ms.spawn(async move {
         // Create a pool and lvol.
-        let pool =
-            create_test_pool("pool6", "malloc:///disk6?size_mb=32".to_string())
-                .await;
+        let pool = create_test_pool(
+            "pool6",
+            "malloc:///disk6?size_mb=32".to_string(),
+            None,
+        )
+        .await;
 
         let lvol = pool
             .create_lvol(
@@ -699,6 +717,7 @@ async fn test_list_all_snapshots_with_replica_destroy() {
         let pool = create_test_pool(
             "pool7",
             "malloc:///disk7?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool
@@ -751,11 +770,12 @@ async fn test_snapshot_referenced_size() {
         let pool = create_test_pool(
             "pool8",
             "malloc:///disk8?size_mb=64".to_string(),
+            Some(1024 * 1024),
         )
         .await;
 
         let cluster_size = pool.blob_cluster_size();
-
+        assert_eq!(cluster_size, 1024 * 1024, "Create cluster size doesn't match with blob cluster size");
         let lvol = pool
             .create_lvol(
                 LVOL_NAME,
@@ -976,6 +996,7 @@ async fn test_snapshot_clone() {
         let pool = create_test_pool(
             "pool9",
             "malloc:///disk5?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool
@@ -1089,6 +1110,7 @@ async fn test_snapshot_volume_provisioning_mode() {
         let pool = create_test_pool(
             "pool10",
             "malloc:///disk10?size_mb=64".to_string(),
+            None,
         )
         .await;
 
@@ -1147,7 +1169,7 @@ async fn test_snapshot_attr() {
     ms.spawn(async move {
         // Create a pool and lvol.
         let mut pool =
-            create_test_pool("pool20", POOL_DEVICE_NAME.into()).await;
+            create_test_pool("pool20", POOL_DEVICE_NAME.into(), None).await;
         let lvol = pool
             .create_lvol(
                 "lvol20",
@@ -1265,6 +1287,7 @@ async fn test_delete_snapshot_with_valid_clone() {
         let pool = create_test_pool(
             "pool13",
             "malloc:///disk13?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool
@@ -1388,6 +1411,7 @@ async fn test_delete_snapshot_with_valid_clone_fail_1() {
         let pool = create_test_pool(
             "pool14",
             "malloc:///disk14?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool
@@ -1572,6 +1596,7 @@ async fn test_snapshot_parent_usage_post_snapshot_destroy() {
         let pool = create_test_pool(
             "pool16",
             "malloc:///disk16?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool
@@ -1656,6 +1681,7 @@ async fn test_clone_snapshot_usage_post_clone_destroy() {
         let pool = create_test_pool(
             "pool17",
             "malloc:///disk17?size_mb=128".to_string(),
+            None,
         )
         .await;
         let lvol = pool

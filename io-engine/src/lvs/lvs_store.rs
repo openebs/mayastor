@@ -56,6 +56,12 @@ use events_api::event::EventAction;
 
 use crate::eventing::Event;
 
+static ROUND_TO_MB: u32 = 1024 * 1024;
+/// Default spdk cluster size is 4MiB.
+static DEFAULT_CLUSTER_SIZE: u32 = 4 * 1024 * 1024;
+/// Maximum spdk cluster size can be considered as 1GiB.
+static MAX_CLUSTER_SIZE: u32 = 1024 * 1024 * 1024;
+
 impl Debug for Lvs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -399,10 +405,32 @@ impl Lvs {
         name: &str,
         bdev: &str,
         uuid: Option<String>,
+        cluster_size: Option<u32>,
     ) -> Result<Lvs, Error> {
         let pool_name = name.into_cstring();
         let bdev_name = bdev.into_cstring();
-
+        let cluster_size = if let Some(cluster_size) = cluster_size {
+            if cluster_size % ROUND_TO_MB == 0 {
+                cluster_size
+            } else {
+                return Err(Error::InvalidClusterSize {
+                    source: Errno::EINVAL,
+                    name: name.to_string(),
+                    msg: format!("{cluster_size}, not multiple of 1MiB"),
+                });
+            }
+        } else {
+            DEFAULT_CLUSTER_SIZE
+        };
+        if cluster_size > MAX_CLUSTER_SIZE {
+            return Err(Error::InvalidClusterSize {
+                source: Errno::EINVAL,
+                name: name.to_string(),
+                msg: format!(
+                    "{cluster_size}, larger than max limit {MAX_CLUSTER_SIZE}"
+                ),
+            });
+        }
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
             if let Some(uuid) = uuid {
@@ -411,7 +439,7 @@ impl Lvs {
                     bdev_name.as_ptr(),
                     pool_name.as_ptr(),
                     cuuid.as_ptr(),
-                    0,
+                    cluster_size,
                     // We used to clear a pool with UNMAP but that takes
                     // awfully long time on large SSDs (~
                     // can take an hour). Clearing the pool
@@ -427,7 +455,7 @@ impl Lvs {
                 vbdev_lvs_create(
                     bdev_name.as_ptr(),
                     pool_name.as_ptr(),
-                    0,
+                    cluster_size,
                     // We used to clear a pool with UNMAP but that takes
                     // awfully long time on large SSDs (~
                     // can take an hour). Clearing the pool
@@ -520,7 +548,14 @@ impl Lvs {
             Err(Error::Import {
                 source, ..
             }) if source == Errno::EILSEQ => {
-                match Self::create(&args.name, &bdev, args.uuid).await {
+                match Self::create(
+                    &args.name,
+                    &bdev,
+                    args.uuid,
+                    args.cluster_size,
+                )
+                .await
+                {
                     Err(create) => {
                         let _ = parsed.destroy().await.map_err(|_e| {
                             // we failed to delete the base_bdev be loud about it
@@ -783,7 +818,6 @@ impl Lvs {
         }
 
         let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
-
         let cname = name.into_cstring();
         unsafe {
             match uuid {
