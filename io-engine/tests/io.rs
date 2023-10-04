@@ -9,7 +9,10 @@ pub mod common;
 
 #[tokio::test]
 async fn io_test() {
-    let ms = common::MayastorTest::new(MayastorCliArgs::default());
+    let ms = common::MayastorTest::new(MayastorCliArgs {
+        enable_io_all_thrd_nexus_channels: true,
+        ..Default::default()
+    });
 
     let output = Command::new("truncate")
         .args(["-s", "64m", DISKNAME])

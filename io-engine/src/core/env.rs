@@ -192,6 +192,12 @@ pub struct MayastorCliArgs {
     /// termination.
     #[structopt(long, hidden = true)]
     pub skip_sig_handler: bool,
+    /// Whether the nexus channel should have readers/writers configured.
+    /// This must be set true ONLY from tests. This option can be removed once
+    /// dynamic reconfiguration of nexus channels can handle async-qpair
+    /// connect. Details in NexusChannel::new
+    #[structopt(long = "enable-io-all-thrd-nexus-channels", hidden = true)]
+    pub enable_io_all_thrd_nexus_channels: bool,
     /// Events message-bus endpoint url.
     #[structopt(long)]
     pub events_url: Option<url::Url>,
@@ -246,6 +252,7 @@ impl Default for MayastorCliArgs {
             reactor_freeze_detection: false,
             reactor_freeze_timeout: None,
             skip_sig_handler: false,
+            enable_io_all_thrd_nexus_channels: false,
             events_url: None,
         }
     }
@@ -344,6 +351,7 @@ pub struct MayastorEnvironment {
     pub nvmf_tgt_crdt: u16,
     api_versions: Vec<ApiVersion>,
     skip_sig_handler: bool,
+    enable_io_all_thrd_nexus_channels: bool,
 }
 
 impl Default for MayastorEnvironment {
@@ -390,6 +398,7 @@ impl Default for MayastorEnvironment {
             nvmf_tgt_crdt: 0,
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             skip_sig_handler: false,
+            enable_io_all_thrd_nexus_channels: false,
         }
     }
 }
@@ -509,6 +518,8 @@ impl MayastorEnvironment {
             nvmf_tgt_crdt: args.nvmf_tgt_crdt,
             api_versions: args.api_versions,
             skip_sig_handler: args.skip_sig_handler,
+            enable_io_all_thrd_nexus_channels: args
+                .enable_io_all_thrd_nexus_channels,
             ..Default::default()
         }
         .setup_static()
@@ -890,6 +901,10 @@ impl MayastorEnvironment {
         // setup our signal handlers
         if !self.skip_sig_handler {
             self.install_signal_handlers();
+        }
+
+        if self.enable_io_all_thrd_nexus_channels {
+            nexus::ENABLE_IO_ALL_THRD_NX_CHAN.store(true, SeqCst);
         }
 
         // allocate a Reactor per core

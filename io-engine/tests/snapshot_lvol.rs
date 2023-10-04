@@ -48,7 +48,12 @@ static POOL_DEVICE_NAME: &str = "aio:///tmp/disk1.img";
 static LVOL_SIZE: u64 = 24 * 1024 * 1024;
 /// Get the global Mayastor test suite instance.
 fn get_ms() -> &'static MayastorTest<'static> {
-    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
+    MAYASTOR.get_or_init(|| {
+        MayastorTest::new(MayastorCliArgs {
+            enable_io_all_thrd_nexus_channels: true,
+            ..Default::default()
+        })
+    })
 }
 
 /// Must be called only in Mayastor context !s
