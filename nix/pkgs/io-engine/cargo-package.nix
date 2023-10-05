@@ -25,6 +25,7 @@
 , buildPackages
 , targetPlatform
 , versions
+, systemdMinimal
 , cargoBuildFlags ? [ ]
 }:
 let
@@ -73,11 +74,11 @@ let
       libbsd
       libnvme
       libpcap
-      udev
+      systemdMinimal.dev
       liburing
       numactl
-      openssl
-      utillinux
+      openssl.dev
+      utillinux.dev
       libunwind
     ];
     cargoLock = {
@@ -85,17 +86,23 @@ let
     };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
-    fixupPhase = ''
+    preFixup = ''
+      mkdir $lib
+      mv $out/lib/* $lib/
+      rmdir $out/lib
       local ms_lib_path
       local new_rpath
-      echo "fixing rpaths in io-engine binaries to point to $out/lib"
-      ms_lib_path=$(echo "$out/lib" | sed 's/\//\\\//g')
-      new_rpath=$(patchelf --print-rpath "$out/bin/io-engine" | sed -r 's/\/build\/io-engine(\/[^:]*)+/'"$ms_lib_path"'/')
-      patchelf \
-          --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
-          --set-rpath "$new_rpath" \
-          "$out/bin/io-engine"
+      echo "fixing rpaths in io-engine binaries to point to $lib"
+      ms_lib_path=$(echo "$lib" | sed 's/\//\\\//g')
+      for bin in "$out/bin/"*; do
+        new_rpath=$(patchelf --print-rpath "$bin" | sed -r 's/\/build(\/[^:]*)+/'"$ms_lib_path"'/')
+        patchelf \
+            --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+            --set-rpath "$new_rpath" \
+            "$bin"
+      done
     '';
+    outputs = [ "out" "lib" ];
   };
 in
 {

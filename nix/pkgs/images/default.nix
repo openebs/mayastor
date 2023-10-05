@@ -48,7 +48,7 @@ let
     tag = version;
     created = "now";
     config = { };
-    contents = [ busybox ];
+    copyToRoot = [ busybox ];
     extraCommands = ''
       mkdir tmp
       mkdir -p var/tmp
@@ -71,12 +71,12 @@ let
   '';
   casperf = runCommand "casperf" { } ''
     mkdir -p $out/bin
-    cp ${io-engine}/bin/casperf $out/bin/casperf
+    cp ${io-engine.out}/bin/casperf $out/bin/casperf
   '';
   io-engine-bins = runCommand "io-engine" { } ''
     mkdir -p $out/bin
-    cp ${io-engine}/bin/io-engine $out/bin/io-engine
-    cp ${io-engine}/bin/io-engine-client $out/bin/io-engine-client
+    cp ${io-engine.out}/bin/io-engine $out/bin/io-engine
+    cp ${io-engine.out}/bin/io-engine-client $out/bin/io-engine-client
   '';
 
   mctl = writeScriptBin "mctl" ''
@@ -86,28 +86,27 @@ in
 {
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine";
-    contents = [ busybox io-engine-bins mctl ];
+    copyToRoot = [ busybox io-engine-bins mctl ];
   });
 
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine-dev";
-    contents = [ busybox io-engine-dev ];
+    copyToRoot = [ busybox io-engine-dev ];
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine-client";
-    contents = [ busybox io-engine ];
+    copyToRoot = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
 
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
     name = "openebs/mayastor-fio-spdk";
-    contents = clientImageProps.contents ++ [ tini fio_wrapper ];
+    copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
   });
 
   mayastor-casperf = dockerTools.buildImage (clientImageProps // {
     name = "openebs/mayastor-casperf";
-    contents = clientImageProps.contents ++ [ tini casperf ];
-    config = { Entrypoint = [ "/bin/casperf" ]; };
+    copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf ];
   });
 }
