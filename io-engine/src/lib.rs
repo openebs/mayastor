@@ -10,6 +10,10 @@ extern crate serde_json;
 extern crate snafu;
 extern crate spdk_rs;
 
+#[allow(unused_imports)]
+#[macro_use]
+extern crate derive_builder;
+
 #[macro_use]
 pub mod core;
 pub mod bdev;

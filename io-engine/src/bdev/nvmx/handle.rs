@@ -357,11 +357,7 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
     };
 
     #[cfg(feature = "fault-injection")]
-    let status = inject_completion_error(
-        FaultDomain::BlockDevice,
-        &io_ctx.inj_op,
-        status,
-    );
+    let status = inject_completion_error(&io_ctx.inj_op, status);
 
     (io_ctx.cb)(&*inner.device, status, io_ctx.cb_arg);
 
@@ -771,6 +767,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 num_blocks,
                 #[cfg(feature = "fault-injection")]
                 inj_op: InjectIoCtx::with_iovs(
+                    FaultDomain::BlockDevice,
                     self.get_device(),
                     IoType::Read,
                     offset_blocks,
@@ -783,9 +780,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         )?;
 
         #[cfg(feature = "fault-injection")]
-        inject_submission_error(FaultDomain::BlockDevice, unsafe {
-            &(*bio).inj_op
-        })?;
+        inject_submission_error(unsafe { &(*bio).inj_op })?;
 
         let rc = if iovs.len() == 1 {
             unsafe {
@@ -858,6 +853,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 num_blocks,
                 #[cfg(feature = "fault-injection")]
                 inj_op: InjectIoCtx::with_iovs(
+                    FaultDomain::BlockDevice,
                     self.get_device(),
                     IoType::Write,
                     offset_blocks,
@@ -870,9 +866,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         )?;
 
         #[cfg(feature = "fault-injection")]
-        inject_submission_error(FaultDomain::BlockDevice, unsafe {
-            &(*bio).inj_op
-        })?;
+        inject_submission_error(unsafe { &(*bio).inj_op })?;
 
         let rc = if iovs.len() == 1 {
             unsafe {
@@ -949,7 +943,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 op: IoType::Compare,
                 num_blocks,
                 #[cfg(feature = "fault-injection")]
-                inj_op: Default::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             offset_blocks,
             num_blocks,
@@ -1047,7 +1041,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 op: IoType::Flush,
                 num_blocks,
                 #[cfg(feature = "fault-injection")]
-                inj_op: Default::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             0,
             num_blocks, // Flush all device blocks.
@@ -1110,7 +1104,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 op: IoType::Unmap,
                 num_blocks,
                 #[cfg(feature = "fault-injection")]
-                inj_op: Default::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             offset_blocks,
             num_blocks,
@@ -1209,7 +1203,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 op: IoType::WriteZeros,
                 num_blocks,
                 #[cfg(feature = "fault-injection")]
-                inj_op: Default::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             offset_blocks,
             num_blocks,

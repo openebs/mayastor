@@ -2,24 +2,22 @@
 
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
-use std::{
-    convert::TryInto,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{CoreError, IoCompletionStatus};
 
 use super::{
+    add_bdev_io_injection,
     FaultDomain,
-    FaultInjection,
+    FaultInjectionError,
     FaultIoStage,
-    FaultIoType,
     InjectIoCtx,
+    Injection,
 };
 
 /// A list of fault injections.
 struct Injections {
-    items: Vec<FaultInjection>,
+    items: Vec<Injection>,
 }
 
 static INJECTIONS: OnceCell<parking_lot::Mutex<Injections>> = OnceCell::new();
@@ -39,34 +37,37 @@ impl Injections {
     }
 
     /// Adds an injection.
-    pub fn add(&mut self, inj: FaultInjection) {
-        info!("Adding injected fault: '{uri}'", uri = inj.uri);
+    pub fn add(&mut self, inj: Injection) -> Result<(), FaultInjectionError> {
+        if inj.domain == FaultDomain::BdevIo {
+            add_bdev_io_injection(&inj)?;
+        }
+
+        info!("Adding injected fault: '{inj:?}'");
         self.items.push(inj);
+
+        Ok(())
     }
 
     /// Removes all injections matching the URI.
-    pub fn remove(&mut self, uri: &str) {
+    pub fn remove(&mut self, uri: &str) -> Result<(), FaultInjectionError> {
         info!("Removing injected fault: '{uri}'");
-        self.items.retain(|inj| inj.uri != uri);
+        self.items.retain(|inj| inj.uri() != uri);
+        Ok(())
     }
 
     /// Returns a copy of the injection list.
-    pub fn list(&self) -> Vec<FaultInjection> {
+    pub fn list(&self) -> Vec<Injection> {
         self.items.clone()
     }
 
     /// TODO
     #[inline(always)]
     fn inject(
-        &mut self,
-        domain: FaultDomain,
-        fault_io_type: FaultIoType,
-        fault_io_stage: FaultIoStage,
+        &self,
+        stage: FaultIoStage,
         op: &InjectIoCtx,
     ) -> Option<IoCompletionStatus> {
-        self.items.iter_mut().find_map(|inj| {
-            inj.inject(domain, fault_io_type, fault_io_stage, op)
-        })
+        self.items.iter().find_map(|inj| inj.inject(stage, op))
     }
 }
 
@@ -92,18 +93,18 @@ fn enable_fault_injections() {
     }
 }
 /// Adds an fault injection.
-pub fn add_fault_injection(inj: FaultInjection) {
+pub fn add_fault_injection(inj: Injection) -> Result<(), FaultInjectionError> {
     enable_fault_injections();
-    Injections::get().add(inj);
+    Injections::get().add(inj)
 }
 
 /// Removes all injections matching the URI.
-pub fn remove_fault_injection(uri: &str) {
-    Injections::get().remove(uri);
+pub fn remove_fault_injection(uri: &str) -> Result<(), FaultInjectionError> {
+    Injections::get().remove(uri)
 }
 
 /// Lists fault injections. A clone of current state of injection is returned.
-pub fn list_fault_injections() -> Vec<FaultInjection> {
+pub fn list_fault_injections() -> Vec<Injection> {
     Injections::get().list()
 }
 
@@ -111,24 +112,12 @@ pub fn list_fault_injections() -> Vec<FaultInjection> {
 /// stage. In the case a fault is injected, returns the corresponding
 /// `CoreError`.
 #[inline]
-pub fn inject_submission_error(
-    domain: FaultDomain,
-    ctx: &InjectIoCtx,
-) -> Result<(), CoreError> {
+pub fn inject_submission_error(ctx: &InjectIoCtx) -> Result<(), CoreError> {
     if !injections_enabled() || !ctx.is_valid() {
         return Ok(());
     }
 
-    let Ok(fault_io_type) = ctx.io_type.try_into() else {
-        return Ok(());
-    };
-
-    match Injections::get().inject(
-        domain,
-        fault_io_type,
-        FaultIoStage::Submission,
-        ctx,
-    ) {
+    match Injections::get().inject(FaultIoStage::Submission, ctx) {
         None => Ok(()),
         Some(IoCompletionStatus::Success) => Ok(()),
         Some(_) => Err(crate::bdev::device::io_type_to_err(
@@ -146,7 +135,6 @@ pub fn inject_submission_error(
 /// `IoCompletionStatus`.
 #[inline]
 pub fn inject_completion_error(
-    domain: FaultDomain,
     ctx: &InjectIoCtx,
     status: IoCompletionStatus,
 ) -> IoCompletionStatus {
@@ -157,16 +145,7 @@ pub fn inject_completion_error(
         return status;
     }
 
-    let Ok(fault_io_type) = ctx.io_type.try_into() else {
-        return status;
-    };
-
-    match Injections::get().inject(
-        domain,
-        fault_io_type,
-        FaultIoStage::Completion,
-        ctx,
-    ) {
+    match Injections::get().inject(FaultIoStage::Completion, ctx) {
         Some(inj) => inj,
         None => IoCompletionStatus::Success,
     }

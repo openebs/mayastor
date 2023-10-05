@@ -30,8 +30,8 @@ use crate::core::fault_injection::{
     add_fault_injection,
     list_fault_injections,
     remove_fault_injection,
-    FaultInjection,
     FaultInjectionError,
+    Injection,
 };
 
 #[derive(Debug, Clone)]
@@ -131,8 +131,8 @@ impl TestRpc for TestService {
         {
             let rx = rpc_submit::<_, _, FaultInjectionError>(async move {
                 let uri = args.uri.clone();
-                let inj = FaultInjection::from_uri(&uri)?;
-                add_fault_injection(inj);
+                let inj = Injection::from_uri(&uri)?;
+                add_fault_injection(inj)?;
                 Ok(())
             })?;
 
@@ -161,9 +161,9 @@ impl TestRpc for TestService {
                 let uri = args.uri.clone();
 
                 // Validate injection URI by trying to parse it.
-                FaultInjection::from_uri(&uri)?;
+                Injection::from_uri(&uri)?;
 
-                remove_fault_injection(&uri);
+                remove_fault_injection(&uri)?;
 
                 Ok(())
             })?;
@@ -372,11 +372,11 @@ impl From<FaultInjectionError> for tonic::Status {
 }
 
 #[cfg(feature = "fault-injection")]
-impl From<FaultInjection> for v1::test::FaultInjection {
-    fn from(src: FaultInjection) -> Self {
+impl From<Injection> for v1::test::FaultInjection {
+    fn from(src: Injection) -> Self {
         let is_active = src.is_active();
         Self {
-            uri: src.uri,
+            uri: src.uri(),
             device_name: src.device_name,
             is_active,
         }

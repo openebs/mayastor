@@ -1628,6 +1628,7 @@ dependencies = [
  "crc",
  "crossbeam",
  "crossbeam-sync",
+ "derive_builder",
  "dns-lookup",
  "env_logger",
  "etcd-client",
