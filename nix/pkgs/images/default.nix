@@ -69,6 +69,15 @@ let
   fio_wrapper = pkgs.writeShellScriptBin "fio" ''
     LD_PRELOAD=${spdk_fio_engine}/lib/spdk_nvme ${fio}/bin/fio "$@"
   '';
+  casperf = runCommand "casperf" { } ''
+    mkdir -p $out/bin
+    cp ${io-engine}/bin/casperf $out/bin/casperf
+  '';
+  io-engine-bins = runCommand "io-engine" { } ''
+    mkdir -p $out/bin
+    cp ${io-engine}/bin/io-engine $out/bin/io-engine
+    cp ${io-engine}/bin/io-engine-client $out/bin/io-engine-client
+  '';
 
   mctl = writeScriptBin "mctl" ''
     /bin/io-engine-client "$@"
@@ -77,7 +86,7 @@ in
 {
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine";
-    contents = [ busybox io-engine mctl ];
+    contents = [ busybox io-engine-bins mctl ];
   });
 
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
@@ -94,5 +103,11 @@ in
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
     name = "openebs/mayastor-fio-spdk";
     contents = clientImageProps.contents ++ [ tini fio_wrapper ];
+  });
+
+  mayastor-casperf = dockerTools.buildImage (clientImageProps // {
+    name = "openebs/mayastor-casperf";
+    contents = clientImageProps.contents ++ [ tini casperf ];
+    config = { Entrypoint = [ "/bin/casperf" ]; };
   });
 }

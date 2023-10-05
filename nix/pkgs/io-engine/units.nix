@@ -33,6 +33,7 @@ let
   components = { build }: {
     io-engine = (project-builder { cargoBuildFlags = [ "--bin io-engine" ]; }).${build};
     io-engine-cli = (project-builder { cargoBuildFlags = [ "--bin io-engine-cli" ]; }).${build};
+    casperf = (project-builder { cargoBuildFlags = [ "--bin casperf" ]; }).${build};
     custom = { cargoBuildFlags }: (project-builder { cargoBuildFlags = [ cargoBuildFlags ]; }).${build};
   };
 in

@@ -100,7 +100,7 @@ let
 in
 {
   release = rustPlatform.buildRustPackage (buildProps // {
-    cargoBuildFlags = "--bin io-engine --bin io-engine-client";
+    cargoBuildFlags = "--bin io-engine --bin io-engine-client --bin casperf";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
     SPDK_PATH = "${libspdk}";
