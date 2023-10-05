@@ -133,7 +133,7 @@ cd $SCRIPTDIR/..
 
 if [ -z "$IMAGES" ]; then
   if [ -z "$DEBUG" ]; then
-    IMAGES="mayastor-io-engine mayastor-fio-spdk"
+    IMAGES="mayastor-io-engine mayastor-fio-spdk mayastor-casperf"
   else
     IMAGES="mayastor-io-engine-dev mayastor-fio-spdk"
   fi

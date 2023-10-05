@@ -233,40 +233,58 @@ impl Lvs {
             LvsMode::CreateOrImport => {
                 crate::lvs::Lvs::create_or_import(args).await
             }
-            LvsMode::Purge => match self.destroy().await {
-                Ok(_)
-                | Err(BdevError::BdevNotFound {
-                    ..
-                }) => match crate::lvs::Lvs::create_or_import(args.clone())
-                    .await
-                {
-                    Ok(lvs) => Ok(lvs),
-                    Err(crate::lvs::Error::Import {
-                        reason:
-                            crate::lvs::ImportErrorReason::NameMismatch {
-                                name,
-                            },
-                        ..
-                    }) => {
-                        let mut eargs = args.clone();
-                        eargs.name = name;
-                        match crate::lvs::Lvs::create_or_import(eargs).await {
-                            Ok(lvs) => {
-                                lvs.destroy().await.ok();
-                                crate::lvs::Lvs::create_or_import(args).await
-                            }
-                            Err(error) => Err(error),
-                        }
-                    }
-                    Err(error) => Err(error),
-                },
-                Err(error) => return Err(error),
-            },
+            LvsMode::Purge => {
+                Self::wipe_super(args.clone()).await?;
+                crate::lvs::Lvs::create_or_import(args).await
+            }
         }
         .map_err(|error| BdevError::CreateBdevFailedStr {
             error: error.to_string(),
             name: self.name.to_owned(),
         })
+    }
+
+    async fn wipe_super(args: PoolArgs) -> Result<(), BdevError> {
+        let disk =
+            crate::lvs::Lvs::parse_disk(args.disks.clone()).map_err(|_| {
+                BdevError::InvalidUri {
+                    uri: String::new(),
+                    message: String::new(),
+                }
+            })?;
+
+        let parsed = super::uri::parse(&disk)?;
+        let bdev_str = parsed.create().await?;
+        {
+            let bdev =
+                crate::core::Bdev::get_by_name(&bdev_str).map_err(|_| {
+                    BdevError::BdevNotFound {
+                        name: bdev_str,
+                    }
+                })?;
+
+            let hdl = crate::core::Bdev::open(&bdev, true)
+                .and_then(|desc| desc.into_handle())
+                .map_err(|_| BdevError::BdevNotFound {
+                    name: bdev.name().into(),
+                })?;
+
+            let wiper = crate::core::wiper::Wiper::new(
+                hdl,
+                crate::core::wiper::WipeMethod::WriteZeroes,
+            )
+            .map_err(|_| BdevError::WipeFailed {})?;
+            wiper
+                .wipe(0, 8 * 1024 * 1024)
+                .await
+                .map_err(|_| BdevError::WipeFailed {})?;
+        }
+        // We can't destroy the device here as this causes issues with the next
+        // section. Seems the deletion of nvme device is not sync as
+        // bdev_nvme_delete implies..
+        // todo: ensure nvme delete does what it says..
+        // parsed.destroy().await.unwrap();
+        Ok(())
     }
 
     async fn destroy(&self) -> Result<(), BdevError> {

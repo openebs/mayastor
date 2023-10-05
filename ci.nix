@@ -1,4 +1,4 @@
-{ nospdk ? false, norust ? false }:
+{ nospdk ? false, norust ? false, spdk_rel ? false }:
 let
   sources = import ./nix/sources.nix;
   pkgs = import sources.nixpkgs {
@@ -17,6 +17,7 @@ let
   # python environment for test/python
   pytest_inputs = python3.withPackages
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
+  spdk = if (!spdk_rel) then libspdk-dev else libspdk;
 in
 mkShell {
   name = "io-engine-dev-shell";
@@ -58,7 +59,7 @@ mkShell {
     autoconf
     automake
     yasm
-  ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
+  ] ++ (if (nospdk) then [ spdk.buildInputs ] else [ spdk ])
   ++ pkgs.lib.optional (!norust) channel.stable
   ++ pkgs.lib.optional (!norust) channel.nightly;
 
@@ -66,8 +67,8 @@ mkShell {
   LIBCLANG_PATH = io-engine.LIBCLANG_PATH;
   PROTOC = io-engine.PROTOC;
   PROTOC_INCLUDE = io-engine.PROTOC_INCLUDE;
-  SPDK_PATH = if nospdk then null else "${libspdk-dev}";
-  FIO_SPDK = if nospdk then null else "${libspdk-dev}/fio/spdk_nvme";
+  SPDK_PATH = if nospdk then null else "${spdk}";
+  FIO_SPDK = if nospdk then null else "${spdk}/fio/spdk_nvme";
   ETCD_BIN = "${etcd}/bin/etcd";
 
   shellHook = ''

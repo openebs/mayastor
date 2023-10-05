@@ -48,7 +48,7 @@ let
     tag = version;
     created = "now";
     config = { };
-    contents = [ busybox ];
+    copyToRoot = [ busybox ];
     extraCommands = ''
       mkdir tmp
       mkdir -p var/tmp
@@ -69,6 +69,15 @@ let
   fio_wrapper = pkgs.writeShellScriptBin "fio" ''
     LD_PRELOAD=${spdk_fio_engine}/lib/spdk_nvme ${fio}/bin/fio "$@"
   '';
+  casperf = runCommand "casperf" { } ''
+    mkdir -p $out/bin
+    cp ${io-engine.out}/bin/casperf $out/bin/casperf
+  '';
+  io-engine-bins = runCommand "io-engine" { } ''
+    mkdir -p $out/bin
+    cp ${io-engine.out}/bin/io-engine $out/bin/io-engine
+    cp ${io-engine.out}/bin/io-engine-client $out/bin/io-engine-client
+  '';
 
   mctl = writeScriptBin "mctl" ''
     /bin/io-engine-client "$@"
@@ -77,22 +86,27 @@ in
 {
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine";
-    contents = [ busybox io-engine mctl ];
+    copyToRoot = [ busybox io-engine-bins mctl ];
   });
 
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine-dev";
-    contents = [ busybox io-engine-dev ];
+    copyToRoot = [ busybox io-engine-dev ];
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
     name = "openebs/mayastor-io-engine-client";
-    contents = [ busybox io-engine ];
+    copyToRoot = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
 
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
     name = "openebs/mayastor-fio-spdk";
-    contents = clientImageProps.contents ++ [ tini fio_wrapper ];
+    copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
+  });
+
+  mayastor-casperf = dockerTools.buildImage (clientImageProps // {
+    name = "openebs/mayastor-casperf";
+    copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf ];
   });
 }

@@ -159,7 +159,7 @@ impl Wiper {
         })
     }
     /// Wipe the bdev at the given byte offset and byte size.
-    async fn wipe(&self, offset: u64, size: u64) -> Result<(), Error> {
+    pub async fn wipe(&self, offset: u64, size: u64) -> Result<(), Error> {
         match self.wipe_method {
             WipeMethod::None => Ok(()),
             WipeMethod::WriteZeroes => {

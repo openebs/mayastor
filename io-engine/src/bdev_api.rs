@@ -98,6 +98,8 @@ pub enum BdevError {
     // Command canceled.
     #[snafu(display("Command canceled for a BDEV '{}'", name))]
     BdevCommandCanceled { source: Canceled, name: String },
+    #[snafu(display("Failed to wipe the BDEV"))]
+    WipeFailed {},
 }
 
 /// Parse URI and create bdev described in the URI.

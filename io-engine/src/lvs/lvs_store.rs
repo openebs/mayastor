@@ -224,7 +224,7 @@ impl Lvs {
     }
 
     // checks for the disks length and parses to correct format
-    fn parse_disk(disks: Vec<String>) -> Result<String, Error> {
+    pub fn parse_disk(disks: Vec<String>) -> Result<String, Error> {
         let disk = match disks.first() {
             Some(disk) if disks.len() == 1 => {
                 if Url::parse(disk).is_err() {
