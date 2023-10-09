@@ -124,7 +124,9 @@ async fn create(
             field: "pool".to_string(),
         })?
         .to_owned();
+
     let uuid = matches.value_of("uuid");
+
     let disks_list = matches
         .values_of("disk")
         .ok_or_else(|| ClientError::MissingValue {
@@ -132,10 +134,20 @@ async fn create(
         })?
         .map(|dev| dev.to_owned())
         .collect();
-    let cluster_size =
-        parse_size(matches.value_of("cluster-size").unwrap_or_default())
-            .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-            .context(GrpcStatus)?;
+
+    let cluster_size = match matches.value_of("cluster-size") {
+        Some(s) => match parse_size(s) {
+            Ok(s) => Some(s.get_bytes() as u32),
+            Err(err) => {
+                return Err(Status::invalid_argument(format!(
+                    "Bad size '{err}'"
+                )))
+                .context(GrpcStatus);
+            }
+        },
+        None => None,
+    };
+
     let response = ctx
         .v1
         .pool
@@ -144,7 +156,7 @@ async fn create(
             uuid: uuid.map(ToString::to_string),
             disks: disks_list,
             pooltype: v1rpc::pool::PoolType::Lvs as i32,
-            cluster_size: Some(cluster_size.get_bytes() as u32),
+            cluster_size,
         })
         .await
         .context(GrpcStatus)?;
