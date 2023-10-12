@@ -11,14 +11,14 @@ authors = [
 ]
 
 [build-dependencies]
-bindgen = "0.59.1"
-cc = "1.0.69"
+bindgen = "0.68.1"
+cc = "1.0.83"
 
 [dependencies]
-glob = "0.3.0"
+glob = "0.3.1"
 libc = "0.2"
-snafu = "0.7.1"
-url = "2.2.2"
+snafu = "0.7.5"
+url = "2.4.1"
 
 [dependencies.mio08]
 package = "mio"
@@ -27,4 +27,4 @@ version = "0.8"
 
 [dependencies.udev]
 features = ["hwdb", "mio"]
-version = "^0.6.3"
+version = "^0.8.0"

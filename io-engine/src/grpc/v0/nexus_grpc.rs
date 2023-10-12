@@ -189,7 +189,7 @@ fn name_to_uuid(name: &str) -> &str {
 /// Return error if the UUID is not valid.
 pub fn uuid_to_name(uuid: &str) -> Result<String, nexus::Error> {
     match Uuid::parse_str(uuid) {
-        Ok(uuid) => Ok(format!("nexus-{}", uuid.to_hyphenated())),
+        Ok(uuid) => Ok(format!("nexus-{}", uuid.hyphenated())),
         Err(_) => Err(nexus::Error::InvalidUuid {
             uuid: uuid.to_owned(),
         }),

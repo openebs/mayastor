@@ -263,7 +263,7 @@ async fn core_6() {
     let file_uuid = Uuid::new_v4();
     let ch = vec![
         BDEVNAME1.to_string(),
-        "aio:///tmp/disk2".to_string() + &file_uuid.to_simple().to_string(),
+        "aio:///tmp/disk2".to_string() + &file_uuid.simple().to_string(),
     ];
     mayastor()
         .spawn(async move {

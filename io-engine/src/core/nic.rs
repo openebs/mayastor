@@ -1,12 +1,10 @@
 use core::default::Default;
-use nix::{
-    ifaddrs::getifaddrs,
-    sys::socket::{IpAddr, Ipv4Addr, Ipv6Addr, SockAddr},
-};
+use nix::ifaddrs::getifaddrs;
 use std::{
     collections::BTreeMap,
     fmt,
     fmt::{Display, Formatter},
+    net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
 };
 
@@ -144,16 +142,26 @@ impl Interface {
             _ => return false,
         };
 
-        let mask = u32::from_be(mask.0.s_addr);
+        let mask = u32::from_be(ipv4addr_to_libc(mask).s_addr);
         if mask != net_mask {
             return false;
         }
 
-        let addr = u32::from_be(addr.0.s_addr);
+        let addr = u32::from_be(ipv4addr_to_libc(addr).s_addr);
         let subnet = addr & mask;
-        let subnet = Ipv4Addr::from_std(&std::net::Ipv4Addr::from(subnet));
 
-        subnet == net_addr
+        Ipv4Addr::from(subnet) == net_addr
+    }
+}
+fn ipv4addr_to_libc(addr: Ipv4Addr) -> libc::in_addr {
+    let octets = addr.octets();
+    libc::in_addr {
+        s_addr: u32::to_be(
+            ((octets[0] as u32) << 24)
+                | ((octets[1] as u32) << 16)
+                | ((octets[2] as u32) << 8)
+                | (octets[3] as u32),
+        ),
     }
 }
 
@@ -185,24 +193,24 @@ pub fn find_all_nics() -> Vec<Interface> {
         let nic = nics
             .entry(addr.interface_name)
             .or_insert_with_key(|k| Interface::new(k));
-
         if let Some(sock) = addr.address {
-            match sock {
-                SockAddr::Inet(inet) => match inet.ip() {
-                    IpAddr::V4(v4) => nic.inet.addr = Some(v4),
-                    IpAddr::V6(v6) => nic.inet6.addr = Some(v6),
-                },
-                SockAddr::Link(link) => {
-                    nic.mac = Some(MacAddr::new(link.addr()))
-                }
-                _ => {}
+            if let Some(sock) = sock.as_sockaddr_in() {
+                nic.inet.addr = Some(sock.ip().into());
+            }
+            if let Some(sock) = sock.as_sockaddr_in6() {
+                nic.inet6.addr = Some(sock.ip());
+            }
+            if let Some(link) = sock.as_link_addr() {
+                nic.mac = link.addr().map(MacAddr::new);
             }
         }
 
-        if let Some(SockAddr::Inet(inet)) = addr.netmask {
-            match inet.ip() {
-                IpAddr::V4(v4) => nic.inet.netmask = Some(v4),
-                IpAddr::V6(v6) => nic.inet6.netmask = Some(v6),
+        if let Some(sock) = addr.netmask {
+            if let Some(sock) = sock.as_sockaddr_in() {
+                nic.inet.netmask = Some(sock.ip().into());
+            }
+            if let Some(sock) = sock.as_sockaddr_in6() {
+                nic.inet6.netmask = Some(sock.ip());
             }
         }
     }
@@ -212,10 +220,7 @@ pub fn find_all_nics() -> Vec<Interface> {
 
 /// Utility to parse an IPv4 address string into a nix's Ipv4Addr.
 pub fn parse_ipv4(addr: &str) -> Result<Ipv4Addr, String> {
-    let res = addr
-        .parse::<std::net::Ipv4Addr>()
-        .map_err(|e| e.to_string())?;
-    Ok(Ipv4Addr::from_std(&res))
+    addr.parse::<Ipv4Addr>().map_err(|e| e.to_string())
 }
 
 /// Utility to parse an IPv4 subnet string into a nix's Ipv4Addr.
@@ -226,7 +231,7 @@ pub fn parse_ipv4_subnet(addr_str: &str) -> Result<(Ipv4Addr, u32), String> {
     };
 
     let addr = parse_ipv4(addr)?;
-    let addr = u32::from_be(addr.0.s_addr);
+    let addr = u32::from_be(ipv4addr_to_libc(addr).s_addr);
 
     let bits = bits
         .parse::<u32>()
@@ -239,6 +244,5 @@ pub fn parse_ipv4_subnet(addr_str: &str) -> Result<(Ipv4Addr, u32), String> {
     let mask = !0 << (32 - bits);
 
     let subnet = addr & mask;
-    let subnet = Ipv4Addr::from_std(&std::net::Ipv4Addr::from(subnet));
-    Ok((subnet, mask))
+    Ok((Ipv4Addr::from(subnet), mask))
 }

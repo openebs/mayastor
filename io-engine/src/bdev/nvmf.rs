@@ -211,8 +211,8 @@ impl CreateDestroy for Nvmf {
         }
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
             if let Some(u) = self.uuid {
-                if bdev.uuid_as_string() != u.to_hyphenated().to_string() {
-                    error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.to_hyphenated().to_string());
+                if bdev.uuid_as_string() != u.hyphenated().to_string() {
+                    error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.hyphenated().to_string());
                 }
             };
             if !bdev.add_alias(&self.alias) {
