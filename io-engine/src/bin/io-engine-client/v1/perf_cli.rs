@@ -8,32 +8,24 @@ use super::{
     context::{Context, OutputFormat},
     GrpcStatus,
 };
-use clap::{App, AppSettings, ArgMatches, SubCommand};
+use clap::{ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v0 as rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let resource =
-        SubCommand::with_name("resource").about("Resource usage statistics");
+pub fn subcommands() -> Command {
+    let resource = Command::new("resource").about("Resource usage statistics");
 
-    SubCommand::with_name("perf")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("perf")
+        .arg_required_else_help(true)
         .about("Performance statistics")
         .subcommand(resource)
 }
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("resource", Some(args)) => get_resource_usage(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("resource", args) => get_resource_usage(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -43,7 +35,7 @@ pub async fn handler(
 // TODO: There's no rpc for this API in v1.
 async fn get_resource_usage(
     mut ctx: Context,
-    _matches: &ArgMatches<'_>,
+    _matches: &ArgMatches,
 ) -> crate::Result<()> {
     ctx.v2("Requesting resource usage statistics");
 

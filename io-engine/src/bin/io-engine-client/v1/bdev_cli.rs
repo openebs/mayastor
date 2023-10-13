@@ -6,22 +6,19 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::prelude::*;
 use mayastor_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("list", Some(args)) => list(ctx, args).await,
-        ("create", Some(args)) => create(ctx, args).await,
-        ("share", Some(args)) => share(ctx, args).await,
-        ("destroy", Some(args)) => destroy(ctx, args).await,
-        ("unshare", Some(args)) => unshare(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("list", args) => list(ctx, args).await,
+        ("create", args) => create(ctx, args).await,
+        ("share", args) => share(ctx, args).await,
+        ("destroy", args) => destroy(ctx, args).await,
+        ("unshare", args) => unshare(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -29,50 +26,44 @@ pub async fn handler(
     }
 }
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let list = SubCommand::with_name("list").about("List all bdevs");
-    let create = SubCommand::with_name("create")
+pub fn subcommands() -> Command {
+    let list = Command::new("list").about("List all bdevs");
+    let create = Command::new("create")
         .about("Create a new bdev by specifying a URI")
-        .arg(Arg::with_name("uri").required(true).index(1));
+        .arg(Arg::new("uri").required(true).index(1));
 
-    let destroy = SubCommand::with_name("destroy")
+    let destroy = Command::new("destroy")
         .about("destroy the given bdev")
-        .arg(Arg::with_name("name").required(true).index(1));
+        .arg(Arg::new("name").required(true).index(1));
 
-    let share = SubCommand::with_name("share")
+    let share = Command::new("share")
         .about("share the given bdev")
-        .arg(Arg::with_name("name").required(true).index(1))
+        .arg(Arg::new("name").required(true).index(1))
         .arg(
-            Arg::with_name("protocol")
+            Arg::new("protocol")
                 .long("protocol")
-                .short("p")
+                .short('p')
                 .help("the protocol to used to share the given bdev.")
                 .required(false)
-                .possible_values(&["Nvmf"])
-                .takes_value(true)
+                .value_parser(["Nvmf"])
                 .default_value("Nvmf"),
         )
         .arg(
-            Arg::with_name("allowed-host")
+            Arg::new("allowed-host")
                 .long("allowed-host")
-                .takes_value(true)
-                .multiple(true)
+                .action(clap::ArgAction::Append)
                 .required(false)
                 .help(
                     "NQN of hosts which are allowed to connect to the target",
                 ),
         );
 
-    let unshare = SubCommand::with_name("unshare")
+    let unshare = Command::new("unshare")
         .about("unshare the given bdev")
-        .arg(Arg::with_name("name").required(true).index(1));
+        .arg(Arg::new("name").required(true).index(1));
 
-    SubCommand::with_name("bdev")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("bdev")
+        .arg_required_else_help(true)
         .about("Block device management")
         .subcommand(list)
         .subcommand(share)
@@ -81,7 +72,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(destroy)
 }
 
-async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> crate::Result<()> {
+async fn list(mut ctx: Context, _args: &ArgMatches) -> crate::Result<()> {
     let response = ctx
         .v1
         .bdev
@@ -135,9 +126,9 @@ async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> crate::Result<()> {
     Ok(())
 }
 
-async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+async fn create(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
     let uri = args
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -170,9 +161,9 @@ async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     Ok(())
 }
 
-async fn destroy(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+async fn destroy(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
     let name = args
-        .value_of("name")
+        .get_one::<String>("name")
         .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
@@ -232,21 +223,24 @@ async fn destroy(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     Ok(())
 }
 
-async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+async fn share(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
     let name = args
-        .value_of("name")
+        .get_one::<String>("name")
         .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?
         .to_owned();
     let protocol = args
-        .value_of("protocol")
+        .get_one::<String>("protocol")
         .ok_or_else(|| ClientError::MissingValue {
             field: "protocol".to_string(),
         })?
         .to_owned();
-    let allowed_hosts =
-        args.values_of_lossy("allowed-host").unwrap_or_default();
+    let allowed_hosts = args
+        .get_many::<String>("allowed-host")
+        .unwrap_or_default()
+        .cloned()
+        .collect();
 
     let val = if protocol == "Nvmf" {
         v1rpc::common::ShareProtocol::Nvmf as i32
@@ -282,9 +276,9 @@ async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     Ok(())
 }
 
-async fn unshare(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+async fn unshare(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
     let name = args
-        .value_of("name")
+        .get_one::<String>("name")
         .ok_or_else(|| ClientError::MissingValue {
             field: "name".to_string(),
         })?

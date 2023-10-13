@@ -1,19 +1,18 @@
 //! Command line test utility to copy bytes to/from a replica which can be any
 //! target type understood by the nexus.
 
-extern crate clap;
-#[macro_use]
-extern crate tracing;
-
 use std::{
     fmt,
     fs,
     io::{self, Write},
 };
 
-use clap::{App, Arg, SubCommand};
-
 use chrono::Utc;
+use clap::{Arg, Command};
+use tracing::{error, info, warn};
+use uuid::Uuid;
+use version_info::version_info_str;
+
 use io_engine::{
     bdev::{device_create, device_open},
     bdev_api::{bdev_create, BdevError},
@@ -32,8 +31,6 @@ use io_engine::{
     subsys::Config,
 };
 use spdk_rs::DmaError;
-use uuid::Uuid;
-use version_info::version_info_str;
 
 unsafe extern "C" fn run_static_initializers() {
     spdk_rs::libspdk::spdk_add_subsystem(subsys::ConfigSubsystem::new().0)
@@ -167,53 +164,52 @@ async fn connect(uri: &str) -> Result<()> {
 }
 
 fn main() {
-    let matches = App::new("Test initiator for nexus replica")
+    let matches = Command::new("Test initiator for nexus replica")
         .version(version_info_str!())
         .about("Connect, read or write a block to a nexus replica using its URI")
-        .arg(Arg::with_name("URI")
+        .arg(Arg::new("URI")
             .help("URI of the replica to connect to")
             .required(true)
             .index(1))
-        .arg(Arg::with_name("offset")
-            .short("o")
+        .arg(Arg::new("offset")
+            .short('o')
             .long("offset")
             .value_name("NUMBER")
-            .help("Offset of IO operation on the replica in bytes (default 0)")
-            .takes_value(true))
-        .subcommand(SubCommand::with_name("connect")
+            .help("Offset of IO operation on the replica in bytes (default 0)"))
+        .subcommand(Command::new("connect")
             .about("Connect to and disconnect from the replica"))
-        .subcommand(SubCommand::with_name("read")
+        .subcommand(Command::new("read")
             .about("Read bytes from the replica")
-            .arg(Arg::with_name("FILE")
+            .arg(Arg::new("FILE")
                 .help("File to write data that were read from the replica")
                 .required(true)
                 .index(1)))
-        .subcommand(SubCommand::with_name("write")
+        .subcommand(Command::new("write")
             .about("Write bytes to the replica")
-            .arg(Arg::with_name("FILE")
+            .arg(Arg::new("FILE")
                 .help("File to read data from that will be written to the replica")
                 .required(true)
                 .index(1)))
-        .subcommand(SubCommand::with_name("nvme-admin")
+        .subcommand(Command::new("nvme-admin")
             .about("Send a custom NVMe Admin command")
-            .arg(Arg::with_name("opcode")
+            .arg(Arg::new("opcode")
                 .help("Admin command opcode to send")
                 .required(true)
                 .index(1)))
-        .subcommand(SubCommand::with_name("id-ctrlr")
+        .subcommand(Command::new("id-ctrlr")
             .about("Send NVMe Admin identify controller command")
-            .arg(Arg::with_name("FILE")
+            .arg(Arg::new("FILE")
                 .help("File to write output of identify controller command")
                 .required(true)
                 .index(1)))
-        .subcommand(SubCommand::with_name("create-snapshot")
+        .subcommand(Command::new("create-snapshot")
             .about("Create a snapshot on the replica"))
-        .get_matches();
+        .subcommand_required(true).subcommand_required(true).get_matches();
 
     logger::init("INFO");
 
-    let uri = matches.value_of("URI").unwrap().to_owned();
-    let offset: u64 = match matches.value_of("offset") {
+    let uri = matches.get_one::<String>("URI").unwrap().to_owned();
+    let offset: u64 = match matches.get_one::<String>("offset") {
         Some(val) => val.parse().expect("Offset must be a number"),
         None => 0,
     };
@@ -230,17 +226,19 @@ fn main() {
     ms.init();
     let fut = async move {
         let res = if let Some(matches) = matches.subcommand_matches("read") {
-            read(&uri, offset, matches.value_of("FILE").unwrap()).await
+            read(&uri, offset, matches.get_one::<String>("FILE").unwrap()).await
         } else if let Some(matches) = matches.subcommand_matches("write") {
-            write(&uri, offset, matches.value_of("FILE").unwrap()).await
+            write(&uri, offset, matches.get_one::<String>("FILE").unwrap())
+                .await
         } else if let Some(matches) = matches.subcommand_matches("nvme-admin") {
-            let opcode: u8 = match matches.value_of("opcode") {
+            let opcode: u8 = match matches.get_one::<String>("opcode") {
                 Some(val) => val.parse().expect("Opcode must be a number"),
                 None => 0,
             };
             nvme_admin(&uri, opcode).await
         } else if let Some(matches) = matches.subcommand_matches("id-ctrlr") {
-            identify_ctrlr(&uri, matches.value_of("FILE").unwrap()).await
+            identify_ctrlr(&uri, matches.get_one::<String>("FILE").unwrap())
+                .await
         } else if matches.subcommand_matches("create-snapshot").is_some() {
             create_snapshot(&uri).await
         } else {

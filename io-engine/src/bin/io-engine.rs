@@ -4,7 +4,6 @@ extern crate tracing;
 use std::{env, path::Path, sync::atomic::Ordering};
 
 use futures::future::FutureExt;
-use structopt::StructOpt;
 
 use io_engine::{
     bdev::{
@@ -213,7 +212,7 @@ fn hugepage_check() {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = MayastorCliArgs::from_args();
+    let args: MayastorCliArgs = clap::Parser::parse();
 
     let log_format = args.log_format.unwrap_or_default();
 

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, os::raw::c_void, ptr::NonNull};
 
-use clap::{value_t, App, AppSettings, Arg};
+use clap::{Arg, Command};
 use rand::Rng;
 
 use io_engine::{
@@ -338,61 +338,62 @@ fn main() {
         cfg
     });
 
-    let matches = App::new("Mayastor performance tool")
+    let matches = Command::new("Mayastor performance tool")
         .version(version_info_str!())
-        .settings(&[AppSettings::ColoredHelp, AppSettings::ColorAlways])
         .about("Perform IO to storage URIs")
         .arg(
-            Arg::with_name("io_size")
-                .value_name("io_size")
-                .short("b")
-                .help("block size in bytes")
-                .takes_value(true),
+            Arg::new("io-size")
+                .value_name("io-size")
+                .short('b')
+                .help("block size in bytes"),
         )
         .arg(
-            Arg::with_name("io_type")
-                .value_name("io_type")
-                .short("t")
+            Arg::new("io-type")
+                .value_name("io-type")
+                .short('t')
                 .help("type of IOs")
-                .possible_values(&["randread", "randwrite"])
-                .takes_value(true),
+                .value_parser(["randread", "randwrite"]),
         )
         .arg(
-            Arg::with_name("queue_depth")
-                .value_name("queue_depth")
-                .short("q")
-                .help("queue depth")
-                .takes_value(true),
+            Arg::new("queue-depth")
+                .value_name("queue-depth")
+                .short('q')
+                .value_parser(clap::value_parser!(u64))
+                .help("queue depth"),
         )
         .arg(
-            Arg::with_name("URI")
+            Arg::new("URI")
                 .value_name("URI")
                 .help("storage URI's")
                 .index(1)
-                .multiple(true)
-                .takes_value(true),
+                .action(clap::ArgAction::Append),
         )
+        .subcommand_required(true)
         .get_matches();
 
     let mut uris = matches
-        .values_of("URI")
+        .get_many::<String>("URI")
         .unwrap()
         .map(|u| u.to_string())
         .collect::<Vec<_>>();
 
-    let io_size = match matches.value_of("io_size") {
+    let io_size = match matches.get_one::<String>("io-size") {
         Some(io_size) => {
             byte_unit::Byte::from_str(io_size).unwrap().get_bytes() as u64
         }
         None => IO_SIZE,
     };
-    let io_type = match matches.value_of("io_type").unwrap_or("randread") {
+    let io_type = match matches
+        .get_one::<String>("io-type")
+        .map(|s| s.as_str())
+        .unwrap_or("randread")
+    {
         "randread" => IoType::Read,
         "randwrite" => IoType::Write,
         io_type => panic!("Invalid io_type: {}", io_type),
     };
 
-    let qd = value_t!(matches.value_of("queue_depth"), u64).unwrap_or(QD);
+    let qd = *matches.get_one::<u64>("queue-depth").unwrap_or(&QD);
     let args = MayastorCliArgs {
         reactor_mask: "0x2".to_string(),
         skip_sig_handler: true,

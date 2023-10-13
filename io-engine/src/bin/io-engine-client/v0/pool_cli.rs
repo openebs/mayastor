@@ -4,56 +4,47 @@ use crate::{
     GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v0 as rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let create = SubCommand::with_name("create")
+pub fn subcommands() -> Command {
+    let create = Command::new("create")
         .about("Create storage pool")
         .arg(
-            Arg::with_name("pool")
+            Arg::new("pool")
                 .required(true)
                 .index(1)
                 .help("Storage pool name"),
         )
         .arg(
-            Arg::with_name("disk")
+            Arg::new("disk")
                 .required(true)
-                .multiple(true)
+                .action(clap::ArgAction::Append)
                 .index(2)
                 .help("Disk device files"),
         );
-    let destroy = SubCommand::with_name("destroy")
-        .about("Destroy storage pool")
-        .arg(
-            Arg::with_name("pool")
-                .required(true)
-                .index(1)
-                .help("Storage pool name"),
-        );
-    SubCommand::with_name("pool")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    let destroy = Command::new("destroy").about("Destroy storage pool").arg(
+        Arg::new("pool")
+            .required(true)
+            .index(1)
+            .help("Storage pool name"),
+    );
+    Command::new("pool")
+        .arg_required_else_help(true)
         .about("Storage pool management")
         .subcommand(create)
         .subcommand(destroy)
-        .subcommand(SubCommand::with_name("list").about("List storage pools"))
+        .subcommand(Command::new("list").about("List storage pools"))
 }
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("create", Some(args)) => create(ctx, args).await,
-        ("destroy", Some(args)) => destroy(ctx, args).await,
-        ("list", Some(args)) => list(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("create", args) => create(ctx, args).await,
+        ("destroy", args) => destroy(ctx, args).await,
+        ("list", args) => list(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -61,22 +52,19 @@ pub async fn handler(
     }
 }
 
-async fn create(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .value_of("pool")
+        .get_one::<String>("pool")
         .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();
     let disks = matches
-        .values_of("disk")
+        .get_many::<String>("disk")
         .ok_or_else(|| ClientError::MissingValue {
             field: "disk".to_string(),
         })?
-        .map(|dev| dev.to_owned())
+        .cloned()
         .collect();
 
     let response = ctx
@@ -106,12 +94,9 @@ async fn create(
     Ok(())
 }
 
-async fn destroy(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .value_of("pool")
+        .get_one::<String>("pool")
         .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
@@ -143,10 +128,7 @@ async fn destroy(
     Ok(())
 }
 
-async fn list(
-    mut ctx: Context,
-    _matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
 
     let response = ctx

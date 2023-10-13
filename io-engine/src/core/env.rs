@@ -13,6 +13,7 @@ use std::{
 };
 
 use byte_unit::{Byte, ByteUnit};
+use clap::Parser;
 use futures::{channel::oneshot, future};
 use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
@@ -34,7 +35,6 @@ use spdk_rs::{
     },
     spdk_rs_log,
 };
-use structopt::StructOpt;
 use tokio::runtime::Builder;
 use version_info::{package_description, version_info_str};
 
@@ -87,119 +87,115 @@ fn parse_ps_timeout(src: &str) -> Result<Duration, String> {
         .map(|d| d.clamp(Duration::from_secs(1), Duration::from_secs(60)))
 }
 
-#[derive(Debug, Clone, StructOpt)]
-#[structopt(
+#[derive(Debug, Clone, Parser)]
+#[clap(
     name = package_description!(),
     about = "Containerized Attached Storage (CAS) for k8s",
     version = version_info_str!(),
-    setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
-    #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
+    #[clap(short = 'g', default_value = grpc::default_endpoint_str())]
     /// IP address and port (optional) for the gRPC server to listen on.
     pub grpc_endpoint: String,
-    #[structopt(short = "R")]
+    #[clap(short = 'R')]
     /// Registration grpc endpoint
     pub registration_endpoint: Option<Uri>,
-    #[structopt(short = "L")]
+    #[clap(short = 'L')]
     /// Enable logging for sub components.
     pub log_components: Vec<String>,
-    #[structopt(short = "F")]
+    #[clap(short = 'F')]
     /// Log format.
     pub log_format: Option<logger::LogFormat>,
-    #[structopt(short = "m", default_value = "0x1")]
+    #[clap(short = 'm', default_value = "0x1")]
     /// The reactor mask to be used for starting up the instance
     pub reactor_mask: String,
-    #[structopt(short = "N")]
+    #[clap(short = 'N')]
     /// Name of the node where mayastor is running (ID used by control plane)
     pub node_name: Option<String>,
     /// The maximum amount of hugepage memory we are allowed to allocate in
     /// MiB. A value of 0 means no limit.
-    #[structopt(short = "s", parse(try_from_str = parse_mb), default_value = "0")]
+    #[clap(short = 's', value_parser = parse_mb, default_value = "0")]
     pub mem_size: i32,
-    #[structopt(short = "u")]
+    #[clap(short = 'u')]
     /// Disable the use of PCIe devices.
     pub no_pci: bool,
-    #[structopt(short = "r", default_value = "/var/tmp/mayastor.sock")]
+    #[clap(short = 'r', default_value = "/var/tmp/mayastor.sock")]
     /// Path to create the rpc socket.
     pub rpc_address: String,
-    #[structopt(short = "y")]
+    #[clap(short = 'y')]
     /// Path to mayastor config YAML file.
     pub mayastor_config: Option<String>,
-    #[structopt(long)]
+    #[clap(long)]
     /// Path to persistence through power loss nvme reservation base directory.
     pub ptpl_dir: Option<String>,
-    #[structopt(short = "P")]
+    #[clap(short = 'P')]
     /// Path to pool config file.
     pub pool_config: Option<String>,
-    #[structopt(long = "huge-dir")]
+    #[clap(long = "huge-dir")]
     /// Path to hugedir.
     pub hugedir: Option<String>,
-    #[structopt(long = "env-context")]
+    #[clap(long = "env-context")]
     /// Pass additional arguments to the EAL environment.
     pub env_context: Option<String>,
-    #[structopt(short = "l")]
+    #[clap(short = 'l')]
     /// List of cores to run on instead of using the core mask. When specified
     /// it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
-    #[structopt(short = "p")]
+    #[clap(short = 'p')]
     /// Endpoint of the persistent store.
     pub ps_endpoint: Option<String>,
-    #[structopt(
+    #[clap(
         long = "ps-timeout",
         default_value = "10s",
-        parse(try_from_str = parse_ps_timeout),
+        value_parser = parse_ps_timeout,
     )]
     /// Persistent store timeout.
     pub ps_timeout: Duration,
-    #[structopt(long = "ps-retries", default_value = "30")]
+    #[clap(long = "ps-retries", default_value = "30")]
     /// Persistent store operation retries.
     pub ps_retries: u8,
-    #[structopt(long = "bdev-pool-size", default_value = "65535")]
+    #[clap(long = "bdev-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for bdev I/O contexts
     pub bdev_io_ctx_pool_size: u64,
-    #[structopt(long = "nvme-ctl-pool-size", default_value = "65535")]
+    #[clap(long = "nvme-ctl-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for NVMe controller I/O contexts
     pub nvme_ctl_io_ctx_pool_size: u64,
-    #[structopt(short = "T", long = "tgt-iface", env = "NVMF_TGT_IFACE")]
+    #[clap(short = 'T', long = "tgt-iface", env = "NVMF_TGT_IFACE")]
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
     /// NVMF target Command Retry Delay.
-    #[structopt(long = "tgt-crdt", env = "NVMF_TGT_CRDT", default_value = "0")]
+    #[clap(long = "tgt-crdt", env = "NVMF_TGT_CRDT", default_value = "0")]
     pub nvmf_tgt_crdt: u16,
     /// The gRPC api version.
-    #[structopt(
+    #[clap(
         long,
-        value_delimiter = ",",
+        value_delimiter = ',',
         default_value = "V0,V1",
         env = "API_VERSIONS"
     )]
     pub api_versions: Vec<ApiVersion>,
     /// Dump stack trace for all threads inside I/O agent process with target
     /// PID.
-    #[structopt(long = "diagnose-stack", short = "d", env = "DIAGNOSE_STACK")]
+    #[clap(short = 'd', long = "diagnose-stack", env = "DIAGNOSE_STACK")]
     pub diagnose_stack: Option<u32>,
     /// Enable reactor freeze detection.
-    #[structopt(long)]
+    #[clap(long)]
     pub reactor_freeze_detection: bool,
     /// Timeout (in seconds) for reactor freeze detection.
-    #[structopt(
-        long = "reactor-freeze-timeout",
-        env = "REACTOR_FREEZE_TIMEOUT"
-    )]
+    #[clap(long = "reactor-freeze-timeout", env = "REACTOR_FREEZE_TIMEOUT")]
     pub reactor_freeze_timeout: Option<u64>,
     /// Skip install of the signal handler which will trigger process graceful
     /// termination.
-    #[structopt(long, hidden = true)]
+    #[clap(long, hide = true)]
     pub skip_sig_handler: bool,
     /// Whether the nexus channel should have readers/writers configured.
     /// This must be set true ONLY from tests. This option can be removed once
     /// dynamic reconfiguration of nexus channels can handle async-qpair
     /// connect. Details in NexusChannel::new
-    #[structopt(long = "enable-io-all-thrd-nexus-channels", hidden = true)]
+    #[clap(long = "enable-io-all-thrd-nexus-channels", hide = true)]
     pub enable_io_all_thrd_nexus_channels: bool,
     /// Events message-bus endpoint url.
-    #[structopt(long)]
+    #[clap(long)]
     pub events_url: Option<url::Url>,
 }
 

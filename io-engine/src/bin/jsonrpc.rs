@@ -8,32 +8,31 @@
 
 extern crate serde_json;
 
+use clap::Parser;
 use jsonrpc::call;
-use structopt::StructOpt;
 use version_info::{package_description, version_info_str};
 
 /// TODO
-#[derive(Debug, StructOpt)]
-#[structopt(
+#[derive(Debug, Parser)]
+#[clap(
     name = package_description!(),
     version = version_info_str!(),
     about = "Mayastor json-rpc client",
-    setting = structopt::clap::AppSettings::ColoredHelp
 )]
 struct Opt {
-    #[structopt(short = "s", default_value = "/var/tmp/mayastor.sock")]
+    #[clap(short = 's', default_value = "/var/tmp/mayastor.sock")]
     socket: String,
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     cmd: Sub,
 }
 
 /// TODO
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 enum Sub {
-    #[structopt(name = "raw")]
+    #[clap(name = "raw")]
     /// call a method with a raw JSON payload
     Raw {
-        #[structopt(name = "method")]
+        #[clap(name = "method")]
         method: String,
         arg: Option<String>,
     },
@@ -41,7 +40,7 @@ enum Sub {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let fut = match opt.cmd {
         Sub::Raw {

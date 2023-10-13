@@ -5,7 +5,7 @@ use crate::{
     GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use futures::StreamExt;
 use mayastor_api::v1 as v1_rpc;
@@ -15,88 +15,78 @@ use strum::VariantNames;
 use strum_macros::{AsRefStr, EnumString, EnumVariantNames};
 use tonic::Status;
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let inject = SubCommand::with_name("inject")
+pub fn subcommands() -> Command {
+    let inject = Command::new("inject")
         .about("manage fault injections")
         .arg(
-            Arg::with_name("add")
-                .short("a")
+            Arg::new("add")
+                .short('a')
                 .long("add")
                 .required(false)
-                .takes_value(true)
-                .multiple(true)
+                .action(clap::ArgAction::Append)
                 .number_of_values(1)
                 .help("new injection uri"),
         )
         .arg(
-            Arg::with_name("remove")
-                .short("r")
+            Arg::new("remove")
+                .short('r')
                 .long("remove")
                 .required(false)
-                .takes_value(true)
-                .multiple(true)
+                .action(clap::ArgAction::Append)
                 .number_of_values(1)
                 .help("injection uri"),
         );
 
-    let wipe = SubCommand::with_name("wipe")
+    let wipe = Command::new("wipe")
         .about("Wipe Resource")
         .arg(
-            Arg::with_name("resource")
+            Arg::new("resource")
                 .required(true)
                 .index(1)
-                .possible_values(Resource::resources())
+                .value_parser(Resource::resources().to_vec())
                 .help("Resource to Wipe"),
         )
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(2)
                 .help("Resource uuid"),
         )
         .arg(
-            Arg::with_name("pool-uuid")
+            Arg::new("pool-uuid")
                 .long("pool-uuid")
                 .required(false)
-                .takes_value(true)
-                .requires_if("resource", Resource::Replica.as_ref())
+                .requires_if(Resource::Replica.as_ref(), "resource")
                 .conflicts_with("pool-name")
                 .help("Uuid of the pool where the replica resides"),
         )
         .arg(
-            Arg::with_name("pool-name")
+            Arg::new("pool-name")
                 .long("pool-name")
                 .required(false)
-                .takes_value(true)
-                .requires_if("resource", Resource::Replica.as_ref())
+                .requires_if(Resource::Replica.as_ref(), "resource")
                 .conflicts_with("pool-uuid")
                 .help("Name of the pool where the replica resides"),
         )
         .arg(
-            Arg::with_name("method")
-                .short("m")
+            Arg::new("method")
+                .short('m')
                 .long("method")
-                .takes_value(true)
                 .value_name("METHOD")
                 .default_value("WriteZeroes")
-                .possible_values(WipeMethod::methods())
+                .value_parser(WipeMethod::methods().to_vec())
                 .help("Method used to wipe the replica"),
         )
         .arg(
-            Arg::with_name("chunk-size")
-                .short("c")
+            Arg::new("chunk-size")
+                .short('c')
                 .long("chunk-size")
-                .takes_value(true)
                 .value_name("CHUNK-SIZE")
                 .help("Reporting back stats after each chunk is wiped"),
         );
 
-    SubCommand::with_name("test")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("test")
+        .arg_required_else_help(true)
         .about("Test management")
         .subcommand(inject)
         .subcommand(wipe)
@@ -137,13 +127,10 @@ impl From<WipeMethod> for v1_rpc::test::wipe_options::WipeMethod {
     }
 }
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("inject", Some(args)) => injections(ctx, args).await,
-        ("wipe", Some(args)) => wipe(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("inject", args) => injections(ctx, args).await,
+        ("wipe", args) => wipe(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -151,10 +138,10 @@ pub async fn handler(
     }
 }
 
-async fn wipe(ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
+async fn wipe(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let resource = matches
-        .value_of("resource")
-        .map(Resource::from_str)
+        .get_one::<String>("resource")
+        .map(|s| Resource::from_str(s.as_str()))
         .ok_or_else(|| ClientError::MissingValue {
             field: "resource".to_string(),
         })?
@@ -168,25 +155,25 @@ async fn wipe(ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
 
 async fn replica_wipe(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_owned();
 
-    let pool = match matches.value_of("pool-uuid") {
+    let pool = match matches.get_one::<String>("pool-uuid") {
         Some(uuid) => Some(v1_rpc::test::wipe_replica_request::Pool::PoolUuid(
             uuid.to_string(),
         )),
-        None => matches.value_of("pool-name").map(|name| {
+        None => matches.get_one::<String>("pool-name").map(|name| {
             v1_rpc::test::wipe_replica_request::Pool::PoolName(name.to_string())
         }),
     };
 
-    let method_str = matches.value_of("method").ok_or_else(|| {
+    let method_str = matches.get_one::<String>("method").ok_or_else(|| {
         ClientError::MissingValue {
             field: "method".to_string(),
         }
@@ -195,9 +182,10 @@ async fn replica_wipe(
         .map_err(|e| Status::invalid_argument(e.to_string()))
         .context(GrpcStatus)?;
 
-    let chunk_size = parse_size(matches.value_of("chunk-size").unwrap_or("0"))
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-        .context(GrpcStatus)?;
+    let chunk_size =
+        parse_size(matches.get_one::<&str>("chunk-size").unwrap_or(&"0"))
+            .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
+            .context(GrpcStatus)?;
     let response = ctx
         .v1
         .test
@@ -303,10 +291,10 @@ fn adjust_bytes(bytes: u64) -> String {
 
 async fn injections(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
-    let inj_add = matches.values_of("add");
-    let inj_remove = matches.values_of("remove");
+    let inj_add = matches.get_many::<String>("add");
+    let inj_remove = matches.get_many::<String>("remove");
     if inj_add.is_none() && inj_remove.is_none() {
         return list_injections(ctx).await;
     }
