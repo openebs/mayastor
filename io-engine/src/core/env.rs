@@ -4,6 +4,7 @@ use std::{
     net::Ipv4Addr,
     os::raw::{c_char, c_void},
     pin::Pin,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
@@ -54,6 +55,7 @@ use crate::{
     persistent_store::PersistentStoreBuilder,
     subsys::{
         self,
+        config::opts::TARGET_CRDT_LEN,
         registration::registration_grpc::ApiVersion,
         Config,
         PoolConfig,
@@ -85,6 +87,30 @@ fn parse_ps_timeout(src: &str) -> Result<Duration, String> {
     humantime::parse_duration(src)
         .map_err(|e| format!("Invalid argument {src}: {e}"))
         .map(|d| d.clamp(Duration::from_secs(1), Duration::from_secs(60)))
+}
+
+/// Parses Command Retry Delay(s): either a single integer or a comma-separated
+/// list of three integers.
+fn parse_crdt(src: &str) -> Result<[u16; TARGET_CRDT_LEN], String> {
+    fn parse_val(s: &str) -> Result<u16, String> {
+        let u = u16::from_str(s).map_err(|e| e.to_string())?;
+        if u > 100 {
+            Err("Command Retry Delay value is too big".to_string())
+        } else {
+            Ok(u)
+        }
+    }
+
+    let items = src.split(',').collect::<Vec<&str>>();
+    match items.as_slice() {
+        [one] => Ok([parse_val(one)?, 0, 0]),
+        [one, two, three] => {
+            Ok([parse_val(one)?, parse_val(two)?, parse_val(three)?])
+        }
+        _ => Err("Command Retry Delay argument must be an integer or \
+                  a comma-separated list of three intergers"
+            .to_string()),
+    }
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -163,9 +189,18 @@ pub struct MayastorCliArgs {
     #[clap(short = 'T', long = "tgt-iface", env = "NVMF_TGT_IFACE")]
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
-    /// NVMF target Command Retry Delay.
-    #[clap(long = "tgt-crdt", env = "NVMF_TGT_CRDT", default_value = "0")]
-    pub nvmf_tgt_crdt: u16,
+    /// NVMF target Command Retry Delay in x100 ms (single integer or three
+    /// comma-separated integers). First value is used for errors on nexus
+    /// target except reservation conflict and no space; second
+    /// value is used for reservation conflict and no space on nexus target;
+    /// third value is used for all errors on replica target.
+    #[clap(
+        long = "tgt-crdt",
+        env = "NVMF_TGT_CRDT",
+        default_value = "0",
+        value_parser = parse_crdt,
+    )]
+    pub nvmf_tgt_crdt: [u16; TARGET_CRDT_LEN],
     /// The gRPC api version.
     #[clap(
         long,
@@ -242,7 +277,7 @@ impl Default for MayastorCliArgs {
             nvme_ctl_io_ctx_pool_size: 65535,
             registration_endpoint: None,
             nvmf_tgt_interface: None,
-            nvmf_tgt_crdt: 0,
+            nvmf_tgt_crdt: [0; TARGET_CRDT_LEN],
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             diagnose_stack: None,
             reactor_freeze_detection: false,
@@ -344,7 +379,8 @@ pub struct MayastorEnvironment {
     bdev_io_ctx_pool_size: u64,
     nvme_ctl_io_ctx_pool_size: u64,
     nvmf_tgt_interface: Option<String>,
-    pub nvmf_tgt_crdt: u16,
+    /// NVMF target Command Retry Delay in x100 ms.
+    pub nvmf_tgt_crdt: [u16; TARGET_CRDT_LEN],
     api_versions: Vec<ApiVersion>,
     skip_sig_handler: bool,
     enable_io_all_thrd_nexus_channels: bool,
@@ -391,7 +427,7 @@ impl Default for MayastorEnvironment {
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             nvmf_tgt_interface: None,
-            nvmf_tgt_crdt: 0,
+            nvmf_tgt_crdt: [0; TARGET_CRDT_LEN],
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,

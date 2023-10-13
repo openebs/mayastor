@@ -2,7 +2,7 @@ use std::{net::SocketAddr, path::PathBuf};
 
 use super::{
     file_io::{compare_files, test_write_to_file, DataSize},
-    fio::{run_fio_jobs, Fio},
+    fio::{spawn_fio_task, Fio},
     nexus::{make_nexus_nqn, make_nexus_serial},
     nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
 };
@@ -89,7 +89,7 @@ pub async fn test_fio_to_nvmf(
         })
         .collect();
 
-    run_fio_jobs(&fio).await
+    spawn_fio_task(&fio).await
 }
 
 /// TODO
@@ -111,5 +111,5 @@ pub async fn test_fio_to_nvmf_aio(
         })
         .collect();
 
-    run_fio_jobs(&fio).await
+    spawn_fio_task(&fio).await
 }

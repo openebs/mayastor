@@ -76,6 +76,10 @@ impl GetOpts for NexusOpts {
     }
 }
 
+/// Length of target Command Retry Delay configuration array.
+/// Must be equal to the size of `spdk_nvmf_target_opts.crdt`.
+pub const TARGET_CRDT_LEN: usize = 3;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NvmfTgtConfig {
@@ -83,8 +87,8 @@ pub struct NvmfTgtConfig {
     pub name: String,
     /// the max number of namespaces this target should allow for
     pub max_namespaces: u32,
-    /// Command Retry Delay.
-    pub crdt: u16,
+    /// NVMF target Command Retry Delay in x100 ms.
+    pub crdt: [u16; TARGET_CRDT_LEN],
     /// TCP transport options
     pub opts: NvmfTcpTransportOpts,
 }
@@ -94,7 +98,7 @@ impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
         let mut out = Self::default();
         copy_str_with_null(&o.name, &mut out.name);
         out.max_subsystems = o.max_namespaces;
-        out.crdt[0] = o.crdt;
+        out.crdt = o.crdt;
         out
     }
 }

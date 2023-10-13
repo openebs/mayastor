@@ -14,8 +14,10 @@ use spdk_rs::{
         nvmf_subsystem_set_ana_state,
         nvmf_subsystem_set_cntlid_range,
         spdk_bdev_nvme_opts,
+        spdk_nvmf_ctrlr_set_cpl_error_cb,
         spdk_nvmf_ns_get_bdev,
         spdk_nvmf_ns_opts,
+        spdk_nvmf_request,
         spdk_nvmf_subsystem,
         spdk_nvmf_subsystem_add_host,
         spdk_nvmf_subsystem_add_listener,
@@ -46,9 +48,14 @@ use spdk_rs::{
         spdk_nvmf_subsystem_state_change_done,
         spdk_nvmf_subsystem_stop,
         spdk_nvmf_tgt,
+        SPDK_NVME_SCT_GENERIC,
+        SPDK_NVME_SC_CAPACITY_EXCEEDED,
+        SPDK_NVME_SC_RESERVATION_CONFLICT,
         SPDK_NVMF_SUBTYPE_DISCOVERY,
         SPDK_NVMF_SUBTYPE_NVME,
     },
+    NvmeStatus,
+    NvmfController,
     NvmfSubsystemEvent,
 };
 
@@ -64,6 +71,7 @@ use crate::{
     },
 };
 
+/// TODO
 #[derive(Debug, PartialOrd, PartialEq)]
 pub enum SubType {
     Nvme,
@@ -235,20 +243,41 @@ impl NvmfSubsystem {
         let nexus = nexus_lookup_nqn(&nqn);
         let event = NvmfSubsystemEvent::from_cb_args(event, ctx);
 
-        debug!("NVMF subsystem event '{nqn}': {event:?}");
+        debug!("NVMF subsystem event {subsystem:?}: {event:?}");
 
         match event {
             NvmfSubsystemEvent::HostConnect(ctrlr) => {
+                info!(
+                    "Subsystem '{nqn}': host connected: '{host}'",
+                    host = ctrlr.hostnqn()
+                );
+
                 if let Some(nex) = nexus {
                     nex.add_initiator(&ctrlr.hostnqn());
+                    subsystem.host_connect_nexus(ctrlr);
+                } else {
+                    subsystem.host_connect_replica(ctrlr);
                 }
             }
             NvmfSubsystemEvent::HostDisconnect(ctrlr) => {
+                info!(
+                    "Subsystem '{nqn}': host disconnected: '{host}'",
+                    host = ctrlr.hostnqn()
+                );
+
                 if let Some(nex) = nexus {
                     nex.rm_initiator(&ctrlr.hostnqn());
+                    subsystem.host_disconnect_nexus(ctrlr);
+                } else {
+                    subsystem.host_disconnect_replica(ctrlr);
                 }
             }
             NvmfSubsystemEvent::HostKeepAliveTimeout(ctrlr) => {
+                warn!(
+                    "Subsystem '{nqn}': host keep alive timeout: '{host}'",
+                    host = ctrlr.hostnqn()
+                );
+
                 if let Some(nex) = nexus {
                     nex.initiator_keep_alive_timeout(&ctrlr.hostnqn());
                 }
@@ -256,6 +285,99 @@ impl NvmfSubsystem {
             NvmfSubsystemEvent::Unknown => {
                 // ignore unknown events
             }
+        }
+    }
+
+    /// Completion error callback for nexuses.
+    unsafe extern "C" fn nexus_cpl_error_cb(
+        req: *mut spdk_nvmf_request,
+        _cb_arg: *mut ::std::os::raw::c_void,
+    ) {
+        let req = &mut *req;
+        let cpl = req.nvme_cpl_mut();
+        let mut status = cpl.status();
+
+        if status.crd() == 0 {
+            return;
+        }
+
+        // Use CRD #2 for certain errors.
+        match status.status() {
+            NvmeStatus::Generic(SPDK_NVME_SC_RESERVATION_CONFLICT)
+            | NvmeStatus::Generic(SPDK_NVME_SC_CAPACITY_EXCEEDED) => {
+                status.set_crd(2);
+            }
+            _ => {}
+        }
+
+        cpl.set_status(status);
+    }
+
+    /// Called upon a host connection to a nexus.
+    fn host_connect_nexus(&self, ctrlr: NvmfController) {
+        unsafe {
+            spdk_nvmf_ctrlr_set_cpl_error_cb(
+                ctrlr.0.as_ptr(),
+                Some(Self::nexus_cpl_error_cb),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Called upon a host disconnection from a nexus.
+    fn host_disconnect_nexus(&self, ctrlr: NvmfController) {
+        unsafe {
+            spdk_nvmf_ctrlr_set_cpl_error_cb(
+                ctrlr.0.as_ptr(),
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Completion error callback for replicas.
+    unsafe extern "C" fn replica_cpl_error_cb(
+        req: *mut spdk_nvmf_request,
+        _cb_arg: *mut ::std::os::raw::c_void,
+    ) {
+        let req = &mut *req;
+        let cpl = req.nvme_cpl_mut();
+
+        let mut status = cpl.status();
+
+        // Change CRD for replica to 3.
+        if status.crd() == 1 {
+            status.set_crd(3);
+        }
+
+        // Correct vendor-specific ENOSPC error.
+        if status.status().is_no_space() {
+            status.set_sct(SPDK_NVME_SCT_GENERIC as u16);
+            status.set_sc(SPDK_NVME_SC_CAPACITY_EXCEEDED as u16);
+        }
+
+        cpl.set_status(status);
+    }
+
+    /// Called upon a host connection to a replica.
+    fn host_connect_replica(&self, ctrlr: NvmfController) {
+        unsafe {
+            spdk_nvmf_ctrlr_set_cpl_error_cb(
+                ctrlr.0.as_ptr(),
+                Some(Self::replica_cpl_error_cb),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Called upon a host disconnection from a replica.
+    fn host_disconnect_replica(&self, ctrlr: NvmfController) {
+        unsafe {
+            spdk_nvmf_ctrlr_set_cpl_error_cb(
+                ctrlr.0.as_ptr(),
+                None,
+                std::ptr::null_mut(),
+            );
         }
     }
 

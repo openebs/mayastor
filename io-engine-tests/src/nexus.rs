@@ -11,6 +11,8 @@ use super::{
             DestroyNexusRequest,
             ListNexusOptions,
             Nexus,
+            NexusNvmePreemption,
+            NvmeReservation,
             PublishNexusRequest,
             RebuildHistoryRecord,
             RebuildHistoryRequest,
@@ -46,6 +48,7 @@ pub struct NexusBuilder {
     resv_key: u64,
     preempt_key: u64,
     resv_type: Option<i32>,
+    preempt_policy: i32,
     children: Option<Vec<String>>,
     nexus_info_key: Option<String>,
     serial: Option<String>,
@@ -63,6 +66,7 @@ impl NexusBuilder {
             resv_key: 1,
             preempt_key: 0,
             resv_type: None,
+            preempt_policy: 0,
             children: None,
             nexus_info_key: None,
             serial: None,
@@ -120,6 +124,21 @@ impl NexusBuilder {
         self.with_bdev(&r.bdev())
     }
 
+    pub fn with_resv_key(mut self, r: u64) -> Self {
+        self.resv_key = r;
+        self
+    }
+
+    pub fn with_resv_type(mut self, r: NvmeReservation) -> Self {
+        self.resv_type = Some(r as i32);
+        self
+    }
+
+    pub fn with_preempt_policy(mut self, r: NexusNvmePreemption) -> Self {
+        self.preempt_policy = r as i32;
+        self
+    }
+
     fn replica_uri(&self, r: &ReplicaBuilder) -> String {
         if r.rpc() == self.rpc() {
             r.bdev()
@@ -174,7 +193,7 @@ impl NexusBuilder {
                 children: self.children.as_ref().unwrap().clone(),
                 nexus_info_key: self.nexus_info_key.as_ref().unwrap().clone(),
                 resv_type: self.resv_type,
-                preempt_policy: 0,
+                preempt_policy: self.preempt_policy,
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())
