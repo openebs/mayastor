@@ -4,13 +4,16 @@ pub mod common;
 
 use std::time::Duration;
 
-use io_engine::core::fault_injection::{
-    FaultDomain,
-    FaultIoOperation,
-    FaultIoStage,
-    FaultMethod,
-    Injection,
-    InjectionBuilder,
+use io_engine::core::{
+    fault_injection::{
+        FaultDomain,
+        FaultIoOperation,
+        FaultIoStage,
+        FaultMethod,
+        Injection,
+        InjectionBuilder,
+    },
+    IoCompletionStatus,
 };
 
 use common::{
@@ -24,16 +27,14 @@ use common::{
         ComposeTest,
     },
     file_io::DataSize,
+    fio::{spawn_fio_task, Fio, FioJob},
     nexus::{test_write_to_nexus, NexusBuilder},
+    nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
     test::{add_fault_injection, list_fault_injections},
 };
-use io_engine::core::IoCompletionStatus;
-use io_engine_tests::{
-    fio::{Fio, FioJob},
-    nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
-};
+
 use spdk_rs::NvmeStatus;
 
 static POOL_SIZE: u64 = 60;
@@ -493,14 +494,12 @@ async fn replica_bdev_io_injection() {
             .with_rw("write"),
     );
 
-    tokio::spawn(async move { fio_ok.run() })
+    spawn_fio_task(&fio_ok)
         .await
-        .unwrap()
         .expect("This FIO job must succeed");
 
-    let r = tokio::spawn(async move { fio_fail.run() })
+    let r = spawn_fio_task(&fio_fail)
         .await
-        .unwrap()
         .expect_err("This FIO job must fail");
 
     assert_eq!(r.kind(), std::io::ErrorKind::Other);

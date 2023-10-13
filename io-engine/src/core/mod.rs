@@ -78,6 +78,8 @@ pub use snapshot::{
     SnapshotXattrs,
 };
 
+use spdk_rs::libspdk::SPDK_NVME_SC_CAPACITY_EXCEEDED;
+
 mod bdev;
 mod block_device;
 mod descriptor;
@@ -496,10 +498,13 @@ impl Debug for IoCompletionStatus {
 
 impl From<NvmeStatus> for IoCompletionStatus {
     fn from(s: NvmeStatus) -> Self {
-        if s == NvmeStatus::VendorSpecific(libc::ENOSPC) {
-            IoCompletionStatus::LvolError(LvolFailure::NoSpace)
-        } else {
-            IoCompletionStatus::NvmeError(s)
+        match s {
+            NvmeStatus::NO_SPACE
+            | NvmeStatus::Generic(SPDK_NVME_SC_CAPACITY_EXCEEDED) => {
+                IoCompletionStatus::LvolError(LvolFailure::NoSpace)
+            }
+
+            _ => IoCompletionStatus::NvmeError(s),
         }
     }
 }

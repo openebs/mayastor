@@ -1,36 +1,51 @@
 use super::file_io::DataSize;
-use std::sync::atomic::{AtomicU32, Ordering};
+use nix::errno::Errno;
+use std::{
+    path::Path,
+    sync::atomic::{AtomicU32, Ordering},
+    time::{Duration, Instant},
+};
+
+/// TODO
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FioJobResult {
+    NotRun,
+    Ok,
+    Error(Errno),
+}
 
 /// TODO
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct FioJob {
     /// Job counter.
-    counter: u32,
+    pub counter: u32,
     /// Job name.
-    name: String,
+    pub name: String,
     /// I/O engine to use. Default: spdk.
-    ioengine: String,
+    pub ioengine: String,
     /// Filename.
-    filename: String,
+    pub filename: String,
     /// Type of I/O pattern.
-    rw: String,
+    pub rw: String,
     /// If true, use non-buffered I/O (usually O_DIRECT). Default: true.
-    direct: bool,
+    pub direct: bool,
     /// Block size for I/O units. Default: 4k.
-    blocksize: Option<u32>,
+    pub blocksize: Option<u32>,
     /// Offset in the file to start I/O. Data before the offset will not be
     /// touched.
-    offset: Option<DataSize>,
+    pub offset: Option<DataSize>,
     /// Number of I/O units to keep in flight against the file.
-    iodepth: Option<u32>,
+    pub iodepth: Option<u32>,
     /// Number of clones (processes/threads performing the same workload) of
     /// this job. Default: 1.
-    numjobs: u32,
+    pub numjobs: u32,
     /// Terminate processing after the specified number of seconds.
-    runtime: Option<u32>,
+    pub runtime: Option<u32>,
     /// Total size of I/O for this job.
-    size: Option<DataSize>,
+    pub size: Option<DataSize>,
+    /// Run result.
+    pub result: FioJobResult,
 }
 
 impl Default for FioJob {
@@ -58,6 +73,7 @@ impl FioJob {
             numjobs: 1,
             runtime: None,
             size: None,
+            result: FioJobResult::NotRun,
         }
     }
 
@@ -100,6 +116,12 @@ impl FioJob {
         r
     }
 
+    /// Sets job name.
+    pub fn with_name(mut self, v: &str) -> Self {
+        self.name = v.to_string();
+        self
+    }
+
     /// I/O engine to use. Default: spdk.
     pub fn with_ioengine(mut self, v: &str) -> Self {
         self.ioengine = v.to_string();
@@ -109,6 +131,12 @@ impl FioJob {
     /// Filename.
     pub fn with_filename(mut self, v: &str) -> Self {
         self.filename = v.to_string();
+        self
+    }
+
+    /// Filename.
+    pub fn with_filename_path(mut self, v: impl AsRef<Path>) -> Self {
+        self.filename = v.as_ref().to_str().unwrap().to_string();
         self
     }
 
@@ -170,6 +198,10 @@ pub struct Fio {
     pub jobs: Vec<FioJob>,
     pub verbose: bool,
     pub verbose_err: bool,
+    pub script: String,
+    pub total_time: Duration,
+    pub exit: i32,
+    pub err_messages: Vec<String>,
 }
 
 impl Fio {
@@ -197,7 +229,7 @@ impl Fio {
         self
     }
 
-    pub fn run(&self) -> std::io::Result<()> {
+    pub fn run(mut self) -> Self {
         let cmd = "sudo -E LD_PRELOAD=$FIO_SPDK fio";
 
         let args = self
@@ -207,49 +239,110 @@ impl Fio {
             .collect::<Vec<_>>()
             .join(" ");
 
-        let script = format!("{cmd} {args}");
+        self.script = format!("{cmd} --output-format=json {args}");
 
-        if self.verbose {
-            println!("{script}");
+        if self.verbose || self.verbose_err {
+            println!("{}", self.script);
         }
 
+        let start_time = Instant::now();
         let (exit, stdout, stderr) = run_script::run(
-            &script,
+            &self.script,
             &Vec::new(),
             &run_script::ScriptOptions::new(),
         )
         .unwrap();
 
-        if exit == 0 {
-            if self.verbose {
-                println!("FIO:");
-                println!("{script}");
-                println!("Output:");
-                println!("{stdout}");
-            }
+        self.total_time = start_time.elapsed();
+        self.push_err(&stderr);
+        self.exit = exit;
 
-            Ok(())
-        } else {
-            if self.verbose_err {
-                println!("Error running FIO:");
-                println!("{script}");
-                println!("Exit code: {exit}");
-                println!("Output:");
-                println!("{stdout}");
-                println!("Error output:");
-                println!("{stderr}");
-            }
-
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("SPDK FIO error: {stderr}"),
-            ))
+        if let Err(e) = self.update_result(&stdout) {
+            self.push_err(&e);
         }
+
+        if self.verbose_err {
+            println!(
+                "Error(s) running FIO: {s}",
+                s = self.err_messages.join("\n")
+            );
+        }
+
+        self
+    }
+
+    /// TODO
+    fn push_err(&mut self, msg: &str) {
+        let s = msg.trim_end_matches('\n');
+        if !s.is_empty() {
+            self.err_messages.push(s.to_string());
+        }
+    }
+
+    /// TODO
+    fn update_result(&mut self, out: &str) -> Result<(), String> {
+        // Filter out lines error messages, those starting with "fio: ".
+        let out = out
+            .split('\n')
+            .filter(|s| !s.starts_with("fio: "))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        serde_json::from_str::<serde_json::Value>(&out)
+            .map_err(|e| e.to_string())?
+            .get("jobs")
+            .ok_or_else(|| "No 'jobs' item in output".to_string())?
+            .as_array()
+            .ok_or_else(|| "'jobs' item in output is not an array".to_string())?
+            .iter()
+            .for_each(|j| {
+                let name =
+                    j.get("jobname").unwrap().as_str().unwrap().to_string();
+                let err = j.get("error").unwrap().as_i64().unwrap() as i32;
+
+                if let Some(j) = self.find_job_mut(&name) {
+                    if err == 0 {
+                        j.result = FioJobResult::Ok;
+                    } else {
+                        j.result = FioJobResult::Error(Errno::from_i32(err));
+                    }
+                }
+            });
+
+        Ok(())
+    }
+
+    /// TODO
+    pub fn find_job(&self, name: &str) -> Option<&FioJob> {
+        self.jobs.iter().find(|j| j.name == name)
+    }
+
+    /// TODO
+    pub fn find_job_mut(&mut self, name: &str) -> Option<&mut FioJob> {
+        self.jobs.iter_mut().find(|j| j.name == name)
     }
 }
 
-/// TODO
-pub async fn run_fio_jobs(fio: &Fio) -> std::io::Result<()> {
-    let fio = fio.clone();
-    tokio::spawn(async move { fio.run() }).await.unwrap()
+/// Spawns a tokio task and runs the given FIO on it. Any FIO error is converted
+/// into an `std::io::Result`.
+pub async fn spawn_fio_task(fio: &Fio) -> std::io::Result<()> {
+    let fio = tokio::spawn({
+        let fio = fio.clone();
+        async move { fio.run() }
+    })
+    .await
+    .unwrap();
+
+    if fio.exit == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "SPDK FIO error: {exit} {err_msg}",
+                exit = fio.exit,
+                err_msg = fio.err_messages.join("\n")
+            ),
+        ))
+    }
 }

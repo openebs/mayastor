@@ -61,6 +61,7 @@ use crate::{
     subsys::NvmfSubsystem,
 };
 
+use crate::core::IoCompletionStatus;
 use events_api::event::EventAction;
 use spdk_rs::{
     BdevIo,
@@ -261,6 +262,8 @@ pub struct Nexus<'n> {
     pub(super) nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
     pub(super) has_io_device: bool,
+    /// Initiators.
+    initiators: parking_lot::Mutex<HashSet<String>>,
     /// Information associated with the persisted NexusInfo structure.
     pub(super) nexus_info: futures::lock::Mutex<PersistentNexusInfo>,
     /// Nexus I/O subsystem.
@@ -271,10 +274,10 @@ pub struct Nexus<'n> {
     pub(super) rebuild_history: parking_lot::Mutex<Vec<HistoryRecord>>,
     /// Flag to control shutdown from I/O path.
     pub(crate) shutdown_requested: AtomicCell<bool>,
+    /// Last child I/O error.
+    pub(super) last_error: IoCompletionStatus,
     /// Prevent auto-Unpin.
     _pin: PhantomPinned,
-    /// Initiators.
-    initiators: parking_lot::Mutex<HashSet<String>>,
 }
 
 impl<'n> Debug for Nexus<'n> {
@@ -379,6 +382,7 @@ impl<'n> Nexus<'n> {
             event_sink: None,
             rebuild_history: parking_lot::Mutex::new(Vec::new()),
             shutdown_requested: AtomicCell::new(false),
+            last_error: IoCompletionStatus::Success,
             _pin: Default::default(),
         };
 
