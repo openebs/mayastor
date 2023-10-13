@@ -86,23 +86,7 @@ let
     };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
-    preFixup = ''
-      mkdir $lib
-      mv $out/lib/* $lib/
-      rmdir $out/lib
-      local ms_lib_path
-      local new_rpath
-      echo "fixing rpaths in io-engine binaries to point to $lib"
-      ms_lib_path=$(echo "$lib" | sed 's/\//\\\//g')
-      for bin in "$out/bin/"*; do
-        new_rpath=$(patchelf --print-rpath "$bin" | sed -r 's/\/build(\/[^:]*)+/'"$ms_lib_path"'/')
-        patchelf \
-            --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
-            --set-rpath "$new_rpath" \
-            "$bin"
-      done
-    '';
-    outputs = [ "out" "lib" ];
+    outputs = [ "out" ];
   };
 in
 {

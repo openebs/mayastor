@@ -5,7 +5,6 @@ name = "io-engine"
 description = "Engine responsible for managing I/Os"
 version = "1.0.0"
 default-run = "io-engine-client"
-build = "build.rs"
 
 [features]
 default = ["spdk-async-qpair-connect"]
