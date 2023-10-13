@@ -367,7 +367,7 @@ impl NvmeTarget {
 
             for event in &events {
                 if event.token() == Token(0) && event.is_writable() {
-                    socket.clone().for_each(|x| self.handle_event(x));
+                    socket.iter().for_each(|x| self.handle_event(x));
                 }
             }
         }

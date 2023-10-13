@@ -31,8 +31,7 @@ use tracing_subscriber::{
 
 /// Returns hostname.
 fn get_hostname() -> String {
-    let mut buf = [0u8; 64];
-    match nix::unistd::gethostname(&mut buf) {
+    match nix::unistd::gethostname() {
         Ok(name) => name.to_str().unwrap_or("").to_string(),
         Err(_) => std::env::var("HOSTNAME").unwrap_or_else(|_| String::new()),
     }
