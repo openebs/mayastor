@@ -25,6 +25,7 @@
 
 use std::{cmp::min, pin::Pin};
 
+use futures::channel::oneshot;
 use snafu::ResultExt;
 
 use super::{
@@ -56,9 +57,14 @@ use crate::{
         Reactors,
         VerboseError,
     },
+    subsys::NvmfSubsystem,
 };
 
-use spdk_rs::{ChannelTraverseStatus, IoDeviceChannelTraverse};
+use spdk_rs::{
+    ffihelper::cb_arg,
+    ChannelTraverseStatus,
+    IoDeviceChannelTraverse,
+};
 
 impl<'n> Nexus<'n> {
     /// Create and register a single child to nexus, only allowed during the
@@ -1152,5 +1158,75 @@ impl<'n> Nexus<'n> {
                 *nexus.state.lock() = NexusState::Shutdown;
             }
         });
+    }
+
+    /// Resets nexus nvme children in case of initiator timeout.
+    pub(crate) async fn reset_all_children(nexus_name: String) {
+        let mut nex = match nexus_lookup_mut(&nexus_name) {
+            Some(v) => v,
+            None => {
+                warn!("Reset nexus children request: '{nexus_name}' not found");
+                return;
+            }
+        };
+
+        info!("{nex:?}: resetting nexus children ...");
+
+        // Pause the nexus.
+        if let Err(e) = nex.as_mut().pause().await {
+            error!("{nex:?}: failed to pause: {e}");
+            return;
+        }
+
+        debug!("{nex:?}: paused for children reset");
+
+        for child in nex.children_iter() {
+            if !(child.is_healthy() || child.is_opened_unsync()) {
+                continue;
+            }
+
+            let dev = match child.get_device() {
+                Ok(dev) => dev,
+                Err(e) => {
+                    error!("{child:?}: failed to get device: {e:?}");
+                    continue;
+                }
+            };
+
+            if dev.driver_name() != "nvme" {
+                debug!("{child:?}: driver is not NVMe-oF, skipping reset");
+                continue;
+            }
+
+            debug!(
+                "{child:?}: resetting child: {drv}/{prod}",
+                drv = dev.driver_name(),
+                prod = dev.product_name(),
+            );
+
+            let (s, r) = oneshot::channel::<bool>();
+
+            let dev_name = dev.device_name();
+            NvmfSubsystem::reset_controller(&dev_name, cb_arg(s)).await;
+
+            if let Ok(res) = r.await {
+                if !res {
+                    error!("{child:?}: failed to reset");
+                }
+            }
+        }
+
+        // Resume the nexus.
+        if let Err(e) = nex.as_mut().resume().await {
+            error!("{nex:?}: failed to resume: {e}");
+        } else {
+            debug!("{nex:?}: resumed after children reset");
+        }
+
+        if !nex.as_mut().set_open_state() {
+            error!("{nex:?}: failed to set nexus status open");
+        }
+
+        info!("{nex:?}: resetting nexus children done");
     }
 }

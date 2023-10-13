@@ -1,5 +1,10 @@
 use chrono::{DateTime, Utc};
-use spdk_rs::{DmaBuf, IoVec, MediaErrorStatusCode, NvmeStatus};
+use spdk_rs::{
+    libspdk::SPDK_NVME_SC_COMPARE_FAILURE,
+    DmaBuf,
+    IoVec,
+    NvmeStatus,
+};
 use std::sync::Arc;
 
 use crate::core::{
@@ -150,9 +155,7 @@ impl RebuildDescriptor {
                 status, ..
             }) if matches!(
                 status,
-                IoCompletionStatus::NvmeError(NvmeStatus::MediaError(
-                    MediaErrorStatusCode::DeallocatedOrUnwrittenBlock
-                ))
+                IoCompletionStatus::NvmeError(NvmeStatus::UNWRITTEN_BLOCK)
             ) =>
             {
                 Ok(false)
@@ -223,8 +226,8 @@ impl RebuildDescriptor {
                 status, ..
             }) if matches!(
                 status,
-                IoCompletionStatus::NvmeError(NvmeStatus::MediaError(
-                    MediaErrorStatusCode::CompareFailure
+                IoCompletionStatus::NvmeError(NvmeStatus::Media(
+                    SPDK_NVME_SC_COMPARE_FAILURE
                 ))
             ) =>
             {

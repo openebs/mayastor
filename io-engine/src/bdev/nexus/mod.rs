@@ -57,6 +57,8 @@ pub use nexus_iter::{
     nexus_lookup,
     nexus_lookup_mut,
     nexus_lookup_name_uuid,
+    nexus_lookup_nqn,
+    nexus_lookup_nqn_mut,
     nexus_lookup_uuid_mut,
 };
 pub(crate) use nexus_module::{NexusModule, NEXUS_MODULE_NAME};

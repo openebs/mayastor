@@ -3,68 +3,57 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     mem::size_of,
     ptr::{self, NonNull},
-    sync::atomic::Ordering,
 };
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
 
-use crate::bdev::{
-    nexus::{nexus_lookup, nexus_lookup_mut},
-    nvmx::NVME_CONTROLLERS,
-};
-
-use spdk_rs::libspdk::{
-    nvmf_subsystem_find_listener,
-    nvmf_subsystem_set_ana_state,
-    nvmf_subsystem_set_cntlid_range,
-    spdk_bdev_nvme_opts,
-    spdk_nvmf_ctrlr,
-    spdk_nvmf_ns_get_bdev,
-    spdk_nvmf_ns_opts,
-    spdk_nvmf_subsystem,
-    spdk_nvmf_subsystem_add_host,
-    spdk_nvmf_subsystem_add_listener,
-    spdk_nvmf_subsystem_add_ns_ext,
-    spdk_nvmf_subsystem_create,
-    spdk_nvmf_subsystem_destroy,
-    spdk_nvmf_subsystem_disconnect_host,
-    spdk_nvmf_subsystem_get_first,
-    spdk_nvmf_subsystem_get_first_host,
-    spdk_nvmf_subsystem_get_first_listener,
-    spdk_nvmf_subsystem_get_first_ns,
-    spdk_nvmf_subsystem_get_next,
-    spdk_nvmf_subsystem_get_next_host,
-    spdk_nvmf_subsystem_get_next_listener,
-    spdk_nvmf_subsystem_get_nqn,
-    spdk_nvmf_subsystem_listener_get_trid,
-    spdk_nvmf_subsystem_pause,
-    spdk_nvmf_subsystem_remove_host,
-    spdk_nvmf_subsystem_remove_ns,
-    spdk_nvmf_subsystem_resume,
-    spdk_nvmf_subsystem_set_allow_any_host,
-    spdk_nvmf_subsystem_set_ana_reporting,
-    spdk_nvmf_subsystem_set_mn,
-    spdk_nvmf_subsystem_set_sn,
-    spdk_nvmf_subsystem_start,
-    spdk_nvmf_subsystem_state_change_done,
-    spdk_nvmf_subsystem_stop,
-    spdk_nvmf_tgt,
-    SPDK_NVMF_SUBTYPE_DISCOVERY,
-    SPDK_NVMF_SUBTYPE_NVME,
-};
-
-#[cfg(feature = "spdk-subsystem-events")]
-use spdk_rs::libspdk::{
-    spdk_nvmf_subsystem_events,
-    spdk_nvmf_subsystem_register_for_event,
-    SPDK_NVMF_SS_INIATOR_CONNECT,
-    SPDK_NVMF_SS_INIATOR_DISCONNECT,
-    SPDK_NVMF_SS_INIATOR_TIMEOUT,
+use spdk_rs::{
+    libspdk::{
+        nvmf_subsystem_find_listener,
+        nvmf_subsystem_set_ana_state,
+        nvmf_subsystem_set_cntlid_range,
+        spdk_bdev_nvme_opts,
+        spdk_nvmf_ns_get_bdev,
+        spdk_nvmf_ns_opts,
+        spdk_nvmf_subsystem,
+        spdk_nvmf_subsystem_add_host,
+        spdk_nvmf_subsystem_add_listener,
+        spdk_nvmf_subsystem_add_ns_ext,
+        spdk_nvmf_subsystem_create,
+        spdk_nvmf_subsystem_destroy,
+        spdk_nvmf_subsystem_disconnect_host,
+        spdk_nvmf_subsystem_event,
+        spdk_nvmf_subsystem_get_first,
+        spdk_nvmf_subsystem_get_first_host,
+        spdk_nvmf_subsystem_get_first_listener,
+        spdk_nvmf_subsystem_get_first_ns,
+        spdk_nvmf_subsystem_get_next,
+        spdk_nvmf_subsystem_get_next_host,
+        spdk_nvmf_subsystem_get_next_listener,
+        spdk_nvmf_subsystem_get_nqn,
+        spdk_nvmf_subsystem_listener_get_trid,
+        spdk_nvmf_subsystem_pause,
+        spdk_nvmf_subsystem_remove_host,
+        spdk_nvmf_subsystem_remove_ns,
+        spdk_nvmf_subsystem_resume,
+        spdk_nvmf_subsystem_set_allow_any_host,
+        spdk_nvmf_subsystem_set_ana_reporting,
+        spdk_nvmf_subsystem_set_event_cb,
+        spdk_nvmf_subsystem_set_mn,
+        spdk_nvmf_subsystem_set_sn,
+        spdk_nvmf_subsystem_start,
+        spdk_nvmf_subsystem_state_change_done,
+        spdk_nvmf_subsystem_stop,
+        spdk_nvmf_tgt,
+        SPDK_NVMF_SUBTYPE_DISCOVERY,
+        SPDK_NVMF_SUBTYPE_NVME,
+    },
+    NvmfSubsystemEvent,
 };
 
 use crate::{
-    bdev::nexus::ENABLE_NEXUS_RESET,
+    bdev::{nexus::nexus_lookup_nqn, nvmx::NVME_CONTROLLERS},
     constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{Bdev, Reactors, UntypedBdev},
     ffihelper::{cb_arg, done_cb, AsStr, FfiResult, IntoCString},
@@ -92,29 +81,6 @@ impl Display for SubType {
 
 pub struct NvmfSubsystem(pub(crate) NonNull<spdk_nvmf_subsystem>);
 pub struct NvmfSubsystemIterator(*mut spdk_nvmf_subsystem);
-
-#[repr(C)]
-pub struct SpdkNvmfController(pub(crate) NonNull<spdk_nvmf_ctrlr>);
-
-impl SpdkNvmfController {
-    /// Get the hostnqn from the controller
-    fn hostnqn(&self) -> String {
-        unsafe { self.0.as_ref().hostnqn.as_str().to_string() }
-    }
-}
-impl From<*mut spdk_nvmf_ctrlr> for SpdkNvmfController {
-    fn from(s: *mut spdk_nvmf_ctrlr) -> Self {
-        SpdkNvmfController(NonNull::new(s).unwrap())
-    }
-}
-
-impl Debug for SpdkNvmfController {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.debug_struct("SpdkNvmfController")
-            .field("hostnqn", &self.hostnqn())
-            .finish()
-    }
-}
 
 impl Iterator for NvmfSubsystemIterator {
     type Item = NvmfSubsystem;
@@ -221,8 +187,8 @@ impl NvmfSubsystem {
         done_cb(ctx, success);
     }
 
-    /// Resets one NVMe child.
-    pub async fn reset_one_child(dev_name: &str, ctx: *mut c_void) {
+    /// Resets an NVMe controller.
+    pub(crate) async fn reset_controller(dev_name: &str, ctx: *mut c_void) {
         let ctrlr = match NVME_CONTROLLERS.lookup_by_name(dev_name) {
             Some(ctrlr) => ctrlr,
             None => {
@@ -257,164 +223,38 @@ impl NvmfSubsystem {
         }
     }
 
-    /// Resets nexus nvme children in case of initiator timeout.
-    async fn reset_nexus(nexus_name: String) {
-        let mut nex = match nexus_lookup_mut(&nexus_name) {
-            Some(v) => v,
-            None => {
-                warn!("Reset nexus request: '{nexus_name}' not found");
-                return;
-            }
-        };
-
-        info!("{nex:?}: resetting nexus ...");
-
-        // Pause the nexus.
-        if let Err(e) = nex.as_mut().pause().await {
-            error!("{nex:?}: failed to pause: {e}");
-            return;
-        }
-
-        debug!("{nex:?}: paused for reset");
-
-        for child in nex.children_iter() {
-            if !(child.is_healthy() || child.is_opened_unsync()) {
-                continue;
-            }
-
-            let dev = match child.get_device() {
-                Ok(dev) => dev,
-                Err(e) => {
-                    error!("{child:?}: failed to get device: {e:?}");
-                    continue;
-                }
-            };
-
-            if dev.driver_name() != "nvme" {
-                debug!("{child:?}: driver is not NVMe-oF, skipping reset");
-                continue;
-            }
-
-            debug!(
-                "{child:?}: resetting child: {drv}/{prod}",
-                drv = dev.driver_name(),
-                prod = dev.product_name(),
-            );
-
-            let (s, r) = oneshot::channel::<bool>();
-
-            let dev_name = dev.device_name();
-            Self::reset_one_child(&dev_name, cb_arg(s)).await;
-
-            if let Ok(res) = r.await {
-                if !res {
-                    error!("{child:?}: failed to reset");
-                }
-            }
-        }
-
-        // Resume the nexus.
-        if let Err(e) = nex.as_mut().resume().await {
-            error!("{nex:?}: failed to resume: {e}");
-        } else {
-            debug!("{nex:?}: resumed after reset");
-        }
-
-        if !nex.as_mut().set_open_state() {
-            error!("{nex:?}: failed to set nexus status open");
-        }
-
-        info!("{nex:?}: resetting nexus done");
-    }
-
-    #[cfg(feature = "spdk-subsystem-events")]
-    extern "C" fn nvmf_event_handler(
+    /// Subsystem event handlers.
+    extern "C" fn nvmf_subsystem_event_handler(
         subsystem: *mut spdk_nvmf_subsystem,
-        cb_arg: *mut c_void,
-        event: spdk_nvmf_subsystem_events,
+        event: spdk_nvmf_subsystem_event,
+        ctx: *mut c_void,
+        _cb_arg: *mut c_void,
     ) {
-        let ss = NvmfSubsystem::from(subsystem);
+        let subsystem = NvmfSubsystem::from(subsystem);
+        let nqn = subsystem.get_nqn();
+        let nexus = nexus_lookup_nqn(&nqn);
+        let event = NvmfSubsystemEvent::from_cb_args(event, ctx);
 
-        let subsys_nqn = unsafe {
-            spdk_nvmf_subsystem_get_nqn(ss.0.as_ptr())
-                .as_str()
-                .to_string()
-        };
+        debug!("NVMF subsystem event '{nqn}': {event:?}");
 
-        let spdk_ctrlr =
-            SpdkNvmfController::from(cb_arg as *mut spdk_nvmf_ctrlr);
-
-        debug!(
-            "NVMF event handler: {event:?} for subsys '{subsys_nqn}'; \
-            host controler: {spdk_ctrlr:?}"
-        );
-
-        let nexus_name = match extract_nexus_name(&subsys_nqn) {
-            Some(value) => value,
-            None => {
-                warn!(
-                    "NVMF event handler: subsys '{subsys_nqn}' is not a nexus"
-                );
-                return;
-            }
-        };
-
-        let Some(nex) = nexus_lookup(&nexus_name) else {
-            return;
-        };
-
-        let hostnqn = spdk_ctrlr.hostnqn();
         match event {
-            SPDK_NVMF_SS_INIATOR_TIMEOUT => {
-                info!(
-                    "NVMF event handler: {nex:?}: \
-                    initiator timed out: '{hostnqn}'"
-                );
-
-                nex.rm_initiator(&hostnqn);
-
-                if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
-                    debug!(
-                        "NVMF event handler: {nex:?}: \
-                        nexus reset support is disabled"
-                    );
-                    return;
+            NvmfSubsystemEvent::HostConnect(ctrlr) => {
+                if let Some(nex) = nexus {
+                    nex.add_initiator(&ctrlr.hostnqn());
                 }
-
-                if nex.initiator_cnt() > 0 {
-                    error!(
-                        "NVMF event handler: {nex:?}: cannot reset nexus: \
-                        other initiator(s) exist"
-                    );
-                    return;
+            }
+            NvmfSubsystemEvent::HostDisconnect(ctrlr) => {
+                if let Some(nex) = nexus {
+                    nex.rm_initiator(&ctrlr.hostnqn());
                 }
-
-                if !nex.set_reset_state() {
-                    error!(
-                        "NVMF event handler: {nex:?}: reset operation \
-                        is not permitted"
-                    );
-                    return;
+            }
+            NvmfSubsystemEvent::HostKeepAliveTimeout(ctrlr) => {
+                if let Some(nex) = nexus {
+                    nex.initiator_keep_alive_timeout(&ctrlr.hostnqn());
                 }
-
-                Reactors::master().send_future(Self::reset_nexus(nexus_name));
             }
-            SPDK_NVMF_SS_INIATOR_CONNECT => {
-                info!(
-                    "NVMF event handler: {nex:?}: \
-                    initiator connected: '{hostnqn}'"
-                );
-                nex.add_initiator(&hostnqn);
-            }
-            SPDK_NVMF_SS_INIATOR_DISCONNECT => {
-                info!(
-                    "NVMF event handler: {nex:?}: \
-                    initiator disconnected: '{hostnqn}'"
-                );
-                nex.rm_initiator(&hostnqn);
-            }
-            _ => {
-                warn!("NVMF event handler: unsupported event: {event:?}");
+            NvmfSubsystemEvent::Unknown => {
+                // ignore unknown events
             }
         }
     }
@@ -441,18 +281,13 @@ impl NvmfSubsystem {
             })?;
 
         // Register subsystem event handler.
-        #[cfg(feature = "spdk-subsystem-events")]
         unsafe {
-            spdk_nvmf_subsystem_register_for_event(
+            spdk_nvmf_subsystem_set_event_cb(
                 ss.as_ptr(),
-                Some(NvmfSubsystem::nvmf_event_handler),
+                Some(NvmfSubsystem::nvmf_subsystem_event_handler),
+                std::ptr::null_mut(),
             )
-        }
-        .to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: uuid.into(),
-            msg: "failed to register for events".into(),
-        })?;
+        };
 
         // Use truncated SHA256 digest of Bdev UUID or name for subsystem
         // serial number.
@@ -1103,10 +938,4 @@ impl NvmfSubsystem {
 /// Makes an NQN froma UUID.
 fn make_nqn(id: &str) -> String {
     format!("{NVME_NQN_PREFIX}:{id}")
-}
-
-fn extract_nexus_name(nqn: &str) -> Option<String> {
-    let vec: Vec<&str> = nqn.split(':').collect();
-
-    vec.get(1).map(ToString::to_string)
 }

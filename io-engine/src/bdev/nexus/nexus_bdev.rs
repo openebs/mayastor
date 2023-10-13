@@ -12,6 +12,7 @@ use std::{
     marker::PhantomPinned,
     os::raw::c_void,
     pin::Pin,
+    sync::atomic::Ordering,
 };
 
 use crossbeam::atomic::AtomicCell;
@@ -40,7 +41,9 @@ use crate::{
             nexus_io_subsystem::NexusPauseState,
             nexus_persistence::PersistentNexusInfo,
             NexusIoSubsystem,
+            ENABLE_NEXUS_RESET,
         },
+        PtplFileOps,
     },
     core::{
         partition,
@@ -49,14 +52,15 @@ use crate::{
         IoType,
         Protocol,
         Reactor,
+        Reactors,
         Share,
         VerboseError,
     },
+    eventing::Event,
     rebuild::HistoryRecord,
     subsys::NvmfSubsystem,
 };
 
-use crate::{bdev::PtplFileOps, eventing::Event};
 use events_api::event::EventAction;
 use spdk_rs::{
     BdevIo,
@@ -473,6 +477,29 @@ impl<'n> Nexus<'n> {
     #[allow(dead_code)]
     pub(crate) fn initiator_cnt(&self) -> usize {
         self.initiators.lock().len()
+    }
+
+    /// TODO
+    pub(crate) fn initiator_keep_alive_timeout(&self, hostnqn: &str) {
+        self.rm_initiator(hostnqn);
+
+        if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
+            debug!("{self:?}: nexus reset support is disabled");
+            return;
+        }
+
+        if self.initiator_cnt() > 0 {
+            error!("{self:?}: cannot reset nexus: other initiator(s) exist");
+            return;
+        }
+
+        if !self.set_reset_state() {
+            error!("{self:?}: reset operation is not permitted");
+            return;
+        }
+
+        Reactors::master()
+            .send_future(Nexus::reset_all_children(self.name.clone()));
     }
 
     /// Sets the state of the Nexus.

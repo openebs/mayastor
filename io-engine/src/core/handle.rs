@@ -25,9 +25,7 @@ use spdk_rs::{
     BdevOps,
     DmaBuf,
     DmaError,
-    GenericStatusCode,
     IoChannelGuard,
-    MediaErrorStatusCode,
     NvmeStatus,
 };
 
@@ -125,7 +123,7 @@ impl<T: BdevOps> BdevHandle<T> {
         }
 
         let status = if success {
-            NvmeStatus::Generic(GenericStatusCode::Success)
+            NvmeStatus::SUCCESS
         } else {
             NvmeStatus::from(io)
         };
@@ -162,7 +160,7 @@ impl<T: BdevOps> BdevHandle<T> {
         }
 
         match r.await.expect("Failed awaiting write IO") {
-            NvmeStatus::Generic(GenericStatusCode::Success) => Ok(buffer.len()),
+            NvmeStatus::SUCCESS => Ok(buffer.len()),
             status => Err(CoreError::WriteFailed {
                 status: IoCompletionStatus::NvmeError(status),
                 offset,
@@ -199,13 +197,13 @@ impl<T: BdevOps> BdevHandle<T> {
         }
 
         match r.await.expect("Failed awaiting read IO") {
-            NvmeStatus::Generic(GenericStatusCode::Success) => Ok(buffer.len()),
-            NvmeStatus::MediaError(
-                MediaErrorStatusCode::DeallocatedOrUnwrittenBlock,
-            ) => Err(CoreError::ReadingUnallocatedBlock {
-                offset,
-                len: buffer.len(),
-            }),
+            NvmeStatus::SUCCESS => Ok(buffer.len()),
+            NvmeStatus::UNWRITTEN_BLOCK => {
+                Err(CoreError::ReadingUnallocatedBlock {
+                    offset,
+                    len: buffer.len(),
+                })
+            }
             status => Err(CoreError::ReadFailed {
                 status: IoCompletionStatus::NvmeError(status),
                 offset,
@@ -231,9 +229,7 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting reset IO")
-            == NvmeStatus::Generic(GenericStatusCode::Success)
-        {
+        if r.await.expect("Failed awaiting reset IO").is_success() {
             Ok(())
         } else {
             Err(CoreError::ResetFailed {})
@@ -265,8 +261,9 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting write zeroes IO")
-            == NvmeStatus::Generic(GenericStatusCode::Success)
+        if r.await
+            .expect("Failed awaiting write zeroes IO")
+            .is_success()
         {
             Ok(())
         } else {
@@ -346,9 +343,7 @@ impl<T: BdevOps> BdevHandle<T> {
             });
         }
 
-        if r.await.expect("Failed awaiting NVMe Admin IO")
-            == NvmeStatus::Generic(GenericStatusCode::Success)
-        {
+        if r.await.expect("Failed awaiting NVMe Admin IO").is_success() {
             Ok(())
         } else {
             Err(CoreError::NvmeAdminFailed {

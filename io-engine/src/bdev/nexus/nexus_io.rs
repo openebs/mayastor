@@ -7,7 +7,13 @@ use libc::c_void;
 use nix::errno::Errno;
 
 use spdk_rs::{
-    libspdk::{spdk_bdev_io, spdk_io_channel},
+    libspdk::{
+        spdk_bdev_io,
+        spdk_io_channel,
+        SPDK_NVME_SC_ABORTED_SQ_DELETION,
+        SPDK_NVME_SC_INVALID_OPCODE,
+        SPDK_NVME_SC_RESERVATION_CONFLICT,
+    },
     BdevIo,
 };
 
@@ -18,7 +24,6 @@ use crate::core::{
     BlockDeviceHandle,
     CoreError,
     Cores,
-    GenericStatusCode,
     IoCompletionStatus,
     IoStatus,
     IoSubmissionFailure,
@@ -688,7 +693,7 @@ impl<'n> NexusBio<'n> {
         if matches!(
             status,
             IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                GenericStatusCode::InvalidOpcode
+                SPDK_NVME_SC_INVALID_OPCODE
             ))
         ) {
             warn!(
@@ -703,7 +708,7 @@ impl<'n> NexusBio<'n> {
         if matches!(
             status,
             IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                GenericStatusCode::ReservationConflict
+                SPDK_NVME_SC_RESERVATION_CONFLICT
             ))
         ) {
             warn!(
@@ -717,7 +722,7 @@ impl<'n> NexusBio<'n> {
         if matches!(
             status,
             IoCompletionStatus::NvmeError(NvmeStatus::Generic(
-                GenericStatusCode::AbortedSubmissionQueueDeleted
+                SPDK_NVME_SC_ABORTED_SQ_DELETION
             ))
         ) {
             warn!(
