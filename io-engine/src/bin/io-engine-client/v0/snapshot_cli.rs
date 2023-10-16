@@ -6,18 +6,15 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v0 as rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("create", Some(args)) => create(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("create", args) => create(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -25,32 +22,23 @@ pub async fn handler(
     }
 }
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let create = SubCommand::with_name("create")
-        .about("create a snapshot")
-        .arg(
-            Arg::with_name("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        );
+pub fn subcommands() -> Command {
+    let create = Command::new("create").about("create a snapshot").arg(
+        Arg::new("uuid")
+            .required(true)
+            .index(1)
+            .help("uuid of the nexus"),
+    );
 
-    SubCommand::with_name("snapshot")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("snapshot")
+        .arg_required_else_help(true)
         .about("Snapshot management")
         .subcommand(create)
 }
 
-async fn create(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?

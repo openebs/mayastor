@@ -3,39 +3,32 @@
 
 use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
+pub fn subcommands() -> Command {
     let list =
-        SubCommand::with_name("list").about("List available block devices")
+        Command::new("list").about("List available block devices")
             .arg(
-                Arg::with_name("all")
-                    .short("a")
+                Arg::new("all")
+                    .short('a')
                     .long("all")
-                    .takes_value(false)
+                    .action(clap::ArgAction::SetTrue)
                     .help("List all block devices (ie. also include devices currently in use)"),
             );
 
-    SubCommand::with_name("device")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("device")
+        .arg_required_else_help(true)
         .about("Host devices")
         .subcommand(list)
 }
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("list", Some(args)) => list_block_devices(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("list", args) => list_block_devices(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -53,9 +46,9 @@ fn get_partition_type(device: &v1rpc::host::BlockDevice) -> String {
 
 async fn list_block_devices(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
-    let all = matches.is_present("all");
+    let all = matches.get_flag("all");
     let response = ctx
         .v1
         .host

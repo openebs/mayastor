@@ -32,7 +32,7 @@ pub enum ClientError {
     MissingValue { field: String },
 }
 
-pub type Result<T, E = ClientError> = std::result::Result<T, E>;
+type Result<T, E = ClientError> = std::result::Result<T, E>;
 
 pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())

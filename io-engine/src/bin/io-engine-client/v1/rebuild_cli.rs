@@ -6,25 +6,22 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v1;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("start", Some(args)) => start(ctx, args).await,
-        ("stop", Some(args)) => stop(ctx, args).await,
-        ("pause", Some(args)) => pause(ctx, args).await,
-        ("resume", Some(args)) => resume(ctx, args).await,
-        ("state", Some(args)) => state(ctx, args).await,
-        ("stats", Some(args)) => stats(ctx, args).await,
-        ("progress", Some(args)) => progress(ctx, args).await,
-        ("history", Some(args)) => history(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("start", args) => start(ctx, args).await,
+        ("stop", args) => stop(ctx, args).await,
+        ("pause", args) => pause(ctx, args).await,
+        ("resume", args) => resume(ctx, args).await,
+        ("state", args) => state(ctx, args).await,
+        ("stats", args) => stats(ctx, args).await,
+        ("progress", args) => progress(ctx, args).await,
+        ("history", args) => history(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -32,127 +29,123 @@ pub async fn handler(
     }
 }
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let start = SubCommand::with_name("start")
+pub fn subcommands() -> Command {
+    let start = Command::new("start")
         .about("starts a rebuild")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to start rebuilding"),
         );
 
-    let stop = SubCommand::with_name("stop")
+    let stop = Command::new("stop")
         .about("stops a rebuild")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to stop rebuilding"),
         );
 
-    let pause = SubCommand::with_name("pause")
+    let pause = Command::new("pause")
         .about("pauses a rebuild")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to pause rebuilding"),
         );
 
-    let resume = SubCommand::with_name("resume")
+    let resume = Command::new("resume")
         .about("resumes a rebuild")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to resume rebuilding"),
         );
 
-    let state = SubCommand::with_name("state")
+    let state = Command::new("state")
         .about("gets the rebuild state of the child")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to get the rebuild state from"),
         );
 
-    let stats = SubCommand::with_name("stats")
+    let stats = Command::new("stats")
         .about("gets the rebuild stats of the child")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to get the rebuild stats from"),
         );
 
-    let progress = SubCommand::with_name("progress")
+    let progress = Command::new("progress")
         .about("shows the progress of a rebuild")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of child to get the rebuild progress from"),
         );
 
-    let history = SubCommand::with_name("history")
+    let history = Command::new("history")
         .about("shows the rebuild history for children of a nexus")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         );
 
-    SubCommand::with_name("rebuild")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("rebuild")
+        .arg_required_else_help(true)
         .about("Rebuild management")
         .subcommand(start)
         .subcommand(stop)
@@ -164,18 +157,15 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(history)
 }
 
-async fn start(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn start(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -208,15 +198,15 @@ async fn start(
     Ok(())
 }
 
-async fn stop(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
+async fn stop(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -249,18 +239,15 @@ async fn stop(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
     Ok(())
 }
 
-async fn pause(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn pause(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -294,18 +281,15 @@ async fn pause(
     Ok(())
 }
 
-async fn resume(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn resume(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -339,18 +323,15 @@ async fn resume(
     Ok(())
 }
 
-async fn state(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn state(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -386,12 +367,9 @@ async fn state(
     Ok(())
 }
 
-async fn history(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn history(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
@@ -464,18 +442,15 @@ async fn history(
     Ok(())
 }
 
-async fn stats(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn stats(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -537,18 +512,15 @@ async fn stats(
     Ok(())
 }
 
-async fn progress(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn progress(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?

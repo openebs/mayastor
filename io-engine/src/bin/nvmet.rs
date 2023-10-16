@@ -10,7 +10,7 @@
 //! This will start a nexus which is shared over MY_POD_IP. Another env variable
 //! is set to ignore labeling errors. This does not work for rebuild tests
 //! however.
-use clap::{App, AppSettings, Arg, ArgMatches};
+use clap::{Arg, ArgMatches, Command};
 use futures::FutureExt;
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
@@ -21,7 +21,6 @@ use io_engine::{
 use version_info::version_info_str;
 
 io_engine::CPS_INIT!();
-extern crate tracing;
 
 const NEXUS: &str = "nexus-e1e27668-fbe1-4c8a-9108-513f6e44d342";
 
@@ -55,10 +54,14 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     });
 }
 
-async fn create_nexus(args: &ArgMatches<'_>) {
-    let ep = args.values_of("uri").expect("invalid endpoints");
+async fn create_nexus(args: &ArgMatches) {
+    let ep = args.get_many::<String>("uri").expect("invalid endpoints");
 
-    let size = args.value_of("size").unwrap().parse::<u64>().unwrap();
+    let size = args
+        .get_one::<String>("size")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
 
     let children = ep.into_iter().map(|v| v.into()).collect::<Vec<String>>();
 
@@ -71,23 +74,19 @@ async fn create_nexus(args: &ArgMatches<'_>) {
 }
 
 fn main() {
-    let matches = App::new("NVMeT CLI")
+    let matches = Command::new("NVMeT CLI")
         .version(version_info_str!())
-        .settings(&[
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways])
         .about("NVMe test utility to quickly create a nexus over existing nvme targets")
-        .arg(Arg::with_name("size")
-            .required(true)
+        .arg(Arg::new("size")
             .default_value("64")
-            .short("s")
+            .short('s')
             .long("size")
             .help("Size of the nexus to create in MB")
         )
         .arg(
-            Arg::with_name("uri")
-                .short("u")
-                .min_values(1)
+            Arg::new("uri")
+                .short('u')
+                .required(true)
                 .long("uris")
                 .help("NVMe-OF TCP targets to connect to"))
         .get_matches();
@@ -98,7 +97,7 @@ fn main() {
         ..Default::default()
     };
 
-    logger::init("mayastor=trace");
+    logger::init("io_engine=trace");
 
     let ms = MayastorEnvironment::new(margs.clone()).init();
     start_tokio_runtime(&margs);

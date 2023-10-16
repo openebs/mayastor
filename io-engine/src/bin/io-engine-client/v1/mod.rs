@@ -14,21 +14,17 @@ mod test_cli;
 pub(crate) use super::context;
 use crate::ContextCreate;
 pub(crate) use crate::GrpcStatus;
-use clap::{App, AppSettings, Arg};
+use clap::{Arg, Command};
 use snafu::ResultExt;
 use version_info::version_info_str;
 
 pub(super) async fn main_() -> crate::Result<()> {
-    let matches = App::new("Mayastor CLI V1")
+    let matches = Command::new("Mayastor CLI V1")
         .version(version_info_str!())
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways])
         .about("CLI utility for Mayastor")
         .arg(
-            Arg::with_name("bind")
-                .short("b")
+            Arg::new("bind")
+                .short('b')
                 .long("bind")
                 .env("MY_POD_IP")
                 .default_value("http://127.0.0.1:10124")
@@ -36,34 +32,36 @@ pub(super) async fn main_() -> crate::Result<()> {
                 .help("The URI of mayastor instance")
                 .global(true))
         .arg(
-            Arg::with_name("quiet")
-                .short("q")
+            Arg::new("quiet")
+                .short('q')
+                .action(clap::ArgAction::SetTrue)
+                .global(true)
                 .long("quiet")
                 .help("Do not print any output except for list records"))
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
+            Arg::new("verbose")
+                .short('v')
                 .long("verbose")
-                .multiple(true)
+                .action(clap::ArgAction::Count)
                 .help("Verbose output")
                 .conflicts_with("quiet")
                 .global(true))
         .arg(
-            Arg::with_name("units")
-                .short("u")
+            Arg::new("units")
+                .short('u')
                 .long("units")
                 .value_name("BASE")
-                .possible_values(&["i", "d"])
+                .value_parser(["i", "d"])
                 .hide_possible_values(true)
                 .next_line_help(true)
                 .help("Output with large units: i for kiB, etc. or d for kB, etc."))
         .arg(
-            Arg::with_name("output")
-                .short("o")
+            Arg::new("output")
+                .short('o')
                 .long("output")
                 .value_name("FORMAT")
                 .default_value("default")
-                .possible_values(&["default", "json"])
+                .value_parser(["default", "json"])
                 .global(true)
                 .help("Output format.")
         )
@@ -78,24 +76,25 @@ pub(super) async fn main_() -> crate::Result<()> {
         .subcommand(jsonrpc_cli::subcommands())
         .subcommand(controller_cli::subcommands())
         .subcommand(test_cli::subcommands())
+        .arg_required_else_help(true)
         .get_matches();
 
     let ctx = context::Context::new(&matches)
         .await
         .context(ContextCreate)?;
 
-    let status = match matches.subcommand() {
-        ("bdev", Some(args)) => bdev_cli::handler(ctx, args).await,
-        ("device", Some(args)) => device_cli::handler(ctx, args).await,
-        ("nexus", Some(args)) => nexus_cli::handler(ctx, args).await,
-        ("perf", Some(args)) => perf_cli::handler(ctx, args).await,
-        ("pool", Some(args)) => pool_cli::handler(ctx, args).await,
-        ("replica", Some(args)) => replica_cli::handler(ctx, args).await,
-        ("rebuild", Some(args)) => rebuild_cli::handler(ctx, args).await,
-        ("snapshot", Some(args)) => snapshot_cli::handler(ctx, args).await,
-        ("controller", Some(args)) => controller_cli::handler(ctx, args).await,
-        ("jsonrpc", Some(args)) => jsonrpc_cli::json_rpc_call(ctx, args).await,
-        ("test", Some(args)) => test_cli::handler(ctx, args).await,
+    let status = match matches.subcommand().unwrap() {
+        ("bdev", args) => bdev_cli::handler(ctx, args).await,
+        ("device", args) => device_cli::handler(ctx, args).await,
+        ("nexus", args) => nexus_cli::handler(ctx, args).await,
+        ("perf", args) => perf_cli::handler(ctx, args).await,
+        ("pool", args) => pool_cli::handler(ctx, args).await,
+        ("replica", args) => replica_cli::handler(ctx, args).await,
+        ("rebuild", args) => rebuild_cli::handler(ctx, args).await,
+        ("snapshot", args) => snapshot_cli::handler(ctx, args).await,
+        ("controller", args) => controller_cli::handler(ctx, args).await,
+        ("jsonrpc", args) => jsonrpc_cli::json_rpc_call(ctx, args).await,
+        ("test", args) => test_cli::handler(ctx, args).await,
         _ => panic!("Command not found"),
     };
     status

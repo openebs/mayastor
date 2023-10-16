@@ -5,108 +5,96 @@ use crate::{
     GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let create = SubCommand::with_name("create")
+pub fn subcommands() -> Command {
+    let create = Command::new("create")
         .about("Create new or import existing storage pool")
         .arg(
-            Arg::with_name("pool")
+            Arg::new("pool")
                 .required(true)
                 .index(1)
                 .help("Storage pool name"),
         )
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .long("uuid")
                 .required(false)
-                .takes_value(true)
                 .help("Storage pool uuid"),
         )
         .arg(
-            Arg::with_name("cluster-size")
+            Arg::new("cluster-size")
                 .long("cluster-size")
                 .required(false)
-                .takes_value(true)
                 .help("SPDK cluster size"),
         )
         .arg(
-            Arg::with_name("disk")
+            Arg::new("disk")
                 .required(true)
-                .multiple(true)
+                .action(clap::ArgAction::Append)
                 .index(2)
                 .help("Disk device files"),
         );
 
-    let import = SubCommand::with_name("import")
+    let import = Command::new("import")
         .about("Import existing storage pool, fail if pool does not exist")
         .arg(
-            Arg::with_name("pool")
+            Arg::new("pool")
                 .required(true)
                 .index(1)
                 .help("Storage pool name"),
         )
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .long("uuid")
                 .required(false)
-                .takes_value(true)
                 .help("Storage pool uuid"),
         )
         .arg(
-            Arg::with_name("disk")
+            Arg::new("disk")
                 .required(true)
-                .multiple(true)
+                .action(clap::ArgAction::Append)
                 .index(2)
                 .help("Disk device files"),
         );
 
-    let destroy = SubCommand::with_name("destroy")
-        .about("Destroy storage pool")
-        .arg(
-            Arg::with_name("pool")
-                .required(true)
-                .index(1)
-                .help("Storage pool name"),
-        );
+    let destroy = Command::new("destroy").about("Destroy storage pool").arg(
+        Arg::new("pool")
+            .required(true)
+            .index(1)
+            .help("Storage pool name"),
+    );
 
-    let export = SubCommand::with_name("export")
+    let export = Command::new("export")
         .about("Export storage pool without destroying it")
         .arg(
-            Arg::with_name("pool")
+            Arg::new("pool")
                 .required(true)
                 .index(1)
                 .help("Storage pool name"),
         );
 
-    SubCommand::with_name("pool")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("pool")
+        .arg_required_else_help(true)
         .about("Storage pool management")
         .subcommand(create)
         .subcommand(import)
         .subcommand(destroy)
         .subcommand(export)
-        .subcommand(SubCommand::with_name("list").about("List storage pools"))
+        .subcommand(Command::new("list").about("List storage pools"))
 }
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("create", Some(args)) => create(ctx, args).await,
-        ("import", Some(args)) => import(ctx, args).await,
-        ("destroy", Some(args)) => destroy(ctx, args).await,
-        ("export", Some(args)) => export(ctx, args).await,
-        ("list", Some(args)) => list(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("create", args) => create(ctx, args).await,
+        ("import", args) => import(ctx, args).await,
+        ("destroy", args) => destroy(ctx, args).await,
+        ("export", args) => export(ctx, args).await,
+        ("list", args) => list(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -114,28 +102,25 @@ pub async fn handler(
     }
 }
 
-async fn create(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .value_of("pool")
+        .get_one::<String>("pool")
         .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();
 
-    let uuid = matches.value_of("uuid");
+    let uuid = matches.get_one::<String>("uuid");
 
     let disks_list = matches
-        .values_of("disk")
+        .get_many::<String>("disk")
         .ok_or_else(|| ClientError::MissingValue {
             field: "disk".to_string(),
         })?
         .map(|dev| dev.to_owned())
         .collect();
 
-    let cluster_size = match matches.value_of("cluster-size") {
+    let cluster_size = match matches.get_one::<String>("cluster-size") {
         Some(s) => match parse_size(s) {
             Ok(s) => Some(s.get_bytes() as u32),
             Err(err) => {
@@ -179,19 +164,16 @@ async fn create(
     Ok(())
 }
 
-async fn import(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn import(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .value_of("pool")
+        .get_one::<String>("pool")
         .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
         .to_owned();
-    let uuid = matches.value_of("uuid");
+    let uuid = matches.get_one::<String>("uuid");
     let disks_list = matches
-        .values_of("disk")
+        .get_many::<String>("disk")
         .ok_or_else(|| ClientError::MissingValue {
             field: "disk".to_string(),
         })?
@@ -228,12 +210,9 @@ async fn import(
     Ok(())
 }
 
-async fn destroy(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .value_of("pool")
+        .get_one::<String>("pool")
         .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
@@ -259,12 +238,9 @@ async fn destroy(
     Ok(())
 }
 
-async fn export(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn export(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .value_of("pool")
+        .get_one::<String>("pool")
         .ok_or_else(|| ClientError::MissingValue {
             field: "pool".to_string(),
         })?
@@ -290,10 +266,7 @@ async fn export(
     Ok(())
 }
 
-async fn list(
-    mut ctx: Context,
-    _matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
 
     let response = ctx

@@ -3,41 +3,42 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tracing::debug;
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    SubCommand::with_name("jsonrpc")
+pub fn subcommands() -> Command {
+    Command::new("jsonrpc")
         .about("Call a json-rpc method with a raw JSON payload")
         .arg(
-            Arg::with_name("method")
+            Arg::new("method")
                 .required(true)
                 .index(1)
                 .help("Name of method to call"),
         )
         .arg(
-            Arg::with_name("params")
+            Arg::new("params")
                 .default_value("")
                 .index(2)
                 .help("Parameters (JSON string) to pass to method call"),
         )
+        .arg_required_else_help(true)
 }
 
 pub async fn json_rpc_call(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
     let method = matches
-        .value_of("method")
+        .get_one::<String>("method")
         .ok_or_else(|| ClientError::MissingValue {
             field: "method".to_string(),
         })?
         .to_owned();
     let params = matches
-        .value_of("params")
+        .get_one::<String>("params")
         .ok_or_else(|| ClientError::MissingValue {
             field: "params".to_string(),
         })?

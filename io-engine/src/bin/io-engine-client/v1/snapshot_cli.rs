@@ -6,25 +6,20 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v1 as v1_rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("create_for_nexus", Some(args)) => create_for_nexus(ctx, args).await,
-        ("create_for_replica", Some(args)) => {
-            create_for_replica(ctx, args).await
-        }
-        ("list", Some(args)) => list(ctx, args).await,
-        ("destroy", Some(args)) => destroy(ctx, args).await,
-        ("create_clone", Some(args)) => create_clone(ctx, args).await,
-        ("list_clone", Some(args)) => list_clone(ctx, args).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("create_for_nexus", args) => create_for_nexus(ctx, args).await,
+        ("create_for_replica", args) => create_for_replica(ctx, args).await,
+        ("list", args) => list(ctx, args).await,
+        ("destroy", args) => destroy(ctx, args).await,
+        ("create_clone", args) => create_clone(ctx, args).await,
+        ("list_clone", args) => list_clone(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -32,149 +27,142 @@ pub async fn handler(
     }
 }
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let create_for_nexus = SubCommand::with_name("create_for_nexus")
+pub fn subcommands() -> Command {
+    let create_for_nexus = Command::new("create_for_nexus")
         .about("Create a snapshot for nexus")
         .arg(
-            Arg::with_name("nexus_uuid")
+            Arg::new("nexus_uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("entity_id")
+            Arg::new("entity_id")
                 .required(true)
                 .index(2)
                 .help("Entity Id"),
         )
         .arg(
-            Arg::with_name("txn_id")
+            Arg::new("txn_id")
                 .required(true)
                 .index(3)
                 .help("Transaction id"),
         )
         .arg(
-            Arg::with_name("snapshot_name")
+            Arg::new("snapshot_name")
                 .required(true)
                 .index(4)
                 .help("Snapshot name"),
         )
         .arg(
-            Arg::with_name("replica_uuid")
+            Arg::new("replica_uuid")
                 .required(true)
                 .index(5)
                 .help("replica uuid"),
         )
         .arg(
-            Arg::with_name("snapshot_uuid")
+            Arg::new("snapshot_uuid")
                 .required(true)
                 .index(6)
                 .help("snapshot uuid"),
         );
-    let create_for_replica = SubCommand::with_name("create_for_replica")
+    let create_for_replica = Command::new("create_for_replica")
         .about("Create a snapshot for replica")
         .arg(
-            Arg::with_name("replica_uuid")
+            Arg::new("replica_uuid")
                 .required(true)
                 .index(1)
                 .help("Replica uuid"),
         )
         .arg(
-            Arg::with_name("snapshot_name")
+            Arg::new("snapshot_name")
                 .required(true)
                 .index(2)
                 .help("Snapshot name"),
         )
         .arg(
-            Arg::with_name("entity_id")
+            Arg::new("entity_id")
                 .required(true)
                 .index(3)
                 .help("Entity Id"),
         )
         .arg(
-            Arg::with_name("txn_id")
+            Arg::new("txn_id")
                 .required(true)
                 .index(4)
                 .help("Transaction id"),
         )
         .arg(
-            Arg::with_name("snapshot_uuid")
+            Arg::new("snapshot_uuid")
                 .required(true)
                 .index(5)
                 .help("Snapshot uuid"),
         );
-    let list = SubCommand::with_name("list")
+    let list = Command::new("list")
         .about("List snapshots details")
         .arg(
-            Arg::with_name("source_uuid")
+            Arg::new("source_uuid")
                 .required(false)
                 .index(1)
                 .help("Source uuid from which snapshot is created"),
         )
         .arg(
-            Arg::with_name("snapshot_uuid")
+            Arg::new("snapshot_uuid")
                 .required(false)
                 .index(2)
                 .help("Snapshot uuid"),
         );
-    let destroy = SubCommand::with_name("destroy")
+    let destroy = Command::new("destroy")
         .about("Destroy snapshot")
         .arg(
-            Arg::with_name("snapshot_uuid")
+            Arg::new("snapshot_uuid")
                 .required(true)
                 .index(1)
                 .help("Snapshot uuid"),
         )
         .arg(
-            Arg::with_name("pool-uuid")
+            Arg::new("pool-uuid")
                 .long("pool-uuid")
                 .required(false)
-                .takes_value(true)
                 .conflicts_with("pool-name")
                 .help("Uuid of the pool where snapshot resides"),
         )
         .arg(
-            Arg::with_name("pool-name")
+            Arg::new("pool-name")
                 .long("pool-name")
                 .required(false)
-                .takes_value(true)
                 .conflicts_with("pool-uuid")
                 .help("Name of the pool where snapshot resides"),
         );
-    let create_clone = SubCommand::with_name("create_clone")
+    let create_clone = Command::new("create_clone")
         .about("Create a clone from snapshot")
         .arg(
-            Arg::with_name("snapshot_uuid")
+            Arg::new("snapshot_uuid")
                 .required(true)
                 .index(1)
                 .help("Snapshot uuid"),
         )
         .arg(
-            Arg::with_name("clone_name")
+            Arg::new("clone_name")
                 .required(true)
                 .index(2)
                 .help("Clone name"),
         )
         .arg(
-            Arg::with_name("clone_uuid")
+            Arg::new("clone_uuid")
                 .required(true)
                 .index(3)
                 .help("Clone uuid"),
         );
-    let list_clone = SubCommand::with_name("list_clone")
-        .about("List clones details")
-        .arg(
-            Arg::with_name("snapshot_uuid")
+    let list_clone =
+        Command::new("list_clone").about("List clones details").arg(
+            Arg::new("snapshot_uuid")
                 .required(false)
                 .index(1)
                 .help("Snapshot uuid"),
         );
-    SubCommand::with_name("snapshot")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("snapshot")
+        .arg_required_else_help(true)
         .about("Snapshot management")
         .subcommand(create_for_nexus)
         .subcommand(create_for_replica)
@@ -186,46 +174,46 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 
 async fn create_for_nexus(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
     let nexus_uuid = matches
-        .value_of("nexus_uuid")
+        .get_one::<String>("nexus_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "nexus_uuid".to_string(),
         })?
         .to_owned();
     let entity_id = matches
-        .value_of("entity_id")
+        .get_one::<String>("entity_id")
         .ok_or_else(|| ClientError::MissingValue {
             field: "entity_id".to_string(),
         })?
         .to_owned();
     let txn_id = matches
-        .value_of("txn_id")
+        .get_one::<String>("txn_id")
         .ok_or_else(|| ClientError::MissingValue {
             field: "txn_id".to_string(),
         })?
         .to_owned();
     let snapshot_name = matches
-        .value_of("snapshot_name")
+        .get_one::<String>("snapshot_name")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_name".to_string(),
         })?
         .to_owned();
     let replica_uuid = matches
-        .values_of("replica_uuid")
+        .get_many::<String>("replica_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "replica_uuid".to_string(),
         })?
         .map(|c| c.to_string())
         .collect::<Vec<String>>();
     let snapshot_uuid = matches
-        .values_of("snapshot_uuid")
+        .get_many::<String>("snapshot_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_uuid".to_string(),
         })?
-        .map(|c| c.to_string())
-        .collect::<Vec<String>>();
+        .cloned()
+        .collect::<Vec<_>>();
     if replica_uuid.len() != snapshot_uuid.len() {
         return Err(ClientError::MissingValue {
                 field: "Parameter count doesn't match between replica_uuid and snapshot_uuid".to_string()
@@ -303,34 +291,34 @@ async fn create_for_nexus(
 /// Replica Snapshot Create CLI Function.
 async fn create_for_replica(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
     let replica_uuid = matches
-        .value_of("replica_uuid")
+        .get_one::<String>("replica_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "replica_uuid".to_string(),
         })?
         .to_owned();
     let snapshot_name = matches
-        .value_of("snapshot_name")
+        .get_one::<String>("snapshot_name")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_name".to_string(),
         })?
         .to_owned();
     let entity_id = matches
-        .value_of("entity_id")
+        .get_one::<String>("entity_id")
         .ok_or_else(|| ClientError::MissingValue {
             field: "entity_id".to_string(),
         })?
         .to_owned();
     let txn_id = matches
-        .value_of("txn_id")
+        .get_one::<String>("txn_id")
         .ok_or_else(|| ClientError::MissingValue {
             field: "txn_id".to_string(),
         })?
         .to_owned();
     let snapshot_uuid = matches
-        .value_of("snapshot_uuid")
+        .get_one::<String>("snapshot_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_uuid".to_string(),
         })?
@@ -405,9 +393,13 @@ async fn create_for_replica(
     Ok(())
 }
 /// Replica Snapshot List CLI Function.
-async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
-    let source_uuid = matches.value_of("source_uuid").map(|s| s.to_owned());
-    let snapshot_uuid = matches.value_of("snapshot_uuid").map(|s| s.to_owned());
+async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    let source_uuid = matches
+        .get_one::<String>("source_uuid")
+        .map(|s| s.to_owned());
+    let snapshot_uuid = matches
+        .get_one::<String>("snapshot_uuid")
+        .map(|s| s.to_owned());
     let request = v1_rpc::snapshot::ListSnapshotsRequest {
         source_uuid,
         snapshot_uuid,
@@ -481,23 +473,20 @@ async fn list(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
     Ok(())
 }
 /// Snapshot Destroy CLI Function.
-async fn destroy(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let snapshot_uuid = matches
-        .value_of("snapshot_uuid")
+        .get_one::<String>("snapshot_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_uuid".to_string(),
         })?
         .to_owned();
-    let pool = match matches.value_of("pool-uuid") {
+    let pool = match matches.get_one::<String>("pool-uuid") {
         Some(uuid) => {
             Some(v1_rpc::snapshot::destroy_snapshot_request::Pool::PoolUuid(
                 uuid.to_string(),
             ))
         }
-        None => matches.value_of("pool-name").map(|name| {
+        None => matches.get_one::<String>("pool-name").map(|name| {
             v1_rpc::snapshot::destroy_snapshot_request::Pool::PoolName(
                 name.to_string(),
             )
@@ -525,22 +514,22 @@ async fn destroy(
 /// CLI to create snapshot clone.
 async fn create_clone(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
     let snapshot_uuid = matches
-        .value_of("snapshot_uuid")
+        .get_one::<String>("snapshot_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_uuid".to_string(),
         })?
         .to_owned();
     let clone_name = matches
-        .value_of("clone_name")
+        .get_one::<String>("clone_name")
         .ok_or_else(|| ClientError::MissingValue {
             field: "clone_name".to_string(),
         })?
         .to_owned();
     let clone_uuid = matches
-        .value_of("clone_uuid")
+        .get_one::<String>("clone_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "clone_uuid".to_string(),
         })?
@@ -601,9 +590,11 @@ async fn create_clone(
 }
 async fn list_clone(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
-    let snapshot_uuid = matches.value_of("snapshot_uuid").map(|s| s.to_owned());
+    let snapshot_uuid = matches
+        .get_one::<String>("snapshot_uuid")
+        .map(|s| s.to_owned());
     let request = v1_rpc::snapshot::ListSnapshotCloneRequest {
         snapshot_uuid,
     };

@@ -109,24 +109,24 @@ pub struct Context {
     pub(crate) bdev: BdevClient,
     pub(crate) json: JsonClient,
     pub(crate) v1: v1::Context,
-    verbosity: u64,
+    verbosity: u8,
     units: char,
     pub(crate) output: OutputFormat,
 }
 
 impl Context {
-    pub(crate) async fn new(matches: &ArgMatches<'_>) -> Result<Self, Error> {
-        let verbosity = if matches.is_present("quiet") {
+    pub(crate) async fn new(matches: &ArgMatches) -> Result<Self, Error> {
+        let verbosity = if matches.get_flag("quiet") {
             0
         } else {
-            matches.occurrences_of("verbose") + 1
+            matches.get_count("verbose") + 1
         };
         let units = matches
-            .value_of("units")
+            .get_one::<String>("units")
             .and_then(|u| u.chars().next())
             .unwrap_or('b');
         // Ensure the provided host is defaulted & normalized to what we expect.
-        let host = if let Some(host) = matches.value_of("bind") {
+        let host = if let Some(host) = matches.get_one::<String>("bind") {
             let uri = host.parse::<Uri>().context(InvalidUri)?;
             let mut parts = uri.into_parts();
             if parts.scheme.is_none() {
@@ -153,7 +153,7 @@ impl Context {
             println!("Connecting to {:?}", host.uri());
         }
 
-        let output = matches.value_of("output").ok_or_else(|| {
+        let output = matches.get_one::<String>("output").ok_or_else(|| {
             Error::OutputFormatInvalid {
                 format: "<none>".to_string(),
             }

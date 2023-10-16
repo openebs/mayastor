@@ -6,21 +6,18 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use mayastor_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
-pub async fn handler(
-    ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
-    match matches.subcommand() {
-        ("fault", Some(args)) => fault(ctx, args).await,
-        ("offline", Some(args)) => child_operation(ctx, args, 0).await,
-        ("online", Some(args)) => child_operation(ctx, args, 1).await,
-        ("retire", Some(args)) => child_operation(ctx, args, 2).await,
+pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    match matches.subcommand().unwrap() {
+        ("fault", args) => fault(ctx, args).await,
+        ("offline", args) => child_operation(ctx, args, 0).await,
+        ("online", args) => child_operation(ctx, args, 1).await,
+        ("retire", args) => child_operation(ctx, args, 2).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -28,73 +25,69 @@ pub async fn handler(
     }
 }
 
-pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
-    let fault = SubCommand::with_name("fault")
+pub fn subcommands() -> Command {
+    let fault = Command::new("fault")
         .about("fault a child")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of the child"),
         );
 
-    let offline = SubCommand::with_name("offline")
+    let offline = Command::new("offline")
         .about("offline a child")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of the child"),
         );
 
-    let online = SubCommand::with_name("online")
+    let online = Command::new("online")
         .about("online a child")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of the child"),
         );
 
-    let retire = SubCommand::with_name("retire")
+    let retire = Command::new("retire")
         .about("retire a child")
         .arg(
-            Arg::with_name("uuid")
+            Arg::new("uuid")
                 .required(true)
                 .index(1)
                 .help("uuid of the nexus"),
         )
         .arg(
-            Arg::with_name("uri")
+            Arg::new("uri")
                 .required(true)
                 .index(2)
                 .help("uri of the child"),
         );
 
-    SubCommand::with_name("child")
-        .settings(&[
-            AppSettings::SubcommandRequiredElseHelp,
-            AppSettings::ColoredHelp,
-            AppSettings::ColorAlways,
-        ])
+    Command::new("child")
+        .arg_required_else_help(true)
         .about("Nexus child management")
         .subcommand(fault)
         .subcommand(offline)
@@ -102,18 +95,15 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(retire)
 }
 
-async fn fault(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+async fn fault(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
@@ -149,17 +139,17 @@ async fn fault(
 
 async fn child_operation(
     mut ctx: Context,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
     action: i32,
 ) -> crate::Result<()> {
     let uuid = matches
-        .value_of("uuid")
+        .get_one::<String>("uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uuid".to_string(),
         })?
         .to_string();
     let uri = matches
-        .value_of("uri")
+        .get_one::<String>("uri")
         .ok_or_else(|| ClientError::MissingValue {
             field: "uri".to_string(),
         })?
