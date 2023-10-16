@@ -365,10 +365,11 @@ fn main() {
             Arg::new("URI")
                 .value_name("URI")
                 .help("storage URI's")
+                .required(true)
                 .index(1)
                 .action(clap::ArgAction::Append),
         )
-        .subcommand_required(true)
+        .subcommand_required(false)
         .get_matches();
 
     let mut uris = matches
