@@ -52,6 +52,18 @@ impl PoolBuilder {
         self.with_bdev(&bdev)
     }
 
+    pub fn with_malloc_blk_size(
+        self,
+        bdev_name: &str,
+        size_mb: u64,
+        blk_size: u64,
+    ) -> Self {
+        let bdev = format!(
+            "malloc:///{bdev_name}?size_mb={size_mb}&blk_size={blk_size}"
+        );
+        self.with_bdev(&bdev)
+    }
+
     pub fn rpc(&self) -> SharedRpcHandle {
         self.rpc.clone()
     }

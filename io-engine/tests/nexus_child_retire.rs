@@ -43,10 +43,10 @@ use io_engine::{
         fault_injection::{
             add_fault_injection,
             FaultDomain,
-            FaultInjection,
+            FaultIoOperation,
             FaultIoStage,
-            FaultIoType,
-            FaultType,
+            FaultMethod,
+            InjectionBuilder,
         },
         CoreError,
         IoCompletionStatus,
@@ -245,7 +245,10 @@ async fn nexus_child_retire_persist_unresponsive_with_fio() {
     nex_0
         .add_injection_at_replica(
             &repl_0,
-            &format!("domain=nexus&op=write&offset={offset}", offset = 10),
+            &format!(
+                "domain=child&op=write&stage=completion&offset={offset}",
+                offset = 10
+            ),
         )
         .await
         .unwrap();
@@ -362,16 +365,18 @@ async fn nexus_child_retire_persist_unresponsive_with_bdev_io() {
 
     let inj_device = nex.child_at(0).get_device_name().unwrap();
 
-    add_fault_injection(FaultInjection::new(
-        FaultDomain::Nexus,
-        &inj_device,
-        FaultIoType::Write,
-        FaultIoStage::Completion,
-        FaultType::status_data_transfer_error(),
-        Duration::ZERO,
-        Duration::MAX,
-        0 .. 1,
-    ));
+    add_fault_injection(
+        InjectionBuilder::default()
+            .with_domain(FaultDomain::NexusChild)
+            .with_device_name(inj_device)
+            .with_io_operation(FaultIoOperation::Write)
+            .with_io_stage(FaultIoStage::Completion)
+            .with_method(FaultMethod::DATA_TRANSFER_ERROR)
+            .with_block_range(0 .. 1)
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     // Pause etcd.
     test.pause("etcd").await.unwrap();
@@ -441,16 +446,18 @@ async fn nexus_child_retire_persist_failure_with_bdev_io() {
 
     let inj_device = nex.child_at(0).get_device_name().unwrap();
 
-    add_fault_injection(FaultInjection::new(
-        FaultDomain::Nexus,
-        &inj_device,
-        FaultIoType::Write,
-        FaultIoStage::Completion,
-        FaultType::status_data_transfer_error(),
-        Duration::ZERO,
-        Duration::MAX,
-        0 .. 1,
-    ));
+    add_fault_injection(
+        InjectionBuilder::default()
+            .with_domain(FaultDomain::NexusChild)
+            .with_device_name(inj_device)
+            .with_io_operation(FaultIoOperation::Write)
+            .with_io_stage(FaultIoStage::Completion)
+            .with_method(FaultMethod::DATA_TRANSFER_ERROR)
+            .with_block_range(0 .. 1)
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
 
     // Pause etcd.
     test.pause("etcd").await.unwrap();

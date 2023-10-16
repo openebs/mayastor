@@ -23,6 +23,14 @@ use io_engine_tests::{
 };
 
 #[cfg(feature = "fault-injection")]
+use io_engine::core::fault_injection::{
+    FaultDomain,
+    FaultIoOperation,
+    FaultIoStage,
+    InjectionBuilder,
+};
+
+#[cfg(feature = "fault-injection")]
 use common::compose::rpc::v1::nexus::RebuildJobState;
 
 #[cfg(feature = "fault-injection")]
@@ -188,11 +196,14 @@ async fn nexus_partial_rebuild_io_fault() {
     // Inject a child failure.
     // All write operations starting of segment #7 will fail.
     let dev_name_1 = children[1].device_name.as_ref().unwrap();
-    let inj_uri = format!(
-        "inject://{dev_name_1}?domain=nexus&op=write&offset={offset}",
-        offset = 7 * SEG_BLK
-    );
-
+    let inj_uri = InjectionBuilder::default()
+        .with_device_name(dev_name_1.clone())
+        .with_domain(FaultDomain::NexusChild)
+        .with_io_operation(FaultIoOperation::Write)
+        .with_io_stage(FaultIoStage::Completion)
+        .with_block_range(7 * SEG_BLK .. u64::MAX)
+        .build_uri()
+        .unwrap();
     add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // This write must be okay as the injection is not triggered yet.
@@ -486,11 +497,14 @@ async fn nexus_partial_rebuild_double_fault() {
     .unwrap();
 
     // Inject a failure at FAULT_POS.
-    let inj_uri = format!(
-        "inject://{child_0_dev_name}?\
-        domain=nexus&op=write&offset={offset}&num_blk=1",
-        offset = FAULT_POS * 1024 * 1024 / BLK_SIZE
-    );
+    let inj_uri = InjectionBuilder::default()
+        .with_device_name(child_0_dev_name.clone())
+        .with_domain(FaultDomain::NexusChild)
+        .with_io_operation(FaultIoOperation::Write)
+        .with_io_stage(FaultIoStage::Completion)
+        .with_offset(FAULT_POS * 1024 * 1024 / BLK_SIZE, 1)
+        .build_uri()
+        .unwrap();
     add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // Online the replica, triggering the rebuild.

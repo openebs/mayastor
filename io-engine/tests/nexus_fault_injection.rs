@@ -4,6 +4,15 @@ pub mod common;
 
 use std::time::Duration;
 
+use io_engine::core::fault_injection::{
+    FaultDomain,
+    FaultIoOperation,
+    FaultIoStage,
+    FaultMethod,
+    Injection,
+    InjectionBuilder,
+};
+
 use common::{
     compose::{
         rpc::v1::{
@@ -20,6 +29,12 @@ use common::{
     replica::ReplicaBuilder,
     test::{add_fault_injection, list_fault_injections},
 };
+use io_engine::core::IoCompletionStatus;
+use io_engine_tests::{
+    fio::{Fio, FioJob},
+    nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
+};
+use spdk_rs::NvmeStatus;
 
 static POOL_SIZE: u64 = 60;
 static REPL_SIZE: u64 = 50;
@@ -165,22 +180,22 @@ async fn test_injection_uri(inj_part: &str) {
 
 #[tokio::test]
 async fn nexus_fault_injection_write_submission() {
-    test_injection_uri("domain=nexus&op=write&stage=submit&offset=64").await;
+    test_injection_uri("domain=child&op=write&stage=submit&offset=64").await;
 }
 
 #[tokio::test]
 async fn nexus_fault_injection_write() {
-    test_injection_uri("domain=nexus&op=write&offset=64").await;
+    test_injection_uri("domain=child&op=write&stage=compl&offset=64").await;
 }
 
 #[tokio::test]
 async fn nexus_fault_injection_read_submission() {
-    test_injection_uri("domain=nexus&op=read&stage=submit&offset=64").await;
+    test_injection_uri("domain=child&op=read&stage=submit&offset=64").await;
 }
 
 #[tokio::test]
 async fn nexus_fault_injection_read() {
-    test_injection_uri("domain=nexus&op=read&offset=64").await;
+    test_injection_uri("domain=child&op=read&stage=compl&offset=64").await;
 }
 
 #[tokio::test]
@@ -202,7 +217,8 @@ async fn nexus_fault_injection_time_based() {
 
     // Create an injection that will start in 1 sec after first I/O
     // to the device, and end after 5s.
-    let inj_part = "domain=nexus&op=write&begin=1000&end=5000";
+    let inj_part =
+        "domain=child&op=write&stage=compl&begin_at=1000&end_at=5000";
     let inj_uri = format!("inject://{dev_name}?{inj_part}");
     add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
@@ -280,8 +296,14 @@ async fn nexus_fault_injection_range_based() {
 
     // Create injection that will fail at offset of 128 blocks, for a span
     // of 16 blocks.
-    let inj_part = "domain=nexus&op=write&offset=128&num_blk=16";
-    let inj_uri = format!("inject://{dev_name}?{inj_part}");
+    let inj_uri = InjectionBuilder::default()
+        .with_device_name(dev_name.clone())
+        .with_domain(FaultDomain::NexusChild)
+        .with_io_operation(FaultIoOperation::Write)
+        .with_io_stage(FaultIoStage::Completion)
+        .with_offset(128, 16)
+        .build_uri()
+        .unwrap();
     add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // List injected fault.
@@ -348,4 +370,138 @@ async fn nexus_fault_injection_range_based() {
 
     let children = nex_0.get_nexus().await.unwrap().children;
     assert_eq!(children[0].state, ChildState::Faulted as i32);
+}
+
+#[tokio::test]
+async fn injection_uri_creation() {
+    let src = InjectionBuilder::default()
+        .with_domain(FaultDomain::BlockDevice)
+        .with_device_name("dev0".to_string())
+        .with_method(FaultMethod::Status(IoCompletionStatus::NvmeError(
+            NvmeStatus::NO_SPACE,
+        )))
+        .with_io_operation(FaultIoOperation::Read)
+        .with_io_stage(FaultIoStage::Completion)
+        .with_block_range(123 .. 456)
+        .with_time_range(Duration::from_secs(5) .. Duration::from_secs(10))
+        .with_retries(789)
+        .build()
+        .unwrap();
+
+    // Test that debug output works.
+    println!("{src:?}");
+    println!("{src:#?}");
+
+    let uri = src.as_uri();
+    let res = Injection::from_uri(&uri).unwrap();
+
+    assert_eq!(src.uri(), uri);
+    assert_eq!(src.uri(), res.uri());
+    assert_eq!(src.domain, res.domain);
+    assert_eq!(src.device_name, res.device_name);
+    assert_eq!(src.method, res.method);
+    assert_eq!(src.io_operation, res.io_operation);
+    assert_eq!(src.io_stage, res.io_stage);
+    assert_eq!(src.time_range, res.time_range);
+    assert_eq!(src.block_range, res.block_range);
+    assert_eq!(src.retries, res.retries);
+}
+
+#[tokio::test]
+async fn replica_bdev_io_injection() {
+    common::composer_init();
+
+    const BLK_SIZE: u64 = 512;
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "1",
+                "-Fcompact,color,nodate",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let rpc = conn.grpc_handle_shared("ms_0").await.unwrap();
+
+    let mut pool_0 = PoolBuilder::new(rpc.clone())
+        .with_name("pool0")
+        .with_new_uuid()
+        .with_malloc_blk_size("mem0", 100, BLK_SIZE);
+    pool_0.create().await.unwrap();
+
+    let mut repl_0 = ReplicaBuilder::new(rpc.clone())
+        .with_pool(&pool_0)
+        .with_name("r0")
+        .with_new_uuid()
+        .with_size_mb(80)
+        .with_thin(true);
+
+    repl_0.create().await.unwrap();
+    repl_0.share().await.unwrap();
+
+    let inj_uri = InjectionBuilder::default()
+        .with_device_name("r0".to_string())
+        .with_domain(FaultDomain::BdevIo)
+        .with_io_operation(FaultIoOperation::Write)
+        .with_io_stage(FaultIoStage::Submission)
+        .with_method(FaultMethod::Status(IoCompletionStatus::NvmeError(
+            NvmeStatus::DATA_TRANSFER_ERROR,
+        )))
+        .with_offset(20, 1)
+        .build_uri()
+        .unwrap();
+
+    add_fault_injection(rpc.clone(), &inj_uri).await.unwrap();
+
+    let nvmf = repl_0.nvmf_location();
+    let _cg = NmveConnectGuard::connect_addr(&nvmf.addr, &nvmf.nqn);
+    let path = find_mayastor_nvme_device_path(&nvmf.serial)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    // With offset of 30 blocks, the job mustn't hit the injected fault, which
+    // is set on block #20.
+    let fio_ok = Fio::new().with_job(
+        FioJob::new()
+            .with_direct(true)
+            .with_ioengine("libaio")
+            .with_iodepth(1)
+            .with_filename(&path)
+            .with_offset(DataSize::from_blocks(30, BLK_SIZE))
+            .with_rw("write"),
+    );
+
+    // With the entire device, the job must hit the injected fault.
+    let fio_fail = Fio::new().with_job(
+        FioJob::new()
+            .with_direct(true)
+            .with_ioengine("libaio")
+            .with_iodepth(1)
+            .with_filename(&path)
+            .with_rw("write"),
+    );
+
+    tokio::spawn(async move { fio_ok.run() })
+        .await
+        .unwrap()
+        .expect("This FIO job must succeed");
+
+    let r = tokio::spawn(async move { fio_fail.run() })
+        .await
+        .unwrap()
+        .expect_err("This FIO job must fail");
+
+    assert_eq!(r.kind(), std::io::ErrorKind::Other);
 }

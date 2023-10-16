@@ -751,20 +751,18 @@ impl<'n> NexusBio<'n> {
     ) -> Result<(), CoreError> {
         use crate::core::fault_injection::{
             inject_submission_error,
-            FaultDomain::Nexus,
+            FaultDomain::NexusChild,
             InjectIoCtx,
         };
 
-        inject_submission_error(
-            Nexus,
-            &InjectIoCtx::with_iovs(
-                hdl.get_device(),
-                self.io_type(),
-                self.offset(),
-                self.num_blocks(),
-                self.iovs(),
-            ),
-        )
+        inject_submission_error(&InjectIoCtx::with_iovs(
+            NexusChild,
+            hdl.get_device(),
+            self.io_type(),
+            self.offset(),
+            self.num_blocks(),
+            self.iovs(),
+        ))
     }
 
     /// Checks if an error is to be injected upon completion.
@@ -777,13 +775,13 @@ impl<'n> NexusBio<'n> {
     ) -> IoCompletionStatus {
         use crate::core::fault_injection::{
             inject_completion_error,
-            FaultDomain::Nexus,
+            FaultDomain::NexusChild,
             InjectIoCtx,
         };
 
         inject_completion_error(
-            Nexus,
             &InjectIoCtx::with_iovs(
+                NexusChild,
                 child,
                 self.io_type(),
                 self.offset(),

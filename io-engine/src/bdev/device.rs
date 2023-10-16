@@ -297,6 +297,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
                 inj_op: InjectIoCtx::with_iovs(
+                    FaultDomain::BlockDevice,
                     self.get_device(),
                     IoType::Read,
                     offset_blocks,
@@ -309,9 +310,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         )?;
 
         #[cfg(feature = "fault-injection")]
-        inject_submission_error(FaultDomain::BlockDevice, unsafe {
-            &(*ctx).inj_op
-        })?;
+        inject_submission_error(unsafe { &(*ctx).inj_op })?;
 
         let (desc, chan) = self.handle.io_tuple();
         let rc = unsafe {
@@ -355,6 +354,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
                 inj_op: InjectIoCtx::with_iovs(
+                    FaultDomain::BlockDevice,
                     self.get_device(),
                     IoType::Write,
                     offset_blocks,
@@ -367,9 +367,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         )?;
 
         #[cfg(feature = "fault-injection")]
-        inject_submission_error(FaultDomain::BlockDevice, unsafe {
-            &(*ctx).inj_op
-        })?;
+        inject_submission_error(unsafe { &(*ctx).inj_op })?;
 
         let (desc, chan) = self.handle.io_tuple();
         let rc = unsafe {
@@ -411,7 +409,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb,
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
-                inj_op: Default::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             offset_blocks,
             num_blocks,
@@ -454,7 +452,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb,
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
-                inj_op: InjectIoCtx::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             0,
             0,
@@ -493,7 +491,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb,
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
-                inj_op: InjectIoCtx::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             offset_blocks,
             num_blocks,
@@ -536,7 +534,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb,
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
-                inj_op: InjectIoCtx::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             offset_blocks,
             num_blocks,
@@ -634,7 +632,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
                 cb,
                 cb_arg,
                 #[cfg(feature = "fault-injection")]
-                inj_op: InjectIoCtx::default(),
+                inj_op: InjectIoCtx::new(FaultDomain::BlockDevice),
             },
             0,
             0,
@@ -757,8 +755,7 @@ extern "C" fn bdev_io_completion(
     };
 
     #[cfg(feature = "fault-injection")]
-    let status =
-        inject_completion_error(FaultDomain::BlockDevice, &bio.inj_op, status);
+    let status = inject_completion_error(&bio.inj_op, status);
 
     (bio.cb)(&bio.device, status, bio.cb_arg);
 

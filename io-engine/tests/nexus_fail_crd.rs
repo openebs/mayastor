@@ -103,10 +103,10 @@ async fn test_nexus_fail(crdt: &str) -> std::io::Result<()> {
     let children = nex_0.get_nexus().await.unwrap().children;
     let dev_name = children[0].device_name.as_ref().unwrap();
 
-    let inj = "domain=nexus&op=write&offset=0";
+    let inj = "domain=child&op=write&stage=compl&offset=0";
     let inj_w = format!("inject://{dev_name}?{inj}");
 
-    let inj = "domain=nexus&op=read&offset=0";
+    let inj = "domain=child&op=read&stage=compl&offset=0";
     let inj_r = format!("inject://{dev_name}?{inj}");
 
     let cfg = JobCfg {

@@ -18,6 +18,13 @@ use common::{
     test::add_fault_injection,
 };
 
+use io_engine::core::fault_injection::{
+    FaultDomain,
+    FaultIoOperation,
+    FaultIoStage,
+    FaultMethod,
+    InjectionBuilder,
+};
 use std::time::Duration;
 
 const POOL_SIZE: u64 = 80;
@@ -50,9 +57,15 @@ async fn test_rebuild_verify(
         .unwrap();
 
     // Add an injection as block device level.
-    let inj_part = "domain=block&op=write&stage=submission&type=data\
-                    &offset=10240&num_blk=1";
-    let inj_uri = format!("inject://{dev_name}?{inj_part}");
+    let inj_uri = InjectionBuilder::default()
+        .with_device_name(dev_name.clone())
+        .with_domain(FaultDomain::BlockDevice)
+        .with_io_operation(FaultIoOperation::Write)
+        .with_io_stage(FaultIoStage::Submission)
+        .with_method(FaultMethod::Data)
+        .with_offset(10240, 1)
+        .build_uri()
+        .unwrap();
     add_fault_injection(nex_0.rpc(), &inj_uri).await.unwrap();
 
     // Online the replica. Rebuild must fail at some point because of injected

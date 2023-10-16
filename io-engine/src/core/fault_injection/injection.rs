@@ -1,12 +1,12 @@
 #![cfg(feature = "fault-injection")]
 
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use spdk_rs::NvmeStatus;
 use std::{
-    fmt::{Debug, Display, Formatter},
+    cell::RefCell,
+    fmt::{Debug, Formatter},
     ops::Range,
-    time::{Duration, Instant},
+    time::Duration,
 };
-
 use url::Url;
 
 use crate::core::IoCompletionStatus;
@@ -14,33 +14,76 @@ use crate::core::IoCompletionStatus;
 use super::{
     FaultDomain,
     FaultInjectionError,
+    FaultIoOperation,
     FaultIoStage,
-    FaultIoType,
-    FaultType,
+    FaultMethod,
     InjectIoCtx,
+    InjectionState,
 };
 
 /// Fault injection.
-#[derive(Debug, Clone)]
-pub struct FaultInjection {
-    pub uri: String,
+#[derive(Clone, Builder)]
+#[builder(setter(prefix = "with"))]
+#[builder(default)]
+#[builder(build_fn(validate = "Self::validate"))]
+pub struct Injection {
+    /// URI this injection was created from.
+    #[builder(setter(skip))]
+    uri: Option<String>,
+    /// Fault domain.
     pub domain: FaultDomain,
+    /// Target device name.
     pub device_name: String,
-    pub fault_io_type: FaultIoType,
-    pub fault_io_stage: FaultIoStage,
-    pub fault_type: FaultType,
-    pub started: Option<Instant>,
-    pub begin: Duration,
-    pub end: Duration,
-    pub range: Range<u64>,
-    rng: StdRng,
+    /// I/O operation to which the fault applies.
+    pub io_operation: FaultIoOperation,
+    /// I/O stage.
+    pub io_stage: FaultIoStage,
+    /// Injection method.
+    pub method: FaultMethod,
+    /// Time time.
+    pub time_range: Range<Duration>,
+    /// Block range.
+    pub block_range: Range<u64>,
+    /// Number of retries.
+    pub retries: u64,
+    /// Injection state.
+    #[builder(setter(skip))]
+    state: RefCell<InjectionState>,
 }
 
-impl Display for FaultInjection {
+impl InjectionBuilder {
+    /// TODO
+    pub fn with_offset(&mut self, offset: u64, num_blocks: u64) -> &mut Self {
+        self.block_range = Some(offset .. offset + num_blocks);
+        self
+    }
+
+    /// TODO
+    pub fn with_method_nvme_error(&mut self, err: NvmeStatus) -> &mut Self {
+        self.method =
+            Some(FaultMethod::Status(IoCompletionStatus::NvmeError(err)));
+        self
+    }
+
+    /// TODO
+    pub fn build_uri(&mut self) -> Result<String, InjectionBuilderError> {
+        self.build().map(|inj| inj.as_uri())
+    }
+
+    /// TODO
+    fn validate(&self) -> Result<(), String> {
+        match &self.device_name {
+            Some(s) if !s.is_empty() => Ok(()),
+            _ => Err("Device not configured".to_string()),
+        }
+    }
+}
+
+impl Debug for Injection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         fn fmt_duration(u: &Duration) -> String {
             if *u == Duration::MAX {
-                "INF".to_string()
+                "-".to_string()
             } else {
                 format!("{u:?}")
             }
@@ -48,80 +91,103 @@ impl Display for FaultInjection {
 
         fn fmt_u64(u: u64) -> String {
             if u == u64::MAX {
-                "INF".to_string()
+                "MAX".to_string()
             } else {
                 format!("{u:?}")
             }
         }
 
-        write!(
-            f,
-            "{io}::{stage}::{ft} injection <{d}::{n}> [{b:?} -> \
-            {e} ({t:?})] @ {rs}..{re}",
-            io = self.fault_io_type,
-            stage = self.fault_io_stage,
-            ft = self.fault_type,
-            d = self.domain,
-            n = self.device_name,
-            b = self.begin,
-            e = fmt_duration(&self.end),
-            t = self.now(),
-            rs = self.range.start,
-            re = fmt_u64(self.range.end),
-        )
-    }
-}
+        if f.alternate() {
+            f.debug_struct("Injection")
+                .field("uri", &self.uri())
+                .field("domain", &self.domain)
+                .field("device_name", &self.device_name)
+                .field("io_operation", &self.io_operation)
+                .field("stage", &self.io_stage)
+                .field("method", &self.method)
+                .field("begin_at", &fmt_duration(&self.time_range.start))
+                .field("end_at", &fmt_duration(&self.time_range.end))
+                .field("block_range_start", &fmt_u64(self.block_range.start))
+                .field("block_range_end", &fmt_u64(self.block_range.end))
+                .field(
+                    "num_blocks",
+                    &fmt_u64(self.block_range.end - self.block_range.start),
+                )
+                .field("retries", &fmt_u64(self.retries))
+                .field("hits", &self.state.borrow().hits)
+                .field("started", &fmt_duration(&self.state.borrow().now()))
+                .finish()
+        } else {
+            let info = format!(
+                "{d}/{io}/{stage}/{ft}",
+                d = self.domain,
+                io = self.io_operation,
+                stage = self.io_stage,
+                ft = self.method,
+            );
 
-fn new_rng() -> StdRng {
-    let seed = [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-    ];
-    StdRng::from_seed(seed)
-}
+            let timed = if !self.time_range.start.is_zero()
+                || self.time_range.end != Duration::MAX
+            {
+                format!(
+                    " for period {b} -> {e} ({t})",
+                    b = fmt_duration(&self.time_range.start),
+                    e = fmt_duration(&self.time_range.end),
+                    t = fmt_duration(&self.state.borrow().now()),
+                )
+            } else {
+                String::default()
+            };
 
-impl FaultInjection {
-    /// Creates a new injection.
-    #[allow(dead_code)]
-    pub fn new(
-        domain: FaultDomain,
-        name: &str,
-        fault_io_type: FaultIoType,
-        fault_io_stage: FaultIoStage,
-        fault_type: FaultType,
-        begin: Duration,
-        end: Duration,
-        range: Range<u64>,
-    ) -> Self {
-        let opts = vec![
-            format!("domain={domain}"),
-            format!("op={fault_io_type}"),
-            format!("stage={fault_io_stage}"),
-            format!("type={fault_type}"),
-            format!("begin={begin:?}"),
-            format!("end={end:?}"),
-            format!("offset={}", range.start),
-            format!("num_blk={}", range.end),
-        ]
-        .join("&");
+            let range = if self.block_range.start != 0
+                || self.block_range.end != u64::MAX
+            {
+                format!(
+                    " at blocks {rs}..{re}",
+                    rs = self.block_range.start,
+                    re = fmt_u64(self.block_range.end),
+                )
+            } else {
+                String::default()
+            };
 
-        let uri = format!("inject://{name}?{opts}");
+            let retries = if self.retries != u64::MAX {
+                format!(
+                    " | {h}/{n} retries",
+                    h = self.state.borrow().hits,
+                    n = self.retries
+                )
+            } else {
+                "".to_string()
+            };
 
-        Self {
-            uri,
-            domain,
-            device_name: name.to_owned(),
-            fault_io_type,
-            fault_io_stage,
-            fault_type,
-            started: None,
-            begin,
-            end,
-            range,
-            rng: new_rng(),
+            write!(
+                f,
+                "{info} on '{n}'{timed}{range}{retries}",
+                n = self.device_name,
+            )
         }
     }
+}
 
+impl Default for Injection {
+    fn default() -> Self {
+        Self {
+            uri: None,
+            domain: FaultDomain::BlockDevice,
+            device_name: Default::default(),
+            io_operation: FaultIoOperation::ReadWrite,
+            io_stage: FaultIoStage::Submission,
+            method: FaultMethod::DATA_TRANSFER_ERROR,
+            time_range: Duration::ZERO .. Duration::MAX,
+            block_range: 0 .. u64::MAX,
+            retries: u64::MAX,
+            state: Default::default(),
+        }
+    }
+}
+
+impl Injection {
     /// Parses an injection URI and creates injection object.
     pub fn from_uri(uri: &str) -> Result<Self, FaultInjectionError> {
         if !uri.starts_with("inject://") {
@@ -137,8 +203,7 @@ impl FaultInjection {
             })?;
 
         let mut r = Self {
-            uri: uri.to_owned(),
-            domain: FaultDomain::None,
+            uri: Some(uri.to_owned()),
             device_name: format!(
                 "{host}{port}{path}",
                 host = p.host_str().unwrap_or_default(),
@@ -149,26 +214,22 @@ impl FaultInjection {
                 },
                 path = p.path()
             ),
-            fault_io_type: FaultIoType::Read,
-            fault_io_stage: FaultIoStage::Completion,
-            fault_type: FaultType::status_data_transfer_error(),
-            started: None,
-            begin: Duration::ZERO,
-            end: Duration::MAX,
-            range: 0 .. u64::MAX,
-            rng: new_rng(),
+            ..Default::default()
         };
 
         for (k, v) in p.query_pairs() {
             match k.as_ref() {
                 "domain" => r.domain = parse_domain(&k, &v)?,
-                "op" => r.fault_io_type = parse_fault_io_type(&k, &v)?,
-                "stage" => r.fault_io_stage = parse_fault_io_stage(&k, &v)?,
-                "type" => r.fault_type = parse_fault_type(&k, &v)?,
-                "begin" => r.begin = parse_timer(&k, &v)?,
-                "end" => r.end = parse_timer(&k, &v)?,
-                "offset" => r.range.start = parse_num(&k, &v)?,
-                "num_blk" => r.range.end = parse_num(&k, &v)?,
+                "op" => r.io_operation = parse_fault_io_type(&k, &v)?,
+                "stage" => r.io_stage = parse_fault_io_stage(&k, &v)?,
+                "method" => r.method = parse_method(&k, &v)?,
+                "begin_at" => r.time_range.start = parse_timer(&k, &v)?,
+                "end_at" => r.time_range.end = parse_timer(&k, &v)?,
+                "offset" => r.block_range.start = parse_num(&k, &v)?,
+                "num_blk" | "num_blocks" => {
+                    r.block_range.end = parse_num(&k, &v)?
+                }
+                "retries" => r.retries = parse_num(&k, &v)?,
                 _ => {
                     return Err(FaultInjectionError::UnknownParameter {
                         name: k.to_string(),
@@ -178,30 +239,91 @@ impl FaultInjection {
             };
         }
 
-        r.range.end = r.range.start.saturating_add(r.range.end);
+        r.block_range.end =
+            r.block_range.start.saturating_add(r.block_range.end);
 
-        if r.begin > r.end {
+        if r.time_range.start > r.time_range.end {
             return Err(FaultInjectionError::BadDurations {
                 name: r.device_name,
-                begin: r.begin,
-                end: r.end,
+                begin: r.time_range.start,
+                end: r.time_range.end,
             });
         }
 
         Ok(r)
     }
 
-    /// Returns current time relative to injection start.
-    fn now(&self) -> Duration {
-        self.started.map_or(Duration::MAX, |s| {
-            Instant::now().saturating_duration_since(s)
-        })
+    /// Returns injection's URI.
+    pub fn uri(&self) -> String {
+        match &self.uri {
+            Some(s) => s.to_owned(),
+            None => self.as_uri(),
+        }
+    }
+
+    /// Builds URI for the injection.
+    pub fn as_uri(&self) -> String {
+        let d = Self::default();
+
+        let mut opts = vec![
+            format!("domain={}", self.domain),
+            format!("op={}", self.io_operation),
+            format!("stage={}", self.io_stage),
+        ];
+
+        if self.method != d.method {
+            opts.push(format!("method={}", self.method));
+        }
+
+        if self.time_range.start != d.time_range.start {
+            opts.push(format!(
+                "begin_at={:?}",
+                self.time_range.start.as_millis()
+            ));
+        }
+
+        if self.time_range.end != d.time_range.end {
+            opts.push(format!("end_at={}", self.time_range.end.as_millis()));
+        }
+
+        if self.block_range.start != d.block_range.start {
+            opts.push(format!("offset={}", self.block_range.start));
+        }
+
+        if self.block_range.end != d.block_range.end {
+            opts.push(format!(
+                "num_blk={}",
+                self.block_range.end - self.block_range.start
+            ));
+        }
+
+        if self.retries != d.retries {
+            opts.push(format!("retries={}", self.retries));
+        }
+
+        format!(
+            "inject://{name}?{opts}",
+            name = self.device_name,
+            opts = opts.join("&")
+        )
+    }
+
+    /// Returns device name.
+    pub fn device_name(&self) -> &str {
+        &self.device_name
     }
 
     /// True if the injection is currently active.
+    #[inline(always)]
     pub fn is_active(&self) -> bool {
-        let d = self.now();
-        d >= self.begin && d < self.end
+        let s = self.state.borrow();
+
+        if s.hits >= self.retries {
+            return false;
+        }
+
+        let d = s.now();
+        d >= self.time_range.start && d < self.time_range.end
     }
 
     /// Injects an error for the given I/O context.
@@ -210,57 +332,37 @@ impl FaultInjection {
     /// routine.
     #[inline]
     pub fn inject(
-        &mut self,
-        domain: FaultDomain,
-        fault_io_type: FaultIoType,
-        fault_io_stage: FaultIoStage,
+        &self,
+        stage: FaultIoStage,
         ctx: &InjectIoCtx,
     ) -> Option<IoCompletionStatus> {
-        if domain != self.domain
-            || fault_io_type != self.fault_io_type
-            || fault_io_stage != self.fault_io_stage
-            || ctx.device_name() != self.device_name
+        if !ctx.is_valid()
+            || !ctx.domain_ok(self.domain)
+            || stage != self.io_stage
+            || !ctx.io_type_ok(self.io_operation)
+            || !ctx.device_name_ok(&self.device_name)
+            || !ctx.block_range_ok(&self.block_range)
         {
             return None;
         }
-
-        if self.started.is_none() {
+        if self.state.borrow_mut().tick() {
             debug!("{self:?}: starting");
-            self.started = Some(Instant::now());
         }
 
-        if !self.is_active() || !is_overlapping(&self.range, &ctx.range) {
+        if !self.is_active() {
             return None;
         }
 
-        match self.fault_type {
-            FaultType::Status(status) => Some(status),
-            FaultType::Data => {
-                self.inject_data_errors(ctx);
-                Some(IoCompletionStatus::Success)
-            }
-        }
-    }
-
-    fn inject_data_errors(&mut self, ctx: &InjectIoCtx) {
-        let Some(iovs) = ctx.iovs_mut() else {
-            return;
-        };
-
-        for iov in iovs {
-            for i in 0 .. iov.len() {
-                iov[i] = self.rng.next_u32() as u8;
-            }
-        }
+        self.method.inject(&mut self.state.borrow_mut(), ctx)
     }
 }
 
 /// TODO
 fn parse_domain(k: &str, v: &str) -> Result<FaultDomain, FaultInjectionError> {
     let r = match v {
-        "none" => FaultDomain::None,
-        "nexus" => FaultDomain::Nexus,
-        "block" | "block_device" => FaultDomain::BlockDevice,
+        "child" | "nexus_child" | "NexusChild" => FaultDomain::NexusChild,
+        "block" | "block_device" | "BlockDevice" => FaultDomain::BlockDevice,
+        "bdev_io" | "BdevIo" => FaultDomain::BdevIo,
         _ => {
             return Err(FaultInjectionError::UnknownParameter {
                 name: k.to_string(),
@@ -275,10 +377,11 @@ fn parse_domain(k: &str, v: &str) -> Result<FaultDomain, FaultInjectionError> {
 fn parse_fault_io_type(
     k: &str,
     v: &str,
-) -> Result<FaultIoType, FaultInjectionError> {
+) -> Result<FaultIoOperation, FaultInjectionError> {
     let res = match v {
-        "read" | "r" => FaultIoType::Read,
-        "write" | "w" => FaultIoType::Write,
+        "read" | "r" | "Read" => FaultIoOperation::Read,
+        "write" | "w" | "Write" => FaultIoOperation::Write,
+        "read_write" | "rw" | "ReadWrite" => FaultIoOperation::ReadWrite,
         _ => {
             return Err(FaultInjectionError::UnknownParameter {
                 name: k.to_string(),
@@ -295,8 +398,10 @@ fn parse_fault_io_stage(
     v: &str,
 ) -> Result<FaultIoStage, FaultInjectionError> {
     let res = match v {
-        "submit" | "s" | "submission" => FaultIoStage::Submission,
-        "compl" | "c" | "completion" => FaultIoStage::Submission,
+        "submit" | "s" | "submission" | "Submission" => {
+            FaultIoStage::Submission
+        }
+        "compl" | "c" | "completion" | "Completion" => FaultIoStage::Completion,
         _ => {
             return Err(FaultInjectionError::UnknownParameter {
                 name: k.to_string(),
@@ -308,23 +413,18 @@ fn parse_fault_io_stage(
 }
 
 /// TODO
-fn parse_fault_type(
-    k: &str,
-    v: &str,
-) -> Result<FaultType, FaultInjectionError> {
-    let res = match v {
-        // TODO: add more statuses.
-        "status" => FaultType::status_data_transfer_error(),
+fn parse_method(k: &str, v: &str) -> Result<FaultMethod, FaultInjectionError> {
+    match v {
+        "status" | "Status" => Ok(FaultMethod::DATA_TRANSFER_ERROR),
         // TODO: add data corruption methods.
-        "data" => FaultType::Data,
-        _ => {
-            return Err(FaultInjectionError::UnknownParameter {
+        "data" | "Data" => Ok(FaultMethod::Data),
+        _ => FaultMethod::parse(v).ok_or_else(|| {
+            FaultInjectionError::UnknownParameter {
                 name: k.to_string(),
                 value: v.to_string(),
-            })
-        }
-    };
-    Ok(res)
+            }
+        }),
+    }
 }
 
 /// TODO
@@ -346,9 +446,4 @@ fn parse_num(k: &str, v: &str) -> Result<u64, FaultInjectionError> {
             name: k.to_string(),
             value: v.to_string(),
         })
-}
-
-/// Tests if teo ranges overlap.
-fn is_overlapping(a: &Range<u64>, b: &Range<u64>) -> bool {
-    a.end > b.start && b.end > a.start
 }
