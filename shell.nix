@@ -22,34 +22,35 @@ mkShell {
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
-    clang_11
+    autoconf
+    automake
+    clang
     cowsay
     etcd
     fio
+    gnuplot
     libaio
     libbsd
     libnvme
     libpcap
-    udev
+    libunwind
     liburing
-    llvmPackages_11.libclang
+    llvmPackages.bintools
+    llvmPackages.libclang
     meson
     ninja
     nodejs-16_x
-    nvme-cli
     numactl
+    nvme-cli
     openssl
     pkg-config
     pre-commit
     procps
     pytest_inputs
     python3
+    udev
     utillinux
-    gnuplot
     xfsprogs
-    libunwind
-    autoconf
-    automake
     yasm
   ] ++ (if (nospdk) then [ spdk.buildInputs ] else [ spdk ]);
 

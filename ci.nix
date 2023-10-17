@@ -24,7 +24,9 @@ mkShell {
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
-    clang_11
+    autoconf
+    automake
+    clang
     cowsay
     docker
     docker-compose
@@ -33,31 +35,30 @@ mkShell {
     fio
     gdb
     git
+    gnuplot
     kubernetes-helm
     libaio
     libbsd
     libnvme
     libpcap
-    udev
+    libunwind
     liburing
-    llvmPackages_11.libclang
+    llvmPackages.bintools
+    llvmPackages.libclang
     meson
     ninja
     nodejs-16_x
-    nvme-cli
     numactl
+    nvme-cli
     openssl
     pkg-config
     pre-commit
     procps
     pytest_inputs
     python3
+    udev
     utillinux
     xfsprogs
-    gnuplot
-    libunwind
-    autoconf
-    automake
     yasm
   ] ++ (if (nospdk) then [ spdk.buildInputs ] else [ spdk ])
   ++ pkgs.lib.optional (!norust) channel.stable

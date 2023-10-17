@@ -1,5 +1,5 @@
 { stdenv
-, clang_11
+, clang
 , dockerTools
 , e2fsprogs
 , lib
@@ -20,7 +20,7 @@
 , sources
 , xfsprogs
 , utillinux
-, llvmPackages_11
+, llvmPackages
 , targetPackages
 , buildPackages
 , targetPlatform
@@ -43,6 +43,7 @@ let
           allowedPrefixes)
       src;
   src_list = [
+    ".cargo"
     "Cargo.lock"
     "Cargo.toml"
     "cli"
@@ -59,27 +60,32 @@ let
     name = "io-engine";
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
-    LIBCLANG_PATH = "${llvmPackages_11.libclang.lib}/lib";
+    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 
     GIT_VERSION_LONG = "${versions.long}";
     GIT_VERSION = "${versions.tag_or_long}";
 
-    nativeBuildInputs = [ pkg-config protobuf llvmPackages_11.clang ];
-    buildInputs = [
-      llvmPackages_11.libclang
+    nativeBuildInputs = [
+      pkg-config
       protobuf
+      llvmPackages.bintools
+      llvmPackages.clang
+    ];
+    buildInputs = [
       libaio
       libbsd
       libnvme
       libpcap
-      systemdMinimal.dev
+      libunwind
       liburing
+      llvmPackages.libclang
       numactl
       openssl.dev
+      protobuf
+      systemdMinimal.dev
       utillinux.dev
-      libunwind
     ];
     cargoLock = {
       lockFile = ../../../Cargo.lock;
