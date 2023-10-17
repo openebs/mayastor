@@ -28,7 +28,7 @@
 , targetPlatform
 , buildPlatform
 , buildPackages
-, llvmPackages_11
+, llvmPackages
 , pkgs
 , gcc
 , zlib
@@ -71,7 +71,7 @@ let
       ninja
       pkg-config
       python3
-      llvmPackages_11.clang
+      llvmPackages.clang
       gcc
       cmake
     ];
@@ -193,11 +193,11 @@ let
   };
 in
 {
-  release = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
+  release = llvmPackages.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk";
     dontStrip = false;
   });
-  debug = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
+  debug = llvmPackages.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk-dev";
     dontStrip = true;
     nativeBuildInputs = drvAttrs.nativeBuildInputs ++ [ cunit lcov ];

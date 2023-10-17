@@ -1,5 +1,9 @@
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=nehalem"]
+rustflags = [
+    "-C", "target-cpu=nehalem",
+    "-C", "link-arg=-llzma",
+    "-C", "link-arg=-fuse-ld=lld",
+]
 
 [profile.release]
 lto = "fat"

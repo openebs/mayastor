@@ -1,5 +1,5 @@
 { stdenv
-, clang_11
+, clang
 , dockerTools
 , e2fsprogs
 , lib
@@ -16,7 +16,7 @@
 , sources
 , xfsprogs
 , utillinux
-, llvmPackages_11
+, llvmPackages
 , targetPackages
 , buildPackages
 , targetPlatform
