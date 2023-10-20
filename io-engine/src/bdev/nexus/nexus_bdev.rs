@@ -851,10 +851,11 @@ impl<'n> Nexus<'n> {
             let name = self.name.clone();
 
             // After calling unregister_bdev_async(), Nexus is gone.
+            let evt = self.event(EventAction::Delete);
             match self.as_mut().bdev_mut().unregister_bdev_async().await {
                 Ok(_) => {
                     info!("Nexus '{name}': nexus destroyed ok");
-                    self.event(EventAction::Delete).generate();
+                    evt.generate();
                     Ok(())
                 }
                 Err(err) => {

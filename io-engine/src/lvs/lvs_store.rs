@@ -683,6 +683,8 @@ impl Lvs {
 
         let base_bdev = self.base_bdev();
 
+        let evt = self.event(EventAction::Delete);
+
         unsafe {
             vbdev_lvs_destruct(
                 self.as_inner_ptr(),
@@ -700,7 +702,7 @@ impl Lvs {
 
         info!("{}: lvs destroyed successfully", self_str);
 
-        self.event(EventAction::Delete).generate();
+        evt.generate();
 
         bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
             .await
