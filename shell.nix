@@ -62,12 +62,15 @@ mkShell {
   ETCD_BIN = "${etcd}/bin/etcd";
   ETCDCTL_API = "3";
 
+  IO_ENGINE_DIR = "target/debug";
+
   shellHook = ''
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK version    :' $(echo $SPDK_PATH | sed 's/.*libspdk-//g')"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK path       :' $SPDK_PATH"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK FIO plugin :' $FIO_SPDK"}
     echo 'Rust version    :' $(rustc --version 2> /dev/null || echo '${norustc_msg}')
     echo 'Rust path       :' $(which rustc 2> /dev/null || echo '${norustc_msg}')
+    echo 'I/O engine dir  :' $IO_ENGINE_DIR
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
     ${pkgs.lib.optionalString (nospdk) "echo"}
