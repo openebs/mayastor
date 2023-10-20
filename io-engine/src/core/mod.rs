@@ -458,6 +458,7 @@ impl ToErrno for CoreError {
 
 /// Logical volume layer failure.
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+#[repr(C)]
 pub enum LvolFailure {
     NoSpace,
 }
@@ -472,6 +473,7 @@ pub enum IoSubmissionFailure {
 // Generic I/O completion status for block devices, which supports per-protocol
 // error domains.
 #[derive(Copy, Clone, Eq, PartialOrd, PartialEq)]
+#[repr(C)]
 pub enum IoCompletionStatus {
     Success,
     NvmeError(NvmeStatus),
@@ -501,10 +503,9 @@ impl From<NvmeStatus> for IoCompletionStatus {
         match s {
             NvmeStatus::NO_SPACE
             | NvmeStatus::Generic(SPDK_NVME_SC_CAPACITY_EXCEEDED) => {
-                IoCompletionStatus::LvolError(LvolFailure::NoSpace)
+                Self::LvolError(LvolFailure::NoSpace)
             }
-
-            _ => IoCompletionStatus::NvmeError(s),
+            _ => Self::NvmeError(s),
         }
     }
 }
