@@ -29,7 +29,7 @@ impl EventMetaGen for RebuildJob {
         let event_source = EventSource::new(
             MayastorEnvironment::global_or_default().node_name,
         )
-        .add_rebuild_data(
+        .with_rebuild_data(
             rebuild_status,
             self.src_uri(),
             self.dst_uri(),

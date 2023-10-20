@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use byte_unit::Byte;
 use chrono::Utc;
+use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
@@ -52,6 +53,7 @@ use crate::{
         UntypedBdev,
         UpdateProps,
     },
+    eventing::Event,
     ffihelper::{
         cb_arg,
         done_cb,
@@ -822,6 +824,7 @@ impl LvsLvol for Lvol {
     }
     /// Destroy the lvol.
     async fn destroy(mut self) -> Result<String, Error> {
+        let event = self.event(EventAction::Delete);
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
                 unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
@@ -858,6 +861,7 @@ impl LvsLvol for Lvol {
         }
 
         info!("destroyed lvol {}", name);
+        event.generate();
         Ok(name)
     }
 

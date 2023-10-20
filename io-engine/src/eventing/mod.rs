@@ -1,5 +1,6 @@
 pub(crate) mod nexus_events;
 mod pool_events;
+mod replica_events;
 use events_api::event::{EventAction, EventMessage, EventMeta};
 
 /// Event trait definition for creating events.
