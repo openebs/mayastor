@@ -86,6 +86,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("test")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Test management")
         .subcommand(inject)

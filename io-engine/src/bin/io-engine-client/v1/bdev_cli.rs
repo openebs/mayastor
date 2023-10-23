@@ -63,6 +63,7 @@ pub fn subcommands() -> Command {
         .arg(Arg::new("name").required(true).index(1));
 
     Command::new("bdev")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Block device management")
         .subcommand(list)

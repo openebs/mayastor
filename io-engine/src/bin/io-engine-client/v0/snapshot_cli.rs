@@ -31,6 +31,7 @@ pub fn subcommands() -> Command {
     );
 
     Command::new("snapshot")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Snapshot management")
         .subcommand(create)

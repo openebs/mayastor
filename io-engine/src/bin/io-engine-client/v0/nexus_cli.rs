@@ -215,6 +215,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("nexus")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Nexus device management")
         .subcommand(create)

@@ -76,6 +76,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         .subcommand(jsonrpc_cli::subcommands())
         .subcommand(controller_cli::subcommands())
         .subcommand(test_cli::subcommands())
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .get_matches();
 

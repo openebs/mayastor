@@ -18,6 +18,7 @@ pub fn subcommands() -> Command {
     let resource = Command::new("resource").about("Resource usage statistics");
 
     Command::new("perf")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Performance statistics")
         .subcommand(resource)

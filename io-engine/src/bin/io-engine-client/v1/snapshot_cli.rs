@@ -162,6 +162,7 @@ pub fn subcommands() -> Command {
                 .help("Snapshot uuid"),
         );
     Command::new("snapshot")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Snapshot management")
         .subcommand(create_for_nexus)

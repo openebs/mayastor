@@ -145,6 +145,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("rebuild")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Rebuild management")
         .subcommand(start)

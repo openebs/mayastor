@@ -24,6 +24,7 @@ pub fn subcommands() -> Command {
                 .index(2)
                 .help("Parameters (JSON string) to pass to method call"),
         )
+        .subcommand_required(true)
         .arg_required_else_help(true)
 }
 

@@ -21,6 +21,7 @@ pub fn subcommands() -> Command {
             );
 
     Command::new("device")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Host devices")
         .subcommand(list)

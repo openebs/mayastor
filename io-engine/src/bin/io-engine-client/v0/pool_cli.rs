@@ -33,6 +33,7 @@ pub fn subcommands() -> Command {
             .help("Storage pool name"),
     );
     Command::new("pool")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Storage pool management")
         .subcommand(create)

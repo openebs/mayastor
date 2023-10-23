@@ -79,6 +79,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("pool")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Storage pool management")
         .subcommand(create)

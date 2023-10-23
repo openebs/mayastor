@@ -87,6 +87,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("child")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Nexus child management")
         .subcommand(fault)

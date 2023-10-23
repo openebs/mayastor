@@ -131,6 +131,7 @@ pub fn subcommands() -> Command {
                 .help("NQN of hosts which are allowed to connect to the target"));
 
     Command::new("replica")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Replica management")
         .subcommand(create)

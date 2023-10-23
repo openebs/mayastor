@@ -20,6 +20,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("controller")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("NVMe controllers")
         .subcommand(list)

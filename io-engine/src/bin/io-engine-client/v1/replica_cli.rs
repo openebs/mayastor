@@ -107,6 +107,7 @@ pub fn subcommands() -> Command {
             .help("Replica uuid"),
     );
     Command::new("replica")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Replica management")
         .subcommand(create)
