@@ -560,11 +560,14 @@ impl NexusRpc for NexusService {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
+        let event = args.event(EventAction::AddChild);
+
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
                 let nexus = nexus_add_child(&args).await?;
                 info!("Added child to nexus {}", args.uuid);
+                event.generate();
                 Ok(nexus)
             })?;
 
@@ -588,6 +591,8 @@ impl NexusRpc for NexusService {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
+        let event = args.clone().event(EventAction::RemoveChild);
+
         self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
@@ -601,6 +606,7 @@ impl NexusRpc for NexusService {
                         "Removed child {} from nexus {}",
                         args.uri, args.uuid
                     );
+                    event.generate();
                 }
                 Ok(nexus_lookup(&args.uuid)?.into_grpc().await)
             })?;
