@@ -105,6 +105,7 @@ sysfs = { path = "../sysfs" }
 version-info = { path = "../utils/dependencies/version-info" }
 events-api = { path = "../utils/dependencies/apis/events" }
 event-publisher = { path = "../utils/dependencies/event-publisher" }
+tracing-filter = { path = "../utils/dependencies/tracing-filter" }
 
 [dependencies.serde]
 features = ["derive"]
