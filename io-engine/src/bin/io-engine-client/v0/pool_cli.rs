@@ -6,8 +6,9 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v0 as rpc;
+use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::Status;
 
 pub fn subcommands() -> Command {
@@ -33,6 +34,7 @@ pub fn subcommands() -> Command {
             .help("Storage pool name"),
     );
     Command::new("pool")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Storage pool management")
         .subcommand(create)
@@ -180,7 +182,7 @@ async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
 }
 
 fn pool_state_to_str(idx: i32) -> &'static str {
-    match rpc::PoolState::from_i32(idx).unwrap() {
+    match rpc::PoolState::try_from(idx).unwrap() {
         rpc::PoolState::PoolUnknown => "unknown",
         rpc::PoolState::PoolOnline => "online",
         rpc::PoolState::PoolDegraded => "degraded",

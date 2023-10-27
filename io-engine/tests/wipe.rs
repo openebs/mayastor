@@ -12,7 +12,7 @@ use io_engine_tests::{
     replica::ReplicaBuilder,
 };
 
-use mayastor_api::{
+use io_engine_api::{
     v1 as v1_rpc,
     v1::{
         replica::Replica,

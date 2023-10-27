@@ -2,7 +2,7 @@
 
 use futures::{select, FutureExt, StreamExt};
 use http::Uri;
-use mayastor_api::v1::registration::{
+use io_engine_api::v1::registration::{
     registration_client,
     DeregisterRequest,
     RegisterRequest,
@@ -158,7 +158,7 @@ impl Registration {
             .clone()
             .into_iter()
             .map(|v| {
-                let api_version: mayastor_api::v1::registration::ApiVersion =
+                let api_version: io_engine_api::v1::registration::ApiVersion =
                     v.into();
                 api_version as i32
             })
@@ -254,7 +254,7 @@ impl Registration {
     }
 }
 
-impl From<ApiVersion> for mayastor_api::v1::registration::ApiVersion {
+impl From<ApiVersion> for io_engine_api::v1::registration::ApiVersion {
     fn from(api_version: ApiVersion) -> Self {
         match api_version {
             ApiVersion::V0 => Self::V0,

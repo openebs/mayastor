@@ -30,7 +30,7 @@ use ::function_name::named;
 use chrono::{DateTime, Utc};
 use core::ffi::{c_char, c_void};
 use futures::FutureExt;
-use mayastor_api::v1::snapshot::*;
+use io_engine_api::v1::snapshot::*;
 use nix::errno::Errno;
 use spdk_rs::libspdk::spdk_blob_get_xattr_value;
 use std::{convert::TryFrom, panic::AssertUnwindSafe};

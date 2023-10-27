@@ -25,7 +25,6 @@ use tracing_subscriber::{
     },
     layer::{Layer, SubscriberExt},
     registry::LookupSpan,
-    EnvFilter,
     Registry,
 };
 
@@ -451,10 +450,7 @@ pub fn init_ex(level: &str, format: LogFormat, events_url: Option<url::Url>) {
             metadata.target() != EVENTING_TARGET
         }));
 
-    let filter = match EnvFilter::try_from_default_env() {
-        Ok(filter) => filter,
-        Err(_) => tracing_subscriber::EnvFilter::new(level),
-    };
+    let filter = tracing_filter::rust_log_filter_ext(level);
 
     // Get the optional eventing layer.
     let events_layer = match events_url {

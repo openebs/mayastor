@@ -305,13 +305,15 @@ function createGrpcClient (serviceName = 'Mayastor', endpoint = grpcEndpoint) {
         __dirname,
         '..',
         '..',
-        'rpc',
-        'mayastor-api',
+        'utils',
+        'dependencies',
+        'apis',
+        'io-engine',
         'protobuf',
         'mayastor.proto'
       ),
       packageName: 'mayastor',
-      serviceName: serviceName,
+      serviceName,
       options: {
         keepCase: true,
         longs: String,
@@ -356,10 +358,10 @@ function createBdevs (bdevs, proto, endpoint, done) {
     bdevs,
     (uri, next) => {
       client.create(
-        { uri: uri },
+        { uri },
         (err, res) => {
           if (err) return next(err);
-          client.share({ name: res.name, proto: proto }, next);
+          client.share({ name: res.name, proto }, next);
         }
       );
     },

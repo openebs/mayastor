@@ -10,7 +10,7 @@ use std::{
 use tonic::transport::Channel;
 pub use tonic::Status;
 
-pub use mayastor_api::v1::*;
+pub use io_engine_api::v1::*;
 
 type HandleLock<T> = tokio::sync::Mutex<T>;
 type HandleLockGuard<'a, T> = tokio::sync::MutexGuard<'a, T>;

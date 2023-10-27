@@ -53,16 +53,16 @@ Not all packages are available on nix, so one extra step is needed if you run
 nix.
 
 ```shell
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf` --python_out=test/python --grpc_python_out=test/python mayastor.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf` --python_out=test/python --grpc_python_out=test/python csi.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python registration.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python host.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python common.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python bdev.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python replica.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python pool.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python nexus.proto
-python -m grpc_tools.protoc --proto_path=`realpath rpc/mayastor-api/protobuf/v1` --python_out=test/python --grpc_python_out=test/python snapshot.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf` --python_out=test/python --grpc_python_out=test/python mayastor.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf` --python_out=test/python --grpc_python_out=test/python csi.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python registration.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python host.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python common.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python bdev.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python replica.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python pool.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python nexus.proto
+python -m grpc_tools.protoc --proto_path=`realpath utils/dependencies/apis/io-engine/protobuf/v1` --python_out=test/python --grpc_python_out=test/python snapshot.proto
 
 virtualenv --no-setuptools test/python/venv
 source test/python/venv/bin/activate

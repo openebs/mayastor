@@ -5,7 +5,7 @@ use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v1 as v1rpc;
+use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
@@ -21,6 +21,7 @@ pub fn subcommands() -> Command {
             );
 
     Command::new("device")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Host devices")
         .subcommand(list)

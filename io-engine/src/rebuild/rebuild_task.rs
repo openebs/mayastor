@@ -94,7 +94,7 @@ impl RebuildTask {
                 len,
             })?;
 
-        // Perform the copy
+        // Perform the copy.
         let result = self.copy_one(blk, descriptor).await;
 
         // Wait for the LBA range to be unlocked.
@@ -113,27 +113,30 @@ impl RebuildTask {
             descriptor.blk_synced(blk);
         }
 
-        result.map(|_| true)
+        result
     }
 
     /// Copies one segment worth of data from source into destination.
+    /// Returns true if write transfer took place, false otherwise.
     async fn copy_one(
         &mut self,
         offset_blk: u64,
         desc: &RebuildDescriptor,
-    ) -> Result<(), RebuildError> {
+    ) -> Result<bool, RebuildError> {
         let iov = desc.adjusted_iov(&self.buffer, offset_blk);
         let iovs = &mut [iov];
 
-        if desc.read_src_segment(offset_blk, iovs).await? {
-            desc.write_dst_segment(offset_blk, iovs).await?;
+        if !desc.read_src_segment(offset_blk, iovs).await? {
+            // Segment is not allocated in the source, skip the write.
+            return Ok(false);
+        }
+        desc.write_dst_segment(offset_blk, iovs).await?;
 
-            if !matches!(desc.options.verify_mode, RebuildVerifyMode::None) {
-                desc.verify_segment(offset_blk, iovs).await?;
-            }
+        if !matches!(desc.options.verify_mode, RebuildVerifyMode::None) {
+            desc.verify_segment(offset_blk, iovs).await?;
         }
 
-        Ok(())
+        Ok(true)
     }
 }
 

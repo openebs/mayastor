@@ -27,7 +27,7 @@ use std::{
 };
 use tonic::{Request, Response, Status};
 
-use mayastor_api::v1::nexus::*;
+use io_engine_api::v1::nexus::*;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
@@ -199,7 +199,7 @@ impl From<RebuildStats> for RebuildStatsResponse {
     }
 }
 
-impl From<RebuildState> for mayastor_api::v1::nexus::RebuildJobState {
+impl From<RebuildState> for io_engine_api::v1::nexus::RebuildJobState {
     fn from(state: RebuildState) -> Self {
         match state {
             RebuildState::Init => RebuildJobState::Init,
@@ -257,9 +257,9 @@ impl TryFrom<NvmeReservationConv> for nexus::NvmeReservation {
     type Error = tonic::Status;
     fn try_from(value: NvmeReservationConv) -> Result<Self, Self::Error> {
         match value.0 {
-            Some(v) => match NvmeReservation::from_i32(v) {
-                Some(v) => Ok(v.into()),
-                None => Err(tonic::Status::invalid_argument(format!(
+            Some(v) => match NvmeReservation::try_from(v) {
+                Ok(v) => Ok(v.into()),
+                Err(_) => Err(tonic::Status::invalid_argument(format!(
                     "Invalid reservation type {v}"
                 ))),
             },
@@ -271,14 +271,14 @@ struct NvmePreemptionConv(i32);
 impl TryFrom<NvmePreemptionConv> for nexus::NexusNvmePreemption {
     type Error = tonic::Status;
     fn try_from(value: NvmePreemptionConv) -> Result<Self, Self::Error> {
-        match NexusNvmePreemption::from_i32(value.0) {
-            Some(NexusNvmePreemption::ArgKey) => {
+        match NexusNvmePreemption::try_from(value.0) {
+            Ok(NexusNvmePreemption::ArgKey) => {
                 Ok(nexus::NexusNvmePreemption::ArgKey)
             }
-            Some(NexusNvmePreemption::Holder) => {
+            Ok(NexusNvmePreemption::Holder) => {
                 Ok(nexus::NexusNvmePreemption::Holder)
             }
-            None => Err(tonic::Status::invalid_argument(format!(
+            Err(_) => Err(tonic::Status::invalid_argument(format!(
                 "Invalid reservation preempt policy {}",
                 value.0
             ))),
@@ -337,7 +337,7 @@ impl<'n> nexus::Nexus<'n> {
         // Get ANA state only for published nexuses.
         if let Some(Protocol::Nvmf) = self.shared() {
             if let Ok(state) = self.get_ana_state().await {
-                ana_state = NvmeAnaState::from_i32(state as i32)
+                ana_state = NvmeAnaState::try_from(state as i32)
                     .unwrap_or(NvmeAnaState::NvmeAnaInvalidState);
             }
         }
@@ -1063,7 +1063,7 @@ impl NexusRpc for NexusService {
         let count = args.count.unwrap_or(u32::MAX) as usize;
         let end_time = args
             .since_end_time
-            .map(chrono::DateTime::<chrono::Utc>::from);
+            .and_then(|t| chrono::DateTime::<chrono::Utc>::try_from(t).ok());
         let rx = rpc_submit::<_, _, nexus::Error>(async move {
             let mut newest_end_time = None;
             let default_end_time = chrono::Utc::now();

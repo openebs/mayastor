@@ -73,7 +73,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         .subcommand(snapshot_cli::subcommands())
         .subcommand(jsonrpc_cli::subcommands())
         .subcommand(controller_cli::subcommands())
-        .arg_required_else_help(true)
+        .subcommand_required(true).arg_required_else_help(true)
         .get_matches();
 
     let ctx = context::Context::new(&matches)

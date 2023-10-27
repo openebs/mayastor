@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v1 as v1_rpc;
+use io_engine_api::v1 as v1_rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
@@ -162,6 +162,7 @@ pub fn subcommands() -> Command {
                 .help("Snapshot uuid"),
         );
     Command::new("snapshot")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Snapshot management")
         .subcommand(create_for_nexus)

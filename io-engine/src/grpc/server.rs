@@ -16,7 +16,7 @@ use super::{
     },
 };
 
-use mayastor_api::{
+use io_engine_api::{
     v0::{
         bdev_rpc_server::BdevRpcServer,
         json_rpc_server::JsonRpcServer,

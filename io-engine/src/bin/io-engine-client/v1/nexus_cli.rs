@@ -8,8 +8,9 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::{v1, v1::nexus::NvmeReservation};
+use io_engine_api::{v1, v1::nexus::NvmeReservation};
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
@@ -196,6 +197,7 @@ pub fn subcommands() -> Command {
     );
 
     Command::new("nexus")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Nexus device management")
         .subcommand(create)
@@ -534,10 +536,10 @@ async fn nexus_children_2(
                 .iter()
                 .map(|c| {
                     let state = child_state_to_str_v1(
-                        v1::nexus::ChildState::from_i32(c.state).unwrap(),
+                        v1::nexus::ChildState::try_from(c.state).unwrap(),
                     );
                     let reason = child_reason_to_str_v1(
-                        v1::nexus::ChildStateReason::from_i32(c.state_reason)
+                        v1::nexus::ChildStateReason::try_from(c.state_reason)
                             .unwrap(),
                     );
                     let fault_timestamp = match &c.fault_timestamp {
@@ -822,7 +824,7 @@ async fn nexus_remove(
 }
 
 fn ana_state_idx_to_str(idx: i32) -> &'static str {
-    match v1::nexus::NvmeAnaState::from_i32(idx).unwrap() {
+    match v1::nexus::NvmeAnaState::try_from(idx).unwrap() {
         v1::nexus::NvmeAnaState::NvmeAnaInvalidState => "invalid",
         v1::nexus::NvmeAnaState::NvmeAnaOptimizedState => "optimized",
         v1::nexus::NvmeAnaState::NvmeAnaNonOptimizedState => "non_optimized",
@@ -835,7 +837,7 @@ fn ana_state_idx_to_str(idx: i32) -> &'static str {
 }
 
 fn nexus_state_to_str(idx: i32) -> &'static str {
-    match v1::nexus::NexusState::from_i32(idx).unwrap() {
+    match v1::nexus::NexusState::try_from(idx).unwrap() {
         v1::nexus::NexusState::NexusUnknown => "unknown",
         v1::nexus::NexusState::NexusOnline => "online",
         v1::nexus::NexusState::NexusDegraded => "degraded",

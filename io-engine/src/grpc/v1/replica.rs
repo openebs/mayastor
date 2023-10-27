@@ -16,7 +16,7 @@ use crate::{
 };
 use ::function_name::named;
 use futures::FutureExt;
-use mayastor_api::v1::replica::*;
+use io_engine_api::v1::replica::*;
 use nix::errno::Errno;
 use std::{convert::TryFrom, panic::AssertUnwindSafe, pin::Pin};
 use tonic::{Request, Response, Status};

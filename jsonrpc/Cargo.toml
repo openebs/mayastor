@@ -9,7 +9,7 @@ nix = "0.27.1"
 serde = "1.0.188"
 serde_derive = "1.0.188"
 serde_json = "1.0.107"
-tonic = "0.9.2"
+tonic = "0.10.2"
 tokio = { version = "1.33.0", features = ["full"] }
 tracing = "0.1.37"
 

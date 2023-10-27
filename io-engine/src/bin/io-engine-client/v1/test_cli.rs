@@ -8,7 +8,7 @@ use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use futures::StreamExt;
-use mayastor_api::v1 as v1_rpc;
+use io_engine_api::v1 as v1_rpc;
 use snafu::ResultExt;
 use std::{convert::TryInto, str::FromStr};
 use strum::VariantNames;
@@ -86,6 +86,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("test")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Test management")
         .subcommand(inject)

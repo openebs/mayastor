@@ -5,12 +5,13 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v0 as rpc;
+use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
 use tracing::debug;
 
 pub fn subcommands() -> Command {
     Command::new("jsonrpc")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Call a json-rpc method with a raw JSON payload")
         .arg(

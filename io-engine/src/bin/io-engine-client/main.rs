@@ -2,7 +2,7 @@ use byte_unit::Byte;
 use snafu::{Backtrace, Snafu};
 use tonic::transport::Channel;
 
-use mayastor_api::v0::{
+use io_engine_api::v0::{
     bdev_rpc_client::BdevRpcClient,
     json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,

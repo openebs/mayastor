@@ -5,8 +5,9 @@ use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v1 as v1rpc;
+use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::Status;
 
 pub fn subcommands() -> Command {
@@ -20,6 +21,7 @@ pub fn subcommands() -> Command {
         );
 
     Command::new("controller")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("NVMe controllers")
         .subcommand(list)
@@ -38,7 +40,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
 }
 
 fn controller_state_to_str(idx: i32) -> String {
-    match v1rpc::host::NvmeControllerState::from_i32(idx).unwrap() {
+    match v1rpc::host::NvmeControllerState::try_from(idx).unwrap() {
         v1rpc::host::NvmeControllerState::New => "new",
         v1rpc::host::NvmeControllerState::Initializing => "init",
         v1rpc::host::NvmeControllerState::Running => "running",

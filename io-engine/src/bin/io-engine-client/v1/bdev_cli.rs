@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::prelude::*;
-use mayastor_api::v1 as v1rpc;
+use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 
@@ -63,6 +63,7 @@ pub fn subcommands() -> Command {
         .arg(Arg::new("name").required(true).index(1));
 
     Command::new("bdev")
+        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Block device management")
         .subcommand(list)

@@ -58,7 +58,7 @@ use crate::{
 
 use chrono::Utc;
 use futures::FutureExt;
-use mayastor_api::v0::*;
+use io_engine_api::v0::*;
 use nix::errno::Errno;
 use std::{
     convert::{TryFrom, TryInto},
@@ -392,7 +392,7 @@ impl From<RebuildStats> for RebuildStatsReply {
     }
 }
 
-impl From<MayastorFeatures> for mayastor_api::v0::MayastorFeatures {
+impl From<MayastorFeatures> for io_engine_api::v0::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
@@ -526,9 +526,9 @@ impl TryFrom<NvmeReservationConv> for nexus::NvmeReservation {
     type Error = tonic::Status;
     fn try_from(value: NvmeReservationConv) -> Result<Self, Self::Error> {
         match value.0 {
-            Some(v) => match NvmeReservation::from_i32(v) {
-                Some(v) => Ok(v.into()),
-                None => Err(tonic::Status::invalid_argument(format!(
+            Some(v) => match NvmeReservation::try_from(v) {
+                Ok(v) => Ok(v.into()),
+                Err(_) => Err(tonic::Status::invalid_argument(format!(
                     "Invalid reservation type {v}"
                 ))),
             },
@@ -540,14 +540,14 @@ struct NvmePreemptionConv(i32);
 impl TryFrom<NvmePreemptionConv> for nexus::NexusNvmePreemption {
     type Error = tonic::Status;
     fn try_from(value: NvmePreemptionConv) -> Result<Self, Self::Error> {
-        match NexusNvmePreemption::from_i32(value.0) {
-            Some(NexusNvmePreemption::ArgKey) => {
+        match NexusNvmePreemption::try_from(value.0) {
+            Ok(NexusNvmePreemption::ArgKey) => {
                 Ok(nexus::NexusNvmePreemption::ArgKey)
             }
-            Some(NexusNvmePreemption::Holder) => {
+            Ok(NexusNvmePreemption::Holder) => {
                 Ok(nexus::NexusNvmePreemption::Holder)
             }
-            None => Err(tonic::Status::invalid_argument(format!(
+            Err(_) => Err(tonic::Status::invalid_argument(format!(
                 "Invalid reservation preempt policy {}",
                 value.0
             ))),

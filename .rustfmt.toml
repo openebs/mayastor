@@ -15,5 +15,5 @@ spaces_around_ranges = true
 edition = "2018"
 
 ignore = [
-    "rpc/mayastor-api"
+    "utils/dependencies/apis/io-engine"
 ]
