@@ -9,7 +9,7 @@ use crate::{
     lvs::{Error as LvsError, Lvol, Lvs, LvsLvol},
 };
 use ::function_name::named;
-use mayastor_api::{
+use io_engine_api::{
     v1,
     v1::test::{
         wipe_options::WipeMethod,
@@ -233,9 +233,10 @@ impl TryFrom<&Option<StreamWipeOptions>>
         Ok(crate::core::wiper::StreamWipeOptions {
             chunk_size: wipe.chunk_size,
             wipe_method: {
-                let method = WipeMethod::from_i32(options.wipe_method).ok_or(
-                    tonic::Status::invalid_argument("Invalid Wipe Method"),
-                )?;
+                let method = WipeMethod::try_from(options.wipe_method)
+                    .map_err(|_| {
+                        tonic::Status::invalid_argument("Invalid Wipe Method")
+                    })?;
                 Wiper::supported(match method {
                     WipeMethod::None => crate::core::wiper::WipeMethod::None,
                     WipeMethod::WriteZeroes => {

@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v1 as v1rpc;
+use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
 use tonic::Status;
 

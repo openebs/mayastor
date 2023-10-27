@@ -50,7 +50,7 @@ const childOfflineArgs = {
 };
 
 function createGrpcClient () {
-  const PROTO_PATH = path.join(__dirname, '/../../rpc/mayastor-api/protobuf/mayastor.proto');
+  const PROTO_PATH = path.join(__dirname, '/../../utils/dependencies/apis/io-engine/protobuf/mayastor.proto');
 
   // Load mayastor proto file with mayastor service
   const packageDefinition = protoLoader.loadSync(PROTO_PATH, {

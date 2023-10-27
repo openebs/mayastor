@@ -9,7 +9,7 @@ use nix::errno::Errno;
 use std::{convert::TryFrom, fmt::Debug};
 use tonic::{Request, Response, Status};
 
-use mayastor_api::v1::pool::*;
+use io_engine_api::v1::pool::*;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);

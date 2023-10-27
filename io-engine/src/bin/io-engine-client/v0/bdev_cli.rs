@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::prelude::*;
-use mayastor_api::v0::{BdevShareRequest, BdevUri, CreateReply, Null};
+use io_engine_api::v0::{BdevShareRequest, BdevUri, CreateReply, Null};
 use snafu::ResultExt;
 use tonic::Status;
 

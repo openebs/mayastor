@@ -8,8 +8,9 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::{v0, v1};
+use io_engine_api::{v0, v1};
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
@@ -615,7 +616,7 @@ async fn nexus_children(
                 .iter()
                 .map(|c| {
                     let state = child_state_to_str_v0(
-                        v0::ChildState::from_i32(c.state).unwrap(),
+                        v0::ChildState::try_from(c.state).unwrap(),
                     );
                     vec![c.uri.clone(), state.to_string()]
                 })
@@ -677,10 +678,10 @@ async fn nexus_children_2(
                 .iter()
                 .map(|c| {
                     let state = child_state_to_str_v1(
-                        v1::nexus::ChildState::from_i32(c.state).unwrap(),
+                        v1::nexus::ChildState::try_from(c.state).unwrap(),
                     );
                     let reason = child_reason_to_str_v1(
-                        v1::nexus::ChildStateReason::from_i32(c.state_reason)
+                        v1::nexus::ChildStateReason::try_from(c.state_reason)
                             .unwrap(),
                     );
                     vec![c.uri.clone(), state.to_string(), reason.to_string()]
@@ -943,7 +944,7 @@ async fn nexus_remove(
 }
 
 fn ana_state_idx_to_str(idx: i32) -> &'static str {
-    match v0::NvmeAnaState::from_i32(idx).unwrap() {
+    match v0::NvmeAnaState::try_from(idx).unwrap() {
         v0::NvmeAnaState::NvmeAnaInvalidState => "invalid",
         v0::NvmeAnaState::NvmeAnaOptimizedState => "optimized",
         v0::NvmeAnaState::NvmeAnaNonOptimizedState => "non_optimized",
@@ -954,7 +955,7 @@ fn ana_state_idx_to_str(idx: i32) -> &'static str {
 }
 
 fn nexus_state_to_str(idx: i32) -> &'static str {
-    match v0::NexusState::from_i32(idx).unwrap() {
+    match v0::NexusState::try_from(idx).unwrap() {
         v0::NexusState::NexusUnknown => "unknown",
         v0::NexusState::NexusOnline => "online",
         v0::NexusState::NexusDegraded => "degraded",

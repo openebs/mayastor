@@ -8,8 +8,9 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v1;
+use io_engine_api::v1;
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::Status;
 
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -404,7 +405,7 @@ async fn history(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                 .iter()
                 .map(|r| {
                     let state = rebuild_state_to_str(
-                        v1::nexus::RebuildJobState::from_i32(r.state).unwrap(),
+                        v1::nexus::RebuildJobState::try_from(r.state).unwrap(),
                     )
                     .to_string();
 

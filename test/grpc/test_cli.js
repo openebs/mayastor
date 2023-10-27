@@ -40,14 +40,16 @@ function runMockServer (rules) {
       __dirname,
       '..',
       '..',
-      'rpc',
-      'mayastor-api',
+      'utils',
+      'dependencies',
+      'apis',
+      'io-engine',
       'protobuf',
       'mayastor.proto'
     ),
     packageName: 'mayastor',
     serviceName: 'Mayastor',
-    rules: rules
+    rules
   });
 
   mayastorMockServer.listen('127.0.0.1:' + EGRESS_PORT);

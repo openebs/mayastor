@@ -5,8 +5,9 @@ use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
 use clap::{ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v0 as rpc;
+use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::Status;
 
 pub fn subcommands() -> Command {
@@ -34,7 +35,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
 }
 
 fn controller_state_to_str(idx: i32) -> String {
-    match rpc::NvmeControllerState::from_i32(idx).unwrap() {
+    match rpc::NvmeControllerState::try_from(idx).unwrap() {
         rpc::NvmeControllerState::New => "new",
         rpc::NvmeControllerState::Initializing => "init",
         rpc::NvmeControllerState::Running => "running",

@@ -1,12 +1,8 @@
-[submodule "rpc/mayastor-api"]
-	path = rpc/mayastor-api
-	url = https://github.com/openebs/mayastor-api
-	branch = develop
 [submodule "spdk-rs"]
 	path = spdk-rs
 	url = https://github.com/openebs/spdk-rs
 	branch = develop
-[submodule "utils/io-engine-dependencies"]
-	path = utils/io-engine-dependencies
+[submodule "utils/dependencies"]
+	path = utils/dependencies
 	url = https://github.com/openebs/mayastor-dependencies.git
 	branch = develop

@@ -56,7 +56,7 @@ impl FromStr for OutputFormat {
 
 mod v1 {
     use super::Error;
-    use mayastor_api::v1::*;
+    use io_engine_api::v1::*;
     use tonic::transport::{Channel, Endpoint};
 
     pub type BdevRpcClient = bdev::BdevRpcClient<Channel>;

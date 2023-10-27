@@ -40,7 +40,7 @@ use io_engine::{
 use io_engine_tests::file_io::{test_write_to_file, DataSize};
 use nix::errno::Errno;
 
-use mayastor_api::v1::{
+use io_engine_api::v1::{
     replica::list_replica_options,
     snapshot::{
         destroy_snapshot_request::Pool,

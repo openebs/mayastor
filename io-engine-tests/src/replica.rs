@@ -5,7 +5,7 @@ use super::{
     pool::PoolBuilder,
 };
 use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
-use mayastor_api::v1::replica::{
+use io_engine_api::v1::replica::{
     destroy_replica_request,
     CreateReplicaRequest,
     DestroyReplicaRequest,
@@ -83,7 +83,7 @@ impl ReplicaBuilder {
     }
 
     pub fn with_nvmf(mut self) -> Self {
-        self.share = mayastor_api::v1::common::ShareProtocol::Nvmf as i32;
+        self.share = io_engine_api::v1::common::ShareProtocol::Nvmf as i32;
         self
     }
 

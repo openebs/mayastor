@@ -1,5 +1,5 @@
 ///! Helpers related to nexus grpc methods.
-use mayastor_api::v0 as rpc;
+use io_engine_api::v0 as rpc;
 use rpc::{ChildState, ChildStateReason};
 use std::{convert::From, pin::Pin};
 use uuid::Uuid;

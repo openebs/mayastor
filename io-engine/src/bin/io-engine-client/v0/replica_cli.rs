@@ -7,8 +7,9 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v0 as rpc;
+use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::{Code, Status};
 
 pub fn subcommands() -> Command {
@@ -539,10 +540,10 @@ fn parse_replica_protocol(pcol: Option<&String>) -> Result<i32, Status> {
 }
 
 fn replica_protocol_to_str(idx: i32) -> &'static str {
-    match rpc::ShareProtocolReplica::from_i32(idx) {
-        Some(rpc::ShareProtocolReplica::ReplicaNone) => "none",
-        Some(rpc::ShareProtocolReplica::ReplicaNvmf) => "nvmf",
-        Some(rpc::ShareProtocolReplica::ReplicaIscsi) => "iscsi",
-        None => "unknown",
+    match rpc::ShareProtocolReplica::try_from(idx) {
+        Ok(rpc::ShareProtocolReplica::ReplicaNone) => "none",
+        Ok(rpc::ShareProtocolReplica::ReplicaNvmf) => "nvmf",
+        Ok(rpc::ShareProtocolReplica::ReplicaIscsi) => "iscsi",
+        Err(_) => "unknown",
     }
 }

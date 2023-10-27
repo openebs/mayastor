@@ -2,12 +2,12 @@
 //! gRPC method to proxy calls to (local) SPDK json-rpc service
 
 use crate::grpc::GrpcResult;
-use jsonrpc::error::Error;
-use mayastor_api::v0::{
+use io_engine_api::v0::{
     json_rpc_server::JsonRpc,
     JsonRpcReply,
     JsonRpcRequest,
 };
+use jsonrpc::error::Error;
 use std::borrow::Cow;
 use tonic::{Request, Response};
 

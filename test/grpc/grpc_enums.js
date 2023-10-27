@@ -9,7 +9,7 @@ const constants = {};
 const defs = Object.values(
   grpc.loadPackageDefinition(
     protoLoader.loadSync(
-      path.join(__dirname, '..', '..', 'rpc', 'mayastor-api', 'protobuf', 'mayastor.proto'),
+      path.join(__dirname, '..', '..', 'utils', 'dependencies', 'apis', 'io-engine', 'protobuf', 'mayastor.proto'),
       {
         // this is to load google/descriptor.proto
         includeDirs: ['./node_modules/protobufjs']

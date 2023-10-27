@@ -14,7 +14,7 @@ use std::{
 use tonic::transport::Channel;
 
 pub mod mayastor {
-    pub use mayastor_api::v0::*;
+    pub use io_engine_api::v0::*;
 }
 
 #[derive(Clone)]

@@ -51,7 +51,6 @@ let
     "jsonrpc"
     "libnvme-rs"
     "io-engine"
-    "rpc"
     "spdk-rs"
     "sysfs"
     "utils"

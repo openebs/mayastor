@@ -5,7 +5,7 @@ use crate::{
 };
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v0 as rpc;
+use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
 use tracing::debug;
 

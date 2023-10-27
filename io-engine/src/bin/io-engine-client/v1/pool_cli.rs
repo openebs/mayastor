@@ -7,8 +7,9 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use mayastor_api::v1 as v1rpc;
+use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
+use std::convert::TryFrom;
 use tonic::Status;
 
 pub fn subcommands() -> Command {
@@ -325,7 +326,7 @@ async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
 }
 
 fn pool_state_to_str(idx: i32) -> &'static str {
-    match v1rpc::pool::PoolState::from_i32(idx).unwrap() {
+    match v1rpc::pool::PoolState::try_from(idx).unwrap() {
         v1rpc::pool::PoolState::PoolUnknown => "unknown",
         v1rpc::pool::PoolState::PoolOnline => "online",
         v1rpc::pool::PoolState::PoolDegraded => "degraded",

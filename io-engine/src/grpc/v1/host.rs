@@ -17,7 +17,7 @@ use crate::{
 };
 use ::function_name::named;
 use futures::FutureExt;
-use mayastor_api::v1::{host as host_rpc, registration::RegisterRequest};
+use io_engine_api::v1::{host as host_rpc, registration::RegisterRequest};
 use std::panic::AssertUnwindSafe;
 use tonic::{Request, Response, Status};
 use version_info::raw_version_string;
@@ -221,7 +221,7 @@ impl host_rpc::HostRpc for HostService {
             .api_versions
             .iter()
             .map(|v| {
-                let api_version: mayastor_api::v1::registration::ApiVersion =
+                let api_version: io_engine_api::v1::registration::ApiVersion =
                     v.clone().into();
                 api_version as i32
             })

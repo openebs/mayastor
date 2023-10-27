@@ -1,6 +1,6 @@
 use super::{compose::rpc::v1::SharedRpcHandle, generate_uuid};
 
-use mayastor_api::v1::snapshot::{
+use io_engine_api::v1::snapshot::{
     CreateReplicaSnapshotRequest,
     CreateReplicaSnapshotResponse,
     CreateSnapshotCloneRequest,
