@@ -30,7 +30,7 @@ pub use registration::{
 
 use crate::subsys::nvmf::Nvmf;
 
-mod config;
+pub(super) mod config;
 mod nvmf;
 /// Module for registration of the data-plane with control-plane
 pub mod registration;

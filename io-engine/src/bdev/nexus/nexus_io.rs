@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Formatter},
     ops::{Deref, DerefMut},
+    pin::Pin,
 };
 
 use libc::c_void;
@@ -9,8 +10,10 @@ use nix::errno::Errno;
 use spdk_rs::{
     libspdk::{
         spdk_bdev_io,
+        spdk_bdev_io_complete_nvme_status,
         spdk_io_channel,
         SPDK_NVME_SC_ABORTED_SQ_DELETION,
+        SPDK_NVME_SC_CAPACITY_EXCEEDED,
         SPDK_NVME_SC_INVALID_OPCODE,
         SPDK_NVME_SC_RESERVATION_CONFLICT,
     },
@@ -207,9 +210,17 @@ impl<'n> NexusBio<'n> {
         }
     }
 
-    /// Obtains the Nexus struct embedded within the bdev.
+    /// Obtains a reference to the Nexus struct embedded within the bdev.
+    #[inline(always)]
     pub(crate) fn nexus(&self) -> &Nexus<'n> {
         self.bdev_checked(NEXUS_PRODUCT_ID).data()
+    }
+
+    /// Obtains a mutable reference to the Nexus struct embedded within the
+    /// bdev.
+    #[inline(always)]
+    fn nexus_mut(&mut self) -> Pin<&mut Nexus<'n>> {
+        self.bdev_checked(NEXUS_PRODUCT_ID).data_mut()
     }
 
     /// Invoked when a nexus IO completes.
@@ -234,7 +245,7 @@ impl<'n> NexusBio<'n> {
         self.driver_ctx_mut::<NioCtx>()
     }
 
-    /// completion handler for the nexus when a child IO completes
+    /// Completion handler for the nexus when a child I/O completes.
     fn complete(
         &mut self,
         child: &dyn BlockDevice,
@@ -270,7 +281,34 @@ impl<'n> NexusBio<'n> {
             self.resubmit();
         } else {
             error!("{self:?}: failing nexus I/O: all child I/Os failed");
+
+            unsafe {
+                self.nexus_mut().get_unchecked_mut().last_error = status;
+            }
+
             self.fail();
+        }
+    }
+
+    /// Fails the current I/O with a generic internal error. If the nexus
+    /// already had a last child error, it fails with it.
+    fn fail(&self) {
+        match self.nexus().last_error {
+            IoCompletionStatus::NvmeError(s) => self.fail_nvme_status(s),
+            IoCompletionStatus::LvolError(LvolFailure::NoSpace) => self
+                .fail_nvme_status(NvmeStatus::Generic(
+                    SPDK_NVME_SC_CAPACITY_EXCEEDED,
+                )),
+            _ => self.0.fail(),
+        }
+    }
+
+    /// Completes the I/O with the given `NvmeStatus`.
+    #[inline(always)]
+    fn fail_nvme_status(&self, status: NvmeStatus) {
+        let (sct, sc) = status.as_sct_sc_codes();
+        unsafe {
+            spdk_bdev_io_complete_nvme_status(self.as_ptr(), 0, sct, sc);
         }
     }
 
