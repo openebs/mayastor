@@ -906,6 +906,10 @@ impl MayastorEnvironment {
         // setup the logger as soon as possible
         self.init_logger();
 
+        if option_env!("ASAN_ENABLE").unwrap_or_default() == "1" {
+            print_asan_env();
+        }
+
         self.load_yaml_config();
 
         if let Some(ptpl) = &self.ptpl_dir {
@@ -1063,4 +1067,26 @@ fn make_hostnqn(node_name: Option<&String>) -> Option<String> {
     std::env::var("HOSTNQN").ok().or_else(|| {
         node_name.map(|n| format!("{NVME_NQN_PREFIX}:node-name:{n}"))
     })
+}
+
+fn print_asan_env() {
+    fn print_var(s: &str, v: Option<&str>) {
+        let v = v.unwrap_or_default();
+        info!("    {s:25} = {v}");
+    }
+
+    warn!("Compiled with Address Sanitizer enabled");
+    print_var("ASAN_OPTIONS", option_env!("ASAN_OPTIONS"));
+    print_var("ASAN_BUILD_ENV", option_env!("ASAN_BUILD_ENV"));
+    print_var("RUSTFLAGS", option_env!("RUSTFLAGS"));
+    print_var(
+        "CARGO_BUILD_RUSTFLAGS",
+        option_env!("CARGO_BUILD_RUSTFLAGS"),
+    );
+    print_var("CARGO_BUILD_TARGET", option_env!("CARGO_BUILD_TARGET"));
+    print_var(
+        "CARGO_PROFILE_DEV_PANIC",
+        option_env!("CARGO_PROFILE_DEV_PANIC"),
+    );
+    print_var("RUST_BACKTRACE", option_env!("RUST_BACKTRACE"));
 }
