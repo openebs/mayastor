@@ -28,6 +28,7 @@ use crate::{
         NexusOpts,
         NvmeBdevOpts,
         NvmfTgtConfig,
+        PosixSocketOpts,
     },
 };
 
@@ -127,6 +128,8 @@ pub struct Config {
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
+    /// socket specific options
+    pub socket_opts: PosixSocketOpts,
 }
 
 impl Config {
@@ -188,6 +191,7 @@ impl Config {
             nvme_bdev_opts: self.nvme_bdev_opts.get(),
             bdev_opts: self.bdev_opts.get(),
             nexus_opts: self.nexus_opts.get(),
+            socket_opts: self.socket_opts.get(),
         }
     }
 
@@ -217,5 +221,6 @@ impl Config {
 
         assert!(self.nvme_bdev_opts.set());
         assert!(self.bdev_opts.set());
+        assert!(self.socket_opts.set());
     }
 }
