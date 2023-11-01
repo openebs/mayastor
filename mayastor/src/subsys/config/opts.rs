@@ -482,14 +482,20 @@ impl GetOpts for PosixSocketOpts {
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;
-        unsafe {
-            let name = std::ffi::CString::new("posix").unwrap();
-            let rc = spdk_sock_impl_set_opts(
+        let name = std::ffi::CString::new("posix").unwrap();
+
+        if unsafe {
+            spdk_sock_impl_set_opts(
                 name.as_ptr(),
                 &opts as *const _ as *mut spdk_sock_impl_opts,
                 size,
-            );
-            rc == 0
+            )
+        } != 0
+        {
+            warn!("Failed to apply socket options");
+            return false;
         }
+        info!("Socket options successfully applied");
+        true
     }
 }
