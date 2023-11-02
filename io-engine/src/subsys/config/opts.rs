@@ -282,8 +282,10 @@ impl GetOpts for NvmeBdevOpts {
         let opts = Box::new(self.into());
         debug!("{:?}", &opts);
         if unsafe { bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
+            warn!("Failed to apply NVMe Bdev options");
             return false;
         }
+        info!("NVMe Bdev options successfully applied");
         true
     }
 }
@@ -400,8 +402,10 @@ impl GetOpts for BdevOpts {
     fn set(&self) -> bool {
         let opts = Box::new(self.into());
         if unsafe { spdk_bdev_set_opts(Box::into_raw(opts)) } != 0 {
+            warn!("Failed to apply Bdev options");
             return false;
         }
+        info!("Bdev options successfully applied");
         true
     }
 }
@@ -525,15 +529,21 @@ impl GetOpts for PosixSocketOpts {
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;
-        unsafe {
-            let name = std::ffi::CString::new("posix").unwrap();
-            let rc = spdk_sock_impl_set_opts(
+        let name = std::ffi::CString::new("posix").unwrap();
+
+        if unsafe {
+            spdk_sock_impl_set_opts(
                 name.as_ptr(),
                 &opts as *const _ as *mut spdk_sock_impl_opts,
                 size,
-            );
-            rc == 0
+            )
+        } != 0
+        {
+            warn!("Failed to apply socket options");
+            return false;
         }
+        info!("Socket options successfully applied");
+        true
     }
 }
 
@@ -559,7 +569,12 @@ impl GetOpts for IoBufOpts {
     }
 
     fn set(&self) -> bool {
-        unsafe { spdk_iobuf_set_opts(&self.into()) == 0 }
+        if unsafe { spdk_iobuf_set_opts(&self.into()) } != 0 {
+            warn!("Failed to apply I/O buffer options");
+            return false;
+        }
+        info!("I/O buffer options successfully applied");
+        true
     }
 }
 
