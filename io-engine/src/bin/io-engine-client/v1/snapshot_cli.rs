@@ -172,7 +172,9 @@ pub fn subcommands() -> Command {
         .subcommand(create_clone)
         .subcommand(list_clone)
 }
-
+/// For multiple replicas, replica_uuid will be given in a single string,
+/// separated by comma. Same for snapshot_uuid. replica_uuid and snapshot_uuid
+/// will be matched by index.
 async fn create_for_nexus(
     mut ctx: Context,
     matches: &ArgMatches,
@@ -202,24 +204,32 @@ async fn create_for_nexus(
         })?
         .to_owned();
     let replica_uuid = matches
-        .get_many::<String>("replica_uuid")
+        .get_one::<String>("replica_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "replica_uuid".to_string(),
         })?
-        .map(|c| c.to_string())
-        .collect::<Vec<String>>();
+        .to_owned();
     let snapshot_uuid = matches
-        .get_many::<String>("snapshot_uuid")
+        .get_one::<String>("snapshot_uuid")
         .ok_or_else(|| ClientError::MissingValue {
             field: "snapshot_uuid".to_string(),
         })?
-        .cloned()
-        .collect::<Vec<_>>();
+        .to_owned();
+
+    let replica_uuid: Vec<String> = replica_uuid
+        .split(',')
+        .map(|r| r.trim().to_string())
+        .collect();
+    let snapshot_uuid: Vec<String> = snapshot_uuid
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
     if replica_uuid.len() != snapshot_uuid.len() {
         return Err(ClientError::MissingValue {
                 field: "Parameter count doesn't match between replica_uuid and snapshot_uuid".to_string()
             });
     }
+
     let replicas: Vec<v1_rpc::snapshot::NexusCreateSnapshotReplicaDescriptor> =
         replica_uuid
             .into_iter()

@@ -267,24 +267,13 @@ impl ReplicaSnapshotExecutor {
 impl<'n> Nexus<'n> {
     fn check_nexus_state(&self) -> Result<(), Error> {
         self.check_nexus_operation(NexusOperation::NexusSnapshot)?;
-
-        // Check that nexus has exactly 1 replica.
-        match self.children().len() {
-            0 => {
-                return Err(Error::FailedCreateSnapshot {
-                    name: self.bdev_name(),
-                    reason: "Nexus has no replicas".to_string(),
-                })
-            }
-            1 => {} // Only one replica nexuses are supported.
-            _ => {
-                return Err(Error::FailedCreateSnapshot {
-                    name: self.bdev_name(),
-                    reason: "Nexus has more than one replica".to_string(),
-                })
-            }
+        // Check that nexus has no children.
+        if self.children().is_empty() {
+            return Err(Error::FailedCreateSnapshot {
+                name: self.bdev_name(),
+                reason: "Nexus has no replicas".to_string(),
+            });
         }
-
         // Check that nexus is healthy and not being reconfigured.
         let state = *self.state.lock();
         if state != NexusState::Open {
@@ -331,14 +320,6 @@ impl<'n> Nexus<'n> {
         }
 
         self.check_nexus_state()?;
-
-        // For now only single replica nexus is supported.
-        if self.children_iter().len() != 1 {
-            return Err(Error::FailedCreateSnapshot {
-                name: self.bdev_name(),
-                reason: "Nexus has more than one replica".to_string(),
-            });
-        }
 
         // Step 1: Pause I/O subsystem for nexus.
         self.as_mut().pause().await.map_err(|error| {
