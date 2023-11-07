@@ -30,6 +30,7 @@ use spdk_rs::libspdk::{
     spdk_lvol,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
+    vbdev_lvol_resize,
     LVS_CLEAR_WITH_UNMAP,
 };
 
@@ -112,6 +113,16 @@ impl Display for PropName {
         };
         write!(f, "{name}")
     }
+}
+
+/// Resize context to be passed as callback args pointer to spdk.
+struct ResizeCbCtx {
+    /// The lvol to be resized.
+    lvol: *mut spdk_lvol,
+    /// Oneshot sender for sending resize operation result.
+    sender: *mut c_void,
+    /// The new requested size of lvol.
+    req_size: u64,
 }
 
 /// Lvol space usage.
@@ -594,6 +605,11 @@ pub trait LvsLvol: LogicalVolume + Share {
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
     async fn destroy_replica(mut self) -> Result<String, Error>;
+
+    /// Resize a replica. The resize can be expand or shrink, depending
+    /// upon if required size is more or less than current size of
+    /// the replpica.
+    async fn resize_replica(&mut self, resize_to: u64) -> Result<(), Error>;
 }
 
 ///  LogicalVolume implement Generic interface for Lvol.
@@ -1026,4 +1042,64 @@ impl LvsLvol for Lvol {
         }
         Ok(name)
     }
+
+    /// Resize a replica. The resize can be expand or shrink, depending
+    /// upon if required size is more or less than current size of
+    /// the replica.
+    async fn resize_replica(&mut self, resize_to: u64) -> Result<(), Error> {
+        let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
+        let mut ctx = ResizeCbCtx {
+            lvol: self.as_inner_ptr(),
+            sender: cb_arg(s),
+            req_size: resize_to,
+        };
+
+        unsafe {
+            vbdev_lvol_resize(
+                self.as_inner_ptr(),
+                resize_to,
+                Some(lvol_resize_cb),
+                &mut ctx as *mut _ as *mut c_void,
+            );
+        }
+
+        let cb_ret = r.await.expect("lvol resize callback dropped");
+
+        match cb_ret {
+            Ok(_) => {
+                info!("Resized {:?} successfully", self);
+                Ok(())
+            }
+            Err(errno) => {
+                error!("Resize {:?} failed, errno {errno}", self);
+                Err(Error::RepResize {
+                    source: errno,
+                    name: self.name(),
+                })
+            }
+        }
+    }
+}
+
+extern "C" fn lvol_resize_cb(cb_arg: *mut c_void, errno: i32) {
+    let mut retcode = errno;
+    let ctx = cb_arg as *mut ResizeCbCtx;
+    let (lvol, req_size) =
+        unsafe { (Lvol::from_inner_ptr((*ctx).lvol), (*ctx).req_size) };
+    let sender = unsafe {
+        Box::from_raw(
+            (*ctx).sender as *mut oneshot::Sender<ErrnoResult<*mut spdk_lvol>>,
+        )
+    };
+
+    if retcode == 0 && (lvol.size() < req_size) {
+        // Make sure resize worked, and account for metadata while comparing
+        // i.e. the actual size will be a little more than requested.
+        debug_assert!(false, "errno 0 - replica resize must have succeeded !");
+        retcode = -libc::EAGAIN;
+    }
+
+    sender
+        .send(errno_result_from_i32(lvol.as_inner_ptr(), retcode))
+        .expect("Receiver is gone");
 }

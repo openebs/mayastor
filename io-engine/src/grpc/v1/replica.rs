@@ -489,4 +489,36 @@ impl ReplicaRpc for ReplicaService {
         )
         .await
     }
+
+    #[named]
+    async fn resize_replica(
+        &self,
+        request: Request<ResizeReplicaRequest>,
+    ) -> GrpcResult<Replica> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{args:?}");
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    let mut lvol = Bdev::lookup_by_uuid_str(&args.uuid)
+                        .and_then(|b| Lvol::try_from(b).ok())
+                        .ok_or(LvsError::RepResize {
+                            source: Errno::ENOENT,
+                            name: args.uuid.to_owned(),
+                        })?;
+                    let requested_size = args.requested_size;
+                    lvol.resize_replica(requested_size).await?;
+                    debug!("resized {:?}", lvol);
+                    Ok(Replica::from(lvol))
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
 }

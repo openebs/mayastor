@@ -32,7 +32,6 @@ pub fn subcommands() -> Command {
             Arg::new("size")
                 .short('s')
                 .long("size")
-
                 .required(true)
                 .value_name("NUMBER")
                 .help("Size of the replica"))
@@ -107,6 +106,20 @@ pub fn subcommands() -> Command {
             .index(1)
             .help("Replica uuid"),
     );
+    let resize = Command::new("resize")
+        .about("Resize replica")
+        .arg(
+            Arg::new("uuid")
+                .required(true)
+                .index(1)
+                .help("Replica uuid"),
+        )
+        .arg(
+            Arg::new("size")
+                .required(true)
+                .index(2)
+                .help("Requested new size of the replica"),
+        );
     Command::new("replica")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -115,6 +128,7 @@ pub fn subcommands() -> Command {
         .subcommand(destroy)
         .subcommand(share)
         .subcommand(unshare)
+        .subcommand(resize)
         .subcommand(Command::new("list").about("List replicas"))
         .subcommand(Command::new("stats").about("IO stats of replicas"))
 }
@@ -126,6 +140,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("list", args) => replica_list(ctx, args).await,
         ("share", args) => replica_share(ctx, args).await,
         ("unshare", args) => replica_unshare(ctx, args).await,
+        ("resize", args) => replica_resize(ctx, args).await,
         ("stats", args) => replica_stat(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
@@ -408,6 +423,46 @@ async fn replica_unshare(
             println!("{}", &response.get_ref().uri);
         }
     };
+
+    Ok(())
+}
+
+async fn replica_resize(
+    mut ctx: Context,
+    matches: &ArgMatches,
+) -> crate::Result<()> {
+    let uuid = matches
+        .get_one::<String>("uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_owned();
+
+    let requested_size =
+        parse_size(matches.get_one::<String>("size").ok_or_else(|| {
+            ClientError::MissingValue {
+                field: "size".to_string(),
+            }
+        })?)
+        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
+        .context(GrpcStatus)?;
+
+    let _ = ctx
+        .v1
+        .replica
+        .resize_replica(v1_rpc::replica::ResizeReplicaRequest {
+            uuid: uuid.clone(),
+            requested_size: requested_size.get_bytes() as u64,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {}
+        OutputFormat::Default => {
+            println!("replica {} is resized", &uuid);
+        }
+    }
 
     Ok(())
 }

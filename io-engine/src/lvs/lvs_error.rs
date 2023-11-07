@@ -86,6 +86,11 @@ pub enum Error {
         name: String,
         msg: String,
     },
+    #[snafu(display("failed to resize lvol {}", name))]
+    RepResize {
+        source: Errno,
+        name: String,
+    },
     #[snafu(display("bdev {} is not a lvol", name))]
     NotALvol {
         source: Errno,
@@ -216,6 +221,9 @@ impl ToErrno for Error {
                 source, ..
             } => source,
             Self::RepDestroy {
+                source, ..
+            } => source,
+            Self::RepResize {
                 source, ..
             } => source,
             Self::NotALvol {
