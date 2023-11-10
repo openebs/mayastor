@@ -17,6 +17,7 @@ use spdk_rs::Thread;
 pub struct NexusChannel<'n> {
     writers: Vec<Box<dyn BlockDeviceHandle>>,
     readers: Vec<Box<dyn BlockDeviceHandle>>,
+    detached: Vec<Box<dyn BlockDeviceHandle>>,
     io_logs: Vec<IOLogChannel>,
     previous_reader: UnsafeCell<usize>,
     fail_fast: u32,
@@ -123,6 +124,7 @@ impl<'n> NexusChannel<'n> {
         Self {
             writers,
             readers,
+            detached: Vec::new(),
             io_logs: nexus.io_log_channels(),
             previous_reader: UnsafeCell::new(0),
             nexus: unsafe { nexus.pinned_mut() },
@@ -209,16 +211,57 @@ impl<'n> NexusChannel<'n> {
         }
     }
 
-    /// Disconnects a child device from the I/O path.
-    pub fn disconnect_device(&mut self, device_name: &str) {
+    /// Detaches a child device from this I/O channel, moving the device's
+    /// handles to the list of detached devices to disconnect later.
+    ///
+    /// The detached handles must be disconnected and dropped by a
+    /// `disconnect_detached_devices()` call.
+    pub(super) fn detach_device(&mut self, device_name: &str) {
         self.previous_reader = UnsafeCell::new(0);
 
-        self.readers
-            .retain(|c| c.get_device().device_name() != device_name);
-        self.writers
-            .retain(|c| c.get_device().device_name() != device_name);
+        if let Some(d) = self
+            .readers
+            .iter()
+            .position(|c| c.get_device().device_name() == device_name)
+        {
+            let t = self.readers.remove(d);
+            self.detached.push(t);
+        }
 
-        debug!("{self:?}: device '{device_name}' disconnected");
+        if let Some(d) = self
+            .writers
+            .iter()
+            .position(|c| c.get_device().device_name() == device_name)
+        {
+            let t = self.writers.remove(d);
+            self.detached.push(t);
+        }
+
+        debug!("{self:?}: device '{device_name}' detached");
+    }
+
+    /// Disconnects previously detached device handles by dropping them.
+    /// Devices to drop are filtered by the given predicate: true to drop
+    /// a device, false to keep it.
+    pub(super) fn disconnect_detached_devices<F>(&mut self, mut drop_pred: F)
+    where
+        F: FnMut(&dyn BlockDeviceHandle) -> bool,
+    {
+        let n = self.detached.len();
+        info!("{self:?}: disconnecting {n} detached device handles...");
+
+        self.detached.retain(|h| !drop_pred(h.as_ref()));
+
+        let m = self.detached.len();
+        if m == 0 {
+            info!("{self:?}: all detached device handles disconnected");
+        } else {
+            let d = n - m;
+            info!(
+                "{self:?}: {d} detached device handle(s) disconnected, \
+                {m} remain(s)"
+            );
+        }
     }
 
     /// Refreshing our channels simply means that we either have a child going

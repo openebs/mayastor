@@ -476,6 +476,11 @@ pub trait BlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
+
+    /// Determines if the underlying controller is failed.
+    fn is_ctrlr_failed(&self) -> bool {
+        false
+    }
 }
 
 fn block_device_io_completion(

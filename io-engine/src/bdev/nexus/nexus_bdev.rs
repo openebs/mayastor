@@ -1143,6 +1143,20 @@ impl<'n> Nexus<'n> {
         unsafe { Pin::new_unchecked(self.bdev_mut()) }
     }
 
+    /// Gets a nexus reference from an untyped bdev.
+    /// # Warning:
+    /// No checks are performed (e.g. bdev module name check), as it is assumed
+    /// that the provided bdev is a nexus bdev.
+    #[inline(always)]
+    pub(crate) unsafe fn unsafe_from_untyped_bdev(
+        bdev: spdk_rs::UntypedBdev,
+    ) -> &'n Nexus<'n> {
+        spdk_rs::Bdev::<Nexus<'n>>::unsafe_from_inner_ptr(
+            bdev.unsafe_inner_ptr() as *mut _,
+        )
+        .data()
+    }
+
     /// Sets the required alignment of the Nexus.
     pub(crate) unsafe fn set_required_alignment(
         self: Pin<&mut Self>,

@@ -1523,6 +1523,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let id = inner.ext_host_id();
         Ok(*id)
     }
+
+    /// Determines if the underlying controller is failed.
+    fn is_ctrlr_failed(&self) -> bool {
+        self.ctrlr.is_failed
+    }
 }
 
 impl Drop for NvmeDeviceHandle {

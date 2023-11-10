@@ -642,7 +642,8 @@ impl<'n> NexusBio<'n> {
             // set the IO as failed in the submission stage.
             self.ctx_mut().failed += 1;
 
-            self.channel_mut().disconnect_device(&device);
+            self.channel_mut().detach_device(&device);
+            self.channel_mut().disconnect_detached_devices(|_| true);
 
             if let Some(log) = self.fault_device(
                 &device,
