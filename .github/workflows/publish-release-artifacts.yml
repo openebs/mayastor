@@ -1,0 +1,36 @@
+name: Publish Release Artifacts
+on:
+  release:
+    types: [published]
+jobs:
+  publish-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Download Artifacts
+        run: |
+          echo "Release Tag: ${{ github.event.release.tag_name }}"
+          while [ -z "$id" ]; do
+            let "attempt+=1"
+            id=$(gh run list -R ${{ github.repository_owner }}/mayastor-extensions -w "Release Artifacts" --json conclusion,headBranch,databaseId --jq ".[] | select( .conclusion == \"success\" and .headBranch == \"${{ github.event.release.tag_name }}\")" | jq ".databaseId")
+            if [ -n "$id" ]; then
+              mkdir artifacts
+              gh run download $id -D artifacts -R ${{ github.repository_owner }}/mayastor-extensions
+              tree artifacts
+            else
+              echo "Release Artifacts not ready after $attempt attempts"
+              if [ "$attempt" -eq 60 ]; then
+                echo "Giving up..."
+                exit 124
+              fi
+              sleep "$((60*2))"
+            fi
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Artifacts
+        run: |
+          tars=$(find artifacts/ -type f | xargs)
+          gh release upload "${{ github.event.release.tag_name }}" --clobber $tars
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
