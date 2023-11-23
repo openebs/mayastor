@@ -227,6 +227,6 @@ impl Config {
         assert!(self.socket_opts.set());
         assert!(self.iobuf_opts.set());
 
-        debug!("{:#?}", self);
+        info!("{:#?}", self);
     }
 }
