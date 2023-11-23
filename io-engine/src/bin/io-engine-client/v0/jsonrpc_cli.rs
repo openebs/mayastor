@@ -11,7 +11,6 @@ use tracing::debug;
 
 pub fn subcommands() -> Command {
     Command::new("jsonrpc")
-        .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Call a json-rpc method with a raw JSON payload")
         .arg(
