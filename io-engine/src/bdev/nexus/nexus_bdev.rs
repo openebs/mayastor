@@ -1265,11 +1265,20 @@ impl<'n> BdevOps for Nexus<'n> {
             | IoType::WriteZeros => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {
-                    debug!(
-                        "{:?}: I/O type '{:?}' not supported by at least \
-                        one of child devices",
-                        self, io_type
-                    );
+                    if io_type == IoType::Flush {
+                        trace!(
+                            "{:?}: I/O type '{:?}' not supported by at least \
+                            one of child devices",
+                            self,
+                            io_type
+                        );
+                    } else {
+                        debug!(
+                            "{:?}: I/O type '{:?}' not supported by at least \
+                            one of child devices",
+                            self, io_type
+                        );
+                    }
                 }
                 supported
             }
