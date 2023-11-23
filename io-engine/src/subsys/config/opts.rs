@@ -254,7 +254,7 @@ impl Default for NvmfTcpTransportOpts {
                 "NVMF_TCP_MAX_QPAIRS_PER_CTRL",
                 32,
             ),
-            num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2048),
+            num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2047),
             buf_cache_size: try_from_env("NVMF_TCP_BUF_CACHE_SIZE", 64),
             dif_insert_or_strip: false,
             max_aq_depth: 32,
@@ -668,7 +668,7 @@ impl Default for IoBufOpts {
     fn default() -> Self {
         Self {
             small_pool_count: try_from_env("IOBUF_SMALL_POOL_COUNT", 8192),
-            large_pool_count: try_from_env("IOBUF_LARGE_POOL_COUNT", 1024),
+            large_pool_count: try_from_env("IOBUF_LARGE_POOL_COUNT", 2048),
             small_bufsize: try_from_env("IOBUF_SMALL_BUFSIZE", 8 * 1024),
             large_bufsize: try_from_env("IOBUF_LARGE_BUFSIZE", 132 * 1024),
         }
