@@ -375,7 +375,7 @@ impl Default for NvmeBdevOpts {
             ),
             keep_alive_timeout_ms: time_try_from_env(
                 "NVME_KATO",
-                1_000,
+                10_000,
                 TimeUnit::MilliSeconds,
             ),
             transport_retry_count: try_from_env("NVME_RETRY_COUNT", 0),
