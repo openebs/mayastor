@@ -8,7 +8,7 @@ use events_api::event::{
 };
 
 use crate::{
-    bdev::nexus,
+    bdev::{nexus, nexus::NexusChild},
     core::{MayastorEnvironment, VerboseError},
     eventing::{Event, EventMetaGen, EventWithMeta},
     rebuild::{RebuildJob, RebuildState},
@@ -36,6 +36,16 @@ impl EventMetaGen for RebuildJob {
             self.error().map(|e| e.verbose()),
         );
 
+        EventMeta::from_source(event_source)
+    }
+}
+
+impl<'n> EventMetaGen for NexusChild<'n> {
+    fn meta(&self) -> EventMeta {
+        let event_source = EventSource::new(
+            MayastorEnvironment::global_or_default().node_name,
+        )
+        .with_nexus_child_data(self.uri());
         EventMeta::from_source(event_source)
     }
 }

@@ -17,6 +17,7 @@ impl Event for AddChildNexusRequest {
             MayastorEnvironment::global_or_default().node_name,
         )
         .with_nexus_child_data(&self.uri);
+
         EventMessage {
             category: EventCategory::Nexus as i32,
             action: event_action as i32,
@@ -33,6 +34,7 @@ impl Event for RemoveChildNexusRequest {
             MayastorEnvironment::global_or_default().node_name,
         )
         .with_nexus_child_data(&self.uri);
+
         EventMessage {
             category: EventCategory::Nexus as i32,
             action: event_action as i32,

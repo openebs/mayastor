@@ -57,8 +57,11 @@ use crate::{
         Reactors,
         VerboseError,
     },
+    eventing::{EventMetaGen, EventWithMeta},
     subsys::NvmfSubsystem,
 };
+
+use events_api::event::EventAction;
 
 use spdk_rs::{
     ffihelper::cb_arg,
@@ -114,22 +117,32 @@ impl<'n> Nexus<'n> {
         let status = self.as_mut().add_child_only(uri).await?;
 
         if !norebuild {
-            if let Err(e) = self.start_rebuild(uri).await {
-                // todo: CAS-253 retry starting the rebuild again when ready
-                error!(
-                    "Child added but rebuild failed to start: {}",
-                    e.verbose()
-                );
-                match self.child(uri) {
-                    Ok(child) => {
-                        child.close_faulted(FaultReason::RebuildFailed).await
-                    }
-                    Err(e) => error!(
-                        "Failed to find newly added child {}, error: {}",
-                        uri,
+            match self.start_rebuild(uri).await {
+                Err(e) => {
+                    // todo: CAS-253 retry starting the rebuild again when ready
+                    error!(
+                        "Child added but rebuild failed to start: {}",
                         e.verbose()
-                    ),
-                };
+                    );
+                    match self.child(uri) {
+                        Ok(child) => {
+                            child
+                                .close_faulted(FaultReason::RebuildFailed)
+                                .await
+                        }
+                        Err(e) => error!(
+                            "Failed to find newly added child {}, error: {}",
+                            uri,
+                            e.verbose()
+                        ),
+                    };
+                }
+                Ok(_) => {
+                    if let Ok(child) = self.child(uri) {
+                        self.event(EventAction::OnlineChild, child.meta())
+                            .generate();
+                    }
+                }
             }
         }
         Ok(status)
@@ -462,6 +475,9 @@ impl<'n> Nexus<'n> {
             child.close().await.ok();
             return Err(e);
         }
+
+        self.event(EventAction::OnlineChild, child.meta())
+            .generate();
 
         Ok(self.status())
     }
