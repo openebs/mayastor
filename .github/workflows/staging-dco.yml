@@ -1,0 +1,12 @@
+name: Staging DCO
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  DCO:
+    runs-on: ubuntu-latest
+    steps:
+      - name: DCO
+        run: echo "DCO"

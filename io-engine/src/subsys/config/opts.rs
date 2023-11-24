@@ -26,6 +26,7 @@ use spdk_rs::{
 };
 
 use std::{
+    convert::TryFrom,
     fmt::{Debug, Display},
     str::FromStr,
 };
@@ -166,12 +167,80 @@ where
                    val
                },
                Err(e) => {
-                   error!("Invalid value: {} (error {}) specified for {}. Reverting to default ({})", v, e, name, default);
+                   error!("Invalid value: {} (error {}) specified for {}. Reverting to default value ({})", v, e, name, default);
                    default
                }
             }
         },
     )
+}
+
+enum TimeUnit {
+    MilliSeconds,
+    MicroSeconds,
+}
+impl TimeUnit {
+    /// A backwards comptabile env variable name, which contains the
+    /// time units appended to the name.
+    fn backcompat_name(&self, name: &str) -> String {
+        format!(
+            "{name}{}",
+            match self {
+                TimeUnit::MilliSeconds => "_MS",
+                TimeUnit::MicroSeconds => "_US",
+            }
+        )
+    }
+    /// Collects a raw value in `Self` units for a given `Duration`.
+    fn value(&self, value: std::time::Duration) -> u128 {
+        match self {
+            TimeUnit::MilliSeconds => value.as_millis(),
+            TimeUnit::MicroSeconds => value.as_micros(),
+        }
+    }
+    fn units(&self) -> &str {
+        match self {
+            TimeUnit::MilliSeconds => "ms",
+            TimeUnit::MicroSeconds => "us",
+        }
+    }
+}
+
+/// Try to read an env variable in humantime, and if not found reverts back to
+/// old format to keep backward compatibility.
+fn time_try_from_env<T>(name: &str, default: T, unit: TimeUnit) -> T
+where
+    T: FromStr + Display + Copy + TryFrom<u128>,
+    <T as FromStr>::Err: Debug + Display,
+    <T as TryFrom<u128>>::Error: Display,
+{
+    match std::env::var(name) {
+        Ok(value) => {
+            let result = match humantime::parse_duration(&value) {
+                Ok(value) => {
+                    let in_units = unit.value(value);
+                    if in_units == 0 && !value.is_zero() {
+                        Err(format!("must be at least 1{}", unit.units()))
+                    } else {
+                        T::try_from(unit.value(value))
+                            .map_err(|error| error.to_string())
+                    }
+                }
+                Err(error) => Err(error.to_string()),
+            };
+            match result {
+                Ok(value) => {
+                    info!("Overriding {} value to '{}'", name, value);
+                    value
+                }
+                Err(e) => {
+                    error!("Invalid value: {} (error {}) specified for {}. Reverting to default value ({}{})", value, e, name, default, unit.units());
+                    default
+                }
+            }
+        }
+        Err(_) => try_from_env(&unit.backcompat_name(name), default),
+    }
 }
 
 impl Default for NvmfTcpTransportOpts {
@@ -185,7 +254,7 @@ impl Default for NvmfTcpTransportOpts {
                 "NVMF_TCP_MAX_QPAIRS_PER_CTRL",
                 32,
             ),
-            num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2048),
+            num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2047),
             buf_cache_size: try_from_env("NVMF_TCP_BUF_CACHE_SIZE", 64),
             dif_insert_or_strip: false,
             max_aq_depth: 32,
@@ -265,8 +334,11 @@ pub struct NvmeBdevOpts {
     pub fast_io_fail_timeout_sec: u32,
     /// TODO
     pub disable_auto_failback: bool,
-    /// enable creation of submission and completion queues asynchronously.
-    pub async_mode: bool,
+    /// Enable generation of unique identifiers for NVMe bdevs only if they
+    /// do not provide UUID themselves.
+    /// These strings are based on device serial number and namespace ID and
+    ///  will always be the same for that device.
+    pub generate_uuids: bool,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -294,19 +366,36 @@ impl Default for NvmeBdevOpts {
     fn default() -> Self {
         Self {
             action_on_timeout: 4,
-            timeout_us: try_from_env("NVME_TIMEOUT_US", 5_000_000),
-            timeout_admin_us: try_from_env("NVME_TIMEOUT_ADMIN_US", 5_000_000),
-            keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 1_000),
+            timeout_us: time_try_from_env(
+                "NVME_TIMEOUT",
+                5_000_000,
+                TimeUnit::MicroSeconds,
+            ),
+            timeout_admin_us: time_try_from_env(
+                "NVME_TIMEOUT_ADMIN",
+                5_000_000,
+                TimeUnit::MicroSeconds,
+            ),
+            keep_alive_timeout_ms: time_try_from_env(
+                "NVME_KATO",
+                10_000,
+                TimeUnit::MilliSeconds,
+            ),
             transport_retry_count: try_from_env("NVME_RETRY_COUNT", 0),
             arbitration_burst: 0,
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: try_from_env(
-                "NVME_ADMINQ_POLL_PERIOD_US",
+            nvme_adminq_poll_period_us: time_try_from_env(
+                "NVME_ADMINQ_POLL_PERIOD",
                 1_000,
+                TimeUnit::MilliSeconds,
             ),
-            nvme_ioq_poll_period_us: try_from_env("NVME_IOQ_POLL_PERIOD_US", 0),
+            nvme_ioq_poll_period_us: time_try_from_env(
+                "NVME_IOQ_POLL_PERIOD",
+                0,
+                TimeUnit::MicroSeconds,
+            ),
             io_queue_requests: 0,
             delay_cmd_submit: true,
             bdev_retry_count: try_from_env("NVME_BDEV_RETRY_COUNT", 0),
@@ -315,7 +404,7 @@ impl Default for NvmeBdevOpts {
             reconnect_delay_sec: 0,
             fast_io_fail_timeout_sec: 0,
             disable_auto_failback: false,
-            async_mode: try_from_env("NVME_QPAIR_CONNECT_ASYNC", false),
+            generate_uuids: try_from_env("NVME_GENERATE_UUIDS", true),
         }
     }
 }
@@ -342,7 +431,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             reconnect_delay_sec: o.reconnect_delay_sec,
             fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
             disable_auto_failback: o.disable_auto_failback,
-            async_mode: NvmeBdevOpts::default().async_mode,
+            generate_uuids: o.generate_uuids,
         }
     }
 }
@@ -369,7 +458,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             reconnect_delay_sec: o.reconnect_delay_sec,
             fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
             disable_auto_failback: o.disable_auto_failback,
-            generate_uuids: false,
+            generate_uuids: o.generate_uuids,
             transport_tos: 0,
             nvme_error_stat: false,
             rdma_srq_size: 0,
@@ -582,7 +671,7 @@ impl Default for IoBufOpts {
     fn default() -> Self {
         Self {
             small_pool_count: try_from_env("IOBUF_SMALL_POOL_COUNT", 8192),
-            large_pool_count: try_from_env("IOBUF_LARGE_POOL_COUNT", 1024),
+            large_pool_count: try_from_env("IOBUF_LARGE_POOL_COUNT", 2048),
             small_bufsize: try_from_env("IOBUF_SMALL_BUFSIZE", 8 * 1024),
             large_bufsize: try_from_env("IOBUF_LARGE_BUFSIZE", 132 * 1024),
         }
