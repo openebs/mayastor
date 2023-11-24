@@ -201,7 +201,8 @@ impl NvmeDeviceHandle {
 
         match inner.qpair_mut() {
             Some(q) => {
-                q.connect();
+                //q.connect();
+                q.start_connect_async();
             }
             None => warn!("No I/O qpair in NvmeDeviceHandle, can't connect()"),
         };

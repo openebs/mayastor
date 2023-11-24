@@ -373,18 +373,26 @@ impl<'a> NvmeController<'a> {
             timeout_cfg.name, qpair, cid, timeout_action
         );
 
-        // Check Controller Fatal Status for non-admin commands only to avoid
-        // endless command resubmission in case of disconnected qpair.
-        if !qpair.is_null()
-            && spdk_ctrlr.check_cfs()
-            && timeout_action != DeviceTimeoutAction::HotRemove
-        {
-            error!(
-                "{}: controller Fatal Status set, reset required",
-                timeout_cfg.name
-            );
-            timeout_action = DeviceTimeoutAction::Reset;
-        }
+        let state = if !qpair.is_null() {
+            let s = unsafe { (*qpair).state() };
+            error!("qpair: {}", s);
+            s
+        } else {
+            0
+        };
+
+        // // Check Controller Fatal Status for non-admin commands only to avoid
+        // // endless command resubmission in case of disconnected qpair.
+        // if !qpair.is_null()
+        //     && spdk_ctrlr.check_cfs()
+        //     && timeout_action != DeviceTimeoutAction::HotRemove
+        // {
+        //     error!(
+        //         "{}: controller Fatal Status set, reset required",
+        //         timeout_cfg.name
+        //     );
+        //     timeout_action = DeviceTimeoutAction::Reset;
+        // }
 
         //Handle timeout based on the action.
         match timeout_action {

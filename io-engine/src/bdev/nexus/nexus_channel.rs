@@ -4,7 +4,6 @@ use std::{
     cell::UnsafeCell,
     fmt::{Debug, Display, Formatter},
     pin::Pin,
-    sync::atomic::Ordering,
 };
 
 use super::{FaultReason, IOLogChannel, Nexus, NexusBio};
@@ -81,10 +80,12 @@ impl<'n> NexusChannel<'n> {
     pub(crate) fn new(nexus: Pin<&mut Nexus<'n>>) -> Self {
         debug!("{nexus:?}: new channel on core {c}", c = Cores::current());
 
-        let b_init_thrd_hdls =
-            super::ENABLE_IO_ALL_THRD_NX_CHAN.load(Ordering::SeqCst);
-        let is_io_chan =
-            Thread::current().unwrap() != Thread::primary() || b_init_thrd_hdls;
+        // let b_init_thrd_hdls =
+        //     super::ENABLE_IO_ALL_THRD_NX_CHAN.load(Ordering::SeqCst);
+        // let is_io_chan =
+        //     Thread::current().unwrap() != Thread::primary() ||
+        // b_init_thrd_hdls;
+        let is_io_chan = true;
 
         let mut writers = Vec::new();
         let mut readers = Vec::new();

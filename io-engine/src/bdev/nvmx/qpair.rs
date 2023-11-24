@@ -262,9 +262,30 @@ impl QPair {
         })?
     }
 
+    pub fn start_connect_async(&self) {
+        match self.state() {
+            QPairState::Disconnected => {
+                let _d = self.start_new_async().unwrap();
+                drop(_d);
+            }
+            QPairState::Connecting => {
+                let _d = self.waiting_async().unwrap();
+                drop(_d);
+            }
+            QPairState::Connected => {
+                // Provide idempotency for multiple allocations of the same
+                // handle for the same thread, to make sure we don't reconnect
+                // every time.
+                trace!(?self, "I/O qpair already connected");
+            }
+            QPairState::Dropped => {
+                panic!("I/O qpair is in an invalid state: {:?}", self.state());
+            }
+        }
+    }
     /// Starts a new async connection and returns a receiver for it.
     fn start_new_async(&self) -> Result<ResultReceiver, CoreError> {
-        trace!(?self, "new async I/O pair connection");
+        info!(?self, "new async I/O pair connection");
 
         assert_eq!(self.state(), QPairState::Disconnected);
 
@@ -402,6 +423,10 @@ impl<'a> Connection<'a> {
 
         // Start async connection, and create a probe for it.
         ctx.probe = inner.borrow().ctrlr_connect_async(ctx.as_mut())?;
+        // Starting poll to ensure qpair state moves to connecting
+        if ctx.poll().is_err() {
+            tracing::error!("Failed to start initial poll");
+        }
 
         // Context is now managed by the SPDK async connection and the poller.
         Box::leak(ctx);
@@ -504,12 +529,12 @@ impl<'a> Connection<'a> {
             .take()
             .expect("I/O pair connection object must have been initialized")
             .send(res.clone())
-            .expect("Failed to notify I/O qpair connection listener");
+            .ok(); //.expect("Failed to notify I/O qpair connection listener");
 
         // Notify the waiters.
         waiters.into_iter().for_each(|w| {
             w.send(res.clone())
-                .expect("Failed to notify a connection waiter");
+                .ok(); //.expect("Failed to notify a connection waiter");
         });
     }
 

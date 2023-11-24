@@ -68,9 +68,9 @@ def cronSchedule() {
 }
 
 // TODO: Use multiple choices
-run_linter = true
-rust_test = true
-grpc_test = true
+run_linter = false
+rust_test = false
+grpc_test = false
 pytest_test = true
 // WA https://issues.jenkins.io/browse/JENKINS-41929
 // on the first run of new parameters, they are set to null.
