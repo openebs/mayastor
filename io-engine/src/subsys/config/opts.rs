@@ -334,8 +334,11 @@ pub struct NvmeBdevOpts {
     pub fast_io_fail_timeout_sec: u32,
     /// TODO
     pub disable_auto_failback: bool,
-    /// enable creation of submission and completion queues asynchronously.
-    pub async_mode: bool,
+    /// Enable generation of unique identifiers for NVMe bdevs only if they
+    /// do not provide UUID themselves.
+    /// These strings are based on device serial number and namespace ID and
+    ///  will always be the same for that device.
+    pub generate_uuids: bool,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -401,7 +404,7 @@ impl Default for NvmeBdevOpts {
             reconnect_delay_sec: 0,
             fast_io_fail_timeout_sec: 0,
             disable_auto_failback: false,
-            async_mode: try_from_env("NVME_QPAIR_CONNECT_ASYNC", false),
+            generate_uuids: try_from_env("NVME_GENERATE_UUIDS", true),
         }
     }
 }
@@ -428,7 +431,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             reconnect_delay_sec: o.reconnect_delay_sec,
             fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
             disable_auto_failback: o.disable_auto_failback,
-            async_mode: NvmeBdevOpts::default().async_mode,
+            generate_uuids: o.generate_uuids,
         }
     }
 }
@@ -455,7 +458,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             reconnect_delay_sec: o.reconnect_delay_sec,
             fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
             disable_auto_failback: o.disable_auto_failback,
-            generate_uuids: false,
+            generate_uuids: o.generate_uuids,
             transport_tos: 0,
             nvme_error_stat: false,
             rdma_srq_size: 0,
