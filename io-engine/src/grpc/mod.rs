@@ -12,7 +12,7 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     bdev_api::BdevError,
-    core::{CoreError, Reactor},
+    core::{CoreError, Reactor, VerboseError},
 };
 
 impl From<BdevError> for tonic::Status {
@@ -33,15 +33,28 @@ impl From<BdevError> for tonic::Status {
             BdevError::BoolParamParseFailed {
                 ..
             } => Status::invalid_argument(e.to_string()),
-            BdevError::CreateBdevInvalidParams {
+            BdevError::UuidParamParseFailed {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            BdevError::BdevWrongUuid {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            BdevError::CreateBdevFailed {
+                source, ..
+            }
+            | BdevError::CreateBdevInvalidParams {
                 source, ..
             } => match source {
-                Errno::EINVAL => Status::invalid_argument(e.to_string()),
-                Errno::ENOENT => Status::not_found(e.to_string()),
-                Errno::EEXIST => Status::already_exists(e.to_string()),
-                _ => Status::invalid_argument(e.to_string()),
+                Errno::EINVAL => Status::invalid_argument(e.verbose()),
+                Errno::ENOENT => Status::not_found(e.verbose()),
+                Errno::ENODEV => Status::not_found(e.verbose()),
+                Errno::EEXIST => Status::already_exists(e.verbose()),
+                _ => Status::invalid_argument(e.verbose()),
             },
-            e => Status::internal(e.to_string()),
+            BdevError::BdevNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            e => Status::internal(e.verbose()),
         }
     }
 }

@@ -80,10 +80,7 @@ pub enum BdevError {
     #[snafu(display("BDEV '{}' could not be found", name))]
     BdevNotFound { name: String },
     // Invalid creation parameters.
-    #[snafu(display(
-        "Failed to create a BDEV '{}': invalid parameters",
-        name
-    ))]
+    #[snafu(display("Failed to create a BDEV '{}'", name))]
     CreateBdevInvalidParams { source: Errno, name: String },
     // Generic creation failure.
     #[snafu(display("Failed to create a BDEV '{}'", name))]
