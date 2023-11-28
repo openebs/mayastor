@@ -131,11 +131,7 @@ pub enum Error {
         name
     ))]
     RemoveLastHealthyChild { child: String, name: String },
-    #[snafu(display(
-        "Cannot remove or offline the last healthy child {} of nexus {}",
-        child,
-        name
-    ))]
+    #[snafu(display("Child {} of nexus {} not found", child, name))]
     ChildNotFound { child: String, name: String },
     #[snafu(display("Child {} of nexus {} is not open", child, name))]
     ChildDeviceNotOpen { child: String, name: String },

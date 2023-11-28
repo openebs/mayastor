@@ -906,7 +906,9 @@ impl From<&Lvs> for LvsPtpl {
 impl PtplFileOps for LvsPtpl {
     fn destroy(&self) -> Result<(), std::io::Error> {
         if let Some(path) = self.path() {
-            std::fs::remove_dir_all(path)?;
+            if path.exists() {
+                std::fs::remove_dir_all(path)?;
+            }
         }
         Ok(())
     }
