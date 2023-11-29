@@ -120,6 +120,12 @@ pub(crate) trait Serializer<F, T> {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
 }
 
+#[async_trait::async_trait]
+pub(crate) trait RWSerializer<F, T> {
+    async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
+    async fn shared(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
+}
+
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;
 
 /// call the given future within the context of the reactor on the first core

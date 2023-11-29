@@ -5,7 +5,7 @@ use crate::{
         Bdev,
         VerboseError,
     },
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
+    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWSerializer},
     lvs::{Error as LvsError, Lvol, Lvs, LvsLvol},
 };
 use ::function_name::named;
@@ -74,7 +74,7 @@ impl TestRpc for TestService {
 
         crate::core::spawn(async move {
             let result = replica_svc
-                .locked(
+                .shared(
                     GrpcClientContext::new(&request, function_name!()),
                     async move {
                         let args = request.into_inner();
