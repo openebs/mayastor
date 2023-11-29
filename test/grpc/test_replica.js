@@ -166,7 +166,7 @@ describe('replica', function () {
     client.createPool(
       { name: POOL, disks: disks.map((d) => `${d}?blk_size=1238513`) },
       (err) => {
-        assert.equal(err.code, grpc.status.INTERNAL);
+        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
       }
     );
@@ -517,7 +517,7 @@ describe('replica', function () {
         [
           (next) => rmBlockFile(next),
           (next) => fs.writeFile(blockFile, buf, next),
-          (next) => client.createPool({ name: POOL, disks: disks }, next)
+          (next) => client.createPool({ name: POOL, disks }, next)
         ],
         done
       );

@@ -579,17 +579,18 @@ async fn nexus_publish(
         .cloned()
         .unwrap_or_default();
 
-    let protocol = match matches.get_one::<&str>("protocol") {
-        None => v1::common::ShareProtocol::Nvmf as i32,
-        Some(&"nvmf") => v1::common::ShareProtocol::Nvmf as i32,
-        Some(_) => {
-            return Err(Status::new(
-                Code::Internal,
-                "Invalid value of share protocol".to_owned(),
-            ))
-            .context(GrpcStatus);
-        }
-    };
+    let protocol =
+        match matches.get_one::<String>("protocol").map(|s| s.as_str()) {
+            None => v1::common::ShareProtocol::Nvmf as i32,
+            Some("nvmf") => v1::common::ShareProtocol::Nvmf as i32,
+            Some(_) => {
+                return Err(Status::new(
+                    Code::Internal,
+                    "Invalid value of share protocol".to_owned(),
+                ))
+                .context(GrpcStatus);
+            }
+        };
     let allowed_hosts = matches
         .get_many::<String>("allowed-host")
         .unwrap_or_default()

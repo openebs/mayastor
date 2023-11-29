@@ -93,10 +93,14 @@ impl MayastorGrpcServer {
                 v1::replica::ReplicaRpcServer::new(replica_v1.clone())
             }))
             .add_optional_service(enable_v1.map(|_| {
-                v1::test::TestRpcServer::new(TestService::new(replica_v1))
+                v1::test::TestRpcServer::new(TestService::new(
+                    replica_v1.clone(),
+                ))
             }))
             .add_optional_service(enable_v1.map(|_| {
-                v1::snapshot::SnapshotRpcServer::new(SnapshotService::new())
+                v1::snapshot::SnapshotRpcServer::new(SnapshotService::new(
+                    replica_v1,
+                ))
             }))
             .add_optional_service(enable_v1.map(|_| {
                 v1::host::HostRpcServer::new(HostService::new(

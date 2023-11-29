@@ -11,7 +11,7 @@ use crate::{
         UntypedBdev,
         UpdateProps,
     },
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
+    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWSerializer},
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol},
 };
 use ::function_name::named;
@@ -26,17 +26,17 @@ pub struct ReplicaService {
     #[allow(unused)]
     name: String,
     client_context:
-        std::sync::Arc<tokio::sync::Mutex<Option<GrpcClientContext>>>,
+        std::sync::Arc<tokio::sync::RwLock<Option<GrpcClientContext>>>,
 }
 
 #[async_trait::async_trait]
-impl<F, T> Serializer<F, T> for ReplicaService
+impl<F, T> RWSerializer<F, T> for ReplicaService
 where
     T: Send + 'static,
     F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
 {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status> {
-        let mut context_guard = self.client_context.lock().await;
+        let mut context_guard = self.client_context.write().await;
 
         // Store context as a marker of to detect abnormal termination of the
         // request. Even though AssertUnwindSafe() allows us to
@@ -56,6 +56,27 @@ where
 
         // Request completed, remove the marker.
         let ctx = context_guard.take().expect("gRPC context disappeared");
+
+        match r {
+            Ok(r) => r,
+            Err(_e) => {
+                warn!("{}: gRPC method panicked, args: {}", ctx.id, ctx.args);
+                Err(Status::cancelled(format!(
+                    "{}: gRPC method panicked",
+                    ctx.id
+                )))
+            }
+        }
+    }
+    async fn shared(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status> {
+        let context_guard = self.client_context.read().await;
+
+        if let Some(c) = context_guard.as_ref() {
+            warn!("{}: gRPC method timed out, args: {}", c.id, c.args);
+        }
+
+        let fut = AssertUnwindSafe(f).catch_unwind();
+        let r = fut.await;
 
         match r {
             Ok(r) => r,
@@ -120,7 +141,7 @@ impl ReplicaService {
     pub fn new() -> Self {
         Self {
             name: String::from("ReplicaSvc"),
-            client_context: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 }
@@ -311,7 +332,7 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ListReplicaOptions>,
     ) -> GrpcResult<ListReplicasResponse> {
-        self.locked(GrpcClientContext::new(&request, function_name!()), async {
+        self.shared(GrpcClientContext::new(&request, function_name!()), async {
             let args = request.into_inner();
             trace!("{:?}", args);
             let rx = rpc_submit::<_, _, LvsError>(async move {
