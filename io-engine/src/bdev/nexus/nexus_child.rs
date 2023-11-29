@@ -1103,16 +1103,13 @@ impl<'c> NexusChild<'c> {
         info!("{self:?}: unplugging child...");
 
         let state = self.state();
-        let is_destroying = self.is_destroying();
 
-        // Only drop the device and the device descriptor if the child is being
-        // destroyed. For a hot remove event, keep the device and descriptor.
-        if is_destroying {
-            debug!("{self:?}: dropping block device");
-            self.device = None;
-        } else {
-            debug!("{self:?}: hot remove: keeping block device");
-        }
+        // Drop the device and the device descriptor if the child is being
+        // destroyed or hot removed. For hot remove, the DeviceRemoved event
+        // will send us here and keeping the device/descriptor isn't of
+        // any use.
+        debug!("{self:?}: dropping block device");
+        self.device = None;
 
         if matches!(state, ChildState::Open) {
             // Change the state of the child to ensure it is taken out of
@@ -1137,11 +1134,9 @@ impl<'c> NexusChild<'c> {
             });
         }
 
-        if is_destroying {
-            // Dropping the last descriptor results in the device being removed.
-            // This must be performed in this function.
-            self.device_descriptor.take();
-        }
+        // Dropping the last descriptor results in the device being removed.
+        // This must be performed in this function.
+        self.device_descriptor.take();
 
         self.unplug_complete();
         info!("{self:?}: child successfully unplugged");
