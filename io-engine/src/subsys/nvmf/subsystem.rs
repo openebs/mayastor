@@ -63,6 +63,7 @@ use crate::{
     bdev::{nexus::nexus_lookup_nqn, nvmx::NVME_CONTROLLERS},
     constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{Bdev, Reactors, UntypedBdev},
+    eventing::{EventMetaGen, EventWithMeta},
     ffihelper::{cb_arg, done_cb, AsStr, FfiResult, IntoCString},
     subsys::{
         make_subsystem_serial,
@@ -70,6 +71,8 @@ use crate::{
         Config,
     },
 };
+
+use events_api::event::EventAction;
 
 /// TODO
 #[derive(Debug, PartialOrd, PartialEq)]
@@ -252,6 +255,10 @@ impl NvmfSubsystem {
                     host = ctrlr.hostnqn()
                 );
 
+                ctrlr
+                    .event(EventAction::NvmeConnect, subsystem.meta())
+                    .generate();
+
                 if let Some(nex) = nexus {
                     nex.add_initiator(&ctrlr.hostnqn());
                     subsystem.host_connect_nexus(ctrlr);
@@ -265,6 +272,10 @@ impl NvmfSubsystem {
                     host = ctrlr.hostnqn()
                 );
 
+                ctrlr
+                    .event(EventAction::NvmeDisconnect, subsystem.meta())
+                    .generate();
+
                 if let Some(nex) = nexus {
                     nex.rm_initiator(&ctrlr.hostnqn());
                     subsystem.host_disconnect_nexus(ctrlr);
@@ -277,6 +288,10 @@ impl NvmfSubsystem {
                     "Subsystem '{nqn}': host keep alive timeout: '{host}'",
                     host = ctrlr.hostnqn()
                 );
+
+                ctrlr
+                    .event(EventAction::NvmeKeepAliveTimeout, subsystem.meta())
+                    .generate();
 
                 if let Some(nex) = nexus {
                     nex.initiator_keep_alive_timeout(&ctrlr.hostnqn());
