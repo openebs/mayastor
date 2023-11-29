@@ -215,8 +215,8 @@ where
     <T as TryFrom<u128>>::Error: Display,
 {
     match std::env::var(name) {
-        Ok(value) => {
-            let result = match humantime::parse_duration(&value) {
+        Ok(human_value) => {
+            let result = match humantime::parse_duration(&human_value) {
                 Ok(value) => {
                     let in_units = unit.value(value);
                     if in_units == 0 && !value.is_zero() {
@@ -230,11 +230,11 @@ where
             };
             match result {
                 Ok(value) => {
-                    info!("Overriding {} value to '{}'", name, value);
+                    info!("Overriding {} value to '{}'", name, human_value);
                     value
                 }
                 Err(e) => {
-                    error!("Invalid value: {} (error {}) specified for {}. Reverting to default value ({}{})", value, e, name, default, unit.units());
+                    error!("Invalid value: {} (error {}) specified for {}. Reverting to default value ({}{})", human_value, e, name, default, unit.units());
                     default
                 }
             }
