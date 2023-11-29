@@ -21,7 +21,7 @@ use crate::{
         v1::nexus::nexus_lookup,
         GrpcClientContext,
         GrpcResult,
-        Serializer,
+        RWSerializer,
     },
     lvs::{Error as LvsError, Lvol, Lvs, LvsLvol},
     spdk_rs::ffihelper::IntoCString,
@@ -45,7 +45,7 @@ const SNAPSHOT_READY_AS_SOURCE: bool = false;
 #[allow(dead_code)]
 pub struct SnapshotService {
     name: String,
-    client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
+    replica_svc: super::replica::ReplicaService,
 }
 
 #[derive(Debug)]
@@ -201,55 +201,24 @@ impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
     }
 }
 #[async_trait::async_trait]
-impl<F, T> Serializer<F, T> for SnapshotService
+impl<F, T> RWSerializer<F, T> for SnapshotService
 where
     T: Send + 'static,
     F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
 {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status> {
-        let mut context_guard = self.client_context.lock().await;
-
-        // Store context as a marker of to detect abnormal termination of the
-        // request. Even though AssertUnwindSafe() allows us to
-        // intercept asserts in underlying method strategies, such a
-        // situation can still happen when the high-level future that
-        // represents gRPC call at the highest level (i.e. the one created
-        // by gRPC server) gets cancelled (due to timeout or somehow else).
-        // This can't be properly intercepted by 'locked' function itself in the
-        // first place, so the state needs to be cleaned up properly
-        // upon subsequent gRPC calls.
-        if let Some(c) = context_guard.replace(ctx) {
-            warn!("{}: gRPC method timed out, args: {}", c.id, c.args);
-        }
-
-        let fut = AssertUnwindSafe(f).catch_unwind();
-        let r = fut.await;
-
-        // Request completed, remove the marker.
-        let ctx = context_guard.take().expect("gRPC context disappeared");
-
-        match r {
-            Ok(r) => r,
-            Err(_e) => {
-                warn!("{}: gRPC method panicked, args: {}", ctx.id, ctx.args);
-                Err(Status::cancelled(format!(
-                    "{}: gRPC method panicked",
-                    ctx.id
-                )))
-            }
-        }
+        self.replica_svc.locked(ctx, f).await
+    }
+    async fn shared(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status> {
+        self.replica_svc.shared(ctx, f).await
     }
 }
-impl Default for SnapshotService {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+
 impl SnapshotService {
-    pub fn new() -> Self {
+    pub fn new(replica_svc: super::replica::ReplicaService) -> Self {
         Self {
             name: String::from("SnapshotSvc"),
-            client_context: tokio::sync::Mutex::new(None),
+            replica_svc,
         }
     }
     async fn serialized<T, F>(
@@ -490,7 +459,7 @@ impl SnapshotRpc for SnapshotService {
         &self,
         request: Request<ListSnapshotsRequest>,
     ) -> GrpcResult<ListSnapshotsResponse> {
-        self.locked(
+        self.shared(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
@@ -739,7 +708,7 @@ impl SnapshotRpc for SnapshotService {
         &self,
         request: Request<ListSnapshotCloneRequest>,
     ) -> GrpcResult<ListSnapshotCloneResponse> {
-        self.locked(
+        self.shared(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
