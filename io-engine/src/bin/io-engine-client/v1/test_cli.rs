@@ -183,10 +183,14 @@ async fn replica_wipe(
         .map_err(|e| Status::invalid_argument(e.to_string()))
         .context(GrpcStatus)?;
 
-    let chunk_size =
-        parse_size(matches.get_one::<&str>("chunk-size").unwrap_or(&"0"))
-            .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-            .context(GrpcStatus)?;
+    let chunk_size = parse_size(
+        matches
+            .get_one::<String>("chunk-size")
+            .map(|s| s.as_str())
+            .unwrap_or("0"),
+    )
+    .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
+    .context(GrpcStatus)?;
     let response = ctx
         .v1
         .test
