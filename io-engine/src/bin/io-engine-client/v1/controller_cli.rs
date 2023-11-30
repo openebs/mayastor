@@ -114,7 +114,9 @@ async fn controller_stats(
                 "READS",
                 "WRITES",
                 "READ/B",
-                "WRITTEN/B, NUM_UNMAPS, BYTES_UNMAPPED",
+                "WRITTEN/B",
+                "NUM_UNMAPS",
+                "BYTES_UNMAPPED",
             ];
             ctx.print_list(hdr, vec![row]);
         }
