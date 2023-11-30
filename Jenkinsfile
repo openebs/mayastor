@@ -276,6 +276,7 @@ pipeline {
                 // They could be lingering if there were previous test failures.
                 sh 'docker system prune -f'
                 sh 'nix-shell --run "./scripts/pytest-tests.sh" ci.nix'
+                sh 'nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit" ci.nix'
                 sh 'docker system prune -f'
               }
             }
