@@ -2,6 +2,9 @@
 
 set -eu -o pipefail
 
+SCRIPTDIR="$(realpath "$(dirname "$0")")"
+ROOTDIR=$(readlink -f "$SCRIPTDIR/..")
+
 function clean_all()
 {
   echo "Cleaning up all docker-compose clusters..."
@@ -31,7 +34,8 @@ function run_tests()
     then
     (
       set -x
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name"
+      report=$(echo "${name}-xunit-report.xml" | tr  '/' '-')
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$ROOTDIR/$report"
     )
     elif [ -f "$name" ] || [ -f "${name%::*}" ]
     then
@@ -39,7 +43,8 @@ function run_tests()
       set -x
       base=$(dirname "$name")
       ( cd "$base"; docker-compose down 2>/dev/null || true )
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name"
+      report=$(echo "$base/${name%.py}-xunit-report.xml" | tr  '/' '-')
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$ROOTDIR/$report"
     )
     fi
   done
