@@ -2,6 +2,34 @@
 
 set -eu -o pipefail
 
+SCRIPTDIR="$(realpath "$(dirname "$0")")"
+ROOTDIR=$(readlink -f "$SCRIPTDIR/..")
+
+function cleanup_handler()
+{
+  ERROR=$?
+  trap - INT QUIT TERM HUP
+  clean_all
+  if [ $ERROR != 0 ]; then exit $ERROR; fi
+}
+function trap_setup()
+{
+  trap cleanup_handler INT QUIT TERM HUP
+}
+
+function clean_all()
+{
+  echo "Cleaning up all docker-compose clusters..."
+  for file in $(find . -name docker-compose.yml); do
+    (
+      cd "$(dirname "$file")"
+      echo "$(pwd)"
+      docker-compose down 2>/dev/null || true
+    )
+  done
+  echo "Done"
+}
+
 function run_tests()
 {
   while read name extra
@@ -18,15 +46,17 @@ function run_tests()
     then
     (
       set -x
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name"
+      report=$(echo "${name}-xunit-report.xml" | tr  '/' '-')
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$ROOTDIR/$report"
     )
-    fi
-    if [ -f "$name" ]
+    elif [ -f "$name" ] || [ -f "${name%::*}" ]
     then
     (
       set -x
       base=$(dirname "$name")
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name"
+      ( cd "$base"; docker-compose down 2>/dev/null || true )
+      report=$(echo "$base/${name%.py}-xunit-report.xml" | tr  '/' '-')
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$ROOTDIR/$report"
     )
     fi
   done
@@ -39,6 +69,31 @@ then
 fi
 
 cd "$SRCDIR/test/python" && source ./venv/bin/activate
+
+TEST_LIST=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --clean-all)
+      clean_all
+      ;;
+    --clean-all-exit)
+      clean_all
+      exit 0
+      ;;
+    *)
+      TEST_LIST="$TEST_LIST \n$1"
+      ;;
+  esac
+  shift
+done
+
+# Ensure we cleanup when terminated
+trap_setup
+
+if [ -n "$TEST_LIST" ]; then
+  echo -e "$TEST_LIST" | run_tests
+  exit 0
+fi
 
 run_tests << 'END'
 
