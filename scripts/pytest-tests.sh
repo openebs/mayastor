@@ -5,6 +5,18 @@ set -eu -o pipefail
 SCRIPTDIR="$(realpath "$(dirname "$0")")"
 ROOTDIR=$(readlink -f "$SCRIPTDIR/..")
 
+function cleanup_handler()
+{
+  ERROR=$?
+  trap - INT QUIT TERM HUP
+  clean_all
+  if [ $ERROR != 0 ]; then exit $ERROR; fi
+}
+function trap_setup()
+{
+  trap cleanup_handler INT QUIT TERM HUP
+}
+
 function clean_all()
 {
   echo "Cleaning up all docker-compose clusters..."
@@ -74,6 +86,9 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+# Ensure we cleanup when terminated
+trap_setup
 
 if [ -n "$TEST_LIST" ]; then
   echo -e "$TEST_LIST" | run_tests
