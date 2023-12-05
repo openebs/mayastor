@@ -300,6 +300,8 @@ impl SpdkNvmeController {
         }
     }
 
+    /// Returns a pointer to the underlying SPDK struct.
+    #[inline(always)]
     pub fn as_ptr(&self) -> *mut spdk_nvme_ctrlr {
         self.0.as_ptr()
     }

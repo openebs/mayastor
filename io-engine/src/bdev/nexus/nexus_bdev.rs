@@ -851,10 +851,11 @@ impl<'n> Nexus<'n> {
             let name = self.name.clone();
 
             // After calling unregister_bdev_async(), Nexus is gone.
+            let evt = self.event(EventAction::Delete);
             match self.as_mut().bdev_mut().unregister_bdev_async().await {
                 Ok(_) => {
                     info!("Nexus '{name}': nexus destroyed ok");
-                    self.event(EventAction::Delete).generate();
+                    evt.generate();
                     Ok(())
                 }
                 Err(err) => {
@@ -1140,6 +1141,20 @@ impl<'n> Nexus<'n> {
     #[inline(always)]
     pub(super) fn pin_bdev_mut(self: Pin<&mut Self>) -> Pin<&mut Bdev<Self>> {
         unsafe { Pin::new_unchecked(self.bdev_mut()) }
+    }
+
+    /// Gets a nexus reference from an untyped bdev.
+    /// # Warning:
+    /// No checks are performed (e.g. bdev module name check), as it is assumed
+    /// that the provided bdev is a nexus bdev.
+    #[inline(always)]
+    pub(crate) unsafe fn unsafe_from_untyped_bdev(
+        bdev: spdk_rs::UntypedBdev,
+    ) -> &'n Nexus<'n> {
+        spdk_rs::Bdev::<Nexus<'n>>::unsafe_from_inner_ptr(
+            bdev.unsafe_inner_ptr() as *mut _,
+        )
+        .data()
     }
 
     /// Sets the required alignment of the Nexus.

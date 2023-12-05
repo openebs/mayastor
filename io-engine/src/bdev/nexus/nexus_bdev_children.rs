@@ -326,9 +326,10 @@ impl<'n> Nexus<'n> {
         // Close and remove the child.
         let res = match self.lookup_child(uri) {
             Some(child) => {
-                // Remove child from the I/O path.
+                // Detach the child from the I/O path, and close its handles.
                 if let Some(device) = child.get_device_name() {
-                    self.disconnect_device(&device).await;
+                    self.detach_device(&device).await;
+                    self.disconnect_all_detached_devices().await;
                 }
 
                 // Close child's device.
@@ -974,18 +975,39 @@ impl<'n> Nexus<'n> {
             return Ok(());
         }
 
-        // Disconnect the device from all the channels.
+        // Detach the device from all the channels.
+        //
         // After disconnecting, the device will no longer be used by the
         // channels, and all I/Os failing due to this device will eventually
         // resubmit and succeeded (if any healthy children are left).
-        self.disconnect_device(&dev).await;
+        //
+        // Device disconnection is done in two steps (detach, than disconnect)
+        // in order to prevent an I/O race when retiring a device.
+        self.detach_device(&dev).await;
 
-        // Destroy (close) the device. The subsystem must be paused to do this
-        // properly.
+        // Disconnect the devices with failed controllers _before_ pause,
+        // otherwise pause would stuck. Keep all controoled that are _not_
+        // failed (e.g., in the case I/O failed due to ENOSPC).
+        self.traverse_io_channels_async((), |channel, _| {
+            channel.disconnect_detached_devices(|h| h.is_ctrlr_failed());
+        })
+        .await;
+
+        // Disconnect, destroy and close the device. The subsystem must be
+        // paused to do this properly.
         {
             debug!("{self:?}: retire: pausing...");
-            self.as_mut().pause().await?;
-            debug!("{self:?}: retire: pausing ok");
+            let res = self.as_mut().pause().await;
+            match &res {
+                Ok(_) => debug!("{self:?}: retire: pausing ok"),
+                Err(e) => warn!("{self:?}: retire: pausing failed: {e}"),
+            };
+
+            // Disconnect the all previously detached device handles. This has
+            // to be done after the pause to prevent an I/O race.
+            self.disconnect_all_detached_devices().await;
+
+            res?;
 
             self.child_retire_destroy_device(&dev).await;
 
@@ -1055,20 +1077,39 @@ impl<'n> Nexus<'n> {
         Ok(())
     }
 
-    /// Disconnects a device from all I/O channels.
-    pub(crate) async fn disconnect_device(&self, dev: &str) {
+    /// Detaches the device's handles from all I/O channels.
+    ///
+    /// The detached handles must be disconnected and dropped by a
+    /// `disconnect_detached_devices()` call.
+    ///
+    /// Device disconnection is done in two steps (detach, than disconnect) in
+    /// order to prevent an I/O race when retiring a device.
+    pub(crate) async fn detach_device(&self, dev: &str) {
         if !self.has_io_device {
             return;
         }
 
-        debug!("{self:?}: disconnecting '{dev}' from all channels ...");
+        debug!("{self:?}: detaching '{dev}' from all channels...");
 
         self.traverse_io_channels_async(dev, |channel, dev| {
-            channel.disconnect_device(dev);
+            channel.detach_device(dev);
         })
         .await;
 
-        debug!("{self:?}: '{dev}' disconnected from all I/O channels");
+        debug!("{self:?}: '{dev}' detached from all I/O channels");
+    }
+
+    /// Disconnects all the detached devices on all I/O channels by dropping
+    /// their handles.
+    pub(crate) async fn disconnect_all_detached_devices(&self) {
+        debug!("{self:?}: disconnecting all detached devices ...");
+
+        self.traverse_io_channels_async((), |channel, _| {
+            channel.disconnect_detached_devices(|_| true);
+        })
+        .await;
+
+        debug!("{self:?}: disconnected all detached devices");
     }
 
     /// Destroys the device being retired.
@@ -1143,7 +1184,8 @@ impl<'n> Nexus<'n> {
 
                 // Step 1: Close I/O channels for all children.
                 for dev in nexus.child_devices() {
-                    nexus.disconnect_device(&dev).await;
+                    nexus.detach_device(&dev).await;
+                    nexus.disconnect_all_detached_devices().await;
 
                     device_cmd_queue().enqueue(DeviceCommand::RetireDevice {
                         nexus_name: nexus.name.clone(),

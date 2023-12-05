@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     ffi::{c_void, CString},
     fmt::{self, Debug, Display, Formatter},
     mem::size_of,
@@ -60,11 +61,12 @@ use spdk_rs::{
 };
 
 use crate::{
-    bdev::{nexus::nexus_lookup_nqn, nvmx::NVME_CONTROLLERS},
+    bdev::{nexus::NEXUS_MODULE_NAME, nvmx::NVME_CONTROLLERS, Nexus},
     constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{Bdev, Reactors, UntypedBdev},
     eventing::{EventMetaGen, EventWithMeta},
     ffihelper::{cb_arg, done_cb, AsStr, FfiResult, IntoCString},
+    lvs::Lvol,
     subsys::{
         make_subsystem_serial,
         nvmf::{transport::TransportId, Error, NVMF_TGT},
@@ -236,70 +238,54 @@ impl NvmfSubsystem {
 
     /// Subsystem event handlers.
     extern "C" fn nvmf_subsystem_event_handler(
-        subsystem: *mut spdk_nvmf_subsystem,
+        subsys: *mut spdk_nvmf_subsystem,
         event: spdk_nvmf_subsystem_event,
         ctx: *mut c_void,
         _cb_arg: *mut c_void,
     ) {
-        let subsystem = NvmfSubsystem::from(subsystem);
-        let nqn = subsystem.get_nqn();
-        let nexus = nexus_lookup_nqn(&nqn);
+        let s = NvmfSubsystem::from(subsys);
         let event = NvmfSubsystemEvent::from_cb_args(event, ctx);
 
-        debug!("NVMF subsystem event {subsystem:?}: {event:?}");
+        debug!("NVMF subsystem event {s:?}: {event:?}");
+
+        let nqn_tgt = NqnTarget::lookup(&s.get_nqn());
+        if matches!(nqn_tgt, NqnTarget::None) {
+            warn!(
+                "NVMF subsystem event {s:?}: {event:?}: \
+                target for event NQN not found"
+            );
+        }
 
         match event {
-            NvmfSubsystemEvent::HostConnect(ctrlr) => {
-                info!(
-                    "Subsystem '{nqn}': host connected: '{host}'",
-                    host = ctrlr.hostnqn()
-                );
+            NvmfSubsystemEvent::HostConnect(c) => {
+                c.event(EventAction::NvmeConnect, s.meta()).generate();
 
-                ctrlr
-                    .event(EventAction::NvmeConnect, subsystem.meta())
-                    .generate();
-
-                if let Some(nex) = nexus {
-                    nex.add_initiator(&ctrlr.hostnqn());
-                    subsystem.host_connect_nexus(ctrlr);
-                } else {
-                    subsystem.host_connect_replica(ctrlr);
+                match nqn_tgt {
+                    NqnTarget::Nexus(n) => s.host_connect_nexus(c, n),
+                    NqnTarget::Replica(r) => s.host_connect_replica(c, r),
+                    NqnTarget::None => {}
                 }
             }
-            NvmfSubsystemEvent::HostDisconnect(ctrlr) => {
-                info!(
-                    "Subsystem '{nqn}': host disconnected: '{host}'",
-                    host = ctrlr.hostnqn()
-                );
+            NvmfSubsystemEvent::HostDisconnect(c) => {
+                c.event(EventAction::NvmeDisconnect, s.meta()).generate();
 
-                ctrlr
-                    .event(EventAction::NvmeDisconnect, subsystem.meta())
-                    .generate();
-
-                if let Some(nex) = nexus {
-                    nex.rm_initiator(&ctrlr.hostnqn());
-                    subsystem.host_disconnect_nexus(ctrlr);
-                } else {
-                    subsystem.host_disconnect_replica(ctrlr);
+                match nqn_tgt {
+                    NqnTarget::Nexus(n) => s.host_disconnect_nexus(c, n),
+                    NqnTarget::Replica(r) => s.host_disconnect_replica(c, r),
+                    NqnTarget::None => {}
                 }
             }
-            NvmfSubsystemEvent::HostKeepAliveTimeout(ctrlr) => {
-                warn!(
-                    "Subsystem '{nqn}': host keep alive timeout: '{host}'",
-                    host = ctrlr.hostnqn()
-                );
-
-                ctrlr
-                    .event(EventAction::NvmeKeepAliveTimeout, subsystem.meta())
+            NvmfSubsystemEvent::HostKeepAliveTimeout(c) => {
+                c.event(EventAction::NvmeKeepAliveTimeout, s.meta())
                     .generate();
 
-                if let Some(nex) = nexus {
-                    nex.initiator_keep_alive_timeout(&ctrlr.hostnqn());
+                match nqn_tgt {
+                    NqnTarget::Nexus(n) => s.host_kato_nexus(c, n),
+                    NqnTarget::Replica(r) => s.host_kato_replica(c, r),
+                    NqnTarget::None => {}
                 }
             }
-            NvmfSubsystemEvent::Unknown => {
-                // ignore unknown events
-            }
+            NvmfSubsystemEvent::Unknown => {} // ignore unknown events
         }
     }
 
@@ -329,7 +315,16 @@ impl NvmfSubsystem {
     }
 
     /// Called upon a host connection to a nexus.
-    fn host_connect_nexus(&self, ctrlr: NvmfController) {
+    fn host_connect_nexus(&self, ctrlr: NvmfController, nex: &Nexus) {
+        info!(
+            "Host '{host}' connected to subsystem '{subsys}' on \
+            nexus '{nex:?}'",
+            host = ctrlr.hostnqn(),
+            subsys = self.get_nqn(),
+        );
+
+        nex.add_initiator(&ctrlr.hostnqn());
+
         unsafe {
             spdk_nvmf_ctrlr_set_cpl_error_cb(
                 ctrlr.0.as_ptr(),
@@ -340,7 +335,16 @@ impl NvmfSubsystem {
     }
 
     /// Called upon a host disconnection from a nexus.
-    fn host_disconnect_nexus(&self, ctrlr: NvmfController) {
+    fn host_disconnect_nexus(&self, ctrlr: NvmfController, nex: &Nexus) {
+        info!(
+            "Host '{host}' disconnected from subsystem '{subsys}' on \
+            nexus '{nex:?}'",
+            host = ctrlr.hostnqn(),
+            subsys = self.get_nqn(),
+        );
+
+        nex.rm_initiator(&ctrlr.hostnqn());
+
         unsafe {
             spdk_nvmf_ctrlr_set_cpl_error_cb(
                 ctrlr.0.as_ptr(),
@@ -348,6 +352,18 @@ impl NvmfSubsystem {
                 std::ptr::null_mut(),
             );
         }
+    }
+
+    /// Called upon a host keep alive timeout (KATO) on a nexus.
+    fn host_kato_nexus(&self, ctrlr: NvmfController, nex: &Nexus) {
+        warn!(
+            "Host '{host}': keep alive timeout on subsystem '{subsys}' on \
+            nexus '{nex:?}'",
+            host = ctrlr.hostnqn(),
+            subsys = self.get_nqn(),
+        );
+
+        nex.initiator_keep_alive_timeout(&ctrlr.hostnqn());
     }
 
     /// Completion error callback for replicas.
@@ -375,7 +391,14 @@ impl NvmfSubsystem {
     }
 
     /// Called upon a host connection to a replica.
-    fn host_connect_replica(&self, ctrlr: NvmfController) {
+    fn host_connect_replica(&self, ctrlr: NvmfController, lvol: Lvol) {
+        info!(
+            "Host '{host}' connected to subsystem '{subsys}' on \
+            replica '{lvol:?}'",
+            host = ctrlr.hostnqn(),
+            subsys = self.get_nqn(),
+        );
+
         unsafe {
             spdk_nvmf_ctrlr_set_cpl_error_cb(
                 ctrlr.0.as_ptr(),
@@ -386,7 +409,14 @@ impl NvmfSubsystem {
     }
 
     /// Called upon a host disconnection from a replica.
-    fn host_disconnect_replica(&self, ctrlr: NvmfController) {
+    fn host_disconnect_replica(&self, ctrlr: NvmfController, lvol: Lvol) {
+        info!(
+            "Host '{host}' disconnected from subsystem '{subsys}' on \
+            replica '{lvol:?}'",
+            host = ctrlr.hostnqn(),
+            subsys = self.get_nqn(),
+        );
+
         unsafe {
             spdk_nvmf_ctrlr_set_cpl_error_cb(
                 ctrlr.0.as_ptr(),
@@ -394,6 +424,16 @@ impl NvmfSubsystem {
                 std::ptr::null_mut(),
             );
         }
+    }
+
+    /// Called upon a host keep alive timeout (KATO) on a replica.
+    fn host_kato_replica(&self, ctrlr: NvmfController, lvol: Lvol) {
+        warn!(
+            "Host '{host}': keep alive timeout on subsystem '{subsys}' on \
+            replica '{lvol:?}'",
+            host = ctrlr.hostnqn(),
+            subsys = self.get_nqn(),
+        );
     }
 
     /// create a new subsystem where the NQN is based on the UUID
@@ -1075,4 +1115,42 @@ impl NvmfSubsystem {
 /// Makes an NQN froma UUID.
 fn make_nqn(id: &str) -> String {
     format!("{NVME_NQN_PREFIX}:{id}")
+}
+
+/// NQN target.
+pub enum NqnTarget<'a> {
+    Nexus(&'a Nexus<'a>),
+    Replica(Lvol),
+    None,
+}
+
+impl<'a> NqnTarget<'a> {
+    pub fn lookup(nqn: &str) -> Self {
+        let Some(bdev) = UntypedBdev::bdev_first() else {
+            return Self::None;
+        };
+
+        let parts: Vec<&str> = nqn.split(':').collect();
+        if parts.len() != 2 || parts[0] != NVME_NQN_PREFIX {
+            return Self::None;
+        }
+
+        let name = parts[1];
+
+        for b in bdev.into_iter() {
+            match b.driver() {
+                NEXUS_MODULE_NAME if b.name() == name => {
+                    return Self::Nexus(unsafe {
+                        Nexus::unsafe_from_untyped_bdev(*b)
+                    });
+                }
+                "lvol" if b.name() == name => {
+                    return Lvol::try_from(b).map_or(Self::None, Self::Replica)
+                }
+                _ => {}
+            }
+        }
+
+        Self::None
+    }
 }

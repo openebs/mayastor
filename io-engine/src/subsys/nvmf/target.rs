@@ -373,17 +373,33 @@ impl Target {
             }
         }
 
-        let cfg = Config::get();
-        let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
-        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+        // TODO: properly fix use-after-free on spdk_nvmf_tgt_stop_listen call.
+        if option_env!("ASAN_ENABLE").unwrap_or_default() == "1" {
+            warn!(
+                "Compiled with Address Sanitizer enabled: \
+                  won't stop listening targets as it causes \
+                  use-after-free error"
+            );
+        } else {
+            let cfg = Config::get();
+            let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
+            let trid_replica =
+                TransportId::new(cfg.nexus_opts.nvmf_replica_port);
 
-        unsafe {
-            spdk_nvmf_tgt_stop_listen(self.tgt.as_ptr(), trid_replica.as_ptr())
-        };
+            unsafe {
+                spdk_nvmf_tgt_stop_listen(
+                    self.tgt.as_ptr(),
+                    trid_replica.as_ptr(),
+                )
+            };
 
-        unsafe {
-            spdk_nvmf_tgt_stop_listen(self.tgt.as_ptr(), trid_nexus.as_ptr())
-        };
+            unsafe {
+                spdk_nvmf_tgt_stop_listen(
+                    self.tgt.as_ptr(),
+                    trid_nexus.as_ptr(),
+                )
+            };
+        }
 
         unsafe {
             spdk_nvmf_tgt_destroy(

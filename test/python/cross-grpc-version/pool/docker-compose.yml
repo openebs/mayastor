@@ -11,7 +11,9 @@ services:
       - MY_POD_IP=10.0.0.2
       - NEXUS_NVMF_ANA_ENABLE=1
       - NEXUS_NVMF_RESV_ENABLE=1
-    command: ${SRCDIR}/target/debug/io-engine -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock --env-context=--iova-mode=pa
+      - PATH=${LLVM_SYMBOLIZER_DIR:-}
+      - ASAN_OPTIONS=detect_leaks=0
+    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock --env-context=--iova-mode=pa
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.2

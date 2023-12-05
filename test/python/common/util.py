@@ -10,4 +10,4 @@ def mayastor_target_dir():
 
     # For now assume only Debug builds, but we might want to consider using
     # a variable to access Release binaries too.
-    return "%s/target/debug" % os.environ["SRCDIR"]
+    return "%s/%s" % (os.environ["SRCDIR"], os.environ["IO_ENGINE_DIR"])
