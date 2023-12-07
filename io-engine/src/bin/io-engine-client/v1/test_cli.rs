@@ -106,11 +106,18 @@ impl Resource {
 
 #[derive(EnumString, EnumVariantNames)]
 #[strum(serialize_all = "PascalCase")]
+enum CheckSumAlg {
+    Crc32c,
+}
+
+#[derive(EnumString, EnumVariantNames, Clone, Copy)]
+#[strum(serialize_all = "PascalCase")]
 enum WipeMethod {
     None,
     WriteZeroes,
     Unmap,
     WritePattern,
+    CheckSum,
 }
 impl WipeMethod {
     fn methods() -> &'static [&'static str] {
@@ -124,7 +131,13 @@ impl From<WipeMethod> for v1_rpc::test::wipe_options::WipeMethod {
             WipeMethod::WriteZeroes => Self::WriteZeroes,
             WipeMethod::Unmap => Self::Unmap,
             WipeMethod::WritePattern => Self::WritePattern,
+            WipeMethod::CheckSum => Self::Checksum,
         }
+    }
+}
+impl From<WipeMethod> for v1_rpc::test::wipe_options::CheckSumAlgorithm {
+    fn from(_: WipeMethod) -> Self {
+        v1_rpc::test::wipe_options::CheckSumAlgorithm::Crc32c
     }
 }
 
@@ -203,6 +216,10 @@ async fn replica_wipe(
                         method,
                     ) as i32,
                     write_pattern: None,
+                    cksum_alg:
+                        v1_rpc::test::wipe_options::CheckSumAlgorithm::from(
+                            method,
+                        ) as i32,
                 }),
                 chunk_size: chunk_size.get_bytes() as u64,
             }),
@@ -213,7 +230,7 @@ async fn replica_wipe(
     let mut resp = response.into_inner();
 
     fn bandwidth(response: &v1_rpc::test::WipeReplicaResponse) -> String {
-        let unknown = "??".to_string();
+        let unknown = String::new();
         let Some(Ok(elapsed)) = response
             .since
             .clone()
@@ -231,6 +248,18 @@ async fn replica_wipe(
             "{}/s",
             byte_unit::Byte::from_bytes(bandwidth).get_appropriate_unit(true)
         )
+    }
+
+    fn checksum(response: &v1_rpc::test::WipeReplicaResponse) -> String {
+        response
+            .checksum
+            .clone()
+            .map(|c| match c {
+                v1_rpc::test::wipe_replica_response::Checksum::Crc32(crc) => {
+                    format!("{crc:#x}")
+                }
+            })
+            .unwrap_or_default()
     }
 
     match ctx.output {
@@ -257,13 +286,18 @@ async fn replica_wipe(
                 "WIPED_CHUNKS",
                 "REMAINING_BYTES",
                 "BANDWIDTH",
+                "CHECKSUM",
             ];
 
             let (s, r) = tokio::sync::mpsc::channel(10);
             tokio::spawn(async move {
                 while let Some(response) = resp.next().await {
                     let response = response.map(|response| {
-                        let bandwidth = bandwidth(&response);
+                        // back fill with spaces with ensure checksum aligns
+                        // with its header
+                        let bandwidth =
+                            format!("{: <12}", bandwidth(&response));
+                        let checksum = checksum(&response);
                         vec![
                             response.uuid,
                             adjust_bytes(response.total_bytes),
@@ -274,6 +308,7 @@ async fn replica_wipe(
                             response.wiped_chunks.to_string(),
                             adjust_bytes(response.remaining_bytes),
                             bandwidth,
+                            checksum,
                         ]
                     });
                     s.send(response).await.unwrap();
