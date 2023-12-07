@@ -1,8 +1,8 @@
 [submodule "spdk-rs"]
 	path = spdk-rs
 	url = https://github.com/openebs/spdk-rs
-	branch = develop
+	branch = release/2.5
 [submodule "utils/dependencies"]
 	path = utils/dependencies
 	url = ../mayastor-dependencies.git
-	branch = develop
+	branch = release/2.5
