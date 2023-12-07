@@ -269,7 +269,7 @@ impl Lvs {
                     name: bdev.name().into(),
                 })?;
 
-            let wiper = crate::core::wiper::Wiper::new(
+            let mut wiper = crate::core::wiper::Wiper::new(
                 hdl,
                 crate::core::wiper::WipeMethod::WriteZeroes,
             )

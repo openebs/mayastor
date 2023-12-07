@@ -1,6 +1,9 @@
 use crate::core::{CoreError, UntypedBdevHandle};
 use snafu::Snafu;
-use std::{fmt::Debug, ops::Deref};
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 /// The Error for the Wiper.
 #[derive(Clone, Debug, Snafu)]
@@ -89,6 +92,22 @@ pub enum WipeMethod {
     /// When using WRITE_PATTERN, wipe using this 32bit write pattern, example:
     /// 0xDEADBEEF.
     WritePattern(u32),
+    /// Don't actually wipe, just take the checksum.
+    CkSum(CkSumMethod),
+}
+
+/// Wipe method, allowing for some flexibility.
+#[derive(Debug, Clone, Copy)]
+pub enum CkSumMethod {
+    /// Don't actually wipe, just pretend.
+    Crc32 { crc32c: u32 },
+}
+impl Default for CkSumMethod {
+    fn default() -> Self {
+        Self::Crc32 {
+            crc32c: spdk_rs::libspdk::SPDK_CRC32C_INITIAL,
+        }
+    }
 }
 
 /// Final Wipe stats.
@@ -114,9 +133,14 @@ impl FinalWipeStats {
         };
 
         tracing::warn!(
-            "Wiped {} => {:.3?} => {bandwidth}/s",
+            "Wiped {} => {:.3?} => {bandwidth}/s{}",
             self.stats.uuid,
-            elapsed
+            elapsed,
+            if let Some(crc) = stats.cksum_crc32c {
+                format!(" => {crc:#x}")
+            } else {
+                String::new()
+            }
         );
     }
 }
@@ -136,6 +160,11 @@ impl Deref for WipeStats {
 
     fn deref(&self) -> &Self::Target {
         &self.stats
+    }
+}
+impl DerefMut for WipeStats {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stats
     }
 }
 impl WipeStats {
@@ -159,8 +188,8 @@ impl Wiper {
         })
     }
     /// Wipe the bdev at the given byte offset and byte size.
-    pub async fn wipe(&self, offset: u64, size: u64) -> Result<(), Error> {
-        match self.wipe_method {
+    pub async fn wipe(&mut self, offset: u64, size: u64) -> Result<(), Error> {
+        match &mut self.wipe_method {
             WipeMethod::None => Ok(()),
             WipeMethod::WriteZeroes => {
                 self.bdev.write_zeroes_at(offset, size).await.map_err(
@@ -173,6 +202,22 @@ impl Wiper {
                 Err(Error::MethodUnimplemented {
                     method: self.wipe_method,
                 })
+            }
+            WipeMethod::CkSum(CkSumMethod::Crc32 {
+                crc32c,
+            }) => {
+                let mut buffer = self.bdev.dma_malloc(size).unwrap();
+                self.bdev.read_at(offset, &mut buffer).await?;
+
+                *crc32c = unsafe {
+                    spdk_rs::libspdk::spdk_crc32c_update(
+                        buffer.as_ptr(),
+                        size,
+                        *crc32c,
+                    )
+                };
+
+                Ok(())
             }
         }?;
         Ok(())
@@ -188,6 +233,7 @@ impl Wiper {
                     method: wipe_method,
                 })
             }
+            WipeMethod::CkSum(_) => Ok(wipe_method),
         }
     }
 }
@@ -247,16 +293,31 @@ impl<S: NotifyStream> StreamedWiper<S> {
     ) -> Result<(), Error> {
         self.wipe_with_abort(offset, size).await?;
 
-        self.stats.complete_chunk(start, size);
+        self.complete_chunk(start, size);
 
         self.notify()
+    }
+
+    /// Complete the current chunk.
+    fn complete_chunk(&mut self, start: std::time::Instant, size: u64) {
+        self.stats.complete_chunk(start, size);
+        if let WipeMethod::CkSum(CkSumMethod::Crc32 {
+            crc32c,
+        }) = &mut self.wiper.wipe_method
+        {
+            // Finalize CRC by inverting all bits.
+            if self.stats.remaining_chunks == 0 {
+                *crc32c ^= spdk_rs::libspdk::SPDK_CRC32C_XOR;
+            }
+            self.stats.cksum_crc32c = Some(*crc32c);
+        }
     }
 
     /// Wipe the bdev at the given byte offset and byte size.
     /// Uses the abort checker allowing us to stop early if a client disconnects
     /// or if the process is being shutdown.
     async fn wipe_with_abort(
-        &self,
+        &mut self,
         offset: u64,
         size: u64,
     ) -> Result<(), Error> {
@@ -324,6 +385,8 @@ pub(crate) struct WipeIterator {
     pub(crate) remaining_chunks: u64,
     /// Number of chunks to wipe.
     pub(crate) total_chunks: u64,
+    /// The checksum of the bdev.
+    pub(crate) cksum_crc32c: Option<u32>,
 }
 impl WipeIterator {
     fn new(
@@ -366,6 +429,7 @@ impl WipeIterator {
             wiped_bytes: 0,
             remaining_chunks: chunks,
             total_chunks: chunks,
+            cksum_crc32c: None,
         })
     }
     fn complete_chunk(&mut self, size: u64) {
