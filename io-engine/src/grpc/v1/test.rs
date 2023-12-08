@@ -56,6 +56,23 @@ impl TestRpc for TestService {
     type WipeReplicaStream =
         ReceiverStream<Result<WipeReplicaResponse, Status>>;
 
+    /// Get all the features supported by the test service.
+    async fn get_features(
+        &self,
+        _request: Request<()>,
+    ) -> GrpcResult<v1::test::TestFeatures> {
+        GrpcResult::Ok(tonic::Response::new(v1::test::TestFeatures {
+            wipe_methods: vec![
+                v1::test::wipe_options::WipeMethod::None as i32,
+                v1::test::wipe_options::WipeMethod::WriteZeroes as i32,
+                v1::test::wipe_options::WipeMethod::Checksum as i32,
+            ],
+            cksum_algs: vec![
+                v1::test::wipe_options::CheckSumAlgorithm::Crc32c as i32,
+            ],
+        }))
+    }
+
     #[named]
     async fn wipe_replica(
         &self,
