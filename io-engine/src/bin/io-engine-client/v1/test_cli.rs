@@ -16,6 +16,8 @@ use strum_macros::{AsRefStr, EnumString, EnumVariantNames};
 use tonic::Status;
 
 pub fn subcommands() -> Command {
+    let features = Command::new("features").about("Get the test features");
+
     let inject = Command::new("inject")
         .about("manage fault injections")
         .arg(
@@ -89,6 +91,7 @@ pub fn subcommands() -> Command {
         .subcommand_required(true)
         .arg_required_else_help(true)
         .about("Test management")
+        .subcommand(features)
         .subcommand(inject)
         .subcommand(wipe)
 }
@@ -144,12 +147,30 @@ impl From<WipeMethod> for v1_rpc::test::wipe_options::CheckSumAlgorithm {
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     match matches.subcommand().unwrap() {
         ("inject", args) => injections(ctx, args).await,
+        ("features", args) => features(ctx, args).await,
         ("wipe", args) => wipe(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
         }
     }
+}
+
+async fn features(
+    mut ctx: Context,
+    _matches: &ArgMatches,
+) -> crate::Result<()> {
+    let response = ctx.v1.test.get_features(()).await.context(GrpcStatus)?;
+    let features = response.into_inner();
+    match ctx.output {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&features).unwrap());
+        }
+        OutputFormat::Default => {
+            println!("{features:#?}");
+        }
+    }
+    Ok(())
 }
 
 async fn wipe(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -204,6 +225,7 @@ async fn replica_wipe(
     )
     .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
     .context(GrpcStatus)?;
+
     let response = ctx
         .v1
         .test
