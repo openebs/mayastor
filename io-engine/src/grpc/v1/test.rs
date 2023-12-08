@@ -14,6 +14,7 @@ use io_engine_api::{
     v1::test::{
         wipe_options::WipeMethod,
         wipe_replica_request,
+        wipe_replica_response,
         StreamWipeOptions,
         TestRpc,
         WipeReplicaRequest,
@@ -54,6 +55,23 @@ impl TestService {
 impl TestRpc for TestService {
     type WipeReplicaStream =
         ReceiverStream<Result<WipeReplicaResponse, Status>>;
+
+    /// Get all the features supported by the test service.
+    async fn get_features(
+        &self,
+        _request: Request<()>,
+    ) -> GrpcResult<v1::test::TestFeatures> {
+        GrpcResult::Ok(tonic::Response::new(v1::test::TestFeatures {
+            wipe_methods: vec![
+                v1::test::wipe_options::WipeMethod::None as i32,
+                v1::test::wipe_options::WipeMethod::WriteZeroes as i32,
+                v1::test::wipe_options::WipeMethod::Checksum as i32,
+            ],
+            cksum_algs: vec![
+                v1::test::wipe_options::CheckSumAlgorithm::Crc32c as i32,
+            ],
+        }))
+    }
 
     #[named]
     async fn wipe_replica(
@@ -248,6 +266,11 @@ impl TryFrom<&Option<StreamWipeOptions>>
                             options.write_pattern.unwrap_or(0xdeadbeef),
                         )
                     }
+                    WipeMethod::Checksum => {
+                        crate::core::wiper::WipeMethod::CkSum(
+                            crate::core::wiper::CkSumMethod::default(),
+                        )
+                    }
                 })
                 .map_err(|error| {
                     tonic::Status::invalid_argument(error.to_string())
@@ -271,6 +294,9 @@ impl From<&WipeStats> for WipeReplicaResponse {
             wiped_chunks: value.wiped_chunks,
             remaining_bytes: value.total_bytes - value.wiped_bytes,
             since: value.since.and_then(|d| TryInto::try_into(d).ok()),
+            checksum: value
+                .cksum_crc32c
+                .map(wipe_replica_response::Checksum::Crc32),
         }
     }
 }
