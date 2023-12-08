@@ -283,6 +283,7 @@ async fn issue_wipe_replica(
                 options: Some(v1_rpc::test::WipeOptions {
                     wipe_method: wipe_method as i32,
                     write_pattern: None,
+                    cksum_alg: 0,
                 }),
                 chunk_size,
             }),

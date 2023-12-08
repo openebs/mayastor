@@ -7,18 +7,48 @@ use events_api::event::{
 };
 
 use crate::{
-    core::MayastorEnvironment,
+    bdev::Nexus,
+    core::{LogicalVolume, MayastorEnvironment},
     eventing::{EventMetaGen, EventWithMeta},
+    lvs::Lvol,
     subsys::NvmfSubsystem,
 };
 use spdk_rs::NvmfController;
 
+/// A trait definition to include target details in host events meta data
+pub(crate) trait HostTargetMeta {
+    /// Add target detaails to host event meta
+    fn host_target_meta(&self, meta: EventMeta) -> EventMeta;
+}
+
+impl<'n> HostTargetMeta for Nexus<'n> {
+    fn host_target_meta(&self, mut meta: EventMeta) -> EventMeta {
+        if let Some(source) = meta.source {
+            let event_source =
+                source.with_target_data("nexus", &self.uuid().to_string());
+            meta.source = Some(event_source);
+        }
+        meta
+    }
+}
+
+impl HostTargetMeta for Lvol {
+    fn host_target_meta(&self, mut meta: EventMeta) -> EventMeta {
+        if let Some(source) = meta.source {
+            let event_source = source.with_target_data("replica", &self.uuid());
+            meta.source = Some(event_source);
+        }
+        meta
+    }
+}
+
 impl EventMetaGen for NvmfSubsystem {
     fn meta(&self) -> EventMeta {
+        let nqn = self.get_nqn();
         let event_source = EventSource::new(
             MayastorEnvironment::global_or_default().node_name,
         )
-        .with_subsystem_data(&self.get_nqn());
+        .with_subsystem_data(&nqn);
 
         EventMeta::from_source(event_source)
     }
