@@ -64,7 +64,7 @@ use crate::{
     bdev::{nexus::NEXUS_MODULE_NAME, nvmx::NVME_CONTROLLERS, Nexus},
     constants::{NVME_CONTROLLER_MODEL_ID, NVME_NQN_PREFIX},
     core::{Bdev, Reactors, UntypedBdev},
-    eventing::{EventMetaGen, EventWithMeta},
+    eventing::{host_events::HostTargetMeta, EventMetaGen, EventWithMeta},
     ffihelper::{cb_arg, done_cb, AsStr, FfiResult, IntoCString},
     lvs::Lvol,
     subsys::{
@@ -73,7 +73,6 @@ use crate::{
         Config,
     },
 };
-
 use events_api::event::EventAction;
 
 /// TODO
@@ -256,9 +255,15 @@ impl NvmfSubsystem {
             );
         }
 
+        let event_meta = match nqn_tgt {
+            NqnTarget::Nexus(n) => n.host_target_meta(s.meta()),
+            NqnTarget::Replica(ref r) => r.host_target_meta(s.meta()),
+            NqnTarget::None => s.meta(),
+        };
+
         match event {
             NvmfSubsystemEvent::HostConnect(c) => {
-                c.event(EventAction::NvmeConnect, s.meta()).generate();
+                c.event(EventAction::NvmeConnect, event_meta).generate();
 
                 match nqn_tgt {
                     NqnTarget::Nexus(n) => s.host_connect_nexus(c, n),
@@ -267,7 +272,7 @@ impl NvmfSubsystem {
                 }
             }
             NvmfSubsystemEvent::HostDisconnect(c) => {
-                c.event(EventAction::NvmeDisconnect, s.meta()).generate();
+                c.event(EventAction::NvmeDisconnect, event_meta).generate();
 
                 match nqn_tgt {
                     NqnTarget::Nexus(n) => s.host_disconnect_nexus(c, n),
@@ -276,7 +281,7 @@ impl NvmfSubsystem {
                 }
             }
             NvmfSubsystemEvent::HostKeepAliveTimeout(c) => {
-                c.event(EventAction::NvmeKeepAliveTimeout, s.meta())
+                c.event(EventAction::NvmeKeepAliveTimeout, event_meta)
                     .generate();
 
                 match nqn_tgt {
