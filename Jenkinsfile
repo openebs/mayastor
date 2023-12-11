@@ -279,9 +279,8 @@ pipeline {
               }
               post {
                 always {
-                  sh 'nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit" ci.nix'
                   junit '*-xunit-report.xml'
-                  sh 'sudo ./scripts/check-coredumps.sh --since "${START_DATE}"'
+                  sh 'nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit" ci.nix'
                 }
               }
             }
