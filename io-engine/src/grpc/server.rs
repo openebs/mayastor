@@ -12,6 +12,7 @@ use super::{
         pool::PoolService,
         replica::ReplicaService,
         snapshot::SnapshotService,
+        stats::StatsService,
         test::TestService,
     },
 };
@@ -115,6 +116,9 @@ impl MayastorGrpcServer {
                     v1::nexus::NexusRpcServer::new(NexusService::new())
                 }),
             )
+            .add_optional_service(enable_v1.map(|_| {
+                v1::stats::StatsRpcServer::new(StatsService::default())
+            }))
             .add_optional_service(enable_v0.map(|_| {
                 MayastorRpcServer::new(MayastorSvc::new(Duration::from_millis(
                     4,

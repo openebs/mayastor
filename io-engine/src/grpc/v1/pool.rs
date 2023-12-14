@@ -5,11 +5,10 @@ use crate::{
     pool_backend::{PoolArgs, PoolBackend},
 };
 use futures::FutureExt;
+use io_engine_api::v1::pool::*;
 use nix::errno::Errno;
 use std::{convert::TryFrom, fmt::Debug};
 use tonic::{Request, Response, Status};
-
-use io_engine_api::v1::pool::*;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);

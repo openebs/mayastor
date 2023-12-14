@@ -79,6 +79,13 @@ pub fn subcommands() -> Command {
                 .help("Storage pool name"),
         );
 
+    let metrics = Command::new("metrics").about("Get Pool IO Stats").arg(
+        Arg::new("pool")
+            .required(false)
+            .index(1)
+            .help("Storage pool name"),
+    );
+
     Command::new("pool")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -88,6 +95,7 @@ pub fn subcommands() -> Command {
         .subcommand(destroy)
         .subcommand(export)
         .subcommand(Command::new("list").about("List storage pools"))
+        .subcommand(metrics)
 }
 
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -97,6 +105,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("destroy", args) => destroy(ctx, args).await,
         ("export", args) => export(ctx, args).await,
         ("list", args) => list(ctx, args).await,
+        ("metrics", args) => metrics(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
                 .context(GrpcStatus)
@@ -325,6 +334,92 @@ async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
+async fn metrics(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+    ctx.v2("Requesting Pool metrics");
+    let response = ctx
+        .v1
+        .stats
+        .get_pool_io_stats(v1rpc::stats::ListStatsOption {
+            name: None,
+        })
+        .await
+        .context(GrpcStatus)?;
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let stats: &Vec<v1rpc::stats::IoStats> = &response.get_ref().stats;
+            if stats.is_empty() {
+                ctx.v1("No Pool IoStats found");
+                return Ok(());
+            }
+
+            let table = stats
+                .iter()
+                .map(|p| {
+                    let read_latency =
+                        ticks_to_time(p.read_latency_ticks, p.tick_rate);
+                    let write_latency =
+                        ticks_to_time(p.write_latency_ticks, p.tick_rate);
+                    let unmap_latency =
+                        ticks_to_time(p.unmap_latency_ticks, p.tick_rate);
+                    let max_read_latency =
+                        ticks_to_time(p.max_read_latency_ticks, p.tick_rate);
+                    let min_read_latency =
+                        ticks_to_time(p.min_read_latency_ticks, p.tick_rate);
+                    let max_write_latency =
+                        ticks_to_time(p.max_write_latency_ticks, p.tick_rate);
+                    let min_write_latency =
+                        ticks_to_time(p.min_write_latency_ticks, p.tick_rate);
+                    vec![
+                        p.name.clone(),
+                        p.num_read_ops.to_string(),
+                        p.bytes_read.to_string(),
+                        p.num_write_ops.to_string(),
+                        p.bytes_written.to_string(),
+                        p.num_unmap_ops.to_string(),
+                        p.bytes_unmapped.to_string(),
+                        read_latency.to_string(),
+                        write_latency.to_string(),
+                        unmap_latency.to_string(),
+                        max_read_latency.to_string(),
+                        min_read_latency.to_string(),
+                        max_write_latency.to_string(),
+                        min_write_latency.to_string(),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec![
+                    "NAME",
+                    "NUM_READ",
+                    "BYTES_READ",
+                    "NUM_WRITE",
+                    "BYTES_WRITTEN",
+                    "NUM_UNMAP",
+                    "BYTES_UNMAPPED",
+                    "READ_LAT",
+                    "WRITE_LAT",
+                    "UNMAP_LATENCY",
+                    "MAX_READ_LAT",
+                    "MIN_READ_LAT",
+                    "MAX_WRITE_LAT",
+                    "MIN_WRITE_LAT",
+                ],
+                table,
+            );
+        }
+    };
+    Ok(())
+}
+
 fn pool_state_to_str(idx: i32) -> &'static str {
     match v1rpc::pool::PoolState::try_from(idx).unwrap() {
         v1rpc::pool::PoolState::PoolUnknown => "unknown",
@@ -332,4 +427,8 @@ fn pool_state_to_str(idx: i32) -> &'static str {
         v1rpc::pool::PoolState::PoolDegraded => "degraded",
         v1rpc::pool::PoolState::PoolFaulted => "faulted",
     }
+}
+
+fn ticks_to_time(tick: u64, tick_rate: u64) -> u64 {
+    (tick * 1000000) / tick_rate
 }
