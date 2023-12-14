@@ -249,6 +249,18 @@ impl From<LvsError> for tonic::Status {
                 Errno::EMEDIUMTYPE => Status::aborted(e.to_string()),
                 _ => Status::internal(e.to_string()),
             },
+            LvsError::RepResize {
+                source, ..
+            } => match source {
+                Errno::ENOSPC | Errno::ENOMEM => {
+                    Status::resource_exhausted(e.to_string())
+                }
+                Errno::EPERM => Status::permission_denied(e.to_string()),
+                Errno::EINVAL | Errno::ENOENT => {
+                    Status::invalid_argument(e.to_string())
+                }
+                _ => Status::internal(e.to_string()),
+            },
             LvsError::RepExists {
                 ..
             } => Status::already_exists(e.to_string()),
