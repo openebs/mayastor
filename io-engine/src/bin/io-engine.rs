@@ -61,6 +61,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let ps_endpoint = args.ps_endpoint.clone();
     let ps_timeout = args.ps_timeout;
     let ps_retries = args.ps_retries;
+    let ps_interval = args.ps_interval;
 
     let reactor_freeze_detection = args.reactor_freeze_detection;
     let reactor_freeze_timeout = args.reactor_freeze_timeout;
@@ -100,6 +101,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                     .with_endpoint(endpoint)
                     .with_timeout(ps_timeout)
                     .with_retries(ps_retries)
+                    .with_interval(ps_interval)
                     .connect()
                     .await;
             }

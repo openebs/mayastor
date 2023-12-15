@@ -172,14 +172,21 @@ pub struct MayastorCliArgs {
     pub ps_endpoint: Option<String>,
     #[clap(
         long = "ps-timeout",
-        default_value = "10s",
+        default_value = "15s",
         value_parser = parse_ps_timeout,
     )]
     /// Persistent store timeout.
     pub ps_timeout: Duration,
-    #[clap(long = "ps-retries", default_value = "30")]
+    #[clap(long = "ps-retries", default_value = "100")]
     /// Persistent store operation retries.
     pub ps_retries: u8,
+    #[clap(
+        long = "ps-interval",
+        default_value = "2s",
+        value_parser = parse_ps_timeout,
+    )]
+    /// Persistent store interval between retries.
+    pub ps_interval: Duration,
     #[clap(long = "bdev-pool-size", default_value = "65535")]
     /// Number of entries in memory pool for bdev I/O contexts
     pub bdev_io_ctx_pool_size: u64,
@@ -260,6 +267,7 @@ impl Default for MayastorCliArgs {
             ps_endpoint: None,
             ps_timeout: Duration::from_secs(10),
             ps_retries: 30,
+            ps_interval: Duration::from_secs(2),
             node_name: None,
             env_context: None,
             reactor_mask: "0x1".into(),
@@ -348,6 +356,7 @@ pub struct MayastorEnvironment {
     ps_endpoint: Option<String>,
     ps_timeout: Duration,
     ps_retries: u8,
+    ps_interval: Duration,
     mayastor_config: Option<String>,
     ptpl_dir: Option<String>,
     pool_config: Option<String>,
@@ -396,6 +405,7 @@ impl Default for MayastorEnvironment {
             ps_endpoint: None,
             ps_timeout: Duration::from_secs(10),
             ps_retries: 30,
+            ps_interval: Duration::from_secs(1),
             mayastor_config: None,
             ptpl_dir: None,
             pool_config: None,
@@ -1015,6 +1025,7 @@ impl MayastorEnvironment {
         let ps_endpoint = self.ps_endpoint.clone();
         let ps_timeout = self.ps_timeout;
         let ps_retries = self.ps_retries;
+        let ps_interval = self.ps_interval;
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
         let api_versions = self.api_versions.clone();
@@ -1029,6 +1040,7 @@ impl MayastorEnvironment {
                     .with_endpoint(&ps_endpoint)
                     .with_timeout(ps_timeout)
                     .with_retries(ps_retries)
+                    .with_interval(ps_interval)
                     .connect()
                     .await;
             }

@@ -64,6 +64,7 @@ fn get_ms() -> &'static MayastorTest<'static> {
     MAYASTOR.get_or_init(|| {
         MayastorTest::new(MayastorCliArgs {
             enable_io_all_thrd_nexus_channels: true,
+            ps_interval: Duration::from_secs(1),
             ..Default::default()
         })
     })
@@ -549,6 +550,7 @@ async fn init_ms_etcd_test() -> ComposeTest {
         .with_endpoint(ETCD_ENDPOINT)
         .with_timeout(Duration::from_secs(1))
         .with_retries(5)
+        .with_interval(Duration::from_secs(1))
         .connect()
         .await;
 

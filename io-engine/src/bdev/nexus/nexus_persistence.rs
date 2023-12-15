@@ -1,7 +1,6 @@
 use super::{IoMode, Nexus, NexusChild};
 use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 use super::Error;
 
@@ -215,6 +214,8 @@ impl<'n> Nexus<'n> {
         };
 
         let mut retry = PersistentStore::retries();
+        let interval = PersistentStore::interval();
+        let mut log = true;
         loop {
             let Err(err) = PersistentStore::put(&key, &info.inner).await else {
                 trace!(?key, "{self:?}: the state was saved successfully");
@@ -223,20 +224,26 @@ impl<'n> Nexus<'n> {
 
             retry -= 1;
             if retry == 0 {
+                error!(
+                    "{self:?}: failed to persist nexus information: {err}, giving up..."
+                );
                 return Err(Error::SaveStateFailed {
                     source: err,
                     name: self.name.clone(),
                 });
             }
 
-            error!(
-                "{self:?}: failed to persist nexus information, \
-                will retry ({retry} left): {err}"
-            );
+            if log {
+                error!(
+                    "{self:?}: failed to persist nexus information, \
+                    will retry silently ({retry} left): {err}..."
+                );
+                log = false;
+            }
 
             // Allow some time for the connection to the persistent
             // store to be re-established before retrying the operation.
-            if mayastor_sleep(Duration::from_secs(1)).await.is_err() {
+            if mayastor_sleep(interval).await.is_err() {
                 error!("{self:?}: failed to wait for sleep");
             }
         }
