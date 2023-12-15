@@ -37,6 +37,8 @@ pub struct PersistentStoreBuilder {
     timeout: Duration,
     /// Number of operation retries.
     retries: u8,
+    /// Interval duration.
+    interval: Duration,
 }
 
 impl Default for PersistentStoreBuilder {
@@ -53,6 +55,7 @@ impl PersistentStoreBuilder {
             default_port: 2379,
             timeout: Duration::from_secs(1),
             retries: 5,
+            interval: Duration::from_secs(1),
         }
     }
 
@@ -84,6 +87,12 @@ impl PersistentStoreBuilder {
         self
     }
 
+    /// Sets interval between operation retries.
+    pub fn with_interval(mut self, interval: Duration) -> Self {
+        self.interval = interval;
+        self
+    }
+
     /// Consumes `PersistentStoreBuilder` instance and initialises the
     /// persistent store. If the supplied endpoint is 'None', the store is
     /// uninitalised and unavailable for use.
@@ -102,6 +111,8 @@ pub struct PersistentStore {
     timeout: Duration,
     /// Number of operation retries.
     retries: u8,
+    /// Operation interval.
+    interval: Duration,
 }
 
 /// Persistent store global instance.
@@ -120,6 +131,7 @@ impl PersistentStore {
 
         let timeout = bld.timeout;
         let retries = bld.retries;
+        let interval = bld.interval;
         let store = Self::connect_to_backing_store(&endpoint.clone()).await;
 
         info!(
@@ -133,6 +145,7 @@ impl PersistentStore {
                 endpoint,
                 timeout,
                 retries,
+                interval,
             })
         });
     }
@@ -301,6 +314,11 @@ impl PersistentStore {
     /// Gets the operation timeout.
     pub fn timeout() -> Duration {
         Self::instance().lock().timeout
+    }
+
+    /// Gets the operation interval.
+    pub fn interval() -> Duration {
+        Self::instance().lock().interval
     }
 
     /// Gets the number of operation retries.
