@@ -1070,27 +1070,23 @@ fn make_hostnqn(node_name: Option<&String>) -> Option<String> {
 }
 
 fn print_asan_env() {
-    fn print_var(s: &str, v: Option<&str>) {
-        let v = v.unwrap_or_default();
-        info!("    {s:25} = {v}");
+    macro_rules! print_compile_var {
+        ($name:literal) => {
+            let value = option_env!($name).unwrap_or_default();
+            info!("    {:25} = {value}", $name);
+        };
     }
     fn print_run_var(name: &str) {
-        let v = std::env::var(name).unwrap_or_default();
-        info!("    {name:25} = {v}");
+        let value = std::env::var(name).unwrap_or_default();
+        info!("    {name:25} = {value}");
     }
 
     warn!("Compiled with Address Sanitizer enabled");
     print_run_var("ASAN_OPTIONS");
-    print_var("ASAN_BUILD_ENV", option_env!("ASAN_BUILD_ENV"));
-    print_var("RUSTFLAGS", option_env!("RUSTFLAGS"));
-    print_var(
-        "CARGO_BUILD_RUSTFLAGS",
-        option_env!("CARGO_BUILD_RUSTFLAGS"),
-    );
-    print_var("CARGO_BUILD_TARGET", option_env!("CARGO_BUILD_TARGET"));
-    print_var(
-        "CARGO_PROFILE_DEV_PANIC",
-        option_env!("CARGO_PROFILE_DEV_PANIC"),
-    );
+    print_compile_var!("ASAN_BUILD_ENV");
+    print_compile_var!("RUSTFLAGS");
+    print_compile_var!("CARGO_BUILD_RUSTFLAGS");
+    print_compile_var!("CARGO_BUILD_TARGET");
+    print_compile_var!("CARGO_PROFILE_DEV_PANIC");
     print_run_var("RUST_BACKTRACE");
 }
