@@ -1074,9 +1074,13 @@ fn print_asan_env() {
         let v = v.unwrap_or_default();
         info!("    {s:25} = {v}");
     }
+    fn print_run_var(name: &str) {
+        let v = std::env::var(name).unwrap_or_default();
+        info!("    {name:25} = {v}");
+    }
 
     warn!("Compiled with Address Sanitizer enabled");
-    print_var("ASAN_OPTIONS", option_env!("ASAN_OPTIONS"));
+    print_run_var("ASAN_OPTIONS");
     print_var("ASAN_BUILD_ENV", option_env!("ASAN_BUILD_ENV"));
     print_var("RUSTFLAGS", option_env!("RUSTFLAGS"));
     print_var(
@@ -1088,5 +1092,5 @@ fn print_asan_env() {
         "CARGO_PROFILE_DEV_PANIC",
         option_env!("CARGO_PROFILE_DEV_PANIC"),
     );
-    print_var("RUST_BACKTRACE", option_env!("RUST_BACKTRACE"));
+    print_run_var("RUST_BACKTRACE");
 }
