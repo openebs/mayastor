@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use byte_unit::Byte;
-use chrono::Utc;
 use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
@@ -26,6 +25,7 @@ use spdk_rs::libspdk::{
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_bs_get_cluster_size,
+    spdk_bs_get_parent_blob,
     spdk_bs_iter_next,
     spdk_lvol,
     vbdev_lvol_destroy,
@@ -48,7 +48,6 @@ use crate::{
         Share,
         ShareProps,
         SnapshotOps,
-        SnapshotParams,
         SnapshotXattrs,
         ToErrno,
         UntypedBdev,
@@ -363,15 +362,18 @@ impl Lvol {
     }
 
     /// Common API to get the xattr from blob.
-    pub fn get_blob_xattr(lvol: &Lvol, attr: &str) -> Option<String> {
+    pub fn get_blob_xattr(blob: *mut spdk_blob, attr: &str) -> Option<String> {
+        if blob.is_null() {
+            return None;
+        }
+        let blob_inner = blob;
         let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
         let mut size: u64 = 0;
         let attribute = attr.into_cstring();
 
         unsafe {
-            let blob = lvol.bs_iter_first();
             let r = spdk_blob_get_xattr_value(
-                blob,
+                blob_inner,
                 attribute.as_ptr(),
                 &mut val as *mut *const c_char as *mut *const c_void,
                 &mut size as *mut u64,
@@ -407,7 +409,7 @@ impl Lvol {
                 // characters (assume malformed attribute value
                 // contains only zeroes).
                 if size == 0 {
-                    warn!(?lvol, ?attribute, "attribute contains no value",);
+                    warn!(?attribute, "attribute contains no value",);
                     return None;
                 }
             }
@@ -417,7 +419,6 @@ impl Lvol {
             std::str::from_utf8(sl).map_or_else(
                 |error| {
                     warn!(
-                        ?lvol,
                         attribute = attr,
                         ?error,
                         "Failed to parse attribute, default to empty string"
@@ -599,8 +600,11 @@ pub trait LvsLvol: LogicalVolume + Share {
         curr_blob: *mut spdk_blob,
     ) -> Option<*mut spdk_blob>;
 
-    /// Build Snapshot Parameters from Blob.
-    fn build_snapshot_param(&self, blob: *mut spdk_blob) -> SnapshotParams;
+    /// Get the next spdk_blob from the parent blob.
+    unsafe fn bs_iter_parent(
+        &self,
+        curr_blob: *mut spdk_blob,
+    ) -> Option<*mut spdk_blob>;
 
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
@@ -741,16 +745,20 @@ impl LvsLvol for Lvol {
     /// Looks like a bug in SPDK, but all snapshot attribute are intact in
     /// SPDK after io-engine restarts.
     fn is_snapshot(&self) -> bool {
-        Lvol::get_blob_xattr(self, SnapshotXattrs::SnapshotCreateTime.name())
-            .is_some()
+        Lvol::get_blob_xattr(
+            self.blob_checked(),
+            SnapshotXattrs::SnapshotCreateTime.name(),
+        )
+        .is_some()
     }
 
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol> {
-        if let Some(source_uuid) =
-            Lvol::get_blob_xattr(self, CloneXattrs::SourceUuid.name())
-        {
+        if let Some(source_uuid) = Lvol::get_blob_xattr(
+            self.blob_checked(),
+            CloneXattrs::SourceUuid.name(),
+        ) {
             let snap_lvol =
                 match UntypedBdev::lookup_by_uuid_str(source_uuid.as_str()) {
                     Some(bdev) => match Lvol::try_from(bdev) {
@@ -846,7 +854,7 @@ impl LvsLvol for Lvol {
                 unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
             sender.send(errno).unwrap();
         }
-
+        self.reset_snapshot_tree_usage_cache(!self.is_snapshot());
         // We must always unshare before destroying bdev.
         let _ = Pin::new(&mut self).unshare().await;
 
@@ -1008,20 +1016,19 @@ impl LvsLvol for Lvol {
         }
     }
 
-    /// Build Snapshot Parameters from Blob.
-    fn build_snapshot_param(&self, _blob: *mut spdk_blob) -> SnapshotParams {
-        // TODO: need to Integrate with Snapshot Property Enumeration
-        // Currently it is stub.
-        SnapshotParams::new(
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
-            Some(self.name()),
-            Some(Utc::now().to_string()),
-            false,
-        )
+    /// Get the parent spdk_blob from the current blob.
+    unsafe fn bs_iter_parent(
+        &self,
+        curr_blob: *mut spdk_blob,
+    ) -> Option<*mut spdk_blob> {
+        let parent_blob = spdk_bs_get_parent_blob(curr_blob);
+        if parent_blob.is_null() {
+            None
+        } else {
+            Some(parent_blob)
+        }
     }
+
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
     async fn destroy_replica(mut self) -> Result<String, Error> {
@@ -1036,7 +1043,6 @@ impl LvsLvol for Lvol {
             if snapshot_lvol.list_clones_by_snapshot_uuid().is_empty()
                 && snapshot_lvol.is_discarded_snapshot()
             {
-                snapshot_lvol.reset_snapshot_parent_successor_usage_cache();
                 snapshot_lvol.destroy().await?;
             }
         }

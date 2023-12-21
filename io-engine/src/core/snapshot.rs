@@ -235,7 +235,9 @@ pub trait SnapshotOps {
     fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
 
     /// List All Snapshot.
-    fn list_all_snapshots() -> Vec<VolumeSnapshotDescriptor>;
+    fn list_all_snapshots(
+        parent_lvol: Option<&Lvol>,
+    ) -> Vec<VolumeSnapshotDescriptor>;
 
     /// Create snapshot clone.
     async fn create_clone(
@@ -350,13 +352,11 @@ pub trait SnapshotOps {
         total_ancestor_snap_size: u64,
     ) -> Option<u64>;
 
-    /// When snapshot is destroyed, reset the parent lvol usage cache and its
-    /// successor snapshot and clone usage cache.
-    fn reset_snapshot_parent_successor_usage_cache(&self);
-
-    /// When snapshot is destroyed, reset cache of successor snapshots and
-    /// clones based on snapshot parent uuid.
-    fn reset_successor_lvol_usage_cache(&self, snapshot_parent_uuid: String);
+    /// Reset snapshot tree usage cache. if the lvol is replica, then reset
+    /// cache will be based on replica uuid, which is parent uuid for all
+    /// snapshots created from the replica. if the lvol is not replica, then
+    /// reset cache  will be judge based on lvol tree present in the system.
+    fn reset_snapshot_tree_usage_cache(&self, is_replica: bool);
 }
 
 /// Traits gives the Snapshots Related Parameters.
