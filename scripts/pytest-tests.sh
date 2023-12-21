@@ -68,7 +68,7 @@ then
   exit 1
 fi
 
-cd "$SRCDIR/test/python" && source ./venv/bin/activate
+pushd "$SRCDIR/test/python" >/dev/null && source ./venv/bin/activate && popd >/dev/null
 
 TEST_LIST=
 while [ "$#" -gt 0 ]; do
@@ -81,11 +81,20 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      TEST_LIST="$TEST_LIST \n$1"
+      set +e
+      real_1="$(realpath $1 2>/dev/null)"
+      set -e
+      param="$1"
+      if [ -d "$real_1" ] || [ -f "$real_1" ] || [ -f "${real_1%::*}" ]; then
+        param="$real_1"
+      fi
+      TEST_LIST="$TEST_LIST \n$param"
       ;;
   esac
   shift
 done
+
+cd "$SRCDIR/test/python"
 
 # Ensure we cleanup when terminated
 trap_setup
