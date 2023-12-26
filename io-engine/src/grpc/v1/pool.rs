@@ -1,37 +1,36 @@
 use crate::{
     core::Share,
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, Serializer},
+    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
     lvs::{Error as LvsError, Lvs},
     pool_backend::{PoolArgs, PoolBackend},
 };
+use ::function_name::named;
 use futures::FutureExt;
 use io_engine_api::v1::pool::*;
 use nix::errno::Errno;
-use std::{convert::TryFrom, fmt::Debug};
+use std::{convert::TryFrom, fmt::Debug, panic::AssertUnwindSafe};
 use tonic::{Request, Response, Status};
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
-use ::function_name::named;
-use std::panic::AssertUnwindSafe;
-
 /// RPC service for mayastor pool operations
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct PoolService {
     name: String,
-    client_context: tokio::sync::Mutex<Option<GrpcClientContext>>,
+    client_context:
+        std::sync::Arc<tokio::sync::RwLock<Option<GrpcClientContext>>>,
 }
 
 #[async_trait::async_trait]
-impl<F, T> Serializer<F, T> for PoolService
+impl<F, T> RWSerializer<F, T> for PoolService
 where
     T: Send + 'static,
     F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
 {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status> {
-        let mut context_guard = self.client_context.lock().await;
+        let mut context_guard = self.client_context.write().await;
 
         // Store context as a marker of to detect abnormal termination of the
         // request. Even though AssertUnwindSafe() allows us to
@@ -62,6 +61,35 @@ where
                 )))
             }
         }
+    }
+
+    async fn shared(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status> {
+        let context_guard = self.client_context.read().await;
+
+        if let Some(c) = context_guard.as_ref() {
+            warn!("{}: gRPC method timed out, args: {}", c.id, c.args);
+        }
+
+        let fut = AssertUnwindSafe(f).catch_unwind();
+        let r = fut.await;
+
+        match r {
+            Ok(r) => r,
+            Err(_e) => {
+                warn!("{}: gRPC method panicked, args: {}", ctx.id, ctx.args);
+                Err(Status::cancelled(format!(
+                    "{}: gRPC method panicked",
+                    ctx.id
+                )))
+            }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl RWLock for PoolService {
+    async fn rw_lock(&self) -> &tokio::sync::RwLock<Option<GrpcClientContext>> {
+        self.client_context.as_ref()
     }
 }
 
@@ -131,7 +159,7 @@ impl PoolService {
     pub fn new() -> Self {
         Self {
             name: String::from("PoolSvc"),
-            client_context: tokio::sync::Mutex::new(None),
+            client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 }

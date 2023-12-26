@@ -190,6 +190,15 @@ where
             }),
         }
     }
+
+    /// Resets io stats for a given Bdev.
+    pub async fn reset_bdev_io_stats(&self) -> Result<(), CoreError> {
+        self.inner.stats_reset_async().await.map_err(|err| {
+            CoreError::DeviceStatisticsFailed {
+                source: err,
+            }
+        })
+    }
 }
 
 #[async_trait(? Send)]

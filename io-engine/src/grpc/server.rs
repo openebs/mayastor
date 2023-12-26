@@ -71,6 +71,7 @@ impl MayastorGrpcServer {
         let address = Cow::from(rpc_addr);
 
         let replica_v1 = ReplicaService::new();
+        let pool_v1 = PoolService::new();
 
         let enable_v0 = api_versions.contains(&ApiVersion::V0).then_some(true);
         let enable_v1 = api_versions.contains(&ApiVersion::V1).then_some(true);
@@ -100,7 +101,7 @@ impl MayastorGrpcServer {
             }))
             .add_optional_service(enable_v1.map(|_| {
                 v1::snapshot::SnapshotRpcServer::new(SnapshotService::new(
-                    replica_v1,
+                    replica_v1.clone(),
                 ))
             }))
             .add_optional_service(enable_v1.map(|_| {
@@ -117,7 +118,9 @@ impl MayastorGrpcServer {
                 }),
             )
             .add_optional_service(enable_v1.map(|_| {
-                v1::stats::StatsRpcServer::new(StatsService::default())
+                v1::stats::StatsRpcServer::new(StatsService::new(
+                    pool_v1, replica_v1,
+                ))
             }))
             .add_optional_service(enable_v0.map(|_| {
                 MayastorRpcServer::new(MayastorSvc::new(Duration::from_millis(

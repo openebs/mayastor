@@ -11,7 +11,7 @@ use crate::{
         UntypedBdev,
         UpdateProps,
     },
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWSerializer},
+    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol},
 };
 use ::function_name::named;
@@ -88,6 +88,13 @@ where
                 )))
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl RWLock for ReplicaService {
+    async fn rw_lock(&self) -> &tokio::sync::RwLock<Option<GrpcClientContext>> {
+        self.client_context.as_ref()
     }
 }
 
