@@ -50,7 +50,7 @@ pub fn calc_data_partition(
     req_size: u64,
     num_blocks: u64,
     block_size: u64,
-) -> Option<(u64, u64)> {
+) -> Option<(u64, u64, u64)> {
     // Number of blocks occupied by GPT tables.
     let gpt_blocks = bytes_to_alinged_blocks(GPT_TABLE_SIZE, block_size);
 
@@ -78,7 +78,7 @@ pub fn calc_data_partition(
     // Last data block.
     let data_end = min(data_start + req_blocks - 1, lba_end);
 
-    Some((data_start, data_end))
+    Some((data_start, data_end, req_blocks))
 }
 
 /// Converts an offset in bytes into offset in number of aligned blocks for the
