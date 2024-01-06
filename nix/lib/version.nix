@@ -1,17 +1,7 @@
-{ lib, stdenv, git, tag ? "" }:
-let
-  whitelistSource = src: allowedPrefixes:
-    builtins.filterSource
-      (path: type:
-        lib.any
-          (allowedPrefix:
-            lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
-          allowedPrefixes)
-      src;
-in
+{ lib, stdenv, git, sourcer, tag ? "" }:
 stdenv.mkDerivation {
   name = "io-engine-version";
-  src = whitelistSource ../../. [ ".git" ];
+  src = sourcer.git-src;
   outputs = [ "out" "long" "tag_or_long" ];
 
   # Newer git versions check directory ownership when executing commands.

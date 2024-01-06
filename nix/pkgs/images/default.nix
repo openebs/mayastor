@@ -21,11 +21,21 @@
 , xfsprogs
 , runCommand
 , tini
+, sourcer
 , img_tag ? ""
+, img_org ? ""
 }:
 let
   version = if img_tag != "" then img_tag else io-engine.version;
   path = lib.makeBinPath [ "/" busybox utillinux ];
+  repo-org = if img_org != "" then img_org else "${builtins.readFile (runCommand "repo_org" {
+    buildInputs = [ git ];
+   } ''
+    export GIT_DIR="${sourcer.git-src}/.git"
+    cp ${sourcer.repo-org}/git-org-name.sh .
+    patchShebangs ./git-org-name.sh
+    ./git-org-name.sh ${sourcer.git-src} --case lower --remote origin > $out
+  '')}";
 
   # common props for all io-engine images
   ioEngineImageProps = {
@@ -85,28 +95,28 @@ let
 in
 {
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
-    name = "openebs/mayastor-io-engine";
+    name = "${repo-org}/mayastor-io-engine";
     copyToRoot = [ busybox io-engine-bins mctl ];
   });
 
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
-    name = "openebs/mayastor-io-engine-dev";
+    name = "${repo-org}/mayastor-io-engine-dev";
     copyToRoot = [ busybox io-engine-dev ];
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
-    name = "openebs/mayastor-io-engine-client";
+    name = "${repo-org}/mayastor-io-engine-client";
     copyToRoot = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
 
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
-    name = "openebs/mayastor-fio-spdk";
+    name = "${repo-org}/mayastor-fio-spdk";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
   });
 
   mayastor-casperf = dockerTools.buildImage (clientImageProps // {
-    name = "openebs/mayastor-casperf";
+    name = "${repo-org}/mayastor-casperf";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf ];
   });
 }
