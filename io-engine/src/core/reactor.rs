@@ -43,6 +43,7 @@ use std::{
 use once_cell::sync::OnceCell;
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
+use events_api::event::EventAction;
 use futures::{
     channel::oneshot::{Receiver as OnceShotRecv, Sender as OneShotSend},
     task::{Context, Poll},
@@ -61,7 +62,10 @@ use spdk_rs::libspdk::{
     SPDK_THREAD_OP_NEW,
 };
 
-use crate::core::{CoreError, Cores};
+use crate::{
+    core::{CoreError, Cores},
+    eventing::Event,
+};
 use gettid::gettid;
 use nix::errno::Errno;
 
@@ -752,12 +756,14 @@ pub async fn reactor_monitor_loop(freeze_timeout: Option<u64>) {
                 if tick - r.reactor_tick.load(Ordering::Relaxed) == 0 {
                     info!(core = r.core, "Reactor is healthy again");
                     r.frozen = false;
+                    r.reactor.event(EventAction::ReactorUnfreeze).generate();
                 }
             } else {
                 // Reactor didn't respond within allowed number of intervals,
                 // assume it is frozen.
                 if tick - r.reactor_tick.load(Ordering::Relaxed) >= timeout {
                     r.frozen = true;
+                    r.reactor.event(EventAction::ReactorFreeze).generate();
                     crate::core::diagnostics::diagnose_reactor(r.reactor);
                 }
             }

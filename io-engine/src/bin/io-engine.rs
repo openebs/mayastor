@@ -3,6 +3,8 @@ extern crate tracing;
 
 use std::{env, path::Path, sync::atomic::Ordering};
 
+use events_api::event::EventAction;
+
 use futures::future::FutureExt;
 
 use io_engine::{
@@ -29,6 +31,7 @@ use io_engine::{
         Mthread,
         Reactors,
     },
+    eventing::Event,
     grpc,
     logger,
     persistent_store::PersistentStoreBuilder,
@@ -279,5 +282,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Reactors::current().poll_reactor();
 
     ms.fini();
+    ms.event(EventAction::Start).generate();
     Ok(())
 }

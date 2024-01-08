@@ -15,6 +15,7 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use clap::Parser;
+use events_api::event::EventAction;
 use futures::{channel::oneshot, future};
 use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
@@ -49,6 +50,7 @@ use crate::{
         MayastorFeatures,
         Mthread,
     },
+    eventing::Event,
     grpc,
     grpc::MayastorGrpcServer,
     logger,
@@ -474,6 +476,9 @@ async fn do_shutdown(arg: *mut c_void) {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
     }
+    MayastorEnvironment::global_or_default()
+        .event(EventAction::Shutdown)
+        .generate();
 }
 
 /// main shutdown routine for mayastor
@@ -485,6 +490,9 @@ pub fn mayastor_env_stop(rc: i32) {
             r.send_future(async move {
                 do_shutdown(rc as *const i32 as *mut c_void).await;
             });
+            MayastorEnvironment::global_or_default()
+                .event(EventAction::Stop)
+                .generate();
         }
         _ => {
             panic!("invalid reactor state during shutdown");

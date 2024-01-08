@@ -3,6 +3,7 @@
 use std::{pin::Pin, sync::atomic::AtomicBool};
 
 use crate::core::VerboseError;
+use events_api::event::EventAction;
 use futures::{future::Future, FutureExt};
 
 mod nexus_bdev;
@@ -21,7 +22,7 @@ mod nexus_nbd;
 mod nexus_persistence;
 mod nexus_share;
 
-use crate::bdev::nexus::nexus_iter::NexusIterMut;
+use crate::{bdev::nexus::nexus_iter::NexusIterMut, eventing::Event};
 pub(crate) use nexus_bdev::NEXUS_PRODUCT_ID;
 pub use nexus_bdev::{
     nexus_create,
@@ -173,15 +174,19 @@ pub async fn shutdown_nexuses() {
 
     for mut nexus in nexuses.into_iter() {
         // Destroy nexus and persist its state in the ETCd.
-        if let Err(error) = nexus.as_mut().destroy_ext(true).await {
-            error!(
-                name = nexus.name,
-                error = error.verbose(),
-                "Failed to destroy nexus"
-            );
+        match nexus.as_mut().destroy_ext(true).await {
+            Ok(_) => {
+                nexus.event(EventAction::Shutdown).generate();
+            }
+            Err(error) => {
+                error!(
+                    name = nexus.name,
+                    error = error.verbose(),
+                    "Failed to destroy nexus"
+                );
+            }
         }
     }
-
     info!("All nexus have been shutdown.");
 }
 
