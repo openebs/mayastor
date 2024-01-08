@@ -21,9 +21,10 @@
 , buildPackages
 , targetPlatform
 , pkgs
+, sourcer
 }:
 let
-  versionDrv = import ../../lib/version.nix { inherit lib stdenv git tag; };
+  versionDrv = import ../../lib/version.nix { inherit lib stdenv git tag sourcer; };
   versions = {
     "version" = version;
     "long" = builtins.readFile "${versionDrv.long}";
