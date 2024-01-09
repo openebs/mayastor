@@ -1,13 +1,17 @@
 { lib, stdenv, git, tag ? "" }:
 let
   whitelistSource = src: allowedPrefixes:
-    builtins.filterSource
-      (path: type:
+    builtins.path {
+      filter = (path: type:
         lib.any
           (allowedPrefix:
-            lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
-          allowedPrefixes)
-      src;
+            (lib.hasPrefix (toString (src + "/${allowedPrefix}")) path) ||
+            (type == "directory" && lib.hasPrefix path (toString (src + "/${allowedPrefix}")))
+          )
+          allowedPrefixes);
+      path = src;
+      name = "io-engine";
+    };
 in
 {
   git-src = whitelistSource ../../. [ ".git" ];
