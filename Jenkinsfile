@@ -172,6 +172,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
+            sh 'nix-shell --run "cargo build --bins --features=io-engine-testing" ci.nix'
             sh 'nix-shell --run "./scripts/cargo-test.sh" ci.nix'
           }
           post {
@@ -206,6 +207,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
+            sh 'nix-shell --run "cargo build --bins --features=io-engine-testing" ci.nix'
             sh 'nix-shell --run "./scripts/grpc-test.sh" ci.nix'
           }
           post {
