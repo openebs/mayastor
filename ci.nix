@@ -112,11 +112,12 @@ mkShell {
     ${pkgs.lib.optionalString (norust) "echo 'Hint: use rustup tool.'"}
     ${pkgs.lib.optionalString (norust) "echo"}
 
-    echo
-
     # SRCDIR is needed by docker-compose files as it requires absolute paths
     export SRCDIR=`pwd`
-    pre-commit install
-    pre-commit install --hook commit-msg
+    if [ -z "$CI" ]; then
+      echo
+      pre-commit install
+      pre-commit install --hook commit-msg
+    fi
   '';
 }
