@@ -9,6 +9,7 @@ pub mod pool_cli;
 pub mod rebuild_cli;
 pub mod replica_cli;
 pub mod snapshot_cli;
+pub mod stats_cli;
 mod test_cli;
 
 pub(crate) use super::context;
@@ -76,6 +77,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         .subcommand(jsonrpc_cli::subcommands())
         .subcommand(controller_cli::subcommands())
         .subcommand(test_cli::subcommands())
+        .subcommand(stats_cli::subcommands())
         .subcommand_required(true)
         .arg_required_else_help(true)
         .get_matches();
@@ -93,6 +95,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         ("replica", args) => replica_cli::handler(ctx, args).await,
         ("rebuild", args) => rebuild_cli::handler(ctx, args).await,
         ("snapshot", args) => snapshot_cli::handler(ctx, args).await,
+        ("stats", args) => stats_cli::handler(ctx, args).await,
         ("controller", args) => controller_cli::handler(ctx, args).await,
         ("jsonrpc", args) => jsonrpc_cli::json_rpc_call(ctx, args).await,
         ("test", args) => test_cli::handler(ctx, args).await,

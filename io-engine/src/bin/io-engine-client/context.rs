@@ -67,6 +67,7 @@ mod v1 {
     pub type NexusRpcClient = nexus::NexusRpcClient<Channel>;
     pub type SnapshotRpcClient = snapshot::SnapshotRpcClient<Channel>;
     pub type TestRpcClient = test::TestRpcClient<Channel>;
+    pub type StatsRpcClient = stats::StatsRpcClient<Channel>;
 
     pub struct Context {
         pub bdev: BdevRpcClient,
@@ -77,6 +78,7 @@ mod v1 {
         pub nexus: NexusRpcClient,
         pub snapshot: SnapshotRpcClient,
         pub test: TestRpcClient,
+        pub stats: StatsRpcClient,
     }
 
     impl Context {
@@ -89,6 +91,7 @@ mod v1 {
             let nexus = NexusRpcClient::connect(h.clone()).await.unwrap();
             let snapshot = SnapshotRpcClient::connect(h.clone()).await.unwrap();
             let test = TestRpcClient::connect(h.clone()).await.unwrap();
+            let stats = StatsRpcClient::connect(h).await.unwrap();
 
             Ok(Self {
                 bdev,
@@ -99,6 +102,7 @@ mod v1 {
                 nexus,
                 snapshot,
                 test,
+                stats,
             })
         }
     }

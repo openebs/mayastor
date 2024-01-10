@@ -16,7 +16,7 @@ use spdk_rs::ffihelper::{cb_arg, done_cb};
 use std::os::raw::c_void;
 use uuid::Uuid;
 
-/// TODO
+/// Structure representing Bdev Io Stats.
 #[derive(Debug, Default, Clone, Copy, Merge)]
 pub struct BlockDeviceIoStats {
     #[merge(strategy = merge::num::saturating_add)]
@@ -31,6 +31,26 @@ pub struct BlockDeviceIoStats {
     pub num_unmap_ops: u64,
     #[merge(strategy = merge::num::saturating_add)]
     pub bytes_unmapped: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub read_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub write_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub unmap_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub max_read_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub min_read_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub max_write_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub min_write_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub max_unmap_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub min_unmap_latency_ticks: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub tick_rate: u64,
 }
 
 /// Core trait that represents a block device.

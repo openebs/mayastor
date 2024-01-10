@@ -8,6 +8,7 @@ use std::{
 use futures::channel::oneshot::Receiver;
 use nix::errno::Errno;
 pub use server::MayastorGrpcServer;
+use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -81,6 +82,7 @@ pub mod v1 {
     pub mod pool;
     pub mod replica;
     pub mod snapshot;
+    pub mod stats;
     pub mod test;
 }
 
@@ -114,16 +116,25 @@ impl GrpcClientContext {
     }
 }
 
-/// trait to lock serialize gRPC request outstanding
+/// Trait to lock serialize gRPC request outstanding.
 #[async_trait::async_trait]
 pub(crate) trait Serializer<F, T> {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
 }
 
+/// Trait allows Service implementing it to be locked by other Services along
+/// with usual serializing.
 #[async_trait::async_trait]
 pub(crate) trait RWSerializer<F, T> {
     async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
     async fn shared(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
+}
+
+/// Trait allows service implementing to return RWLock of itself to the
+/// caller.
+#[async_trait::async_trait]
+pub(crate) trait RWLock {
+    async fn rw_lock(&self) -> &RwLock<Option<GrpcClientContext>>;
 }
 
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;

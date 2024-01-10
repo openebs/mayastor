@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use nix::errno::Errno;
 use snafu::ResultExt;
 
-use spdk_rs::libspdk::spdk_bdev;
+use spdk_rs::libspdk::{spdk_bdev, spdk_get_ticks_hz};
 
 use crate::{
     bdev::bdev_event_callback,
@@ -157,7 +157,14 @@ where
         BdevIter::<T>::new().next()
     }
 
-    /// TODO
+    /// Gets tick rate of the current io engine instance.
+    /// NOTE: tick_rate returned in SPDK struct is not accurate. Hence we get it
+    /// via this method.
+    pub fn get_tick_rate(&self) -> u64 {
+        unsafe { spdk_get_ticks_hz() }
+    }
+
+    /// Returns IoStats for a particular bdev.
     pub async fn stats_async(&self) -> Result<BlockDeviceIoStats, CoreError> {
         match self.inner.stats_async().await {
             Ok(stat) => Ok(BlockDeviceIoStats {
@@ -167,11 +174,30 @@ where
                 bytes_written: stat.bytes_written,
                 num_unmap_ops: stat.num_unmap_ops,
                 bytes_unmapped: stat.bytes_unmapped,
+                read_latency_ticks: stat.read_latency_ticks,
+                max_read_latency_ticks: stat.max_read_latency_ticks,
+                min_read_latency_ticks: stat.min_read_latency_ticks,
+                write_latency_ticks: stat.write_latency_ticks,
+                max_write_latency_ticks: stat.max_write_latency_ticks,
+                min_write_latency_ticks: stat.min_write_latency_ticks,
+                max_unmap_latency_ticks: stat.max_unmap_latency_ticks,
+                min_unmap_latency_ticks: stat.min_unmap_latency_ticks,
+                unmap_latency_ticks: stat.unmap_latency_ticks,
+                tick_rate: self.get_tick_rate(),
             }),
             Err(err) => Err(CoreError::DeviceStatisticsFailed {
                 source: err,
             }),
         }
+    }
+
+    /// Resets io stats for a given Bdev.
+    pub async fn reset_bdev_io_stats(&self) -> Result<(), CoreError> {
+        self.inner.stats_reset_async().await.map_err(|err| {
+            CoreError::DeviceStatisticsFailed {
+                source: err,
+            }
+        })
     }
 }
 
