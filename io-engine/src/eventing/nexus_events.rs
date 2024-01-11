@@ -10,7 +10,7 @@ use events_api::event::{
 use crate::{
     bdev::{
         nexus,
-        nexus::{Error, NexusChild},
+        nexus::{Error, NexusChild, NexusState},
     },
     core::{MayastorEnvironment, VerboseError},
     eventing::{Event, EventMetaGen, EventWithMeta},
@@ -51,6 +51,17 @@ impl<'n> EventMetaGen for NexusChild<'n> {
         .with_nexus_child_data(self.uri());
         EventMeta::from_source(event_source)
     }
+}
+
+/// Nexus state change event.
+pub(crate) fn state_change_event_meta(
+    previous: NexusState,
+    next: NexusState,
+) -> EventMeta {
+    let event_source =
+        EventSource::new(MayastorEnvironment::global_or_default().node_name)
+            .with_state_change_data(previous.to_string(), next.to_string());
+    EventMeta::from_source(event_source)
 }
 
 impl<'n> Event for nexus::Nexus<'n> {

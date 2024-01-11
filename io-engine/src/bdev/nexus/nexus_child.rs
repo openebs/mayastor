@@ -28,6 +28,7 @@ use crate::{
         Reactors,
         VerboseError,
     },
+    eventing::replica_events::state_change_event_meta,
     persistent_store::PersistentStore,
     rebuild::{NexusRebuildJob, RebuildMap},
 };
@@ -39,7 +40,10 @@ use crate::{
         NvmeReservation,
     },
     core::MayastorEnvironment,
+    eventing::EventWithMeta,
 };
+
+use events_api::event::EventAction;
 
 use spdk_rs::{
     libspdk::{
@@ -343,8 +347,14 @@ impl Debug for NexusChild<'_> {
 impl<'c> NexusChild<'c> {
     /// TODO
     fn set_state(&self, state: ChildState) {
+        let previous = self.state();
         debug!("{self:?}: changing state to '{state}'");
         self.state.store(state);
+        self.event(
+            EventAction::StateChange,
+            state_change_event_meta(previous, state),
+        )
+        .generate();
     }
 
     /// Unconditionally sets child's state as faulted with the given reason.
