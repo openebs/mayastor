@@ -3,12 +3,12 @@ ROOT_DIR=$(realpath "$SCRIPT_DIR/..")
 
 sudo nvme disconnect-all
 
-for c in $(docker ps -a --filter "label=io.mayastor.test.name" --format '{{.ID}}') ; do
+for c in $(docker ps -a --filter "label=io.composer.test.name" --format '{{.ID}}') ; do
   docker kill "$c"
   docker rm "$c"
 done
 
-for n in $(docker network ls --filter "label=io.mayastor.test.name" --format '{{.ID}}') ; do
+for n in $(docker network ls --filter "label=io.composer.test.name" --format '{{.ID}}') ; do
   docker network rm "$n" || ( sudo systemctl restart docker && docker network rm "$n" )
 done
 
