@@ -12,3 +12,4 @@ pytest-variables==3.0.0
 retrying==1.3.4
 requests==2.31.0
 docker==6.1.3
+pyyaml==5.3.1
