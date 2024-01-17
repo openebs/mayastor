@@ -11,14 +11,22 @@ use common::{
             bdev::ListBdevOptions,
             pool::CreatePoolRequest,
             replica::{CreateReplicaRequest, ListReplicaOptions},
-            snapshot::{ListSnapshotsRequest, SnapshotInfo},
+            snapshot::{
+                ListSnapshotsRequest,
+                NexusCreateSnapshotReplicaDescriptor,
+                SnapshotInfo,
+            },
             GrpcConnect,
         },
+        Binary,
         Builder,
         ComposeTest,
         MayastorTest,
     },
+    nexus::NexusBuilder,
     nvme::{list_mayastor_nvme_devices, nvme_connect, nvme_disconnect_all},
+    pool::PoolBuilder,
+    replica::ReplicaBuilder,
 };
 
 use io_engine::{
@@ -317,47 +325,6 @@ async fn test_replica_handle_snapshot() {
             .get(0)
             .expect("Snapshot is not created on remote replica"),
     );
-}
-
-#[tokio::test]
-async fn test_multireplica_nexus_snapshot() {
-    let ms = get_ms();
-    let (_test, urls) = launch_instance(true).await;
-
-    ms.spawn(async move {
-        let nexus = create_nexus(&urls).await;
-
-        let snapshot_params = SnapshotParams::new(
-            Some(String::from("e1")),
-            Some(String::from("p1")),
-            Some(Uuid::new_v4().to_string()),
-            Some(String::from("s1")),
-            Some(Uuid::new_v4().to_string()),
-            Some(Utc::now().to_string()),
-            false,
-        );
-
-        let replicas = vec![
-            NexusReplicaSnapshotDescriptor {
-                replica_uuid: replica1_uuid(),
-                skip: false,
-                snapshot_uuid: Some(Uuid::new_v4().to_string()),
-            },
-            NexusReplicaSnapshotDescriptor {
-                replica_uuid: replica2_uuid(),
-                skip: false,
-                snapshot_uuid: Some(Uuid::new_v4().to_string()),
-            },
-        ];
-
-        nexus
-            .create_snapshot(snapshot_params, replicas)
-            .await
-            .expect_err(
-                "Snapshot successfully created for a multireplica nexus",
-            );
-    })
-    .await;
 }
 
 #[tokio::test]
@@ -1281,4 +1248,153 @@ async fn test_replica_listing_with_query() {
     assert_eq!(replicas.len(), 2);
     assert!(!replicas[0].is_clone && !replicas[0].is_snapshot);
     assert!(!replicas[1].is_clone && !replicas[1].is_snapshot);
+}
+
+#[tokio::test]
+async fn test_multireplica_nexus_snapshot() {
+    const POOL_SIZE: u64 = 60;
+    const REPL_SIZE: u64 = 22;
+
+    common::composer_init();
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_nexus",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1"]),
+        )
+        .add_container_bin(
+            "ms_repl_1",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "2"]),
+        )
+        .add_container_bin(
+            "ms_repl_2",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "3"]),
+        )
+        .add_container_bin(
+            "ms_repl_3",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "4"]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let ms_nexus = conn.grpc_handle_shared("ms_nexus").await.unwrap();
+    let ms_repl_1 = conn.grpc_handle_shared("ms_repl_1").await.unwrap();
+    let ms_repl_2 = conn.grpc_handle_shared("ms_repl_2").await.unwrap();
+    let ms_repl_3 = conn.grpc_handle_shared("ms_repl_3").await.unwrap();
+    // Create Pool-1 and Replica-1.
+    let mut pool_1 = PoolBuilder::new(ms_repl_1.clone())
+        .with_name("pool1")
+        .with_new_uuid()
+        .with_malloc("mem1", POOL_SIZE);
+
+    let mut repl_1 = ReplicaBuilder::new(ms_repl_1.clone())
+        .with_pool(&pool_1)
+        .with_name("r1")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+
+    pool_1.create().await.unwrap();
+    repl_1.create().await.unwrap();
+    repl_1.share().await.unwrap();
+
+    // Create Pool-2 and Replica-2.
+    let mut pool_2 = PoolBuilder::new(ms_repl_2.clone())
+        .with_name("pool2")
+        .with_new_uuid()
+        .with_malloc("mem2", POOL_SIZE);
+
+    let mut repl_2 = ReplicaBuilder::new(ms_repl_2.clone())
+        .with_pool(&pool_2)
+        .with_name("r2")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+
+    pool_2.create().await.unwrap();
+    repl_2.create().await.unwrap();
+    repl_2.share().await.unwrap();
+    // Create Pool-3 and Replica-3.
+    let mut pool_3 = PoolBuilder::new(ms_repl_3.clone())
+        .with_name("pool3")
+        .with_new_uuid()
+        .with_malloc("mem3", POOL_SIZE);
+
+    let mut repl_3 = ReplicaBuilder::new(ms_repl_3.clone())
+        .with_pool(&pool_3)
+        .with_name("r3")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+
+    pool_3.create().await.unwrap();
+    repl_3.create().await.unwrap();
+    repl_3.share().await.unwrap();
+
+    // Create nexus.
+    let mut nex_0 = NexusBuilder::new(ms_nexus.clone())
+        .with_name("nexus0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_replica(&repl_1)
+        .with_replica(&repl_2)
+        .with_replica(&repl_3);
+
+    nex_0.create().await.unwrap();
+    nex_0.publish().await.unwrap();
+
+    let snapshot_params = SnapshotParams::new(
+        Some(String::from("e1")),
+        Some(String::from("p1")),
+        Some(Uuid::new_v4().to_string()),
+        Some(String::from("s1")),
+        Some(Uuid::new_v4().to_string()),
+        Some(Utc::now().to_string()),
+        false,
+    );
+
+    let mut replicas = vec![
+        NexusCreateSnapshotReplicaDescriptor {
+            replica_uuid: repl_1.uuid(),
+            snapshot_uuid: Some(Uuid::new_v4().to_string()),
+            skip: false,
+        },
+        NexusCreateSnapshotReplicaDescriptor {
+            replica_uuid: repl_2.uuid(),
+            snapshot_uuid: Some(Uuid::new_v4().to_string()),
+            skip: false,
+        },
+    ];
+    // check for error when snapshot uuid is not provided for all replicas.
+    let result = nex_0
+        .create_nexus_snapshot(&snapshot_params, &replicas)
+        .await;
+    assert!(result.is_err());
+
+    replicas.push(NexusCreateSnapshotReplicaDescriptor {
+        replica_uuid: repl_2.uuid(),
+        snapshot_uuid: replicas[1].snapshot_uuid.clone(),
+        skip: false,
+    });
+    // check for error when snapshot uuid is duplicated.
+    let result = nex_0
+        .create_nexus_snapshot(&snapshot_params, &replicas)
+        .await;
+    assert!(result.is_err());
+    replicas.pop();
+    replicas.push(NexusCreateSnapshotReplicaDescriptor {
+        replica_uuid: repl_3.uuid(),
+        snapshot_uuid: Some(Uuid::new_v4().to_string()),
+        skip: false,
+    });
+    let snap_list = nex_0
+        .create_nexus_snapshot(&snapshot_params, &replicas)
+        .await
+        .unwrap();
+    assert_eq!(snap_list.len(), 3);
 }

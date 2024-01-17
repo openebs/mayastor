@@ -19,6 +19,7 @@ use super::{
             RemoveChildNexusRequest,
             ShutdownNexusRequest,
         },
+        snapshot::SnapshotInfo,
         SharedRpcHandle,
         Status,
     },
@@ -33,9 +34,20 @@ use super::{
     },
     replica::ReplicaBuilder,
 };
-use io_engine::{constants::NVME_NQN_PREFIX, subsys::make_subsystem_serial};
+use io_engine::{
+    constants::NVME_NQN_PREFIX,
+    core::{SnapshotDescriptor, SnapshotParams},
+    subsys::make_subsystem_serial,
+};
 use std::time::{Duration, Instant};
 use tonic::Code;
+
+use io_engine_api::v1::snapshot::{
+    ListSnapshotsRequest,
+    NexusCreateSnapshotReplicaDescriptor,
+    NexusCreateSnapshotReplicaStatus,
+    NexusCreateSnapshotRequest,
+};
 
 #[derive(Clone)]
 pub struct NexusBuilder {
@@ -262,6 +274,42 @@ impl NexusBuilder {
         norebuild: bool,
     ) -> Result<Nexus, Status> {
         self.add_child(&self.replica_uri(r), norebuild).await
+    }
+
+    pub async fn create_nexus_snapshot(
+        &self,
+        params: &SnapshotParams,
+        replicas: &[NexusCreateSnapshotReplicaDescriptor],
+    ) -> Result<Vec<NexusCreateSnapshotReplicaStatus>, Status> {
+        self.rpc()
+            .lock()
+            .await
+            .snapshot
+            .create_nexus_snapshot(NexusCreateSnapshotRequest {
+                nexus_uuid: self.uuid(),
+                entity_id: params.entity_id().unwrap(),
+                txn_id: params.txn_id().unwrap(),
+                snapshot_name: params.name().unwrap(),
+                replicas: replicas.to_vec(),
+            })
+            .await
+            .map(|r| r.into_inner().replicas_done)
+    }
+
+    pub async fn list_snapshot(&self) -> Vec<SnapshotInfo> {
+        self.rpc()
+            .lock()
+            .await
+            .snapshot
+            .list_snapshot(ListSnapshotsRequest {
+                source_uuid: None,
+                snapshot_uuid: None,
+                query: None,
+            })
+            .await
+            .map(|s| s.into_inner().snapshots)
+            .ok()
+            .unwrap()
     }
 
     pub async fn remove_child_bdev(&self, bdev: &str) -> Result<Nexus, Status> {
