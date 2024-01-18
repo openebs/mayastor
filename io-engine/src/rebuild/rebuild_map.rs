@@ -3,7 +3,7 @@ use std::fmt::{Debug, Formatter};
 use crate::core::SegmentMap;
 
 /// Map of segments to be rebuilt.
-pub(crate) struct RebuildMap {
+pub struct RebuildMap {
     /// Name of the underlying block device.
     device_name: String,
     /// Map of device segments.

@@ -1,30 +1,28 @@
-use std::{
-    collections::HashMap,
-    ops::Range,
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 
 use chrono::Utc;
 use futures::channel::oneshot;
-use once_cell::sync::OnceCell;
-use spdk_rs::Thread;
 
 use super::{
     HistoryRecord,
     RebuildError,
-    RebuildJobBackend,
+    RebuildJobBackendManager,
     RebuildJobRequest,
     RebuildMap,
     RebuildState,
     RebuildStates,
     RebuildStats,
 };
-use crate::core::{Reactors, VerboseError};
+use crate::{
+    core::{Reactors, VerboseError},
+    rebuild::rebuild_job_backend::RebuildBackend,
+};
 
 /// Rebuild I/O verification mode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum RebuildVerifyMode {
     /// Do not verify rebuild I/Os.
+    #[default]
     None,
     /// Fail rebuild job if I/O verification fails.
     Fail,
@@ -33,7 +31,7 @@ pub enum RebuildVerifyMode {
 }
 
 /// Rebuild job options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RebuildJobOptions {
     pub verify_mode: RebuildVerifyMode,
 }
@@ -71,8 +69,6 @@ impl std::fmt::Display for RebuildOperation {
 /// is the one responsible for the read/writing of the data.
 #[derive(Debug)]
 pub struct RebuildJob {
-    /// Name of the nexus associated with the rebuild job.
-    pub nexus_name: String,
     /// Source URI of the healthy child to rebuild from.
     src_uri: String,
     /// Target URI of the out of sync child in need of a rebuild.
@@ -88,103 +84,34 @@ pub struct RebuildJob {
 }
 
 impl RebuildJob {
-    /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end (of the data partition); notify_fn callback is called
-    /// when the rebuild state is updated - with the nexus and destination
-    /// URI as arguments.
-    pub async fn new(
-        nexus_name: &str,
-        src_uri: &str,
-        dst_uri: &str,
-        range: Range<u64>,
-        options: RebuildJobOptions,
-        notify_fn: fn(String, String) -> (),
+    /// Creates a new RebuildJob taking a specific backend implementation and
+    /// running the generic backend manager.
+    pub(super) async fn from_backend(
+        backend: impl RebuildBackend + 'static,
     ) -> Result<Self, RebuildError> {
-        // Allocate an instance of the rebuild back-end.
-        let backend = RebuildJobBackend::new(
-            nexus_name,
+        let desc = backend.common_desc();
+        let src_uri = desc.src_uri.to_string();
+        let dst_uri = desc.dst_uri.to_string();
+        let manager = RebuildJobBackendManager::new(backend);
+        let frontend = Self {
             src_uri,
             dst_uri,
-            range.clone(),
-            options,
-            notify_fn,
-        )
-        .await?;
-
-        let frontend = Self {
-            nexus_name: backend.nexus_name.clone(),
-            src_uri: backend.src_uri.clone(),
-            dst_uri: backend.dst_uri.clone(),
-            states: backend.states.clone(),
-            comms: RebuildFBendChan::from(&backend.info_chan),
-            complete_chan: Arc::downgrade(&backend.complete_chan),
-            notify_chan: backend.notify_chan.1.clone(),
+            states: manager.states.clone(),
+            comms: RebuildFBendChan::from(&manager.info_chan),
+            complete_chan: Arc::downgrade(&manager.complete_chan),
+            notify_chan: manager.notify_chan.1.clone(),
         };
 
         // Kick off the rebuild task where it will "live" and await for
         // commands.
-        backend.schedule().await;
+        manager.schedule().await;
 
         Ok(frontend)
     }
 
-    /// Returns number of all rebuild jobs on the system.
-    pub fn count() -> usize {
-        Self::get_instances().len()
-    }
-
-    /// Lookup a rebuild job by its destination uri then remove and drop it.
-    pub fn remove(name: &str) -> Result<Arc<Self>, RebuildError> {
-        match Self::get_instances().remove(name) {
-            Some(job) => Ok(job),
-            None => Err(RebuildError::JobNotFound {
-                job: name.to_owned(),
-            }),
-        }
-    }
-
-    /// Stores a rebuild job in the rebuild job list.
-    pub fn store(self) -> Result<(), RebuildError> {
-        let mut rebuild_list = Self::get_instances();
-
-        if rebuild_list.contains_key(&self.dst_uri) {
-            Err(RebuildError::JobAlreadyExists {
-                job: self.dst_uri,
-            })
-        } else {
-            let _ = rebuild_list.insert(self.dst_uri.clone(), Arc::new(self));
-            Ok(())
-        }
-    }
-
-    /// Lookup a rebuild job by its destination uri and return it.
-    pub fn lookup(dst_uri: &str) -> Result<Arc<Self>, RebuildError> {
-        if let Some(job) = Self::get_instances().get(dst_uri) {
-            Ok(job.clone())
-        } else {
-            Err(RebuildError::JobNotFound {
-                job: dst_uri.to_owned(),
-            })
-        }
-    }
-
-    /// Lookup all rebuilds jobs with name as its source.
-    pub fn lookup_src(src_uri: &str) -> Vec<Arc<Self>> {
-        Self::get_instances()
-            .iter_mut()
-            .filter_map(|j| {
-                if j.1.src_uri == src_uri {
-                    Some(j.1.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
     /// Schedules the job to start in a future and returns a complete channel
     /// which can be waited on.
-    pub(crate) async fn start(
+    pub async fn start(
         &self,
         map: Option<RebuildMap>,
     ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
@@ -324,20 +251,6 @@ impl RebuildJob {
         self.states.read().final_stats().clone()
     }
 
-    /// Get the rebuild job instances container, we ensure that this can only
-    /// ever be called on a properly allocated thread
-    fn get_instances<'a>() -> parking_lot::MutexGuard<'a, RebuildJobInstances> {
-        assert!(Thread::is_spdk_thread(), "not called from SPDK thread");
-
-        static REBUILD_INSTANCES: OnceCell<
-            parking_lot::Mutex<RebuildJobInstances>,
-        > = OnceCell::new();
-
-        REBUILD_INSTANCES
-            .get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
-            .lock()
-    }
-
     /// Client operations are now allowed to skip over previous operations.
     fn exec_client_op(&self, op: RebuildOperation) -> Result<(), RebuildError> {
         self.exec_op(op, false)
@@ -390,9 +303,6 @@ impl RebuildJob {
         Ok(receiver)
     }
 }
-
-/// List of rebuild jobs indexed by the destination's replica uri.
-type RebuildJobInstances = HashMap<String, Arc<RebuildJob>>;
 
 #[derive(Debug, Clone)]
 struct RebuildFBendChan {

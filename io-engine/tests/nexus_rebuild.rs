@@ -7,11 +7,15 @@ use tracing::error;
 use io_engine::{
     bdev::{device_open, nexus::nexus_lookup_mut},
     core::{MayastorCliArgs, Mthread, Protocol},
-    rebuild::{RebuildJob, RebuildState, RebuildState::Completed},
+    rebuild::{NexusRebuildJob, RebuildState, RebuildState::Completed},
 };
 
 pub mod common;
 use common::{compose::MayastorTest, reactor_poll, wait_for_rebuild};
+use io_engine::{
+    bdev::device_create,
+    rebuild::{BdevRebuildJob, RebuildJobOptions},
+};
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
@@ -217,9 +221,10 @@ async fn rebuild_replica() {
             .unwrap();
 
         for child in 0 .. NUM_CHILDREN {
-            RebuildJob::lookup(&get_dev(child)).expect_err("Should not exist");
+            NexusRebuildJob::lookup(&get_dev(child))
+                .expect_err("Should not exist");
 
-            RebuildJob::lookup_src(&get_dev(child))
+            NexusRebuildJob::lookup_src(&get_dev(child))
                 .iter()
                 .inspect(|&job| {
                     error!(
@@ -233,17 +238,17 @@ async fn rebuild_replica() {
         let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN)).await;
 
         for child in 0 .. NUM_CHILDREN {
-            RebuildJob::lookup(&get_dev(child))
+            NexusRebuildJob::lookup(&get_dev(child))
                 .expect_err("rebuild job not created yet");
         }
-        let src = RebuildJob::lookup(&get_dev(NUM_CHILDREN))
+        let src = NexusRebuildJob::lookup(&get_dev(NUM_CHILDREN))
             .expect("now the job should exist")
             .src_uri()
             .to_string();
 
         for child in 0 .. NUM_CHILDREN {
             if get_dev(child) != src {
-                RebuildJob::lookup_src(&get_dev(child))
+                NexusRebuildJob::lookup_src(&get_dev(child))
                     .iter()
                     .filter(|s| s.dst_uri() != get_dev(child))
                     .inspect(|&job| {
@@ -257,7 +262,7 @@ async fn rebuild_replica() {
         }
 
         assert_eq!(
-            RebuildJob::lookup_src(&src)
+            NexusRebuildJob::lookup_src(&src)
                 .iter()
                 .inspect(|&job| {
                     assert_eq!(job.dst_uri(), get_dev(NUM_CHILDREN));
@@ -279,7 +284,7 @@ async fn rebuild_replica() {
             .pause_rebuild(&get_dev(NUM_CHILDREN))
             .await
             .unwrap();
-        assert_eq!(RebuildJob::lookup_src(&src).len(), 1);
+        assert_eq!(NexusRebuildJob::lookup_src(&src).len(), 1);
 
         nexus
             .as_mut()
@@ -287,7 +292,7 @@ async fn rebuild_replica() {
             .await
             .unwrap();
         let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN + 1)).await;
-        assert_eq!(RebuildJob::lookup_src(&src).len(), 2);
+        assert_eq!(NexusRebuildJob::lookup_src(&src).len(), 2);
     })
     .await;
 
@@ -315,6 +320,35 @@ async fn rebuild_replica() {
             .await
             .unwrap();
         test_fini();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn rebuild_bdev() {
+    test_ini("rebuild_bdev");
+
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        let src_uri = "malloc:///d?size_mb=100";
+        let dst_uri = "malloc:///d2?size_mb=100";
+
+        device_create(src_uri).await.unwrap();
+        device_create(dst_uri).await.unwrap();
+
+        let job = BdevRebuildJob::new(
+            src_uri,
+            dst_uri,
+            None,
+            RebuildJobOptions::default(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
+        let chan = job.start(None).await.unwrap();
+        let state = chan.await.unwrap();
+        assert_eq!(state, RebuildState::Completed, "Rebuild should succeed");
     })
     .await;
 }

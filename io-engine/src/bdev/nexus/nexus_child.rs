@@ -29,7 +29,7 @@ use crate::{
         VerboseError,
     },
     persistent_store::PersistentStore,
-    rebuild::{RebuildJob, RebuildMap},
+    rebuild::{NexusRebuildJob, RebuildMap},
 };
 
 use crate::{
@@ -1199,13 +1199,15 @@ impl<'c> NexusChild<'c> {
     /// TODO
     pub(super) fn remove_rebuild_job(
         &self,
-    ) -> Option<std::sync::Arc<RebuildJob>> {
-        RebuildJob::remove(&self.name).ok()
+    ) -> Option<std::sync::Arc<NexusRebuildJob>> {
+        NexusRebuildJob::remove(&self.name).ok()
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding.
-    pub(crate) fn rebuild_job(&self) -> Option<std::sync::Arc<RebuildJob>> {
-        RebuildJob::lookup(&self.name).ok()
+    pub(crate) fn rebuild_job(
+        &self,
+    ) -> Option<std::sync::Arc<NexusRebuildJob>> {
+        NexusRebuildJob::lookup(&self.name).ok()
     }
 
     /// Return the rebuild progress on this child, if rebuilding.

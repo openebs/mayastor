@@ -21,7 +21,7 @@ use crate::{
         PtplFileOps,
     },
     core::{Protocol, Share},
-    rebuild::RebuildJob,
+    rebuild::NexusRebuildJob,
 };
 
 fn map_fault_reason(r: FaultReason) -> ChildStateReason {
@@ -137,7 +137,7 @@ impl<'n> Nexus<'n> {
                 }
                 children
             },
-            rebuilds: RebuildJob::count() as u32,
+            rebuilds: NexusRebuildJob::count() as u32,
             allowed_hosts: self.allowed_hosts(),
         }
     }
@@ -165,7 +165,7 @@ impl<'n> Nexus<'n> {
                 }
                 children
             },
-            rebuilds: RebuildJob::count() as u32,
+            rebuilds: NexusRebuildJob::count() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
         }
