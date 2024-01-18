@@ -50,7 +50,11 @@ use crate::{
         MayastorFeatures,
         Mthread,
     },
-    eventing::Event,
+    eventing::{
+        io_engine_events::io_engine_stop_event_meta,
+        Event,
+        EventWithMeta,
+    },
     grpc,
     grpc::MayastorGrpcServer,
     logger,
@@ -448,6 +452,14 @@ impl Default for MayastorEnvironment {
 /// The actual routine which does the mayastor shutdown.
 /// Must be called on the same thread which did the init.
 async fn do_shutdown(arg: *mut c_void) {
+    Event::event(
+        &MayastorEnvironment::global_or_default(),
+        EventAction::Shutdown,
+    )
+    .generate();
+
+    let start_time = std::time::Instant::now();
+
     // we must enter the init thread explicitly here as this, typically, gets
     // called by the signal handler
     // callback for when the subsystems have shutdown
@@ -476,9 +488,13 @@ async fn do_shutdown(arg: *mut c_void) {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
     }
-    MayastorEnvironment::global_or_default()
-        .event(EventAction::Shutdown)
-        .generate();
+
+    EventWithMeta::event(
+        &MayastorEnvironment::global_or_default(),
+        EventAction::Stop,
+        io_engine_stop_event_meta(start_time.elapsed()),
+    )
+    .generate();
 }
 
 /// main shutdown routine for mayastor
@@ -490,9 +506,6 @@ pub fn mayastor_env_stop(rc: i32) {
             r.send_future(async move {
                 do_shutdown(rc as *const i32 as *mut c_void).await;
             });
-            MayastorEnvironment::global_or_default()
-                .event(EventAction::Stop)
-                .generate();
         }
         _ => {
             panic!("invalid reactor state during shutdown");
