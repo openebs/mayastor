@@ -605,5 +605,8 @@ impl Drop for RebuildJobBackend {
         let stats = self.stats();
         info!("{self}: backend dropped; final stats: {stats:?}");
         self.states.write().set_final_stats(stats);
+        for sender in self.complete_chan.lock().drain(..) {
+            sender.send(self.state()).ok();
+        }
     }
 }
