@@ -16,7 +16,7 @@ use crate::{
 pub(crate) fn io_engine_stop_event_meta(total_time: Duration) -> EventMeta {
     let event_source =
         EventSource::new(MayastorEnvironment::global_or_default().node_name)
-            .with_io_engine_stop_details(total_time);
+            .with_event_action_duration_details(total_time);
 
     EventMeta::from_source(event_source)
 }

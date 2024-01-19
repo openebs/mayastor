@@ -8,7 +8,10 @@ use events_api::event::{
 };
 
 use crate::{
-    bdev::{nexus, nexus::NexusChild},
+    bdev::{
+        nexus,
+        nexus::{Error, NexusChild},
+    },
     core::{MayastorEnvironment, VerboseError},
     eventing::{Event, EventMetaGen, EventWithMeta},
     rebuild::{NexusRebuildJob, RebuildState},
@@ -76,5 +79,15 @@ impl<'n> EventWithMeta for nexus::Nexus<'n> {
             target: self.uuid().to_string(),
             metadata: Some(meta),
         }
+    }
+}
+
+impl EventMetaGen for Error {
+    fn meta(&self) -> EventMeta {
+        let event_source = EventSource::new(
+            MayastorEnvironment::global_or_default().node_name,
+        )
+        .with_error_details(self.to_string());
+        EventMeta::from_source(event_source)
     }
 }

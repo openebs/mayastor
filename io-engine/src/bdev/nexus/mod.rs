@@ -22,7 +22,10 @@ mod nexus_nbd;
 mod nexus_persistence;
 mod nexus_share;
 
-use crate::{bdev::nexus::nexus_iter::NexusIterMut, eventing::Event};
+use crate::{
+    bdev::nexus::nexus_iter::NexusIterMut,
+    eventing::{Event, EventMetaGen, EventWithMeta},
+};
 pub(crate) use nexus_bdev::NEXUS_PRODUCT_ID;
 pub use nexus_bdev::{
     nexus_create,
@@ -176,7 +179,7 @@ pub async fn shutdown_nexuses() {
         // Destroy nexus and persist its state in the ETCd.
         match nexus.as_mut().destroy_ext(true).await {
             Ok(_) => {
-                nexus.event(EventAction::Shutdown).generate();
+                Event::event(&(*nexus), EventAction::Shutdown).generate();
             }
             Err(error) => {
                 error!(
@@ -184,6 +187,12 @@ pub async fn shutdown_nexuses() {
                     error = error.verbose(),
                     "Failed to destroy nexus"
                 );
+                EventWithMeta::event(
+                    &(*nexus),
+                    EventAction::Shutdown,
+                    error.meta(),
+                )
+                .generate();
             }
         }
     }
