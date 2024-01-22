@@ -925,6 +925,8 @@ name = "devinfo"
 version = "1.0.0"
 dependencies = [
  "bindgen",
+ "nix",
+ "semver",
  "snafu",
  "udev",
  "url",
@@ -2770,9 +2772,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.18"
+version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0293b4b29daaf487284529cc2f5675b8e57c61f70167ba415a463651fd6a918"
+checksum = "b97ed7a9823b74f99c7742f5336af7be5ecd3eeafcb1507d1fa93347b1d589b0"
 
 [[package]]
 name = "serde"
