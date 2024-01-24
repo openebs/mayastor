@@ -61,7 +61,7 @@ use crate::{
     subsys::NvmfSubsystem,
 };
 
-use crate::core::IoCompletionStatus;
+use crate::core::{BlockDeviceIoStats, CoreError, IoCompletionStatus};
 use events_api::event::EventAction;
 use spdk_rs::{
     BdevIo,
@@ -518,6 +518,14 @@ impl<'n> Nexus<'n> {
         unsafe { self.bdev().name().to_string() }
     }
 
+    /// Returns io stats for underlying Bdev.
+    pub(crate) async fn bdev_stats(
+        &self,
+    ) -> Result<BlockDeviceIoStats, CoreError> {
+        let bdev = unsafe { self.bdev() };
+        bdev.stats_async().await
+    }
+
     /// TODO
     pub fn req_size(&self) -> u64 {
         self.req_size
@@ -538,7 +546,7 @@ impl<'n> Nexus<'n> {
         unsafe { self.bdev().num_blocks() }
     }
 
-    /// Returns the required alignment of the Nexus.
+    /// Returns the alignment of the Nexus.
     pub fn alignment(&self) -> u64 {
         unsafe { self.bdev().alignment() }
     }

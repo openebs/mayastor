@@ -10,12 +10,15 @@ use crate::{
     },
     lvs::Lvs,
 };
-use futures::FutureExt;
+use futures::{future::join_all, FutureExt};
 use io_engine_api::v1::stats::*;
 use std::fmt::Debug;
 use tonic::{Request, Response, Status};
 
-use crate::core::{BlockDeviceIoStats, CoreError, UntypedBdev};
+use crate::{
+    bdev::{nexus, Nexus},
+    core::{BlockDeviceIoStats, CoreError, UntypedBdev},
+};
 use ::function_name::named;
 use std::panic::AssertUnwindSafe;
 
@@ -55,14 +58,10 @@ where
             };
         let fut = AssertUnwindSafe(f).catch_unwind();
         let r = fut.await;
-
-        match r {
-            Ok(r) => r,
-            Err(_e) => {
-                warn!("gRPC method panicked, args");
-                Err(Status::cancelled("gRPC method panicked".to_string()))
-            }
-        }
+        r.unwrap_or_else(|_| {
+            warn!("{}: gRPC method panicked, args: {}", ctx.id, ctx.args);
+            Err(Status::cancelled("gRPC method panicked".to_string()))
+        })
     }
 }
 
@@ -79,13 +78,36 @@ impl StatsService {
         let _svc_lock = reader.read().await;
         let fut = AssertUnwindSafe(f).catch_unwind();
         let r = fut.await;
-        match r {
-            Ok(r) => r,
-            Err(_e) => {
-                warn!("gRPC method panicked, args");
-                Err(Status::cancelled("gRPC method panicked".to_string()))
-            }
-        }
+        r.unwrap_or_else(|_| {
+            warn!("gRPC method panicked");
+            Err(Status::cancelled("gRPC method panicked".to_string()))
+        })
+    }
+
+    async fn nexus_lock<
+        T: Send + 'static,
+        F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
+    >(
+        &self,
+        ctx: GrpcClientContext,
+        f: F,
+    ) -> Result<T, Status> {
+        let _stat_svc = self.client_context.read().await;
+        let lock_manager = ResourceLockManager::get_instance();
+        // For nexus global lock.
+        let _global_guard =
+            match lock_manager.lock(Some(ctx.timeout)).await {
+                Some(g) => Some(g),
+                None => return Err(Status::deadline_exceeded(
+                    "Failed to acquire access to object within given timeout",
+                )),
+            };
+        let fut = AssertUnwindSafe(f).catch_unwind();
+        let r = fut.await;
+        r.unwrap_or_else(|_| {
+            warn!("gRPC method panicked, args");
+            Err(Status::cancelled("gRPC method panicked".to_string()))
+        })
     }
 }
 
@@ -110,27 +132,27 @@ impl StatsRpc for StatsService {
         self.shared(self.pool_svc.rw_lock().await, async move {
             let args = request.into_inner();
             let rx = rpc_submit::<_, _, CoreError>(async move {
-                let mut pool_stats: Vec<IoStats> = Vec::new();
-                if let Some(name) = args.name {
+                let pool_stats_future: Vec<_> = if let Some(name) = args.name {
                     if let Some(l) = Lvs::lookup(&name) {
-                        let stats = l.base_bdev().stats_async().await?;
-                        let io_stat =
-                            IoStats::from(ExternalType((name.clone(), stats)));
-                        pool_stats.push(io_stat);
+                        vec![get_stats(name, l.uuid(), l.base_bdev())]
+                    } else {
+                        vec![]
                     }
                 } else {
-                    let bdev_list: Vec<(String, UntypedBdev)> = Lvs::iter()
-                        .map(|lvs| (lvs.name().to_string(), lvs.base_bdev()))
-                        .collect();
-                    for (name, bdev) in bdev_list.iter() {
-                        let bdev_stat = bdev.stats_async().await?;
-                        let io_stat = IoStats::from(ExternalType((
-                            name.clone(),
-                            bdev_stat,
-                        )));
-                        pool_stats.push(io_stat);
-                    }
-                }
+                    Lvs::iter()
+                        .map(|lvs| {
+                            get_stats(
+                                lvs.name().to_string(),
+                                lvs.uuid(),
+                                lvs.base_bdev(),
+                            )
+                        })
+                        .collect()
+                };
+
+                let pool_stats: Result<Vec<_>, _> =
+                    join_all(pool_stats_future).await.into_iter().collect();
+                let pool_stats = pool_stats?;
                 Ok(PoolIoStatsResponse {
                     stats: pool_stats,
                 })
@@ -140,6 +162,57 @@ impl StatsRpc for StatsService {
                 .map_err(Status::from)
                 .map(Response::new)
         })
+        .await
+    }
+
+    #[named]
+    async fn get_nexus_io_stats(
+        &self,
+        request: Request<ListStatsOption>,
+    ) -> GrpcResult<NexusIoStatsResponse> {
+        self.nexus_lock(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                let rx = rpc_submit::<_, _, CoreError>(async move {
+                    let nexus_stats_future: Vec<_> =
+                        if let Some(name) = args.name {
+                            if let Some(nexus) = nexus::nexus_lookup(&name) {
+                                vec![nexus_stats(
+                                    nexus.name.clone(),
+                                    nexus.uuid().to_string(),
+                                    nexus,
+                                )]
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            nexus::nexus_iter()
+                                .map(|nexus| {
+                                    nexus_stats(
+                                        nexus.name.clone(),
+                                        nexus.uuid().to_string(),
+                                        nexus,
+                                    )
+                                })
+                                .collect()
+                        };
+                    let nexus_stats: Result<Vec<_>, _> =
+                        join_all(nexus_stats_future)
+                            .await
+                            .into_iter()
+                            .collect();
+                    let nexus_stats = nexus_stats?;
+                    Ok(NexusIoStatsResponse {
+                        stats: nexus_stats,
+                    })
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
         .await
     }
 
@@ -169,11 +242,12 @@ impl StatsRpc for StatsService {
 struct ExternalType<T>(T);
 
 /// Conversion fn to get gRPC type IOStat from BlockDeviceIoStats.
-impl From<ExternalType<(String, BlockDeviceIoStats)>> for IoStats {
-    fn from(value: ExternalType<(String, BlockDeviceIoStats)>) -> Self {
-        let stats = value.0 .1;
+impl From<ExternalType<(String, String, BlockDeviceIoStats)>> for IoStats {
+    fn from(value: ExternalType<(String, String, BlockDeviceIoStats)>) -> Self {
+        let stats = value.0 .2;
         Self {
             name: value.0 .0,
+            uuid: value.0 .1,
             num_read_ops: stats.num_read_ops,
             bytes_read: stats.bytes_read,
             num_write_ops: stats.num_write_ops,
@@ -192,4 +266,24 @@ impl From<ExternalType<(String, BlockDeviceIoStats)>> for IoStats {
             tick_rate: stats.tick_rate,
         }
     }
+}
+
+/// Returns IoStats for a given BlockDevice.
+async fn get_stats(
+    name: String,
+    uuid: String,
+    bdev: UntypedBdev,
+) -> Result<IoStats, CoreError> {
+    let stats = bdev.stats_async().await?;
+    Ok(IoStats::from(ExternalType((name, uuid, stats))))
+}
+
+/// Returns IoStats for a given Nexus.
+async fn nexus_stats(
+    name: String,
+    uuid: String,
+    bdev: &Nexus<'_>,
+) -> Result<IoStats, CoreError> {
+    let stats = bdev.bdev_stats().await?;
+    Ok(IoStats::from(ExternalType((name, uuid, stats))))
 }
