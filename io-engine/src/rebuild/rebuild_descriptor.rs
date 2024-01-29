@@ -86,6 +86,12 @@ impl RebuildDescriptor {
             bdev: dst_uri.to_string(),
         })?;
 
+        if src_descriptor.device_name() == dst_descriptor.device_name() {
+            return Err(RebuildError::SameBdev {
+                bdev: src_descriptor.device_name(),
+            });
+        }
+
         let source_hdl = RebuildDescriptor::io_handle(&*src_descriptor).await?;
         let destination_hdl =
             RebuildDescriptor::io_handle(&*dst_descriptor).await?;
