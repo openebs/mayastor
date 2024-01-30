@@ -1,17 +1,15 @@
 use futures::{channel::mpsc, stream::FusedStream, SinkExt, StreamExt};
 use parking_lot::Mutex;
-use snafu::ResultExt;
-use spdk_rs::{DmaBuf, LbaRange};
+
+use spdk_rs::DmaBuf;
 use std::{rc::Rc, sync::Arc};
 
-use crate::core::{Reactors, VerboseError};
-
-use super::{
-    rebuild_error::{RangeLockFailed, RangeUnlockFailed},
-    RebuildDescriptor,
-    RebuildError,
-    RebuildVerifyMode,
+use crate::{
+    core::{Reactors, VerboseError},
+    rebuild::SEGMENT_SIZE,
 };
+
+use super::{RebuildDescriptor, RebuildError, RebuildVerifyMode};
 
 /// Result returned by each segment task worker.
 /// Used to communicate with the management task indicating that the
@@ -53,72 +51,9 @@ impl RebuildTask {
         }
     }
 
-    /// Copies one segment worth of data from source into destination. During
-    /// this time the LBA range being copied is locked so that there cannot be
-    /// front end I/O to the same LBA range.
-    ///
-    /// # Safety
-    ///
-    /// The lock and unlock functions internally reference the RangeContext as a
-    /// raw pointer, so rust cannot correctly manage its lifetime. The
-    /// RangeContext MUST NOT be dropped until after the lock and unlock have
-    /// completed.
-    ///
-    /// The use of RangeContext here is safe because it is stored on the stack
-    /// for the duration of the calls to lock and unlock.
-    async fn locked_copy_one(
-        &mut self,
-        blk: u64,
-        descriptor: &RebuildDescriptor,
-    ) -> Result<bool, RebuildError> {
-        if descriptor.is_blk_sync(blk) {
-            return Ok(false);
-        }
-
-        let len = descriptor.get_segment_size_blks(blk);
-        // The nexus children have metadata and data partitions, whereas the
-        // nexus has a data partition only. Because we are locking the range on
-        // the nexus, we need to calculate the offset from the start of the data
-        // partition.
-        let r = LbaRange::new(blk - descriptor.range.start, len);
-
-        // Wait for LBA range to be locked.
-        // This prevents other I/Os being issued to this LBA range whilst it is
-        // being rebuilt.
-        let lock = descriptor
-            .nexus_descriptor
-            .lock_lba_range(r)
-            .await
-            .context(RangeLockFailed {
-                blk,
-                len,
-            })?;
-
-        // Perform the copy.
-        let result = self.copy_one(blk, descriptor).await;
-
-        // Wait for the LBA range to be unlocked.
-        // This allows others I/Os to be issued to this LBA range once again.
-        descriptor
-            .nexus_descriptor
-            .unlock_lba_range(lock)
-            .await
-            .context(RangeUnlockFailed {
-                blk,
-                len,
-            })?;
-
-        // In the case of success, mark the segment as already transferred.
-        if result.is_ok() {
-            descriptor.blk_synced(blk);
-        }
-
-        result
-    }
-
     /// Copies one segment worth of data from source into destination.
     /// Returns true if write transfer took place, false otherwise.
-    async fn copy_one(
+    pub(super) async fn copy_one(
         &mut self,
         offset_blk: u64,
         desc: &RebuildDescriptor,
@@ -173,10 +108,33 @@ impl std::fmt::Debug for RebuildTasks {
 }
 
 impl RebuildTasks {
-    /// Add the given `RebuildTask` to the task pool.
-    pub(super) fn push(&mut self, task: RebuildTask) {
-        self.tasks.push(Arc::new(Mutex::new(task)));
+    /// Create a rebuild tasks pool for the given rebuild descriptor.
+    /// Each task can be schedule to run concurrently, and each task
+    /// gets its own `DmaBuf` from where it reads and writes from.
+    pub(super) fn new(
+        task_count: usize,
+        desc: &RebuildDescriptor,
+    ) -> Result<Self, RebuildError> {
+        // only sending one message per channel at a time so we don't need
+        // the extra buffer
+        let channel = mpsc::channel(0);
+        let tasks = (0 .. task_count).map(|_| {
+            let buffer = desc.dma_malloc(SEGMENT_SIZE)?;
+            let task = RebuildTask::new(buffer, channel.0.clone());
+            Ok(Arc::new(Mutex::new(task)))
+        });
+        assert_eq!(tasks.len(), task_count);
+
+        Ok(RebuildTasks {
+            total: tasks.len(),
+            tasks: tasks.collect::<Result<_, _>>()?,
+            channel,
+            active: 0,
+            segments_done: 0,
+            segments_transferred: 0,
+        })
     }
+
     /// Check if there's at least one task still running.
     pub(super) fn running(&self) -> bool {
         self.active > 0 && !self.channel.1.is_terminated()
@@ -197,18 +155,21 @@ impl RebuildTasks {
     /// Schedules the run of a task by its id. It will copy the segment size
     /// starting at the given block address from source to destination.
     /// todo: don't use a specific task, simply get the next from the pool.
-    pub(super) fn send_segment(
+    pub(super) fn schedule_segment_rebuild(
         &mut self,
         id: usize,
         blk: u64,
-        descriptor: Rc<RebuildDescriptor>,
+        copier: Rc<impl RebuildTaskCopier + 'static>,
     ) {
         let task = self.tasks[id].clone();
 
         Reactors::current().send_future(async move {
             // No other thread/task will acquire the mutex at the same time.
             let mut task = task.lock();
-            let result = task.locked_copy_one(blk, &descriptor).await;
+
+            // Could we make this the option, rather than the descriptor itself?
+            let result = copier.copy_segment(blk, &mut task).await;
+
             let is_transferred = *result.as_ref().unwrap_or(&false);
             let error = TaskResult {
                 id,
@@ -225,5 +186,45 @@ impl RebuildTasks {
                 );
             }
         });
+    }
+}
+
+/// Interface to allow for different implementations of a single task copy
+/// operation.
+/// Currently allows for only the copy of a single segment, though this
+/// can be expanded for sub-segment copies.
+#[async_trait::async_trait(?Send)]
+pub(super) trait RebuildTaskCopier {
+    /// Copies an entire segment at the given block address, from source to
+    /// target using a `DmaBuf`.
+    async fn copy_segment(
+        &self,
+        blk: u64,
+        task: &mut RebuildTask,
+    ) -> Result<bool, RebuildError>;
+}
+
+#[async_trait::async_trait(?Send)]
+impl RebuildTaskCopier for RebuildDescriptor {
+    /// Copies one segment worth of data from source into destination.
+    async fn copy_segment(
+        &self,
+        blk: u64,
+        task: &mut RebuildTask,
+    ) -> Result<bool, RebuildError> {
+        // todo: move the map out of the descriptor, into the specific backends.
+        if self.is_blk_sync(blk) {
+            return Ok(false);
+        }
+
+        // Perform the copy.
+        let result = task.copy_one(blk, self).await;
+
+        // In the case of success, mark the segment as already transferred.
+        if result.is_ok() {
+            self.blk_synced(blk);
+        }
+
+        result
     }
 }

@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use snafu::ResultExt;
 use spdk_rs::{
     libspdk::SPDK_NVME_SC_COMPARE_FAILURE,
     DmaBuf,
@@ -7,13 +8,22 @@ use spdk_rs::{
 };
 use std::sync::Arc;
 
-use crate::core::{
-    BlockDeviceDescriptor,
-    BlockDeviceHandle,
-    CoreError,
-    DescriptorGuard,
-    IoCompletionStatus,
-    ReadOptions,
+use crate::{
+    bdev::device_open,
+    bdev_api::bdev_get_name,
+    core::{
+        BlockDevice,
+        BlockDeviceDescriptor,
+        BlockDeviceHandle,
+        CoreError,
+        IoCompletionStatus,
+        ReadOptions,
+    },
+    rebuild::{
+        rebuild_error::{BdevInvalidUri, NoCopyBuffer},
+        WithinRange,
+        SEGMENT_SIZE,
+    },
 };
 
 use super::{RebuildError, RebuildJobOptions, RebuildMap, RebuildVerifyMode};
@@ -41,8 +51,6 @@ pub(super) struct RebuildDescriptor {
     /// Pre-opened descriptor for destination block device.
     #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
-    /// Nexus Descriptor so we can lock its ranges when rebuilding a segment.
-    pub(super) nexus_descriptor: DescriptorGuard<()>,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
     /// Rebuild map.
@@ -50,6 +58,93 @@ pub(super) struct RebuildDescriptor {
 }
 
 impl RebuildDescriptor {
+    pub(super) async fn new(
+        src_uri: &str,
+        dst_uri: &str,
+        range: Option<std::ops::Range<u64>>,
+        options: RebuildJobOptions,
+    ) -> Result<Self, RebuildError> {
+        let src_descriptor = device_open(
+            &bdev_get_name(src_uri).context(BdevInvalidUri {
+                uri: src_uri.to_string(),
+            })?,
+            false,
+        )
+        .map_err(|e| RebuildError::BdevNotFound {
+            source: e,
+            bdev: src_uri.to_string(),
+        })?;
+
+        let dst_descriptor = device_open(
+            &bdev_get_name(dst_uri).context(BdevInvalidUri {
+                uri: dst_uri.to_string(),
+            })?,
+            true,
+        )
+        .map_err(|e| RebuildError::BdevNotFound {
+            source: e,
+            bdev: dst_uri.to_string(),
+        })?;
+
+        if src_descriptor.device_name() == dst_descriptor.device_name() {
+            return Err(RebuildError::SameBdev {
+                bdev: src_descriptor.device_name(),
+            });
+        }
+
+        let source_hdl = RebuildDescriptor::io_handle(&*src_descriptor).await?;
+        let destination_hdl =
+            RebuildDescriptor::io_handle(&*dst_descriptor).await?;
+
+        let range = match range {
+            None => {
+                let dst_size = dst_descriptor.get_device().size_in_bytes();
+                let dst_blk_size = dst_descriptor.get_device().block_len();
+
+                0 .. dst_size / dst_blk_size
+            }
+            Some(range) => range,
+        };
+
+        if !Self::validate(
+            source_hdl.get_device(),
+            destination_hdl.get_device(),
+            &range,
+        ) {
+            return Err(RebuildError::InvalidParameters {});
+        }
+
+        let block_size = dst_descriptor.get_device().block_len();
+        let segment_size_blks = SEGMENT_SIZE / block_size;
+
+        Ok(Self {
+            src_uri: src_uri.to_string(),
+            dst_uri: dst_uri.to_string(),
+            range,
+            options,
+            block_size,
+            segment_size_blks,
+            src_descriptor,
+            dst_descriptor,
+            start_time: Utc::now(),
+            rebuild_map: Arc::new(parking_lot::Mutex::new(None)),
+        })
+    }
+
+    /// Check if the source and destination block devices are compatible for
+    /// rebuild
+    fn validate(
+        source: &dyn BlockDevice,
+        destination: &dyn BlockDevice,
+        range: &std::ops::Range<u64>,
+    ) -> bool {
+        // todo: make sure we don't overwrite the labels
+        let data_partition_start = 0;
+        range.within(data_partition_start .. source.num_blocks())
+            && range.within(data_partition_start .. destination.num_blocks())
+            && source.block_len() == destination.block_len()
+    }
+
     /// Return the size of the segment to be copied.
     #[inline(always)]
     pub(super) fn get_segment_size_blks(&self, blk: u64) -> u64 {
@@ -58,6 +153,14 @@ impl RebuildDescriptor {
             return self.range.end - blk;
         }
         self.segment_size_blks
+    }
+
+    /// Allocate memory from the memory pool (the mem is zeroed out)
+    /// with given size and proper alignment for the bdev.
+    pub(super) fn dma_malloc(&self, size: u64) -> Result<DmaBuf, RebuildError> {
+        let src_align = self.src_descriptor.get_device().alignment();
+        let dst_align = self.dst_descriptor.get_device().alignment();
+        DmaBuf::new(size, src_align.max(dst_align)).context(NoCopyBuffer)
     }
 
     /// Get a `BlockDeviceHandle` for the source.

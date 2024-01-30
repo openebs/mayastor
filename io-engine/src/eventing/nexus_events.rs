@@ -11,10 +11,10 @@ use crate::{
     bdev::{nexus, nexus::NexusChild},
     core::{MayastorEnvironment, VerboseError},
     eventing::{Event, EventMetaGen, EventWithMeta},
-    rebuild::{RebuildJob, RebuildState},
+    rebuild::{NexusRebuildJob, RebuildState},
 };
 
-impl EventMetaGen for RebuildJob {
+impl EventMetaGen for NexusRebuildJob {
     fn meta(&self) -> EventMeta {
         let rebuild_status = match self.state() {
             RebuildState::Init | RebuildState::Running => {

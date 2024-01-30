@@ -15,6 +15,10 @@ pub enum RebuildError {
     NoCopyBuffer { source: DmaError },
     #[snafu(display("Failed to validate rebuild job creation parameters"))]
     InvalidParameters {},
+    #[snafu(display(
+        "The same device was specified for both source and destination: {bdev}"
+    ))]
+    SameBdev { bdev: String },
     #[snafu(display("Failed to get a handle for bdev {}", bdev))]
     NoBdevHandle { source: CoreError, bdev: String },
     #[snafu(display("Bdev {} not found", bdev))]

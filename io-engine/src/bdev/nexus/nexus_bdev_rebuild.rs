@@ -18,8 +18,8 @@ use crate::{
     eventing::{EventMetaGen, EventWithMeta},
     rebuild::{
         HistoryRecord,
+        NexusRebuildJob,
         RebuildError,
-        RebuildJob,
         RebuildJobOptions,
         RebuildState,
         RebuildStats,
@@ -139,8 +139,8 @@ impl<'n> Nexus<'n> {
         self.reconfigure(DrEvent::ChildRebuild).await;
 
         // Stop the I/O log and create a rebuild map from it.
-        // As this is done after the reconfiguraion, any new write I/Os will
-        // now reach the destionation child, and no rebuild will be required
+        // As this is done after the reconfiguration, any new write I/Os will
+        // now reach the destination child, and no rebuild will be required
         // for them.
         let map = self
             .lookup_child(&dst_child_uri)
@@ -186,7 +186,7 @@ impl<'n> Nexus<'n> {
             verify_mode,
         };
 
-        RebuildJob::new(
+        NexusRebuildJob::new(
             &self.name,
             src_child_uri,
             dst_child_uri,
@@ -202,7 +202,7 @@ impl<'n> Nexus<'n> {
             },
         )
         .await
-        .and_then(RebuildJob::store)
+        .and_then(NexusRebuildJob::store)
         .context(nexus_err::CreateRebuild {
             child: dst_child_uri.to_owned(),
             name: self.name.clone(),
@@ -211,7 +211,7 @@ impl<'n> Nexus<'n> {
 
     /// Translates the job into a new history record and pushes into
     /// the history.
-    fn create_history_record(&self, job: Arc<RebuildJob>) {
+    fn create_history_record(&self, job: Arc<NexusRebuildJob>) {
         let Some(rec) = job.history_record() else {
             error!("{self:?}: try to get history record on unfinished job");
             return;
@@ -330,7 +330,7 @@ impl<'n> Nexus<'n> {
     pub async fn cancel_rebuild_jobs(&self, src_uri: &str) -> Vec<String> {
         info!("{:?}: cancel rebuild jobs from '{}'...", self, src_uri);
 
-        let src_jobs = RebuildJob::lookup_src(src_uri);
+        let src_jobs = NexusRebuildJob::lookup_src(src_uri);
         let mut terminated_jobs = Vec::new();
         let mut rebuilding_children = Vec::new();
 
@@ -375,8 +375,8 @@ impl<'n> Nexus<'n> {
     pub(crate) fn rebuild_job(
         &self,
         dst_child_uri: &str,
-    ) -> Result<std::sync::Arc<RebuildJob>, Error> {
-        RebuildJob::lookup(dst_child_uri).map_err(|_| {
+    ) -> Result<std::sync::Arc<NexusRebuildJob>, Error> {
+        NexusRebuildJob::lookup(dst_child_uri).map_err(|_| {
             Error::RebuildJobNotFound {
                 child: dst_child_uri.to_owned(),
                 name: self.name.to_owned(),
@@ -389,9 +389,9 @@ impl<'n> Nexus<'n> {
     pub(crate) fn rebuild_job_mut(
         &self,
         dst_child_uri: &str,
-    ) -> Result<Arc<RebuildJob>, Error> {
+    ) -> Result<Arc<NexusRebuildJob>, Error> {
         let name = self.name.clone();
-        RebuildJob::lookup(dst_child_uri).map_err(|_| {
+        NexusRebuildJob::lookup(dst_child_uri).map_err(|_| {
             Error::RebuildJobNotFound {
                 child: dst_child_uri.to_owned(),
                 name,

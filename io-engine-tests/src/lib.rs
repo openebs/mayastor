@@ -17,7 +17,7 @@ use io_engine::{
     core::{MayastorEnvironment, Mthread},
     logger,
     logger::LogFormat,
-    rebuild::{RebuildJob, RebuildState},
+    rebuild::{NexusRebuildJob, RebuildState},
 };
 
 pub mod bdev;
@@ -457,7 +457,7 @@ pub async fn wait_for_rebuild(
     timeout: Duration,
 ) {
     let (s, r) = unbounded::<()>();
-    let job = match RebuildJob::lookup(&dst_uri) {
+    let job = match NexusRebuildJob::lookup(&dst_uri) {
         Ok(job) => job,
         Err(_) => return,
     };
@@ -490,7 +490,7 @@ pub async fn wait_for_rebuild(
         error
     });
     reactor_poll!(r);
-    if let Ok(job) = RebuildJob::lookup(&dst_uri) {
+    if let Ok(job) = NexusRebuildJob::lookup(&dst_uri) {
         job.stats().await;
     }
     t.join().unwrap().unwrap();
