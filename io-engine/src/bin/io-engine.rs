@@ -7,7 +7,11 @@ use futures::future::FutureExt;
 
 use io_engine::{
     bdev::{
-        nexus::{ENABLE_NEXUS_RESET, ENABLE_PARTIAL_REBUILD},
+        nexus::{
+            ENABLE_NEXUS_CHANNEL_DEBUG,
+            ENABLE_NEXUS_RESET,
+            ENABLE_PARTIAL_REBUILD,
+        },
         util::uring,
     },
     core::{
@@ -81,6 +85,11 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
         warn!("Nexus reset is disabled");
+    }
+
+    if args.enable_nexus_channel_debug {
+        ENABLE_NEXUS_CHANNEL_DEBUG.store(true, Ordering::SeqCst);
+        warn!("Nexus channel debug is enabled");
     }
 
     print_feature!("Async QPair connection", "spdk-async-qpair-connect");
