@@ -22,7 +22,7 @@ pub mod common;
 
 use common::{
     compose::{rpc::v1::GrpcConnect, Binary, Builder},
-    fio::{Fio, FioJob},
+    fio::{FioBuilder, FioJobBuilder},
     nexus::{test_fio_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
@@ -283,12 +283,15 @@ async fn nexus_remove_child_with_io() {
         async move {
             test_fio_to_nexus(
                 &nex_0,
-                Fio::new().with_job(
-                    FioJob::new()
-                        .with_runtime(10)
-                        .with_bs(4096)
-                        .with_iodepth(16),
-                ),
+                FioBuilder::new()
+                    .with_job(
+                        FioJobBuilder::new()
+                            .with_runtime(10)
+                            .with_bs(4096)
+                            .with_iodepth(16)
+                            .build(),
+                    )
+                    .build(),
             )
             .await
             .unwrap();

@@ -9,4 +9,5 @@ $CARGO clippy --all --all-targets -- -D warnings \
     -A clippy::option_env_unwrap \
     -A clippy::redundant-guards \
     -A clippy::suspicious-doc-comments \
+    -A clippy::useless-format \
     -A deprecated

@@ -1,6 +1,7 @@
 use once_cell::sync::OnceCell;
 use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use serde::Serialize;
 use std::{
     fmt::{Display, Formatter},
     io::SeekFrom,
@@ -26,7 +27,8 @@ fn create_test_buf(buf_size: DataSize) -> Vec<u8> {
 }
 
 /// TODO
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(into = "u64")]
 pub struct DataSize(u64);
 
 impl Display for DataSize {
@@ -44,6 +46,12 @@ impl From<DataSize> for u64 {
 impl From<DataSize> for usize {
     fn from(value: DataSize) -> Self {
         value.0 as usize
+    }
+}
+
+impl From<u64> for DataSize {
+    fn from(value: u64) -> Self {
+        Self::from_bytes(value)
     }
 }
 

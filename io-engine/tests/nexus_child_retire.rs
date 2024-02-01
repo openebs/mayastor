@@ -18,7 +18,7 @@ use common::{
         ComposeTest,
     },
     file_io::DataSize,
-    fio::{Fio, FioJob},
+    fio::{FioBuilder, FioJobBuilder},
     nexus::{test_fio_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     reactor_poll,
@@ -261,12 +261,15 @@ async fn nexus_child_retire_persist_unresponsive_with_fio() {
         async move {
             test_fio_to_nexus(
                 &nex_0,
-                Fio::new().with_job(
-                    FioJob::new()
-                        .with_bs(4096)
-                        .with_iodepth(8)
-                        .with_size(DataSize::from_mb(FIO_DATA_SIZE)),
-                ),
+                FioBuilder::new()
+                    .with_job(
+                        FioJobBuilder::new()
+                            .with_bs(4096)
+                            .with_iodepth(8)
+                            .with_size(DataSize::from_mb(FIO_DATA_SIZE))
+                            .build(),
+                    )
+                    .build(),
             )
             .await
             .unwrap();
