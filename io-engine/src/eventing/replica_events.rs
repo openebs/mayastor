@@ -37,7 +37,7 @@ impl Event for Lvol {
     }
 }
 
-/// Replica state change event.
+/// Replica state change event meta.
 pub(crate) fn state_change_event_meta(
     previous: ChildState,
     next: ChildState,
@@ -48,6 +48,7 @@ pub(crate) fn state_change_event_meta(
     EventMeta::from_source(event_source)
 }
 
+/// Replica state change event.
 impl<'n> EventWithMeta for NexusChild<'n> {
     fn event(
         &self,
