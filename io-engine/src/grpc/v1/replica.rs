@@ -118,8 +118,10 @@ impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
 impl From<Lvol> for Replica {
     fn from(l: Lvol) -> Self {
         let usage = l.usage();
-        let source_uuid =
-            Lvol::get_blob_xattr(&l, CloneXattrs::SourceUuid.name());
+        let source_uuid = Lvol::get_blob_xattr(
+            l.blob_checked(),
+            CloneXattrs::SourceUuid.name(),
+        );
         Self {
             name: l.name(),
             uuid: l.uuid(),

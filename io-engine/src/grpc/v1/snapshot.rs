@@ -510,7 +510,7 @@ impl SnapshotRpc for SnapshotService {
                     } else {
                         // if source_uuid is not input, list all snapshot
                         // present in system
-                        snapshots = Lvol::list_all_snapshots()
+                        snapshots = Lvol::list_all_snapshots(None)
                             .into_iter()
                             .map(SnapshotInfo::from)
                             .collect();

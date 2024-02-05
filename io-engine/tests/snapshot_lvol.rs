@@ -112,7 +112,7 @@ async fn check_snapshot(params: SnapshotParams) {
         .expect("Can't find target snapshot device");
 
     for (attr_name, attr_value) in attrs {
-        let v = Lvol::get_blob_xattr(&lvol, attr_name.name())
+        let v = Lvol::get_blob_xattr(lvol.blob_checked(), attr_name.name())
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, attr_value, "Snapshot attr doesn't match");
     }
@@ -128,8 +128,9 @@ async fn check_clone(clone_lvol: Lvol, params: CloneParams) {
         (CloneXattrs::CloneUuid, params.clone_uuid().unwrap()),
     ];
     for (attr_name, attr_value) in attrs {
-        let v = Lvol::get_blob_xattr(&clone_lvol, attr_name.name())
-            .expect("Failed to get clone attribute");
+        let v =
+            Lvol::get_blob_xattr(clone_lvol.blob_checked(), attr_name.name())
+                .expect("Failed to get clone attribute");
         assert_eq!(v, attr_value, "clone attr doesn't match");
     }
 }
@@ -343,7 +344,7 @@ async fn test_lvol_bdev_snapshot() {
             .await
             .expect("Can't find target snapshot device");
         assert_eq!(snap_uuid, lvol.uuid(), "Snapshot UUID doesn't match");
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         clean_snapshots(snapshot_list).await;
     })
     .await;
@@ -400,7 +401,7 @@ async fn test_lvol_handle_snapshot() {
             .expect("Failed to create snapshot");
 
         check_snapshot(snapshot_params).await;
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         clean_snapshots(snapshot_list).await;
     })
     .await;
@@ -558,6 +559,10 @@ async fn test_list_all_snapshots() {
             .await
             .expect("Failed to create a snapshot");
 
+        let snapshot_list = Lvol::list_all_snapshots(Some(&lvol));
+        info!("Total number of snapshots: {}", snapshot_list.len());
+        assert_eq!(2, snapshot_list.len(), "Snapshot Count not matched!!");
+
         // create another lvol and snapshots
         let lvol = pool
             .create_lvol(
@@ -568,6 +573,8 @@ async fn test_list_all_snapshots() {
             )
             .await
             .expect("Failed to create test lvol");
+        let snapshot_list = Lvol::list_all_snapshots(Some(&lvol));
+        assert_eq!(0, snapshot_list.len(), "Snapshot Count not matched!!");
 
         // Create a snapshot-1 via lvol object.
         let entity_id = String::from("lvol5_e1");
@@ -611,7 +618,7 @@ async fn test_list_all_snapshots() {
             .await
             .expect("Failed to create a snapshot");
 
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(4, snapshot_list.len(), "Snapshot Count not matched!!");
         clean_snapshots(snapshot_list).await;
@@ -753,7 +760,7 @@ async fn test_list_all_snapshots_with_replica_destroy() {
 
         lvol.destroy().await.expect("Failed to destroy replica");
 
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         info!("Total number of snapshots: {}", snapshot_list.len());
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
         clean_snapshots(snapshot_list).await;
@@ -1030,7 +1037,7 @@ async fn test_snapshot_clone() {
             .await
             .expect("Failed to create a snapshot");
 
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
             snapshot_list
@@ -1095,7 +1102,7 @@ async fn test_snapshot_clone() {
         for clone in clones {
             clone.destroy().await.expect("destroy clone failed");
         }
-        clean_snapshots(Lvol::list_all_snapshots()).await;
+        clean_snapshots(Lvol::list_all_snapshots(None)).await;
     })
     .await;
 }
@@ -1201,7 +1208,7 @@ async fn test_snapshot_attr() {
             .await
             .expect("Failed to create a snapshot");
 
-        let mut snapshot_list = Lvol::list_all_snapshots();
+        let mut snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
             snapshot_list
@@ -1229,8 +1236,9 @@ async fn test_snapshot_attr() {
             .expect("Failed to set snapshot attribute");
 
         // Check attribute.
-        let v = Lvol::get_blob_xattr(&snapshot_lvol, &snap_attr_name)
-            .expect("Failed to get snapshot attribute");
+        let v =
+            Lvol::get_blob_xattr(snapshot_lvol.blob_checked(), &snap_attr_name)
+                .expect("Failed to get snapshot attribute");
         assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
 
         // Export pool, then reimport it again and check the attribute again.
@@ -1238,7 +1246,7 @@ async fn test_snapshot_attr() {
 
         // Make sure no snapshots exist after pool is exported.
         assert_eq!(
-            Lvol::list_all_snapshots().len(),
+            Lvol::list_all_snapshots(None).len(),
             0,
             "Snapshots still exist after pool was exported"
         );
@@ -1250,7 +1258,7 @@ async fn test_snapshot_attr() {
             .await
             .expect("Failed to import pool");
 
-        snapshot_list = Lvol::list_all_snapshots();
+        snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(
             1,
             snapshot_list.len(),
@@ -1270,8 +1278,11 @@ async fn test_snapshot_attr() {
         .unwrap();
 
         // Get attribute from imported snapshot and check.
-        let v = Lvol::get_blob_xattr(&imported_snapshot_lvol, &snap_attr_name)
-            .expect("Failed to get snapshot attribute");
+        let v = Lvol::get_blob_xattr(
+            imported_snapshot_lvol.blob_checked(),
+            &snap_attr_name,
+        )
+        .expect("Failed to get snapshot attribute");
         assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
         clean_snapshots(snapshot_list).await;
         pool.destroy().await.expect("Failed to destroy test pool");
@@ -1321,7 +1332,7 @@ async fn test_delete_snapshot_with_valid_clone() {
             .await
             .expect("Failed to create a snapshot");
 
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
 
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
@@ -1367,7 +1378,7 @@ async fn test_delete_snapshot_with_valid_clone() {
             .expect("Failed to create a clone");
 
         snapshot_lvol.destroy_snapshot().await.ok();
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
             snapshot_list
                 .get(0)
@@ -1384,7 +1395,7 @@ async fn test_delete_snapshot_with_valid_clone() {
             "Snapshot discardedSnapshotFlag not set properly"
         );
         clone1.destroy_replica().await.expect("Clone1 Destroy Failed");
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(
             1,
             snapshot_list.len(),
@@ -1392,7 +1403,7 @@ async fn test_delete_snapshot_with_valid_clone() {
         );
         clone2.destroy_replica().await.expect("Clone2 Destroy Failed");
 
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(
             0,
             snapshot_list.len(),
@@ -1445,7 +1456,7 @@ async fn test_delete_snapshot_with_valid_clone_fail_1() {
             .await
             .expect("Failed to create a snapshot");
 
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
 
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
@@ -1476,7 +1487,7 @@ async fn test_delete_snapshot_with_valid_clone_fail_1() {
             .expect("Failed to create a clone");
 
         snapshot_lvol.destroy_snapshot().await.ok();
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
             snapshot_list
                 .get(0)
@@ -1493,14 +1504,14 @@ async fn test_delete_snapshot_with_valid_clone_fail_1() {
             "Snapshot discardedSnapshotFlag not set properly"
         );
         clone1.destroy().await.expect("Clone1 Destroy Failed");
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(
             1,
             snapshot_list.len(),
             "Snapshot should not be destroyed, if fault happened after clone deletion"
         );
         Lvol::destroy_pending_discarded_snapshot().await;
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(
             0,
             snapshot_list.len(),
@@ -1632,7 +1643,7 @@ async fn test_snapshot_parent_usage_post_snapshot_destroy() {
         lvol.create_snapshot(snapshot_params.clone())
             .await
             .expect("Failed to create the first snapshot for test volume");
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
 
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
@@ -1717,7 +1728,7 @@ async fn test_clone_snapshot_usage_post_clone_destroy() {
         lvol.create_snapshot(snapshot_params.clone())
             .await
             .expect("Failed to create the first snapshot for test volume");
-        let snapshot_list = Lvol::list_all_snapshots();
+        let snapshot_list = Lvol::list_all_snapshots(None);
         assert_eq!(1, snapshot_list.len(), "Snapshot Count not matched!!");
 
         let snapshot_lvol = UntypedBdev::lookup_by_uuid_str(
@@ -1808,7 +1819,7 @@ async fn test_clone_snapshot_usage_post_clone_destroy() {
             cluster_size,
             "Clone1 snap2 cache is not cleared"
         );
-        clean_snapshots(Lvol::list_all_snapshots()).await;
+        clean_snapshots(Lvol::list_all_snapshots(None)).await;
     })
     .await;
 }
