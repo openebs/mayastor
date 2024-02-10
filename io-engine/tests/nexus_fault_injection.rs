@@ -27,7 +27,7 @@ use common::{
         ComposeTest,
     },
     file_io::DataSize,
-    fio::{spawn_fio_task, Fio, FioJob},
+    fio::{spawn_fio_task, FioBuilder, FioJobBuilder},
     nexus::{test_write_to_nexus, NexusBuilder},
     nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
     pool::PoolBuilder,
@@ -474,25 +474,31 @@ async fn replica_bdev_io_injection() {
 
     // With offset of 30 blocks, the job mustn't hit the injected fault, which
     // is set on block #20.
-    let fio_ok = Fio::new().with_job(
-        FioJob::new()
-            .with_direct(true)
-            .with_ioengine("libaio")
-            .with_iodepth(1)
-            .with_filename(&path)
-            .with_offset(DataSize::from_blocks(30, BLK_SIZE))
-            .with_rw("write"),
-    );
+    let fio_ok = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_direct(true)
+                .with_ioengine("libaio")
+                .with_iodepth(1)
+                .with_filename(&path)
+                .with_offset(DataSize::from_blocks(30, BLK_SIZE))
+                .with_rw("write")
+                .build(),
+        )
+        .build();
 
     // With the entire device, the job must hit the injected fault.
-    let fio_fail = Fio::new().with_job(
-        FioJob::new()
-            .with_direct(true)
-            .with_ioengine("libaio")
-            .with_iodepth(1)
-            .with_filename(&path)
-            .with_rw("write"),
-    );
+    let fio_fail = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_direct(true)
+                .with_ioengine("libaio")
+                .with_iodepth(1)
+                .with_filename(&path)
+                .with_rw("write")
+                .build(),
+        )
+        .build();
 
     spawn_fio_task(&fio_ok)
         .await

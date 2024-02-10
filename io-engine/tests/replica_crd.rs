@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use common::{
     compose::{rpc::v1::GrpcConnect, Binary, Builder},
-    fio::{Fio, FioJob, FioJobResult},
+    fio::{FioBuilder, FioJobBuilder, FioJobResult},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
     test::add_fault_injection,
@@ -90,15 +90,18 @@ async fn replica_no_fail_crd() {
     let (_cg, path) = repl_0.nvmf_location().open().unwrap();
 
     // FIO jobs.
-    let fio = Fio::new().with_job(
-        FioJob::new()
-            .with_name("job0")
-            .with_direct(true)
-            .with_ioengine("libaio")
-            .with_iodepth(1)
-            .with_filename_path(&path)
-            .with_rw("write"),
-    );
+    let fio = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_name("job0")
+                .with_direct(true)
+                .with_ioengine("libaio")
+                .with_iodepth(1)
+                .with_filename(&path)
+                .with_rw("write")
+                .build(),
+        )
+        .build();
 
     let fio_res = tokio::spawn(async { fio.run() }).await.unwrap();
     let job_res = fio_res.find_job("job0").unwrap();

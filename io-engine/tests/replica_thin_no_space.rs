@@ -6,7 +6,7 @@ use nix::errno::Errno;
 
 use common::{
     compose::{rpc::v1::GrpcConnect, Binary, Builder},
-    fio::{Fio, FioJob, FioJobResult},
+    fio::{FioBuilder, FioJobBuilder, FioJobResult},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
     test::add_fault_injection,
@@ -74,15 +74,18 @@ async fn replica_thin_nospc() {
     let nvmf = repl_0.nvmf_location();
     let (_nvmf_conn, path) = nvmf.open().unwrap();
 
-    let fio = Fio::new().with_job(
-        FioJob::new()
-            .with_name("j-0")
-            .with_direct(true)
-            .with_ioengine("libaio")
-            .with_iodepth(1)
-            .with_filename_path(&path)
-            .with_rw("write"),
-    );
+    let fio = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_name("j-0")
+                .with_direct(true)
+                .with_ioengine("libaio")
+                .with_iodepth(1)
+                .with_filename(&path)
+                .with_rw("write")
+                .build(),
+        )
+        .build();
 
     let res = tokio::spawn(async move { fio.run() }).await.unwrap();
 
@@ -147,15 +150,18 @@ async fn replica_nospc_inject() {
     let nvmf = repl_0.nvmf_location();
     let (_nvmf_conn, path) = nvmf.open().unwrap();
 
-    let fio = Fio::new().with_job(
-        FioJob::new()
-            .with_name("j-0")
-            .with_direct(true)
-            .with_ioengine("libaio")
-            .with_iodepth(1)
-            .with_filename_path(&path)
-            .with_rw("write"),
-    );
+    let fio = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_name("j-0")
+                .with_direct(true)
+                .with_ioengine("libaio")
+                .with_iodepth(1)
+                .with_filename(&path)
+                .with_rw("write")
+                .build(),
+        )
+        .build();
 
     let res = tokio::spawn(async move { fio.run() }).await.unwrap();
 

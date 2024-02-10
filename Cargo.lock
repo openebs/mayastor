@@ -1705,6 +1705,7 @@ dependencies = [
  "colored_json",
  "composer",
  "crossbeam",
+ "derive_builder",
  "etcd-client",
  "function_name",
  "futures",

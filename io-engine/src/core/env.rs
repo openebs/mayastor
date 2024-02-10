@@ -232,6 +232,13 @@ pub struct MayastorCliArgs {
     /// Events message-bus endpoint url.
     #[clap(long)]
     pub events_url: Option<url::Url>,
+    /// Enables additional nexus I/O channel debugging.
+    #[clap(
+        long = "enable-channel-dbg",
+        env = "ENABLE_NEXUS_CHANNEL_DEBUG",
+        hide = true
+    )]
+    pub enable_nexus_channel_debug: bool,
 }
 
 /// Mayastor features.
@@ -285,6 +292,7 @@ impl Default for MayastorCliArgs {
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,
             events_url: None,
+            enable_nexus_channel_debug: false,
         }
     }
 }

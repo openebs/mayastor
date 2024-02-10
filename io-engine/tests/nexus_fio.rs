@@ -3,7 +3,7 @@ pub mod common;
 use common::{
     compose::{rpc::v1::GrpcConnect, Binary, Builder},
     file_io::DataSize,
-    fio::{Fio, FioJob},
+    fio::{FioBuilder, FioJobBuilder},
     nexus::{test_fio_to_nexus, NexusBuilder},
     pool::PoolBuilder,
     replica::ReplicaBuilder,
@@ -97,15 +97,17 @@ async fn nexus_fio_single_remote() {
     // Run FIO with okay data size.
     test_fio_to_nexus(
         &nex_0,
-        Fio::new()
+        FioBuilder::new()
             .with_job(
-                FioJob::new()
+                FioJobBuilder::new()
                     .with_runtime(10)
                     .with_bs(4096)
                     .with_iodepth(8)
-                    .with_size(DataSize::from_mb(DATA_SIZE_OK)),
+                    .with_size(DataSize::from_mb(DATA_SIZE_OK))
+                    .build(),
             )
-            .with_verbose_err(true),
+            .with_verbose_err(true)
+            .build(),
     )
     .await
     .unwrap();
@@ -113,13 +115,16 @@ async fn nexus_fio_single_remote() {
     // Run FIO with data size exceeding pool capacity.
     let err = test_fio_to_nexus(
         &nex_0,
-        Fio::new().with_job(
-            FioJob::new()
-                .with_runtime(10)
-                .with_bs(4096)
-                .with_iodepth(8)
-                .with_size(DataSize::from_mb(DATA_SIZE_OVER)),
-        ),
+        FioBuilder::new()
+            .with_job(
+                FioJobBuilder::new()
+                    .with_runtime(10)
+                    .with_bs(4096)
+                    .with_iodepth(8)
+                    .with_size(DataSize::from_mb(DATA_SIZE_OVER))
+                    .build(),
+            )
+            .build(),
     )
     .await
     .unwrap_err();
@@ -222,15 +227,17 @@ async fn nexus_fio_mixed() {
     // Run FIO with okay data size.
     test_fio_to_nexus(
         &nex_0,
-        Fio::new()
+        FioBuilder::new()
             .with_job(
-                FioJob::new()
+                FioJobBuilder::new()
                     .with_runtime(10)
                     .with_bs(4096)
                     .with_iodepth(8)
-                    .with_size(DataSize::from_mb(DATA_SIZE_OK)),
+                    .with_size(DataSize::from_mb(DATA_SIZE_OK))
+                    .build(),
             )
-            .with_verbose_err(true),
+            .with_verbose_err(true)
+            .build(),
     )
     .await
     .unwrap();
@@ -240,13 +247,16 @@ async fn nexus_fio_mixed() {
     // this run must succeed.
     test_fio_to_nexus(
         &nex_0,
-        Fio::new().with_job(
-            FioJob::new()
-                .with_runtime(10)
-                .with_bs(4096)
-                .with_iodepth(8)
-                .with_size(DataSize::from_mb(DATA_SIZE_OVER)),
-        ),
+        FioBuilder::new()
+            .with_job(
+                FioJobBuilder::new()
+                    .with_runtime(10)
+                    .with_bs(4096)
+                    .with_iodepth(8)
+                    .with_size(DataSize::from_mb(DATA_SIZE_OVER))
+                    .build(),
+            )
+            .build(),
     )
     .await
     .unwrap();

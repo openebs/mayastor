@@ -18,7 +18,7 @@ use common::{
 
 #[cfg(feature = "fault-injection")]
 use io_engine_tests::{
-    fio::{Fio, FioJob},
+    fio::{FioBuilder, FioJobBuilder},
     nexus::test_fio_to_nexus,
 };
 
@@ -235,7 +235,7 @@ async fn nexus_partial_rebuild_io_fault() {
     assert_eq!(children.len(), 2);
     assert_eq!(children[1].state(), ChildState::Faulted);
     assert_eq!(children[1].state_reason(), ChildStateReason::IoFailure);
-    assert_eq!(children[1].has_io_log, true);
+    assert!(children[1].has_io_log);
 
     // Chunk B.
     test_write_to_nexus(
@@ -485,13 +485,16 @@ async fn nexus_partial_rebuild_double_fault() {
     // Write some data to have something to rebuild.
     test_fio_to_nexus(
         &nex_0,
-        Fio::new().with_job(
-            FioJob::new()
-                .with_bs(4096)
-                .with_iodepth(16)
-                .with_offset(DataSize::from_mb(DATA_A_POS))
-                .with_size(DataSize::from_mb(DATA_A_SIZE)),
-        ),
+        FioBuilder::new()
+            .with_job(
+                FioJobBuilder::new()
+                    .with_bs(4096)
+                    .with_iodepth(16)
+                    .with_offset(DataSize::from_mb(DATA_A_POS))
+                    .with_size(DataSize::from_mb(DATA_A_SIZE))
+                    .build(),
+            )
+            .build(),
     )
     .await
     .unwrap();
@@ -522,13 +525,16 @@ async fn nexus_partial_rebuild_double_fault() {
         async move {
             test_fio_to_nexus(
                 &nex_0,
-                Fio::new().with_job(
-                    FioJob::new()
-                        .with_bs(4096)
-                        .with_iodepth(16)
-                        .with_offset(DataSize::from_mb(DATA_B_POS))
-                        .with_size(DataSize::from_mb(DATA_B_SIZE)),
-                ),
+                FioBuilder::new()
+                    .with_job(
+                        FioJobBuilder::new()
+                            .with_bs(4096)
+                            .with_iodepth(16)
+                            .with_offset(DataSize::from_mb(DATA_B_POS))
+                            .with_size(DataSize::from_mb(DATA_B_SIZE))
+                            .build(),
+                    )
+                    .build(),
             )
             .await
             .unwrap();
@@ -566,13 +572,16 @@ async fn nexus_partial_rebuild_double_fault() {
     // Write some data to have something to rebuild.
     test_fio_to_nexus(
         &nex_0,
-        Fio::new().with_job(
-            FioJob::new()
-                .with_bs(4096)
-                .with_iodepth(16)
-                .with_offset(DataSize::from_mb(DATA_A_POS))
-                .with_size(DataSize::from_mb(DATA_A_SIZE)),
-        ),
+        FioBuilder::new()
+            .with_job(
+                FioJobBuilder::new()
+                    .with_bs(4096)
+                    .with_iodepth(16)
+                    .with_offset(DataSize::from_mb(DATA_A_POS))
+                    .with_size(DataSize::from_mb(DATA_A_SIZE))
+                    .build(),
+            )
+            .build(),
     )
     .await
     .unwrap();
@@ -591,17 +600,17 @@ async fn nexus_partial_rebuild_double_fault() {
     // First rebuild must have been failed, because I/O failed while the job
     // was running.
     assert_eq!(hist[0].state(), RebuildJobState::Failed);
-    assert_eq!(hist[0].is_partial, true);
+    assert!(hist[0].is_partial);
     assert!(hist[0].blocks_transferred < hist[0].blocks_total);
 
     // 3rd rebuid job must have been a successfully full rebuild.
     assert_eq!(hist[1].state(), RebuildJobState::Completed);
-    assert_eq!(hist[1].is_partial, false);
+    assert!(!hist[1].is_partial);
     assert_eq!(hist[1].blocks_transferred, hist[1].blocks_total);
 
     // 3rd rebuid job must have been a successfully partial rebuild.
     assert_eq!(hist[2].state(), RebuildJobState::Completed);
-    assert_eq!(hist[2].is_partial, true);
+    assert!(hist[2].is_partial);
     assert!(hist[2].blocks_transferred < hist[2].blocks_total);
 
     // First rebuild job must have been prematurely stopped, so the amount of

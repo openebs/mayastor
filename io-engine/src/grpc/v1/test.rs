@@ -392,9 +392,7 @@ impl crate::core::wiper::NotifyStream for WiperStream {
 #[cfg(feature = "fault-injection")]
 impl From<FaultInjectionError> for tonic::Status {
     fn from(e: FaultInjectionError) -> Self {
-        match e {
-            e => Status::invalid_argument(e.to_string()),
-        }
+        Status::invalid_argument(e.to_string())
     }
 }
 

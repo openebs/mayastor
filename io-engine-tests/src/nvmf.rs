@@ -79,15 +79,11 @@ pub async fn test_fio_to_nvmf(
 ) -> std::io::Result<()> {
     let tgt = format!("'{}'", nvmf.as_args().join(" "));
 
-    fio.jobs = fio
-        .jobs
-        .into_iter()
-        .map(|j| {
-            j.with_filename(&tgt)
-                .with_ioengine("spdk")
-                .with_direct(true)
-        })
-        .collect();
+    fio.jobs.iter_mut().for_each(|j| {
+        j.filename = tgt.clone();
+        j.ioengine = "spdk".to_string();
+        j.direct = true;
+    });
 
     spawn_fio_task(&fio).await
 }
@@ -101,15 +97,11 @@ pub async fn test_fio_to_nvmf_aio(
     let path = find_mayastor_nvme_device_path(&nvmf.serial)?;
     let path_str = path.to_str().unwrap();
 
-    fio.jobs = fio
-        .jobs
-        .into_iter()
-        .map(|j| {
-            j.with_filename(path_str)
-                .with_ioengine("libaio")
-                .with_direct(true)
-        })
-        .collect();
+    fio.jobs.iter_mut().for_each(|j| {
+        j.filename = path_str.to_string();
+        j.ioengine = "libaio".to_string();
+        j.direct = true;
+    });
 
     spawn_fio_task(&fio).await
 }

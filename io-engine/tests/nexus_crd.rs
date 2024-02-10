@@ -19,7 +19,7 @@ use common::{
         Builder,
     },
     file_io::DataSize,
-    fio::{spawn_fio_task, Fio, FioJob, FioJobResult},
+    fio::{spawn_fio_task, FioBuilder, FioJobBuilder, FioJobResult},
     nexus::NexusBuilder,
     nvme::{find_mayastor_nvme_device_path, NmveConnectGuard},
     nvmf::NvmfLocation,
@@ -185,16 +185,17 @@ async fn run_io_task(
         .to_string();
 
     let jobs = (0 .. cnt).map(|_| {
-        FioJob::new()
+        FioJobBuilder::new()
             .with_direct(true)
             .with_ioengine("libaio")
             .with_iodepth(128)
             .with_filename(&path)
             .with_runtime(rt)
             .with_rw("randwrite")
+            .build()
     });
 
-    let fio = Fio::new().with_jobs(jobs);
+    let fio = FioBuilder::new().with_jobs(jobs).build();
 
     // Notify the nexus management task that connection is complete and I/O
     // starts.
@@ -386,16 +387,19 @@ async fn nexus_crd_resv() {
     let fio_res = {
         let (_cg, path) = nex_1.nvmf_location().open().unwrap();
 
-        let fio = Fio::new().with_job(
-            FioJob::new()
-                .with_name("j0")
-                .with_filename_path(path)
-                .with_ioengine("libaio")
-                .with_iodepth(1)
-                .with_direct(true)
-                .with_rw("write")
-                .with_size(DataSize::from_kb(4)),
-        );
+        let fio = FioBuilder::new()
+            .with_job(
+                FioJobBuilder::new()
+                    .with_name("j0")
+                    .with_filename(path)
+                    .with_ioengine("libaio")
+                    .with_iodepth(1)
+                    .with_direct(true)
+                    .with_rw("write")
+                    .with_size(DataSize::from_kb(4))
+                    .build(),
+            )
+            .build();
 
         tokio::spawn(async { fio.run() }).await.unwrap()
     };

@@ -537,6 +537,14 @@ pub async fn list_nexuses(rpc: SharedRpcHandle) -> Result<Vec<Nexus>, Status> {
 }
 
 /// TODO
+pub async fn find_nexus(rpc: SharedRpcHandle, uuid: &str) -> Option<Nexus> {
+    match list_nexuses(rpc).await {
+        Err(_) => None,
+        Ok(nn) => nn.into_iter().find(|p| p.uuid == uuid),
+    }
+}
+
+/// TODO
 pub async fn find_nexus_by_uuid(
     rpc: SharedRpcHandle,
     uuid: &str,

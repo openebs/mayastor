@@ -1,10 +1,13 @@
-use super::file_io::DataSize;
+use derive_builder::Builder;
 use nix::errno::Errno;
+use serde::Serialize;
 use std::{
     path::Path,
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
+
+use super::file_io::DataSize;
 
 /// TODO
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,38 +17,92 @@ pub enum FioJobResult {
     Error(Errno),
 }
 
-/// TODO
-#[derive(Debug, Clone)]
+/// FIO job.
+/// Non-optional fields are always passed as FIO CLI arguments.
+/// Optionals fields are passed to FIO only if they are defined.
+#[derive(Debug, Clone, Builder, Serialize)]
+#[builder(setter(prefix = "with"))]
+#[builder(build_fn(name = "try_build"))]
+#[builder(default)]
 #[allow(dead_code)]
 pub struct FioJob {
-    /// Job counter.
-    pub counter: u32,
     /// Job name.
+    #[builder(setter(into))]
     pub name: String,
     /// I/O engine to use. Default: spdk.
+    #[builder(setter(into))]
     pub ioengine: String,
     /// Filename.
+    #[builder(setter(custom))]
     pub filename: String,
     /// Type of I/O pattern.
+    #[builder(setter(into))]
     pub rw: String,
     /// If true, use non-buffered I/O (usually O_DIRECT). Default: true.
     pub direct: bool,
     /// Block size for I/O units. Default: 4k.
-    pub blocksize: Option<u32>,
+    #[builder(setter(strip_option, into))]
+    pub bs: Option<DataSize>,
     /// Offset in the file to start I/O. Data before the offset will not be
     /// touched.
+    #[builder(setter(strip_option, into))]
     pub offset: Option<DataSize>,
     /// Number of I/O units to keep in flight against the file.
+    #[builder(setter(strip_option))]
     pub iodepth: Option<u32>,
     /// Number of clones (processes/threads performing the same workload) of
     /// this job. Default: 1.
     pub numjobs: u32,
+    /// TODO
+    pub thread: u32,
     /// Terminate processing after the specified number of seconds.
+    /// If this field is defined, --timebased=1 is set as well.
+    #[builder(setter(strip_option))]
     pub runtime: Option<u32>,
     /// Total size of I/O for this job.
+    #[builder(setter(strip_option, into))]
     pub size: Option<DataSize>,
+    /// TODO
+    pub norandommap: bool,
+    /// TODO
+    #[builder(setter(into))]
+    pub random_generator: Option<String>,
+    /// TODO
+    #[builder(setter(strip_option))]
+    pub do_verify: Option<bool>,
+    /// TODO
+    #[builder(setter(strip_option, into))]
+    pub verify: Option<String>,
+    /// TODO
+    #[builder(setter(strip_option))]
+    pub verify_async: Option<u32>,
+    /// TODO
+    #[builder(setter(strip_option))]
+    pub verify_fatal: Option<bool>,
     /// Run result.
+    #[builder(setter(skip))]
+    #[serde(skip_serializing)]
     pub result: FioJobResult,
+    /// Job counter.
+    #[builder(setter(skip))]
+    #[serde(skip_serializing)]
+    counter: u32,
+}
+
+impl FioJobBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn build(&self) -> FioJob {
+        self.try_build()
+            .expect("FIO job builder is expected to succeed")
+    }
+
+    pub fn with_filename(&mut self, v: impl AsRef<Path>) -> &mut Self {
+        self.filename = Some(v.as_ref().to_str().unwrap().to_string());
+        self
+    }
 }
 
 impl Default for FioJob {
@@ -61,172 +118,123 @@ impl FioJob {
         let counter = JOB_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         Self {
-            counter,
             name: format!("fio-{counter}"),
             ioengine: "spdk".to_string(),
             filename: String::new(),
             rw: "write".to_string(),
             direct: true,
-            blocksize: None,
+            bs: None,
             offset: None,
             iodepth: None,
             numjobs: 1,
+            thread: 1,
             runtime: None,
             size: None,
+            norandommap: true,
+            random_generator: Some("tausworthe64".to_string()),
+            do_verify: None,
+            verify: None,
+            verify_async: None,
+            verify_fatal: None,
             result: FioJobResult::NotRun,
+            counter,
         }
     }
 
     pub fn as_fio_args(&self) -> Vec<String> {
         assert!(!self.filename.is_empty(), "Filename must be defined");
 
-        let mut r = vec![
-            format!("--name={}", self.name),
-            format!("--ioengine={}", self.ioengine),
-            format!("--filename={}", self.filename),
-            format!("--thread=1"),
-            format!("--direct={}", if self.direct { "1" } else { "0" }),
-            format!("--norandommap=1"),
-            format!("--rw={}", self.rw),
-            format!("--numjobs={}", self.numjobs),
-            format!("--random_generator=tausworthe64"),
-        ];
+        let mut r: Vec<String> = serde_json::to_value(self)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .into_iter()
+            .filter_map(|(k, v)| {
+                if v.is_null() {
+                    None
+                } else if v.is_string() {
+                    // Serde adds quotes around strings, we don't want them.
+                    Some(format!("--{k}={v}", v = v.as_str().unwrap()))
+                } else if v.is_boolean() {
+                    // Map booleans to 1 or 0.
+                    Some(format!(
+                        "--{k}={v}",
+                        v = if v.as_bool().unwrap() { 1 } else { 0 }
+                    ))
+                } else {
+                    Some(format!("--{k}={v}"))
+                }
+            })
+            .collect();
 
-        if let Some(v) = self.blocksize {
-            r.push(format!("--bs={v}"));
-        }
-
-        if let Some(ref v) = self.offset {
-            r.push(format!("--offset={v}"));
-        }
-
-        if let Some(v) = self.iodepth {
-            r.push(format!("--iodepth={v}"));
-        }
-
-        if let Some(v) = self.runtime {
+        if self.runtime.is_some() {
             r.push("--time_based=1".to_string());
-            r.push(format!("--runtime={v}s"));
-        }
-
-        if let Some(ref v) = self.size {
-            r.push(format!("--size={v}"));
         }
 
         r
     }
-
-    /// Sets job name.
-    pub fn with_name(mut self, v: &str) -> Self {
-        self.name = v.to_string();
-        self
-    }
-
-    /// I/O engine to use. Default: spdk.
-    pub fn with_ioengine(mut self, v: &str) -> Self {
-        self.ioengine = v.to_string();
-        self
-    }
-
-    /// Filename.
-    pub fn with_filename(mut self, v: &str) -> Self {
-        self.filename = v.to_string();
-        self
-    }
-
-    /// Filename.
-    pub fn with_filename_path(mut self, v: impl AsRef<Path>) -> Self {
-        self.filename = v.as_ref().to_str().unwrap().to_string();
-        self
-    }
-
-    /// Read-write FIO mode.
-    pub fn with_rw(mut self, rw: &str) -> Self {
-        self.rw = rw.to_string();
-        self
-    }
-
-    /// If true, use non-buffered I/O (usually O_DIRECT). Default: true.
-    pub fn with_direct(mut self, v: bool) -> Self {
-        self.direct = v;
-        self
-    }
-
-    /// Block size for I/O units. Default: 4k.
-    pub fn with_bs(mut self, v: u32) -> Self {
-        self.blocksize = Some(v);
-        self
-    }
-
-    /// Offset in the file to start I/O. Data before the offset will not be
-    /// touched.
-    pub fn with_offset(mut self, v: DataSize) -> Self {
-        self.offset = Some(v);
-        self
-    }
-
-    /// Number of I/O units to keep in flight against the file.
-    pub fn with_iodepth(mut self, v: u32) -> Self {
-        self.iodepth = Some(v);
-        self
-    }
-
-    /// Number of clones (processes/threads performing the same workload) of
-    /// this job. Default: 1.
-    pub fn with_numjobs(mut self, v: u32) -> Self {
-        self.numjobs = v;
-        self
-    }
-
-    /// Terminate processing after the specified number of seconds.
-    pub fn with_runtime(mut self, v: u32) -> Self {
-        self.runtime = Some(v);
-        self
-    }
-
-    /// Total size of I/O for this job.
-    pub fn with_size(mut self, v: DataSize) -> Self {
-        self.size = Some(v);
-        self
-    }
 }
 
 /// TODO
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Builder)]
+#[builder(setter(prefix = "with", into))]
+#[builder(build_fn(name = "try_build"))]
+#[builder(default)]
 #[allow(dead_code)]
 pub struct Fio {
+    /// TODO
+    #[builder(setter(custom))]
     pub jobs: Vec<FioJob>,
+    /// TODO
     pub verbose: bool,
+    /// TODO
     pub verbose_err: bool,
+    /// TODO
+    #[builder(setter(skip))]
     pub script: String,
+    /// TODO
+    #[builder(setter(skip))]
     pub total_time: Duration,
+    /// TODO
+    #[builder(setter(skip))]
     pub exit: i32,
+    /// TODO
+    #[builder(setter(skip))]
     pub err_messages: Vec<String>,
+}
+
+impl FioBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn build(&self) -> Fio {
+        self.try_build()
+            .expect("FIO builder is expected to succeed")
+    }
+
+    pub fn with_jobs(
+        &mut self,
+        jobs: impl Iterator<Item = FioJob>,
+    ) -> &mut Self {
+        jobs.for_each(|j| {
+            self.with_job(j);
+        });
+        self
+    }
+
+    pub fn with_job(&mut self, job: FioJob) -> &mut Self {
+        if self.jobs.is_none() {
+            self.jobs = Some(Vec::new());
+        }
+        self.jobs.as_mut().unwrap().push(job);
+        self
+    }
 }
 
 impl Fio {
     pub fn new() -> Self {
         Default::default()
-    }
-
-    pub fn with_jobs(mut self, jobs: impl Iterator<Item = FioJob>) -> Self {
-        jobs.for_each(|j| self.jobs.push(j));
-        self
-    }
-
-    pub fn with_job(mut self, job: FioJob) -> Self {
-        self.jobs.push(job);
-        self
-    }
-
-    pub fn with_verbose(mut self, v: bool) -> Self {
-        self.verbose = v;
-        self
-    }
-
-    pub fn with_verbose_err(mut self, v: bool) -> Self {
-        self.verbose_err = v;
-        self
     }
 
     pub fn run(mut self) -> Self {
@@ -262,10 +270,14 @@ impl Fio {
         }
 
         if self.verbose_err {
-            println!(
-                "Error(s) running FIO: {s}",
-                s = self.err_messages.join("\n")
-            );
+            if self.err_messages.is_empty() {
+                println!("FIO is okay");
+            } else {
+                println!(
+                    "Error(s) running FIO: {s}",
+                    s = self.err_messages.join("\n")
+                );
+            }
         }
 
         self
