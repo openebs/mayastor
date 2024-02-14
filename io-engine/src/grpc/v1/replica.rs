@@ -5,6 +5,7 @@ use crate::{
         logical_volume::LogicalVolume,
         Bdev,
         CloneXattrs,
+        CoreError,
         Protocol,
         Share,
         ShareProps,
@@ -120,8 +121,10 @@ impl From<Lvol> for Replica {
         let usage = l.usage();
         let source_uuid =
             Lvol::get_blob_xattr(&l, CloneXattrs::SourceUuid.name());
+        let owner_id = Lvol::get_blob_xattr(&l, &l.uuid());
         Self {
             name: l.name(),
+            owner_id,
             uuid: l.uuid(),
             pooluuid: l.pool_uuid(),
             size: usage.capacity_bytes,
@@ -249,6 +252,15 @@ impl ReplicaRpc for ReplicaService {
                         }
                     }
                     Ok(lvol) => {
+                        if let Some(v) = &args.owner_id {
+                            let k = &args.uuid.clone();
+                           let _ = lvol.set_blob_attr(k, v.to_string(), true).await;
+                           if let Some(v) = Lvol::get_blob_xattr(&lvol, &args.uuid) {
+                               info!("Successfully written vol id to xattr: {}", v);
+                           } else {
+                               error!("Xattr write failed")
+                           }
+                    }
                         debug!("created lvol {:?}", lvol);
                         Ok(Replica::from(lvol))
                     }
@@ -527,5 +539,44 @@ impl ReplicaRpc for ReplicaService {
             },
         )
         .await
+    }
+
+    #[named]
+    async fn set_replica_owner(
+        &self,
+        request: Request<SetReplicaOwnerRequest>,
+    ) -> GrpcResult<Replica> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{args:?}");
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    if let Some(bdev) = UntypedBdev::lookup_by_uuid_str(&args.uuid){
+                        let lvol =  Lvol::try_from(bdev)?;
+                        lvol.set_blob_attr(args.uuid.clone(), args.owner_id, true).await?;
+                        if let Some(v) = Lvol::get_blob_xattr(&lvol, &args.uuid) {
+                            info!("Successfully written vol id to xattr using sert_replica_owner: {}", v);
+                        } else {
+                            error!("Xattr write failed")
+                        }
+                        Ok(Replica::from(lvol))
+
+                    } else {
+                        Err(LvsError::InvalidBdev {
+                            source: BdevError::BdevNotFound {
+                                name: args.uuid.clone(),
+                            },
+                            name: args.uuid,
+                        })
+                    }
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        ).await
     }
 }
