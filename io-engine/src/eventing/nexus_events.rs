@@ -7,10 +7,12 @@ use events_api::event::{
     RebuildStatus,
 };
 
+use std::time::Duration;
+
 use crate::{
     bdev::{
         nexus,
-        nexus::{Error, NexusChild},
+        nexus::{Error, NexusChild, NexusPauseState, NexusState},
     },
     core::{MayastorEnvironment, VerboseError},
     eventing::{Event, EventMetaGen, EventWithMeta},
@@ -51,6 +53,40 @@ impl<'n> EventMetaGen for NexusChild<'n> {
         .with_nexus_child_data(self.uri());
         EventMeta::from_source(event_source)
     }
+}
+
+/// Nexus state change event meta.
+pub(crate) fn state_change_event_meta(
+    previous: NexusState,
+    next: NexusState,
+) -> EventMeta {
+    let event_source =
+        EventSource::new(MayastorEnvironment::global_or_default().node_name)
+            .with_state_change_data(previous.to_string(), next.to_string());
+    EventMeta::from_source(event_source)
+}
+
+/// Subsystem pause event meta.
+pub(crate) fn subsystem_pause_event_meta(
+    nexus_pause_status: Option<NexusPauseState>,
+    total_time_option: Option<Duration>,
+    error_option: Option<&Error>,
+) -> EventMeta {
+    let nexus_pause_state = match nexus_pause_status {
+        Some(pause_state) => pause_state.to_string(),
+        None => String::default(),
+    };
+    let mut event_source =
+        EventSource::new(MayastorEnvironment::global_or_default().node_name)
+            .with_subsystem_pause_details(nexus_pause_state);
+    if let Some(total_time) = total_time_option {
+        event_source =
+            event_source.with_event_action_duration_details(total_time);
+    }
+    if let Some(err) = error_option {
+        event_source = event_source.with_error_details(err.to_string());
+    };
+    EventMeta::from_source(event_source)
 }
 
 impl<'n> Event for nexus::Nexus<'n> {

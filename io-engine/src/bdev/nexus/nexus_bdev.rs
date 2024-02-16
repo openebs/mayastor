@@ -10,6 +10,7 @@ use std::{
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomPinned,
+    ops::Deref,
     os::raw::c_void,
     pin::Pin,
     sync::atomic::Ordering,
@@ -56,7 +57,11 @@ use crate::{
         Share,
         VerboseError,
     },
-    eventing::Event,
+    eventing::{
+        nexus_events::{state_change_event_meta, subsystem_pause_event_meta},
+        Event,
+        EventWithMeta,
+    },
     rebuild::HistoryRecord,
     subsys::NvmfSubsystem,
 };
@@ -407,6 +412,8 @@ impl<'n> Nexus<'n> {
             // inherit the bdev UUID.
             n.nexus_uuid = nexus_uuid.unwrap_or_else(|| n.bdev().uuid());
 
+            Event::event(n, EventAction::Init).generate();
+
             // Set I/O subsystem.
             n.io_subsystem = Some(NexusIoSubsystem::new(
                 name.to_string(),
@@ -508,8 +515,15 @@ impl<'n> Nexus<'n> {
 
     /// Sets the state of the Nexus.
     fn set_state(self: Pin<&mut Self>, state: NexusState) -> NexusState {
+        let previous = *self.state.lock();
         debug!("{:?}: changing state to '{}'", self, state);
         *self.state.lock() = state;
+        EventWithMeta::event(
+            self.deref(),
+            EventAction::StateChange,
+            state_change_event_meta(previous, state),
+        )
+        .generate();
         state
     }
 
@@ -859,7 +873,7 @@ impl<'n> Nexus<'n> {
             let name = self.name.clone();
 
             // After calling unregister_bdev_async(), Nexus is gone.
-            let evt = self.event(EventAction::Delete);
+            let evt = Event::event(self.deref(), EventAction::Delete);
             match self.as_mut().bdev_mut().unregister_bdev_async().await {
                 Ok(_) => {
                     info!("Nexus '{name}': nexus destroyed ok");
@@ -907,7 +921,11 @@ impl<'n> Nexus<'n> {
             }
             _ => false,
         };
-        self.io_subsystem_mut().resume(freeze).await
+        let evt = Event::event(self.deref(), EventAction::SubsystemResume);
+        self.io_subsystem_mut().resume(freeze).await.map(|value| {
+            evt.generate();
+            value
+        })
     }
 
     /// Set the Nexus state to 'reset'
@@ -917,6 +935,7 @@ impl<'n> Nexus<'n> {
             // Reset operation is allowed only when the Nexus is Open state
             NexusState::Open => {
                 *state = NexusState::Reconfiguring;
+                Event::event(self, EventAction::Reconfiguring).generate();
                 true
             }
             _ => false,
@@ -960,6 +979,12 @@ impl<'n> Nexus<'n> {
                 // Save current state and mark nexus as being under shutdown.
                 t => {
                     *s = NexusState::ShuttingDown;
+                    EventWithMeta::event(
+                        self.deref(),
+                        EventAction::StateChange,
+                        state_change_event_meta(t, *s),
+                    )
+                    .generate();
                     t
                 }
             }
@@ -1003,6 +1028,16 @@ impl<'n> Nexus<'n> {
         // Finally, mark nexus as being fully shutdown.
         *self.state.lock() = NexusState::Shutdown;
 
+        EventWithMeta::event(
+            self.deref(),
+            EventAction::StateChange,
+            state_change_event_meta(
+                NexusState::ShuttingDown,
+                NexusState::Shutdown,
+            ),
+        )
+        .generate();
+
         info!(
             nexus=%self.name,
             "Nexus successfully shut down"
@@ -1017,8 +1052,42 @@ impl<'n> Nexus<'n> {
     /// with the nexus paused once they are awakened via resume().
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
-    pub async fn pause(self: Pin<&mut Self>) -> Result<(), Error> {
-        self.io_subsystem_mut().suspend().await
+    pub async fn pause(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        EventWithMeta::event(
+            self.deref(),
+            EventAction::SubsystemPause,
+            subsystem_pause_event_meta(self.io_subsystem_state(), None, None),
+        )
+        .generate();
+        let start_time = std::time::Instant::now();
+        let result = self.as_mut().io_subsystem_mut().suspend().await;
+        match result {
+            Ok(_) => {
+                EventWithMeta::event(
+                    self.deref(),
+                    EventAction::SubsystemPause,
+                    subsystem_pause_event_meta(
+                        self.io_subsystem_state(),
+                        Some(start_time.elapsed()),
+                        None,
+                    ),
+                )
+                .generate();
+            }
+            Err(ref error) => {
+                EventWithMeta::event(
+                    self.deref(),
+                    EventAction::SubsystemPause,
+                    subsystem_pause_event_meta(
+                        self.io_subsystem_state(),
+                        Some(start_time.elapsed()),
+                        Some(error),
+                    ),
+                )
+                .generate();
+            }
+        };
+        result
     }
 
     /// get ANA state of the NVMe subsystem
