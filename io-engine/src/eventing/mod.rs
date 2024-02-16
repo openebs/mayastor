@@ -1,4 +1,5 @@
 pub(crate) mod host_events;
+pub(crate) mod io_engine_events;
 mod nexus_child_events;
 pub(crate) mod nexus_events;
 mod pool_events;
@@ -6,7 +7,7 @@ mod replica_events;
 use events_api::event::{EventAction, EventMessage, EventMeta};
 
 /// Event trait definition for creating events.
-pub(crate) trait Event {
+pub trait Event {
     /// Create event message.
     fn event(&self, event_action: EventAction) -> EventMessage;
 }

@@ -15,6 +15,7 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use clap::Parser;
+use events_api::event::EventAction;
 use futures::{channel::oneshot, future};
 use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
@@ -48,6 +49,11 @@ use crate::{
         Cores,
         MayastorFeatures,
         Mthread,
+    },
+    eventing::{
+        io_engine_events::io_engine_stop_event_meta,
+        Event,
+        EventWithMeta,
     },
     grpc,
     grpc::MayastorGrpcServer,
@@ -446,6 +452,14 @@ impl Default for MayastorEnvironment {
 /// The actual routine which does the mayastor shutdown.
 /// Must be called on the same thread which did the init.
 async fn do_shutdown(arg: *mut c_void) {
+    Event::event(
+        &MayastorEnvironment::global_or_default(),
+        EventAction::Shutdown,
+    )
+    .generate();
+
+    let start_time = std::time::Instant::now();
+
     // we must enter the init thread explicitly here as this, typically, gets
     // called by the signal handler
     // callback for when the subsystems have shutdown
@@ -474,6 +488,13 @@ async fn do_shutdown(arg: *mut c_void) {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
     }
+
+    EventWithMeta::event(
+        &MayastorEnvironment::global_or_default(),
+        EventAction::Stop,
+        io_engine_stop_event_meta(start_time.elapsed()),
+    )
+    .generate();
 }
 
 /// main shutdown routine for mayastor
