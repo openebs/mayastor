@@ -12,6 +12,7 @@ use super::{
         pool::PoolService,
         replica::ReplicaService,
         snapshot::SnapshotService,
+        snapshot_rebuild::SnapshotRebuildService,
         stats::StatsService,
         test::TestService,
     },
@@ -103,6 +104,11 @@ impl MayastorGrpcServer {
                 v1::snapshot::SnapshotRpcServer::new(SnapshotService::new(
                     replica_v1.clone(),
                 ))
+            }))
+            .add_optional_service(enable_v1.map(|_| {
+                v1::snapshot_rebuild::SnapshotRebuildRpcServer::new(
+                    SnapshotRebuildService::new(replica_v1.clone()),
+                )
             }))
             .add_optional_service(enable_v1.map(|_| {
                 v1::host::HostRpcServer::new(HostService::new(

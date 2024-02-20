@@ -82,6 +82,7 @@ pub mod v1 {
     pub mod pool;
     pub mod replica;
     pub mod snapshot;
+    pub mod snapshot_rebuild;
     pub mod stats;
     pub mod test;
 }
