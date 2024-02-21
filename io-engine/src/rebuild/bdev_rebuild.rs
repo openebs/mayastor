@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, Range},
-    rc::Rc,
-};
+use std::ops::{Deref, Range};
 
 use super::{
     rebuild_descriptor::RebuildDescriptor,
@@ -13,7 +10,10 @@ use super::{
     SEGMENT_TASKS,
 };
 
-use crate::gen_rebuild_instances;
+use crate::{
+    gen_rebuild_instances,
+    rebuild::rebuilders::{FullRebuild, RangeRebuilder},
+};
 
 /// A Bdev rebuild job is responsible for managing a rebuild (copy) which reads
 /// from source_hdl and writes into destination_hdl from specified start to end.
@@ -59,12 +59,10 @@ gen_rebuild_instances!(BdevRebuildJob);
 /// A rebuild job which is responsible for rebuilding from
 /// source to target of the `RebuildDescriptor`.
 pub(super) struct BdevRebuildJobBackend {
-    /// The next block to be rebuilt.
-    next: u64,
     /// A pool of tasks which perform the actual data rebuild.
     task_pool: RebuildTasks,
     /// A generic rebuild descriptor.
-    descriptor: Rc<RebuildDescriptor>,
+    copier: FullRebuild<RebuildDescriptor>,
     /// Notification callback with src and dst uri's.
     notify_fn: fn(&str, &str) -> (),
 }
@@ -72,11 +70,20 @@ pub(super) struct BdevRebuildJobBackend {
 #[async_trait::async_trait(?Send)]
 impl RebuildBackend for BdevRebuildJobBackend {
     fn on_state_change(&mut self) {
-        (self.notify_fn)(&self.descriptor.src_uri, &self.descriptor.dst_uri);
+        let desc = self.common_desc();
+        (self.notify_fn)(&desc.src_uri, &desc.dst_uri);
     }
 
     fn common_desc(&self) -> &RebuildDescriptor {
-        &self.descriptor
+        self.copier.desc()
+    }
+
+    fn blocks_remaining(&self) -> u64 {
+        self.copier.blocks_remaining()
+    }
+
+    fn is_partial(&self) -> bool {
+        self.copier.is_partial()
     }
 
     fn task_pool(&self) -> &RebuildTasks {
@@ -84,22 +91,18 @@ impl RebuildBackend for BdevRebuildJobBackend {
     }
 
     fn schedule_task_by_id(&mut self, id: usize) -> bool {
-        if self.next >= self.descriptor.range.end {
-            false
-        } else {
-            let next = std::cmp::min(
-                self.next + self.descriptor.segment_size_blks,
-                self.descriptor.range.end,
-            );
-            self.task_pool.schedule_segment_rebuild(
-                id,
-                self.next,
-                self.descriptor.clone(),
-            );
-            self.task_pool.active += 1;
-            self.next = next;
-            true
-        }
+        self.copier
+            .next()
+            .map(|blk| {
+                self.task_pool.schedule_segment_rebuild(
+                    id,
+                    blk,
+                    self.copier.copier(),
+                );
+                self.task_pool.active += 1;
+                true
+            })
+            .unwrap_or_default()
     }
 
     async fn await_one_task(&mut self) -> Option<TaskResult> {
@@ -110,7 +113,7 @@ impl RebuildBackend for BdevRebuildJobBackend {
 impl std::fmt::Debug for BdevRebuildJobBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BdevRebuildJob")
-            .field("next", &self.next)
+            .field("next", &self.copier.peek_next())
             .finish()
     }
 }
@@ -130,15 +133,10 @@ impl BdevRebuildJobBackend {
         notify_fn: fn(&str, &str) -> (),
         descriptor: RebuildDescriptor,
     ) -> Result<Self, RebuildError> {
-        let be = Self {
-            next: descriptor.range.start,
+        Ok(Self {
             task_pool,
-            descriptor: Rc::new(descriptor),
+            copier: FullRebuild::new(descriptor),
             notify_fn,
-        };
-
-        info!("{be}: backend created");
-
-        Ok(be)
+        })
     }
 }

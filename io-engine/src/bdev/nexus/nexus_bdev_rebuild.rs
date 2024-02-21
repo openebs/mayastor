@@ -19,6 +19,7 @@ use crate::{
     rebuild::{
         HistoryRecord,
         NexusRebuildJob,
+        NexusRebuildJobStarter,
         RebuildError,
         RebuildJobOptions,
         RebuildState,
@@ -119,7 +120,8 @@ impl<'n> Nexus<'n> {
         }?;
 
         // Create a rebuild job for the child.
-        self.create_rebuild_job(&src_child_uri, &dst_child_uri)
+        let starter = self
+            .create_rebuild_job(&src_child_uri, &dst_child_uri)
             .await?;
 
         self.event(
@@ -146,8 +148,8 @@ impl<'n> Nexus<'n> {
             .lookup_child(&dst_child_uri)
             .and_then(|c| c.stop_io_log());
 
-        self.rebuild_job_mut(&dst_child_uri)?
-            .start(map)
+        starter
+            .start(self.rebuild_job_mut(&dst_child_uri)?, map)
             .await
             .context(nexus_err::RebuildOperation {
                 job: child_uri.to_owned(),
@@ -160,7 +162,7 @@ impl<'n> Nexus<'n> {
         &self,
         src_child_uri: &str,
         dst_child_uri: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<NexusRebuildJobStarter, Error> {
         let verify_mode = match std::env::var("NEXUS_REBUILD_VERIFY")
             .unwrap_or_default()
             .as_str()
@@ -186,7 +188,7 @@ impl<'n> Nexus<'n> {
             verify_mode,
         };
 
-        NexusRebuildJob::new(
+        NexusRebuildJob::new_starter(
             &self.name,
             src_child_uri,
             dst_child_uri,
@@ -202,7 +204,7 @@ impl<'n> Nexus<'n> {
             },
         )
         .await
-        .and_then(NexusRebuildJob::store)
+        .and_then(NexusRebuildJobStarter::store)
         .context(nexus_err::CreateRebuild {
             child: dst_child_uri.to_owned(),
             name: self.name.clone(),

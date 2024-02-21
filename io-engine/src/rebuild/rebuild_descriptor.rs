@@ -6,7 +6,6 @@ use spdk_rs::{
     IoVec,
     NvmeStatus,
 };
-use std::sync::Arc;
 
 use crate::{
     bdev::device_open,
@@ -26,7 +25,7 @@ use crate::{
     },
 };
 
-use super::{RebuildError, RebuildJobOptions, RebuildMap, RebuildVerifyMode};
+use super::{RebuildError, RebuildJobOptions, RebuildVerifyMode};
 
 /// Contains all descriptors and their associated information which allows the
 /// tasks to copy/rebuild data from source to destination.
@@ -53,8 +52,6 @@ pub(super) struct RebuildDescriptor {
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
-    /// Rebuild map.
-    pub(super) rebuild_map: Arc<parking_lot::Mutex<Option<RebuildMap>>>,
 }
 
 impl RebuildDescriptor {
@@ -127,7 +124,6 @@ impl RebuildDescriptor {
             src_descriptor,
             dst_descriptor,
             start_time: Utc::now(),
-            rebuild_map: Arc::new(parking_lot::Mutex::new(None)),
         })
     }
 
@@ -194,25 +190,6 @@ impl RebuildDescriptor {
                 bdev: descriptor.get_device().device_name(),
             }
         })
-    }
-
-    /// Checks if the block has to be transferred.
-    /// If no rebuild map is present, all blocks are considered unsynced.
-    #[inline(always)]
-    pub(super) fn is_blk_sync(&self, blk: u64) -> bool {
-        self.rebuild_map
-            .lock()
-            .as_ref()
-            .map_or(false, |m| m.is_blk_clean(blk))
-    }
-
-    /// Marks the rebuild segment starting from the given logical block as
-    /// already transferred.
-    #[inline(always)]
-    pub(super) fn blk_synced(&self, blk: u64) {
-        if let Some(map) = self.rebuild_map.lock().as_mut() {
-            map.blk_clean(blk);
-        }
     }
 
     /// Returns `IoVec` for the givem `DmaBuf`, with length adjusted to the copy

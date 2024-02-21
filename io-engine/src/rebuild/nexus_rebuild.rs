@@ -1,16 +1,23 @@
+use futures::channel::oneshot;
 use snafu::ResultExt;
 use spdk_rs::LbaRange;
-use std::{
-    ops::{Deref, Range},
-    rc::Rc,
-};
+use std::ops::{Deref, Range};
 
 use crate::{
     core::{DescriptorGuard, UntypedBdev},
     gen_rebuild_instances,
     rebuild::{
         rebuild_error::{RangeLockFailed, RangeUnlockFailed},
+        rebuild_job_backend::RebuildJobManager,
         rebuild_task::{RebuildTask, RebuildTaskCopier},
+        rebuilders::{
+            FullRebuild,
+            PartialSeqCopier,
+            PartialSeqRebuild,
+            RangeRebuilder,
+        },
+        RebuildMap,
+        RebuildState,
     },
 };
 
@@ -30,18 +37,37 @@ use super::{
 /// that there is no concurrent between the nexus and the rebuild.
 /// This is a frontend interface that communicates with a backend runner which
 /// is the one responsible for the read/writing of the data.
-pub struct NexusRebuildJob(RebuildJob);
+pub struct NexusRebuildJob {
+    job: RebuildJob,
+}
+
+/// Nexus supports both full and partial rebuilds. In case of a partial rebuild
+/// we have to provide the nexus rebuild job with a `RebuildMap`.
+/// However, this can only be provided after we've created the rebuild as taking
+/// the map from the nexus children is an operation which cannot be undone
+/// today.
+/// Therefore we use a rebuild job starter which creates the initial bits
+/// required for the rebuild job and which can be started later with or without
+/// the `RebuildMap`.
+pub struct NexusRebuildJobStarter {
+    /// The job itself is optional because it gets taken when we want to store.
+    /// After the job is taken, we then can schedule either a full or a partial
+    /// rebuild with the backend.
+    job: Option<NexusRebuildJob>,
+    manager: RebuildJobManager,
+    backend: NexusRebuildJobBackendStarter,
+}
 
 impl std::fmt::Debug for NexusRebuildJob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.job.fmt(f)
     }
 }
 impl Deref for NexusRebuildJob {
     type Target = RebuildJob;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.job
     }
 }
 
@@ -55,25 +81,65 @@ impl NexusRebuildJob {
     /// Builder::new(src, srd).with_range().with_options().with_nexus().build()
     /// GenericRebuild:
     /// Builder::new(src, srd).with_range().with_options().build()
-    pub async fn new(
+    pub async fn new_starter(
         nexus_name: &str,
         src_uri: &str,
         dst_uri: &str,
         range: Range<u64>,
         options: RebuildJobOptions,
         notify_fn: fn(String, String) -> (),
-    ) -> Result<Self, RebuildError> {
+    ) -> Result<NexusRebuildJobStarter, RebuildError> {
         let descriptor =
             RebuildDescriptor::new(src_uri, dst_uri, Some(range), options)
                 .await?;
         let tasks = RebuildTasks::new(SEGMENT_TASKS, &descriptor)?;
 
-        let backend = NexusRebuildJobBackend::new(
+        let backend = NexusRebuildJobBackendStarter::new(
             nexus_name, tasks, notify_fn, descriptor,
         )
         .await?;
 
-        RebuildJob::from_backend(backend).await.map(Self)
+        let manager = RebuildJobManager::new();
+
+        Ok(NexusRebuildJobStarter {
+            job: Some(Self {
+                job: RebuildJob::from_manager(&manager, &backend.descriptor),
+            }),
+            manager,
+            backend,
+        })
+    }
+}
+impl NexusRebuildJobStarter {
+    /// Store the inner rebuild job in the rebuild job list.
+    pub fn store(mut self) -> Result<Self, RebuildError> {
+        if let Some(job) = self.job.take() {
+            job.store()?;
+        }
+        Ok(self)
+    }
+    /// Schedules the job to start in a future and returns a complete channel
+    /// which can be waited on.
+    pub async fn start(
+        self,
+        job: std::sync::Arc<NexusRebuildJob>,
+        map: Option<RebuildMap>,
+    ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
+        match map {
+            None => {
+                self.manager
+                    .into_backend(self.backend.into_full())
+                    .schedule()
+                    .await;
+            }
+            Some(map) => {
+                self.manager
+                    .into_backend(self.backend.into_partial_seq(map))
+                    .schedule()
+                    .await;
+            }
+        }
+        job.start().await
     }
 }
 
@@ -102,66 +168,33 @@ impl Deref for NexusRebuildDescriptor {
 /// as a means of locking the range which is being rebuilt ensuring
 /// there are no concurrent writes to the same range between the
 /// user IO (through the nexus) and the rebuild itself.
-pub(super) struct NexusRebuildJobBackend {
-    /// The next block to be rebuilt.
-    next: u64,
+pub(super) struct NexusRebuildJobBackend<
+    T: RebuildTaskCopier,
+    R: RangeRebuilder<T>,
+> {
+    /// A pool of tasks which perform the actual data rebuild.
+    task_pool: RebuildTasks,
+    /// The range rebuilder which walks and copies the segments.
+    copier: R,
+    /// Notification callback which existing nexus uses to sync
+    /// with rebuild updates.
+    notify_fn: fn(String, String) -> (),
+    /// The name of the nexus this pertains to.
+    nexus_name: String,
+    _p: std::marker::PhantomData<T>,
+}
+
+/// A Nexus rebuild job backend starter.
+struct NexusRebuildJobBackendStarter {
     /// A pool of tasks which perform the actual data rebuild.
     task_pool: RebuildTasks,
     /// A nexus rebuild specific descriptor.
-    descriptor: Rc<NexusRebuildDescriptor>,
+    descriptor: NexusRebuildDescriptor,
     /// Notification callback which existing nexus uses to sync
     /// with rebuild updates.
     notify_fn: fn(String, String) -> (),
 }
-
-#[async_trait::async_trait(?Send)]
-impl RebuildBackend for NexusRebuildJobBackend {
-    fn on_state_change(&mut self) {
-        (self.notify_fn)(
-            self.descriptor.nexus_name.clone(),
-            self.descriptor.dst_uri.clone(),
-        );
-    }
-
-    fn common_desc(&self) -> &RebuildDescriptor {
-        &self.descriptor
-    }
-
-    fn task_pool(&self) -> &RebuildTasks {
-        &self.task_pool
-    }
-
-    fn schedule_task_by_id(&mut self, id: usize) -> bool {
-        match self.send_segment_task(id) {
-            Some(next) => {
-                self.task_pool.active += 1;
-                self.next = next;
-                true
-            }
-            // we've already got enough tasks to rebuild the destination
-            None => false,
-        }
-    }
-    async fn await_one_task(&mut self) -> Option<TaskResult> {
-        self.task_pool.await_one_task().await
-    }
-}
-
-impl std::fmt::Debug for NexusRebuildJobBackend {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NexusRebuildJob")
-            .field("nexus", &self.descriptor.nexus_name)
-            .field("next", &self.next)
-            .finish()
-    }
-}
-impl std::fmt::Display for NexusRebuildJobBackend {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "on nexus '{nex}'", nex = self.descriptor.nexus_name)
-    }
-}
-
-impl NexusRebuildJobBackend {
+impl NexusRebuildJobBackendStarter {
     /// Creates a new RebuildJob which rebuilds from source URI to target URI
     /// from start to end (of the data partition); notify_fn callback is called
     /// when the rebuild state is updated - with the nexus and destination
@@ -177,39 +210,109 @@ impl NexusRebuildJobBackend {
                 bdev: nexus_name.to_string(),
             })?;
 
-        let be = Self {
-            next: descriptor.range.start,
-            task_pool,
-            descriptor: Rc::new(NexusRebuildDescriptor {
-                nexus: nexus_descriptor,
-                nexus_name: nexus_name.to_string(),
-                common: descriptor,
-            }),
-            notify_fn,
+        let descriptor = NexusRebuildDescriptor {
+            nexus: nexus_descriptor,
+            nexus_name: nexus_name.to_string(),
+            common: descriptor,
         };
-
-        info!("{be}: backend created");
-
-        Ok(be)
+        Ok(Self {
+            descriptor,
+            task_pool,
+            notify_fn,
+        })
     }
 
-    /// Sends one segment worth of data in a reactor future and notifies the
-    /// management channel. Returns the next segment offset to rebuild, if any.
-    fn send_segment_task(&mut self, id: usize) -> Option<u64> {
-        if self.next >= self.descriptor.range.end {
-            None
-        } else {
-            let next = std::cmp::min(
-                self.next + self.descriptor.segment_size_blks,
-                self.descriptor.range.end,
-            );
-            self.task_pool.schedule_segment_rebuild(
-                id,
-                self.next,
-                self.descriptor.clone(),
-            );
-            Some(next)
+    fn into_partial_seq(
+        self,
+        map: RebuildMap,
+    ) -> NexusRebuildJobBackend<
+        PartialSeqCopier<NexusRebuildDescriptor>,
+        PartialSeqRebuild<NexusRebuildDescriptor>,
+    > {
+        NexusRebuildJobBackend {
+            task_pool: self.task_pool,
+            notify_fn: self.notify_fn,
+            nexus_name: self.descriptor.nexus_name.clone(),
+            copier: PartialSeqRebuild::new(map, self.descriptor),
+            _p: Default::default(),
         }
+    }
+    fn into_full(
+        self,
+    ) -> NexusRebuildJobBackend<
+        NexusRebuildDescriptor,
+        FullRebuild<NexusRebuildDescriptor>,
+    > {
+        NexusRebuildJobBackend {
+            task_pool: self.task_pool,
+            notify_fn: self.notify_fn,
+            nexus_name: self.descriptor.nexus_name.clone(),
+            copier: FullRebuild::new(self.descriptor),
+            _p: Default::default(),
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl<T: RebuildTaskCopier + 'static, R: RangeRebuilder<T>> RebuildBackend
+    for NexusRebuildJobBackend<T, R>
+{
+    fn on_state_change(&mut self) {
+        (self.notify_fn)(
+            self.nexus_name.clone(),
+            self.common_desc().dst_uri.clone(),
+        );
+    }
+
+    fn common_desc(&self) -> &RebuildDescriptor {
+        self.copier.desc()
+    }
+
+    fn blocks_remaining(&self) -> u64 {
+        self.copier.blocks_remaining()
+    }
+    fn is_partial(&self) -> bool {
+        self.copier.is_partial()
+    }
+
+    fn task_pool(&self) -> &RebuildTasks {
+        &self.task_pool
+    }
+
+    fn schedule_task_by_id(&mut self, id: usize) -> bool {
+        self.copier
+            .next()
+            .map(|blk| {
+                self.task_pool.schedule_segment_rebuild(
+                    id,
+                    blk,
+                    self.copier.copier(),
+                );
+                self.task_pool.active += 1;
+                true
+            })
+            .unwrap_or_default()
+    }
+    async fn await_one_task(&mut self) -> Option<TaskResult> {
+        self.task_pool.await_one_task().await
+    }
+}
+
+impl<T: RebuildTaskCopier + 'static, R: RangeRebuilder<T>> std::fmt::Debug
+    for NexusRebuildJobBackend<T, R>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NexusRebuildJob")
+            .field("nexus", &self.nexus_name)
+            .field("next", &self.copier.peek_next())
+            .finish()
+    }
+}
+impl<T: RebuildTaskCopier + 'static, R: RangeRebuilder<T>> std::fmt::Display
+    for NexusRebuildJobBackend<T, R>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "on nexus '{nex}'", nex = self.nexus_name)
     }
 }
 
@@ -232,15 +335,12 @@ impl RebuildTaskCopier for NexusRebuildDescriptor {
     ///
     /// The use of RangeContext here is safe because it is stored on the stack
     /// for the duration of the calls to lock and unlock.
+    #[inline]
     async fn copy_segment(
         &self,
         blk: u64,
         task: &mut RebuildTask,
     ) -> Result<bool, RebuildError> {
-        if self.is_blk_sync(blk) {
-            return Ok(false);
-        }
-
         let len = self.get_segment_size_blks(blk);
         // The nexus children have metadata and data partitions, whereas the
         // nexus has a data partition only. Because we are locking the range on
@@ -272,11 +372,6 @@ impl RebuildTaskCopier for NexusRebuildDescriptor {
                 blk,
                 len,
             })?;
-
-        // In the case of success, mark the segment as already transferred.
-        if result.is_ok() {
-            self.blk_synced(blk);
-        }
 
         result
     }

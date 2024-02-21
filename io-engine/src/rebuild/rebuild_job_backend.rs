@@ -1,4 +1,10 @@
-use std::sync::Arc;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::{channel::oneshot, FutureExt, StreamExt};
@@ -6,7 +12,6 @@ use futures::{channel::oneshot, FutureExt, StreamExt};
 use super::{
     RebuildDescriptor,
     RebuildError,
-    RebuildMap,
     RebuildState,
     RebuildStates,
     RebuildStats,
@@ -23,8 +28,6 @@ pub(super) enum RebuildJobRequest {
     WakeUp,
     /// Get the rebuild stats from the backend.
     GetStats(oneshot::Sender<RebuildStats>),
-    /// Set rebuild map for this job.
-    SetRebuildMap((RebuildMap, oneshot::Sender<()>)),
 }
 
 /// Channel to share information between frontend and backend.
@@ -72,6 +75,11 @@ pub(super) trait RebuildBackend:
     /// Get a reference to the common rebuild descriptor.
     fn common_desc(&self) -> &RebuildDescriptor;
 
+    /// Get the remaining blocks we have yet to be rebuilt.
+    fn blocks_remaining(&self) -> u64;
+    /// Check if this is a partial rebuild.
+    fn is_partial(&self) -> bool;
+
     /// Get a reference to the tasks pool.
     fn task_pool(&self) -> &RebuildTasks;
     /// Schedule new work on the given task by its id.
@@ -85,7 +93,7 @@ pub(super) trait RebuildBackend:
 
 /// A rebuild job is responsible for managing a rebuild (copy) which reads
 /// from source_hdl and writes into destination_hdl from specified start to end.
-pub(super) struct RebuildJobBackendManager {
+pub(super) struct RebuildJobManager {
     /// Channel used to signal rebuild update.
     pub notify_chan: (Sender<RebuildState>, Receiver<RebuildState>),
     /// Current state of the rebuild job.
@@ -97,9 +105,28 @@ pub(super) struct RebuildJobBackendManager {
     pub(super) info_chan: RebuildFBendChan,
     /// Job serial number.
     serial: u64,
+}
+
+/// A rebuild job is responsible for managing a rebuild (copy) which reads
+/// from source_hdl and writes into destination_hdl from specified start to end.
+pub(super) struct RebuildJobBackendManager {
+    manager: RebuildJobManager,
     /// The rebuild backend runner which implements the `RebuildBackend` and
     /// performs a specific type of rebuild copy.
     backend: Box<dyn RebuildBackend>,
+}
+
+impl Deref for RebuildJobBackendManager {
+    type Target = RebuildJobManager;
+
+    fn deref(&self) -> &Self::Target {
+        &self.manager
+    }
+}
+impl DerefMut for RebuildJobBackendManager {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.manager
+    }
 }
 
 impl std::fmt::Debug for RebuildJobBackendManager {
@@ -126,6 +153,31 @@ impl std::fmt::Display for RebuildJobBackendManager {
     }
 }
 
+impl RebuildJobManager {
+    pub fn new() -> Self {
+        // Job serial numbers.
+        static SERIAL: AtomicU64 = AtomicU64::new(1);
+
+        let serial = SERIAL.fetch_add(1, Ordering::SeqCst);
+        Self {
+            notify_chan: unbounded::<RebuildState>(),
+            states: Default::default(),
+            complete_chan: Default::default(),
+            info_chan: RebuildFBendChan::new(),
+            serial,
+        }
+    }
+    pub fn into_backend(
+        self,
+        backend: impl RebuildBackend + 'static,
+    ) -> RebuildJobBackendManager {
+        RebuildJobBackendManager {
+            manager: self,
+            backend: Box::new(backend),
+        }
+    }
+}
+
 impl RebuildJobBackendManager {
     /// Creates a new RebuildJob which rebuilds from source URI to target URI
     /// from start to end (of the data partition); notify_fn callback is called
@@ -133,11 +185,7 @@ impl RebuildJobBackendManager {
     /// URI as arguments.
     pub fn new(backend: impl RebuildBackend + 'static) -> Self {
         let be = Self {
-            notify_chan: unbounded::<RebuildState>(),
-            states: Default::default(),
-            complete_chan: Default::default(),
-            info_chan: RebuildFBendChan::new(),
-            serial: 0,
+            manager: RebuildJobManager::new(),
             backend: Box::new(backend),
         };
         info!("{be}: backend created");
@@ -262,20 +310,14 @@ impl RebuildJobBackendManager {
             blocks_total,
         );
 
-        let blocks_remaining = descriptor
-            .rebuild_map
-            .lock()
-            .as_ref()
-            .map_or(blocks_total - blocks_recovered, |log| {
-                log.count_dirty_blks()
-            });
+        let blocks_remaining = self.backend.blocks_remaining();
 
         let progress = (blocks_recovered * 100) / blocks_total;
         assert!(progress < 100 || blocks_remaining == 0);
 
         RebuildStats {
             start_time: descriptor.start_time,
-            is_partial: descriptor.rebuild_map.lock().is_some(),
+            is_partial: self.backend.is_partial(),
             blocks_total,
             blocks_recovered,
             blocks_transferred,
@@ -430,35 +472,12 @@ impl RebuildJobBackendManager {
             Some(RebuildJobRequest::GetStats(reply)) => {
                 self.reply_stats(reply).await.ok();
             }
-            Some(RebuildJobRequest::SetRebuildMap((map, s))) => {
-                self.set_rebuild_map(map, s).await.ok();
-            }
             None => {
                 self.fail_with(RebuildError::FrontendGone);
                 return false;
             }
         }
         true
-    }
-
-    /// Sets rebuild map for this job.
-    async fn set_rebuild_map(
-        &mut self,
-        map: RebuildMap,
-        s: oneshot::Sender<()>,
-    ) -> Result<(), RebuildError> {
-        {
-            let mut g = self.backend.common_desc().rebuild_map.lock();
-            if g.is_some() {
-                error!("{self}: rebuild map is already set");
-            } else {
-                *g = Some(map);
-                debug!("{self}: set rebuild map");
-            }
-        }
-
-        s.send(()).ok();
-        Ok(())
     }
 }
 

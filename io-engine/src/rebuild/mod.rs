@@ -12,7 +12,7 @@ mod rebuild_task;
 mod rebuilders;
 
 pub use bdev_rebuild::BdevRebuildJob;
-pub use nexus_rebuild::NexusRebuildJob;
+pub use nexus_rebuild::{NexusRebuildJob, NexusRebuildJobStarter};
 use rebuild_descriptor::RebuildDescriptor;
 pub(crate) use rebuild_error::RebuildError;
 use rebuild_job::RebuildOperation;

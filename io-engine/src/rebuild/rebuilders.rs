@@ -35,7 +35,6 @@ pub(super) struct FullRebuild<T: RebuildTaskCopier> {
 }
 impl<T: RebuildTaskCopier> FullRebuild<T> {
     /// Create a full rebuild with the given copier.
-    #[allow(dead_code)]
     pub(super) fn new(copier: T) -> Self {
         let desc = copier.descriptor();
         let range = desc.range.clone();
@@ -138,7 +137,6 @@ pub(super) struct PartialSeqRebuild<T: RebuildTaskCopier> {
 impl<T: RebuildTaskCopier> PartialSeqRebuild<T> {
     /// Create a partial sequential rebuild with the given copier and segment
     /// map.
-    #[allow(dead_code)]
     pub(super) fn new(map: RebuildMap, copier: T) -> Self {
         let desc = copier.descriptor();
         let range = desc.range.clone();

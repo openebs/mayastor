@@ -346,7 +346,7 @@ async fn rebuild_bdev() {
         )
         .await
         .unwrap();
-        let chan = job.start(None).await.unwrap();
+        let chan = job.start().await.unwrap();
         let state = chan.await.unwrap();
         assert_eq!(state, RebuildState::Completed, "Rebuild should succeed");
     })

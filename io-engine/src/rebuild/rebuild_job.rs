@@ -8,14 +8,16 @@ use super::{
     RebuildError,
     RebuildJobBackendManager,
     RebuildJobRequest,
-    RebuildMap,
     RebuildState,
     RebuildStates,
     RebuildStats,
 };
 use crate::{
     core::{Reactors, VerboseError},
-    rebuild::rebuild_job_backend::RebuildBackend,
+    rebuild::{
+        rebuild_descriptor::RebuildDescriptor,
+        rebuild_job_backend::{RebuildBackend, RebuildJobManager},
+    },
 };
 
 /// Rebuild I/O verification mode.
@@ -109,26 +111,27 @@ impl RebuildJob {
         Ok(frontend)
     }
 
+    /// Creates a new RebuildJob taking a specific backend implementation and
+    /// running the generic backend manager.
+    pub(super) fn from_manager(
+        manager: &RebuildJobManager,
+        desc: &RebuildDescriptor,
+    ) -> Self {
+        Self {
+            src_uri: desc.src_uri.to_string(),
+            dst_uri: desc.dst_uri.to_string(),
+            states: manager.states.clone(),
+            comms: RebuildFBendChan::from(&manager.info_chan),
+            complete_chan: Arc::downgrade(&manager.complete_chan),
+            notify_chan: manager.notify_chan.1.clone(),
+        }
+    }
+
     /// Schedules the job to start in a future and returns a complete channel
     /// which can be waited on.
     pub async fn start(
         &self,
-        map: Option<RebuildMap>,
     ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
-        if let Some(map) = map {
-            let (s, r) = oneshot::channel();
-            self.comms
-                .send(RebuildJobRequest::SetRebuildMap((map, s)))
-                .await
-                .ok();
-            if let Err(e) = r.await {
-                error!(
-                    "{uri}: failed to set rebuild map: {e}",
-                    uri = self.dst_uri
-                );
-            }
-        }
-
         self.exec_client_op(RebuildOperation::Start)?;
         self.add_completion_listener()
     }
