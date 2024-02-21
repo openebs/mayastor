@@ -21,14 +21,13 @@
 //!    of consistency, the mount table is also checked to ENSURE that the device
 //!    is not mounted)
 
+use crate::constants::{NEXUS_CAS_DRIVER, NVME_CONTROLLER_MODEL_ID};
+use devinfo::mountinfo::{MountInfo, SafeMountIter};
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
     io::Error,
 };
-
-use crate::constants::{NEXUS_CAS_DRIVER, NVME_CONTROLLER_MODEL_ID};
-use proc_mounts::{MountInfo, MountIter};
 use udev::{Device, Enumerator};
 
 // Struct representing a property value in a udev::Device struct (and possibly
@@ -278,7 +277,7 @@ fn new_device(
 fn get_mounts() -> Result<HashMap<OsString, Vec<MountInfo>>, Error> {
     let mut table: HashMap<OsString, Vec<MountInfo>> = HashMap::new();
 
-    for mount in (MountIter::new()?).flatten() {
+    for mount in SafeMountIter::get()?.flatten() {
         let mount_source = OsString::from(mount.source.clone());
         if !table.contains_key(&mount_source) {
             table.insert(mount_source.clone(), Vec::new());
