@@ -485,6 +485,34 @@ impl NexusRpc for NexusService {
     }
 
     #[named]
+    async fn resize_nexus(
+        &self,
+        request: Request<ResizeNexusRequest>,
+    ) -> GrpcResult<ResizeNexusResponse> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        self.serialized(ctx, args.uuid.clone(), false, async move {
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                info!("{args:?}");
+                nexus_lookup(&args.uuid)?
+                    .resize(args.requested_size)
+                    .await?;
+                info!("Nexus {} resized to {}", args.uuid, args.requested_size);
+                Ok(ResizeNexusResponse {
+                    nexus: Some(nexus_lookup(&args.uuid)?.into_grpc().await),
+                })
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
+    }
+
+    #[named]
     async fn shutdown_nexus(
         &self,
         request: Request<ShutdownNexusRequest>,

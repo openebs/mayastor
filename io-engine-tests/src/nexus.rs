@@ -17,6 +17,7 @@ use super::{
             RebuildHistoryRecord,
             RebuildHistoryRequest,
             RemoveChildNexusRequest,
+            ResizeNexusRequest,
             ShutdownNexusRequest,
         },
         snapshot::SnapshotInfo,
@@ -245,6 +246,19 @@ impl NexusBuilder {
                 key: String::new(),
                 share: 1,
                 ..Default::default()
+            })
+            .await
+            .map(|r| r.into_inner().nexus.unwrap())
+    }
+
+    pub async fn resize(&self, req_size: u64) -> Result<Nexus, Status> {
+        self.rpc()
+            .lock()
+            .await
+            .nexus
+            .resize_nexus(ResizeNexusRequest {
+                uuid: self.uuid(),
+                requested_size: req_size,
             })
             .await
             .map(|r| r.into_inner().nexus.unwrap())

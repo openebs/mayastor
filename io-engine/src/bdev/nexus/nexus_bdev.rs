@@ -18,6 +18,7 @@ use std::{
 
 use crossbeam::atomic::AtomicCell;
 use futures::channel::oneshot;
+use nix::errno::Errno;
 use serde::Serialize;
 use snafu::ResultExt;
 use uuid::Uuid;
@@ -69,6 +70,7 @@ use crate::{
 use crate::core::{BlockDeviceIoStats, CoreError, IoCompletionStatus};
 use events_api::event::EventAction;
 use spdk_rs::{
+    libspdk::spdk_bdev_notify_blockcnt_change,
     BdevIo,
     BdevOps,
     ChannelTraverseStatus,
@@ -98,6 +100,7 @@ pub enum NexusOperation {
     ReplicaRemove,
     ReplicaOnline,
     ReplicaFault,
+    NexusResize,
     NexusSnapshot,
 }
 
@@ -681,7 +684,10 @@ impl<'n> Nexus<'n> {
     }
 
     /// Configure nexus's block device to match parameters of the child devices.
-    async fn setup_nexus_bdev(mut self: Pin<&mut Self>) -> Result<(), Error> {
+    async fn setup_nexus_bdev(
+        mut self: Pin<&mut Self>,
+        resizing: bool,
+    ) -> Result<(), Error> {
         let name = self.name.clone();
 
         if self.children().is_empty() {
@@ -725,7 +731,23 @@ impl<'n> Nexus<'n> {
             }
 
             match partition::calc_data_partition(self.req_size(), nb, bs) {
-                Some((start, end)) => {
+                Some((start, end, req_blocks)) => {
+                    // During expansion - if the requested number of blocks
+                    // aren't available on any child device,
+                    // then the operation needs to fail in its entirety. Hence
+                    // make sure that the `end` block number
+                    // returned is greater than the current end block number.
+                    // XXX: A shrink operation has to be taken care of later, if
+                    // needed.
+                    if resizing && (end <= (start + self.num_blocks())) {
+                        return Err(Error::ChildTooSmall {
+                            child: child.uri().to_owned(),
+                            name,
+                            num_blocks: nb,
+                            block_size: bs,
+                            req_blocks,
+                        });
+                    }
                     if start_blk == 0 {
                         start_blk = start;
                         end_blk = end;
@@ -746,6 +768,7 @@ impl<'n> Nexus<'n> {
                         name,
                         num_blocks: nb,
                         block_size: bs,
+                        req_blocks: self.req_size() / bs,
                     })
                 }
             }
@@ -754,15 +777,33 @@ impl<'n> Nexus<'n> {
         unsafe {
             self.as_mut().set_data_ent_offset(start_blk);
             self.as_mut().set_block_len(blk_size as u32);
-            self.as_mut().set_num_blocks(end_blk - start_blk);
+            let nbdev = self.as_mut().bdev_mut().unsafe_inner_mut_ptr();
+            if !resizing {
+                self.as_mut().set_num_blocks(end_blk - start_blk);
+            } else {
+                let rc = spdk_bdev_notify_blockcnt_change(
+                    nbdev,
+                    end_blk - start_blk,
+                );
+                if rc != 0 {
+                    error!(
+                        "{self:?}: failed to notify block cnt change on nexus"
+                    );
+                    return Err(Error::NexusResize {
+                        source: Errno::from_i32(rc),
+                        name,
+                    });
+                }
+            }
         }
 
         info!(
-            "{self:?}: nexus device initialized: \
+            "{self:?}: nexus device {action}: \
             requested={req_blk} blocks ({req} bytes) \
             start block={start_blk}, end block={end_blk}, \
             block size={blk_size}, \
             smallest devices size={min_dev_size} blocks",
+            action = if resizing { "resized" } else { "initialized" },
             req_blk = self.req_size() / blk_size,
             req = self.req_size(),
         );
@@ -781,7 +822,7 @@ impl<'n> Nexus<'n> {
 
         info!("{:?}: registering nexus bdev...", nex);
 
-        nex.as_mut().setup_nexus_bdev().await?;
+        nex.as_mut().setup_nexus_bdev(false).await?;
 
         // Register the bdev with SPDK and set the callbacks for io channel
         // creation.
@@ -891,6 +932,34 @@ impl<'n> Nexus<'n> {
                 }
             }
         }
+    }
+
+    /// Resize the nexus as part of volume resize workflow. The underlying
+    /// replicas are already resized before nexus resize is called.
+    pub async fn resize(
+        mut self: Pin<&mut Self>,
+        resize_to: u64,
+    ) -> Result<(), Error> {
+        // XXX: This check is likely relevant for resize as well to
+        // avoid unforeseen complications.
+        self.check_nexus_operation(NexusOperation::NexusResize)?;
+
+        let current_size = self.req_size();
+        if current_size == resize_to {
+            return Ok(());
+        }
+        info!(
+            "Resizing nexus {} from {current_size} to {resize_to}",
+            self.uuid()
+        );
+        unsafe { self.as_mut().set_req_size(resize_to) };
+        let ret = self.as_mut().setup_nexus_bdev(true).await;
+        if ret.is_err() {
+            // Reset the req_size back to original in case of failure.
+            unsafe { self.as_mut().set_req_size(current_size) };
+        }
+
+        ret
     }
 
     /// Returns a mutable reference to Nexus I/O.
@@ -1255,6 +1324,11 @@ impl<'n> Nexus<'n> {
     /// TODO
     pub(crate) unsafe fn set_data_ent_offset(self: Pin<&mut Self>, val: u64) {
         self.get_unchecked_mut().data_ent_offset = val;
+    }
+
+    /// Sets the requested nexus size.
+    pub(crate) unsafe fn set_req_size(self: Pin<&mut Self>, val: u64) {
+        self.get_unchecked_mut().req_size = val;
     }
 }
 

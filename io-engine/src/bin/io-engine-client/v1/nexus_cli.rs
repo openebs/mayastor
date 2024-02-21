@@ -196,6 +196,16 @@ pub fn subcommands() -> Command {
             .help("uuid of nexus"),
     );
 
+    let resize = Command::new("resize")
+        .about("Resize nexus")
+        .arg(Arg::new("uuid").required(true).index(1).help("Nexus uuid"))
+        .arg(
+            Arg::new("size")
+                .required(true)
+                .index(2)
+                .help("Requested new size of the nexus"),
+        );
+
     Command::new("nexus")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -210,6 +220,7 @@ pub fn subcommands() -> Command {
         .subcommand(ana_state)
         .subcommand(list)
         .subcommand(children)
+        .subcommand(resize)
         .subcommand(nexus_child_cli::subcommands())
 }
 
@@ -220,6 +231,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("shutdown", args) => nexus_shutdown(ctx, args).await,
         ("list", args) => nexus_list(ctx, args).await,
         ("children", args) => nexus_children_2(ctx, args).await,
+        ("resize", args) => nexus_resize(ctx, args).await,
         ("publish", args) => nexus_publish(ctx, args).await,
         ("unpublish", args) => nexus_unpublish(ctx, args).await,
         ("ana_state", args) => nexus_nvme_ana_state(ctx, args).await,
@@ -558,6 +570,54 @@ async fn nexus_children_2(
                 vec!["NAME", "STATE", "REASON", "LAST_FAULTED_AT"],
                 table,
             );
+        }
+    };
+
+    Ok(())
+}
+
+async fn nexus_resize(
+    mut ctx: Context,
+    matches: &ArgMatches,
+) -> crate::Result<()> {
+    let uuid = matches
+        .get_one::<String>("uuid")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_owned();
+
+    let requested_size =
+        parse_size(matches.get_one::<String>("size").ok_or_else(|| {
+            ClientError::MissingValue {
+                field: "size".to_string(),
+            }
+        })?)
+        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
+        .context(GrpcStatus)?;
+
+    let response = ctx
+        .v1
+        .nexus
+        .resize_nexus(v1::nexus::ResizeNexusRequest {
+            uuid: uuid.clone(),
+            requested_size: requested_size.get_bytes() as u64,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("Resized nexus {uuid} to {requested_size}");
         }
     };
 

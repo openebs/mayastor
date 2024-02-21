@@ -11,6 +11,7 @@ use io_engine_api::v1::replica::{
     DestroyReplicaRequest,
     ListReplicaOptions,
     Replica,
+    ResizeReplicaRequest,
     ShareReplicaRequest,
 };
 
@@ -181,6 +182,22 @@ impl ReplicaBuilder {
             .await
             .map(|r| r.into_inner())?;
         self.shared_uri = Some(r.uri.clone());
+        Ok(r)
+    }
+
+    pub async fn resize(&mut self, req_size: u64) -> Result<Replica, Status> {
+        let r = self
+            .rpc()
+            .lock()
+            .await
+            .replica
+            .resize_replica(ResizeReplicaRequest {
+                uuid: self.uuid(),
+                requested_size: req_size,
+            })
+            .await
+            .map(|r| r.into_inner())?;
+        self.size = Some(r.size);
         Ok(r)
     }
 

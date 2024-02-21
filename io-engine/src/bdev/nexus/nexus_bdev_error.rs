@@ -67,10 +67,12 @@ pub enum Error {
     ))]
     NexusIncomplete { name: String, reason: String },
     #[snafu(display(
-        "Child {} of nexus {} is too small: size = {} x {}",
+        "Child {} of nexus {} is too small: size = {} x {}, required = {} x {}",
         child,
         name,
         num_blocks,
+        block_size,
+        req_blocks,
         block_size
     ))]
     ChildTooSmall {
@@ -78,6 +80,7 @@ pub enum Error {
         name: String,
         num_blocks: u64,
         block_size: u64,
+        req_blocks: u64,
     },
     #[snafu(display("Children of nexus {} have mixed block sizes", name))]
     MixedBlockSizes { name: String },
@@ -183,6 +186,8 @@ pub enum Error {
     NexusCreate { name: String, reason: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
     NexusDestroy { name: String },
+    #[snafu(display("Failed to resize nexus {}", name))]
+    NexusResize { source: Errno, name: String },
     #[snafu(display(
         "Child {} of nexus {} is not degraded but {}",
         child,
@@ -281,6 +286,12 @@ impl From<Error> for tonic::Status {
             Error::RebuildJobNotFound {
                 ..
             } => Status::not_found(e.to_string()),
+            Error::NexusIncomplete {
+                ..
+            } => Status::failed_precondition(e.verbose()),
+            Error::NexusResize {
+                ..
+            } => Status::failed_precondition(e.to_string()),
             Error::NexusNotFound {
                 ..
             } => Status::not_found(e.to_string()),
