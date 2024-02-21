@@ -191,6 +191,7 @@ async fn replica_create(
     let request = v1_rpc::replica::CreateReplicaRequest {
         name,
         uuid: uuid.clone(),
+        entity_id: None,
         pooluuid,
         thin,
         share,
