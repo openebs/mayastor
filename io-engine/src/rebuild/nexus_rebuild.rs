@@ -215,6 +215,10 @@ impl NexusRebuildJobBackend {
 
 #[async_trait::async_trait(?Send)]
 impl RebuildTaskCopier for NexusRebuildDescriptor {
+    fn descriptor(&self) -> &RebuildDescriptor {
+        &self.common
+    }
+
     /// Copies one segment worth of data from source into destination. During
     /// this time the LBA range being copied is locked so that there cannot be
     /// front end I/O to the same LBA range.

@@ -96,4 +96,15 @@ impl SegmentMap {
     pub(crate) fn count_dirty_blks(&self) -> u64 {
         self.count_ones() * self.segment_size / self.block_len
     }
+
+    /// Get the segment size in blocks.
+    pub(crate) fn segment_size_blks(&self) -> u64 {
+        self.segment_size / self.block_len
+    }
+}
+
+impl From<SegmentMap> for BitVec {
+    fn from(value: SegmentMap) -> Self {
+        value.segments
+    }
 }
