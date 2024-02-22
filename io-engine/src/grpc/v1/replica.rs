@@ -125,6 +125,7 @@ impl From<Lvol> for Replica {
         Self {
             name: l.name(),
             uuid: l.uuid(),
+            entity_id: None,
             pooluuid: l.pool_uuid(),
             size: usage.capacity_bytes,
             thin: l.is_thin(),
@@ -529,5 +530,12 @@ impl ReplicaRpc for ReplicaService {
             },
         )
         .await
+    }
+
+    async fn set_replica_entity_id(
+        &self,
+        _request: Request<SetReplicaEntityIdRequest>,
+    ) -> GrpcResult<Replica> {
+        unimplemented!()
     }
 }
