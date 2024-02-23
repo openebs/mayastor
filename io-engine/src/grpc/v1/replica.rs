@@ -118,14 +118,9 @@ impl From<LvolSpaceUsage> for ReplicaSpaceUsage {
 impl From<Lvol> for Replica {
     fn from(l: Lvol) -> Self {
         let usage = l.usage();
-        let source_uuid = Lvol::get_blob_xattr(
-            l.blob_checked(),
-            CloneXattrs::SourceUuid.name(),
-        );
         Self {
             name: l.name(),
             uuid: l.uuid(),
-            entity_id: None,
             pooluuid: l.pool_uuid(),
             size: usage.capacity_bytes,
             thin: l.is_thin(),
@@ -136,7 +131,11 @@ impl From<Lvol> for Replica {
             allowed_hosts: l.allowed_hosts(),
             is_snapshot: l.is_snapshot(),
             is_clone: l.is_snapshot_clone().is_some(),
-            snapshot_uuid: source_uuid,
+            snapshot_uuid: Lvol::get_blob_xattr(
+                l.blob_checked(),
+                CloneXattrs::SourceUuid.name(),
+            ),
+            entity_id: Lvol::get_blob_xattr(l.blob_checked(), "entity_id"),
         }
     }
 }
@@ -253,6 +252,9 @@ impl ReplicaRpc for ReplicaService {
                     }
                     Ok(lvol) => {
                         debug!("created lvol {:?}", lvol);
+                        if let Some(v) = &args.entity_id {
+                            let _ = lvol.set_blob_attr("entity_id", v.to_string(), true).await;
+                        }
                         Ok(Replica::from(lvol))
                     }
                     Err(e) => Err(e),
@@ -532,10 +534,41 @@ impl ReplicaRpc for ReplicaService {
         .await
     }
 
+    #[named]
     async fn set_replica_entity_id(
         &self,
-        _request: Request<SetReplicaEntityIdRequest>,
+        request: Request<SetReplicaEntityIdRequest>,
     ) -> GrpcResult<Replica> {
-        unimplemented!()
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{args:?}");
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    if let Some(bdev) =
+                        UntypedBdev::lookup_by_uuid_str(&args.uuid)
+                    {
+                        let lvol = Lvol::try_from(bdev)?;
+                        let _ = lvol
+                            .set_blob_attr("entity_id", args.entity_id, true)
+                            .await;
+                        Ok(Replica::from(lvol))
+                    } else {
+                        Err(LvsError::InvalidBdev {
+                            source: BdevError::BdevNotFound {
+                                name: args.uuid.clone(),
+                            },
+                            name: args.uuid,
+                        })
+                    }
+                })?;
+
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
     }
 }
