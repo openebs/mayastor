@@ -9,12 +9,14 @@ use crate::{
         SnapshotXattrs,
         UntypedBdev,
     },
+    eventing::Event,
     ffihelper::{cb_arg, IntoCString},
     lvs::{lvs_lvol::LvsLvol, Lvol},
     subsys::NvmfReq,
 };
 use async_trait::async_trait;
 use chrono::Utc;
+use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use spdk_rs::libspdk::{
@@ -252,7 +254,10 @@ impl SnapshotOps for Lvol {
         let (error, lvol_ptr) =
             receiver.await.expect("Snapshot done callback disappeared");
         match error {
-            0 => Ok(Lvol::from_inner_ptr(lvol_ptr)),
+            0 => {
+                snap_param.event(EventAction::Create).generate();
+                Ok(Lvol::from_inner_ptr(lvol_ptr))
+            }
             _ => Err(Error::SnapshotCreate {
                 source: Errno::from_i32(error),
                 msg: snap_param.name().unwrap(),
@@ -268,6 +273,7 @@ impl SnapshotOps for Lvol {
         unsafe {
             self.create_snapshot_inner(&snap_param, done_cb, done_cb_arg)?;
         }
+        snap_param.event(EventAction::Create).generate();
         Ok(())
     }
 
@@ -406,7 +412,10 @@ impl SnapshotOps for Lvol {
             .await
             .expect("Snapshot Clone done callback disappeared");
         match error {
-            0 => Ok(Lvol::from_inner_ptr(lvol_ptr)),
+            0 => {
+                clone_param.event(EventAction::Create).generate();
+                Ok(Lvol::from_inner_ptr(lvol_ptr))
+            }
             _ => Err(Error::SnapshotCloneCreate {
                 source: Errno::from_i32(error),
                 msg: clone_param.clone_name().unwrap_or_default(),
@@ -573,6 +582,7 @@ impl SnapshotOps for Lvol {
             )
             .await?;
         }
+
         Ok(())
     }
 

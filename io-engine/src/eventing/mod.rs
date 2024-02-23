@@ -1,9 +1,11 @@
+mod clone_events;
 pub(crate) mod host_events;
 pub(crate) mod io_engine_events;
 mod nexus_child_events;
 pub(crate) mod nexus_events;
 mod pool_events;
 pub(crate) mod replica_events;
+mod snapshot_events;
 use events_api::event::{EventAction, EventMessage, EventMeta};
 
 /// Event trait definition for creating events.
