@@ -364,6 +364,45 @@ async fn nexus_partial_rebuild_offline_online() {
 
     // check that 3 segments were rebuilt.
     assert_eq!(hist[0].blocks_transferred, 3 * SEG_BLK);
+
+    // Offline the replica.
+    nex_0
+        .offline_child_replica_wait(&repl_0, Duration::from_secs(1))
+        .await
+        .unwrap();
+
+    let children = nex_0.get_nexus().await.unwrap().children;
+    assert_eq!(children[0].state(), ChildState::Degraded);
+    assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
+
+    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+
+    test_write_to_nexus(
+        &nex_0,
+        DataSize::from_kb_blocks(0, 0),
+        3,
+        DataSize::from_kb(64),
+    )
+    .await
+    .unwrap();
+
+    // Bring the child online. That will trigger partial rebuild.
+    nex_0.online_child_replica(&repl_0).await.unwrap();
+    nex_0
+        .wait_children_online(std::time::Duration::from_secs(10))
+        .await
+        .unwrap();
+
+    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+
+    let hist = nex_0.get_rebuild_history().await.unwrap();
+    assert_eq!(hist.len(), 2);
+    assert_eq!(hist[1].child_uri, repl_0.shared_uri());
+    assert_eq!(hist[1].src_uri, repl_1.shared_uri());
+    assert!(hist[1].is_partial);
+
+    // check that 3 segments were rebuilt.
+    assert_eq!(hist[1].blocks_transferred, 3 * SEG_BLK);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
