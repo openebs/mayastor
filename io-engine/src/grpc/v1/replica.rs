@@ -135,7 +135,7 @@ impl From<Lvol> for Replica {
                 l.blob_checked(),
                 CloneXattrs::SourceUuid.name(),
             ),
-            entity_id: Lvol::get_blob_xattr(l.blob_checked(), "entity_id"),
+            entity_id: l.entity_id(),
         }
     }
 }

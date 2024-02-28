@@ -645,6 +645,11 @@ impl LogicalVolume for Lvol {
         self.lvs().uuid()
     }
 
+    /// Returns entity id of the Logical Volume.
+    fn entity_id(&self) -> Option<String> {
+        Lvol::get_blob_xattr(self.blob_checked(), "entity_id")
+    }
+
     /// Returns a boolean indicating if the Logical Volume is thin provisioned.
     fn is_thin(&self) -> bool {
         unsafe { spdk_blob_is_thin_provisioned(self.blob_checked()) }
