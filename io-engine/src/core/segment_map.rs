@@ -68,7 +68,8 @@ impl SegmentMap {
         assert_ne!(self.num_blocks, 0);
 
         let start_seg = self.lbn_to_seg(lbn);
-        let end_seg = self.lbn_to_seg(lbn + lbn_cnt);
+        // when `lbn_cnt` is 1 means we write only the `lbn` blk, not `lbn` + 1
+        let end_seg = self.lbn_to_seg(lbn + lbn_cnt - 1);
         for i in start_seg ..= end_seg {
             self.segments.set(i, value);
         }
