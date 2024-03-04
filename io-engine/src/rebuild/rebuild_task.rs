@@ -195,6 +195,7 @@ impl RebuildTasks {
 /// can be expanded for sub-segment copies.
 #[async_trait::async_trait(?Send)]
 pub(super) trait RebuildTaskCopier {
+    fn descriptor(&self) -> &RebuildDescriptor;
     /// Copies an entire segment at the given block address, from source to
     /// target using a `DmaBuf`.
     async fn copy_segment(
@@ -206,25 +207,16 @@ pub(super) trait RebuildTaskCopier {
 
 #[async_trait::async_trait(?Send)]
 impl RebuildTaskCopier for RebuildDescriptor {
+    fn descriptor(&self) -> &RebuildDescriptor {
+        self
+    }
+
     /// Copies one segment worth of data from source into destination.
     async fn copy_segment(
         &self,
         blk: u64,
         task: &mut RebuildTask,
     ) -> Result<bool, RebuildError> {
-        // todo: move the map out of the descriptor, into the specific backends.
-        if self.is_blk_sync(blk) {
-            return Ok(false);
-        }
-
-        // Perform the copy.
-        let result = task.copy_one(blk, self).await;
-
-        // In the case of success, mark the segment as already transferred.
-        if result.is_ok() {
-            self.blk_synced(blk);
-        }
-
-        result
+        task.copy_one(blk, self).await
     }
 }

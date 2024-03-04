@@ -1,3 +1,4 @@
+use bit_vec::BitVec;
 use std::fmt::{Debug, Formatter};
 
 use crate::core::SegmentMap;
@@ -60,5 +61,16 @@ impl RebuildMap {
     /// Counts the total number of dirty (to be transferred) blocks.
     pub(crate) fn count_dirty_blks(&self) -> u64 {
         self.segments.count_dirty_blks()
+    }
+
+    /// Get the rebuild map segment size in blocks.
+    pub(crate) fn segment_size_blks(&self) -> u64 {
+        self.segments.segment_size_blks()
+    }
+}
+
+impl From<RebuildMap> for BitVec {
+    fn from(value: RebuildMap) -> Self {
+        value.segments.into()
     }
 }
