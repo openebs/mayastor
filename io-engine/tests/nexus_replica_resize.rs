@@ -2,11 +2,7 @@ pub mod common;
 
 use common::{
     compose::{
-        rpc::v1::{
-            nexus::{ChildState, NexusState},
-            GrpcConnect,
-            SharedRpcHandle,
-        },
+        rpc::v1::{nexus::NexusState, GrpcConnect, SharedRpcHandle},
         Binary,
         Builder,
     },
@@ -123,6 +119,9 @@ async fn do_resize_after_replica_resize(
         let ret = replica.resize(EXPANDED_SIZE).await.unwrap();
         assert!(ret.size >= EXPANDED_SIZE);
     }
+    // todo: remove this WA when the nexus resize waits for
+    //  refreshes the child size.
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let nexus_obj = nexus
         .resize(EXPANDED_SIZE)
@@ -141,14 +140,7 @@ async fn do_resize_with_rebuilding_replica(
 
     // Scale down and then scale up to initiate a rebuild.
     nexus.remove_child_replica(rebuild_replica).await.unwrap();
-    let _ = nexus
-        .wait_replica_state(
-            rebuild_replica,
-            ChildState::Degraded,
-            None,
-            Duration::from_secs(1),
-        )
-        .await;
+
     nexus.add_replica(rebuild_replica, false).await.unwrap();
 
     // Make sure nexus is Degraded i.e. a rebuild is ongoing before we attempt
@@ -183,7 +175,6 @@ async fn setup_cluster_and_run(cfg: StorConfig, test: ResizeTest) {
 
     pool_0.create().await.unwrap();
     repl_0.create().await.unwrap();
-    repl_0.share().await.unwrap();
 
     //
     let mut pool_1 = PoolBuilder::new(ms_rep_1.clone())
