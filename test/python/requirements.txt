@@ -1,5 +1,5 @@
 asyncio==3.4.3
-asyncssh==2.14.1
+asyncssh==2.14.2
 black==22.10.0
 protobuf==4.21.8
 pytest==7.4.4
