@@ -11,10 +11,21 @@ jobs:
   submodule-branch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        env:
+          checkout_token: ${{ secrets.ORG_CI_GITHUB }}
+        if: ${{ env.checkout_token == '' }}
         with:
           fetch-depth: 0
           submodules: recursive
+      - uses: actions/checkout@v4
+        env:
+          checkout_token: ${{ secrets.ORG_CI_GITHUB }}
+        if: ${{ env.checkout_token != '' }}
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.ORG_CI_GITHUB }}
       - name: Check root submodules branch
         run: |
           pr_branch="${{ github.event.pull_request.base.ref }}"
