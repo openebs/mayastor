@@ -20,6 +20,9 @@ pub trait LogicalVolume {
     /// Returns the pool uuid of the Logical Volume
     fn pool_uuid(&self) -> String;
 
+    /// Returns entity id of the Logical Volume.
+    fn entity_id(&self) -> Option<String>;
+
     /// Returns a boolean indicating if the Logical Volume is thin provisioned
     fn is_thin(&self) -> bool;
 

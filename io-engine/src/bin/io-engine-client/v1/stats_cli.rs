@@ -24,6 +24,13 @@ pub fn subcommands() -> Command {
             .help("Volume target/nexus name"),
     );
 
+    let replica = Command::new("replica").about("Get Replica IO Stats").arg(
+        Arg::new("name")
+            .required(false)
+            .index(1)
+            .help("Replica name"),
+    );
+
     let reset = Command::new("reset").about("Reset all resource IO Stats");
 
     Command::new("stats")
@@ -32,6 +39,7 @@ pub fn subcommands() -> Command {
         .about("Resource IOStats")
         .subcommand(pool)
         .subcommand(nexus)
+        .subcommand(replica)
         .subcommand(reset)
 }
 
@@ -39,6 +47,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     match matches.subcommand().unwrap() {
         ("pool", args) => pool(ctx, args).await,
         ("nexus", args) => nexus(ctx, args).await,
+        ("replica", args) => replica(ctx, args).await,
         ("reset", _) => reset(ctx).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist")))
@@ -84,36 +93,26 @@ async fn pool(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
 
             let table = stats
                 .iter()
-                .map(|p| {
-                    let read_latency =
-                        ticks_to_time(p.read_latency_ticks, p.tick_rate);
-                    let write_latency =
-                        ticks_to_time(p.write_latency_ticks, p.tick_rate);
-                    let unmap_latency =
-                        ticks_to_time(p.unmap_latency_ticks, p.tick_rate);
-                    let max_read_latency =
-                        ticks_to_time(p.max_read_latency_ticks, p.tick_rate);
-                    let min_read_latency =
-                        ticks_to_time(p.min_read_latency_ticks, p.tick_rate);
-                    let max_write_latency =
-                        ticks_to_time(p.max_write_latency_ticks, p.tick_rate);
-                    let min_write_latency =
-                        ticks_to_time(p.min_write_latency_ticks, p.tick_rate);
+                .map(|stats| {
+                    let tick_rate = stats.tick_rate;
+                    let ticks_time = |ticks| -> String {
+                        ticks_to_time(ticks, tick_rate).to_string()
+                    };
                     vec![
-                        p.name.clone(),
-                        p.num_read_ops.to_string(),
-                        adjust_bytes(p.bytes_read),
-                        p.num_write_ops.to_string(),
-                        adjust_bytes(p.bytes_written),
-                        p.num_unmap_ops.to_string(),
-                        adjust_bytes(p.bytes_unmapped),
-                        read_latency.to_string(),
-                        write_latency.to_string(),
-                        unmap_latency.to_string(),
-                        max_read_latency.to_string(),
-                        min_read_latency.to_string(),
-                        max_write_latency.to_string(),
-                        min_write_latency.to_string(),
+                        stats.name.clone(),
+                        stats.num_read_ops.to_string(),
+                        adjust_bytes(stats.bytes_read),
+                        stats.num_write_ops.to_string(),
+                        adjust_bytes(stats.bytes_written),
+                        stats.num_unmap_ops.to_string(),
+                        adjust_bytes(stats.bytes_unmapped),
+                        ticks_time(stats.read_latency_ticks),
+                        ticks_time(stats.write_latency_ticks),
+                        ticks_time(stats.unmap_latency_ticks),
+                        ticks_time(stats.max_read_latency_ticks),
+                        ticks_time(stats.min_read_latency_ticks),
+                        ticks_time(stats.max_write_latency_ticks),
+                        ticks_time(stats.min_write_latency_ticks),
                     ]
                 })
                 .collect();
@@ -178,36 +177,112 @@ async fn nexus(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
 
             let table = stats
                 .iter()
-                .map(|p| {
-                    let read_latency =
-                        ticks_to_time(p.read_latency_ticks, p.tick_rate);
-                    let write_latency =
-                        ticks_to_time(p.write_latency_ticks, p.tick_rate);
-                    let unmap_latency =
-                        ticks_to_time(p.unmap_latency_ticks, p.tick_rate);
-                    let max_read_latency =
-                        ticks_to_time(p.max_read_latency_ticks, p.tick_rate);
-                    let min_read_latency =
-                        ticks_to_time(p.min_read_latency_ticks, p.tick_rate);
-                    let max_write_latency =
-                        ticks_to_time(p.max_write_latency_ticks, p.tick_rate);
-                    let min_write_latency =
-                        ticks_to_time(p.min_write_latency_ticks, p.tick_rate);
+                .map(|stats| {
+                    let tick_rate = stats.tick_rate;
+                    let ticks_time = |ticks| -> String {
+                        ticks_to_time(ticks, tick_rate).to_string()
+                    };
                     vec![
-                        p.name.clone(),
-                        p.num_read_ops.to_string(),
-                        adjust_bytes(p.bytes_read),
-                        p.num_write_ops.to_string(),
-                        adjust_bytes(p.bytes_written),
-                        p.num_unmap_ops.to_string(),
-                        adjust_bytes(p.bytes_unmapped),
-                        read_latency.to_string(),
-                        write_latency.to_string(),
-                        unmap_latency.to_string(),
-                        max_read_latency.to_string(),
-                        min_read_latency.to_string(),
-                        max_write_latency.to_string(),
-                        min_write_latency.to_string(),
+                        stats.name.clone(),
+                        stats.num_read_ops.to_string(),
+                        adjust_bytes(stats.bytes_read),
+                        stats.num_write_ops.to_string(),
+                        adjust_bytes(stats.bytes_written),
+                        stats.num_unmap_ops.to_string(),
+                        adjust_bytes(stats.bytes_unmapped),
+                        ticks_time(stats.read_latency_ticks),
+                        ticks_time(stats.write_latency_ticks),
+                        ticks_time(stats.unmap_latency_ticks),
+                        ticks_time(stats.max_read_latency_ticks),
+                        ticks_time(stats.min_read_latency_ticks),
+                        ticks_time(stats.max_write_latency_ticks),
+                        ticks_time(stats.min_write_latency_ticks),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec![
+                    "NAME",
+                    "NUM_RD_OPS",
+                    "TOTAL_RD",
+                    "NUM_WR_OPS",
+                    "TOTAL_WR",
+                    "NUM_UNMAP_OPS",
+                    "TOTAL_UNMAPPED",
+                    "RD_LAT",
+                    "WR_LAT",
+                    "UNMAP_LATENCY",
+                    "MAX_RD_LAT",
+                    "MIN_RD_LAT",
+                    "MAX_WR_LAT",
+                    "MIN_WR_LAT",
+                ],
+                table,
+            );
+        }
+    };
+    Ok(())
+}
+
+async fn replica(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    ctx.v2("Requesting Replica metrics");
+    let replica_name = matches.get_one::<String>("name");
+    let response = ctx
+        .v1
+        .stats
+        .get_replica_io_stats(v1rpc::stats::ListStatsOption {
+            name: replica_name.cloned(),
+        })
+        .await
+        .context(GrpcStatus)?;
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let stats: &Vec<v1rpc::stats::ReplicaIoStats> =
+                &response.get_ref().stats;
+            if stats.is_empty() {
+                if let Some(name) = replica_name {
+                    ctx.v1(&format!(
+                        "No IoStats found for {}, Check if device exists",
+                        name
+                    ));
+                } else {
+                    ctx.v1("No Replica IoStats found");
+                }
+                return Ok(());
+            }
+
+            let table = stats
+                .iter()
+                .map(|p| {
+                    let io_stat = p.stats.as_ref().unwrap();
+                    let tick_rate = io_stat.tick_rate;
+                    let ticks_time = |ticks| -> String {
+                        ticks_to_time(ticks, tick_rate).to_string()
+                    };
+                    vec![
+                        io_stat.name.clone(),
+                        io_stat.num_read_ops.to_string(),
+                        adjust_bytes(io_stat.bytes_read),
+                        io_stat.num_write_ops.to_string(),
+                        adjust_bytes(io_stat.bytes_written),
+                        io_stat.num_unmap_ops.to_string(),
+                        adjust_bytes(io_stat.bytes_unmapped),
+                        ticks_time(io_stat.read_latency_ticks),
+                        ticks_time(io_stat.write_latency_ticks),
+                        ticks_time(io_stat.unmap_latency_ticks),
+                        ticks_time(io_stat.max_read_latency_ticks),
+                        ticks_time(io_stat.min_read_latency_ticks),
+                        ticks_time(io_stat.max_write_latency_ticks),
+                        ticks_time(io_stat.min_write_latency_ticks),
                     ]
                 })
                 .collect();

@@ -12,15 +12,15 @@ use crate::{
 };
 use futures::{future::join_all, FutureExt};
 use io_engine_api::v1::stats::*;
-use std::fmt::Debug;
+use std::{convert::TryFrom, fmt::Debug, panic::AssertUnwindSafe};
 use tonic::{Request, Response, Status};
 
 use crate::{
     bdev::{nexus, Nexus},
-    core::{BlockDeviceIoStats, CoreError, UntypedBdev},
+    core::{BlockDeviceIoStats, CoreError, LogicalVolume, UntypedBdev},
+    lvs::{Lvol, LvsLvol},
 };
 use ::function_name::named;
-use std::panic::AssertUnwindSafe;
 
 /// RPC service for Resource IoStats.
 #[derive(Debug)]
@@ -216,6 +216,50 @@ impl StatsRpc for StatsService {
         .await
     }
 
+    async fn get_replica_io_stats(
+        &self,
+        request: Request<ListStatsOption>,
+    ) -> GrpcResult<ReplicaIoStatsResponse> {
+        self.shared(self.replica_svc.rw_lock().await, async move {
+            let args = request.into_inner();
+            let rx = rpc_submit::<_, _, CoreError>(async move {
+                let replica_stats_future: Vec<_> = if let Some(name) = args.name
+                {
+                    UntypedBdev::bdev_first()
+                        .and_then(|bdev| {
+                            bdev.into_iter().find(|b| {
+                                b.driver() == "lvol" && b.name() == name
+                            })
+                        })
+                        .and_then(|b| Lvol::try_from(b).ok())
+                        .map(|lvol| vec![replica_stats(lvol)])
+                        .unwrap_or_default()
+                } else {
+                    let mut lvols = Vec::new();
+                    if let Some(bdev) = UntypedBdev::bdev_first() {
+                        lvols = bdev
+                            .into_iter()
+                            .filter(|b| b.driver() == "lvol")
+                            .map(|b| Lvol::try_from(b).unwrap())
+                            .collect();
+                    }
+                    lvols.into_iter().map(replica_stats).collect()
+                };
+                let replica_stats: Result<Vec<_>, _> =
+                    join_all(replica_stats_future).await.into_iter().collect();
+                let replica_stats = replica_stats?;
+                Ok(ReplicaIoStatsResponse {
+                    stats: replica_stats,
+                })
+            })?;
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
+    }
+
     #[named]
     async fn reset_io_stats(&self, request: Request<()>) -> GrpcResult<()> {
         self.locked(
@@ -276,6 +320,18 @@ async fn get_stats(
 ) -> Result<IoStats, CoreError> {
     let stats = bdev.stats_async().await?;
     Ok(IoStats::from(ExternalType((name, uuid, stats))))
+}
+
+/// Returns IoStats for a given Lvol(Replica).
+async fn replica_stats(lvol: Lvol) -> Result<ReplicaIoStats, CoreError> {
+    let stats = lvol.as_bdev().stats_async().await?;
+    let io_stat =
+        IoStats::from(ExternalType((lvol.name(), lvol.uuid(), stats)));
+    let replica_stat = ReplicaIoStats {
+        stats: Some(io_stat),
+        entity_id: lvol.entity_id(),
+    };
+    Ok(replica_stat)
 }
 
 /// Returns IoStats for a given Nexus.
