@@ -575,7 +575,13 @@ async fn init_ms_etcd_test() -> ComposeTest {
 
             // Pool #1 and replica #1.
             pool_0
-                .create_lvol(REPL_NAME_0, POOL_SIZE, Some(REPL_UUID_0), false)
+                .create_lvol(
+                    REPL_NAME_0,
+                    POOL_SIZE,
+                    Some(REPL_UUID_0),
+                    false,
+                    None,
+                )
                 .await
                 .unwrap();
 
@@ -589,7 +595,13 @@ async fn init_ms_etcd_test() -> ComposeTest {
             .unwrap();
 
             pool_1
-                .create_lvol(REPL_NAME_1, POOL_SIZE, Some(REPL_UUID_1), false)
+                .create_lvol(
+                    REPL_NAME_1,
+                    POOL_SIZE,
+                    Some(REPL_UUID_1),
+                    false,
+                    None,
+                )
                 .await
                 .unwrap();
 

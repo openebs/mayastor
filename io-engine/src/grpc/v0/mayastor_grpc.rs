@@ -296,6 +296,9 @@ impl From<LvsError> for tonic::Status {
             LvsError::InvalidBdev {
                 source, ..
             } => source.into(),
+            LvsError::SetProperty {
+                ..
+            } => Status::data_loss(e.to_string()),
             LvsError::WipeFailed {
                 source,
             } => source.into(),
@@ -709,7 +712,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
                     let p = Lvs::lookup(&args.pool).unwrap();
                     match p
-                        .create_lvol(&args.uuid, args.size, None, args.thin)
+                        .create_lvol(
+                            &args.uuid, args.size, None, args.thin, None,
+                        )
                         .await
                     {
                         Ok(mut lvol)
@@ -806,6 +811,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             args.size,
                             Some(&args.uuid),
                             args.thin,
+                            None,
                         )
                         .await
                     {

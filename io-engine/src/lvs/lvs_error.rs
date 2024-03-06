@@ -174,12 +174,6 @@ pub enum Error {
         name: String,
         msg: String,
     },
-    #[snafu(display("failed to set property {} on {}", attr, name))]
-    SetXAttr {
-        source: Errno,
-        attr: String,
-        name: String,
-    },
     #[snafu(display("Failed to wipe the replica"))]
     WipeFailed {
         source: crate::core::wiper::Error,
@@ -268,9 +262,6 @@ impl ToErrno for Error {
             Self::CloneConfigFailed {
                 ..
             } => Errno::EINVAL,
-            Self::SetXAttr {
-                source, ..
-            } => source,
             Self::WipeFailed {
                 ..
             } => Errno::EINVAL,

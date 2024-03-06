@@ -777,6 +777,7 @@ impl Lvs {
         size: u64,
         uuid: Option<&str>,
         thin: bool,
+        entity_id: Option<String>,
     ) -> Result<Lvol, Error> {
         let clear_method = if self.base_bdev().io_type_supported(IoType::Unmap)
         {
@@ -784,7 +785,6 @@ impl Lvs {
         } else {
             LVOL_CLEAR_WITH_NONE
         };
-
         if let Some(uuid) = uuid {
             if UntypedBdev::lookup_by_uuid_str(uuid).is_some() {
                 return Err(Error::RepExists {
@@ -853,7 +853,7 @@ impl Lvs {
             name: name.to_string(),
         })?;
 
-        let lvol = r
+        let mut lvol = r
             .await
             .expect("lvol creation callback dropped")
             .map_err(|e| Error::RepCreate {
@@ -861,6 +861,11 @@ impl Lvs {
                 name: name.to_string(),
             })
             .map(Lvol::from_inner_ptr)?;
+
+        if let Some(id) = entity_id {
+            let mut lvol_mut = Pin::new(&mut lvol);
+            lvol_mut.as_mut().set(PropValue::EntityId(id)).await?;
+        }
 
         info!("{:?}: wiping super", lvol);
 

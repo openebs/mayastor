@@ -169,6 +169,7 @@ async fn test_lvol_alloc_after_snapshot(index: u32, thin: bool) {
                 LVOL_SIZE,
                 Some(&Uuid::new_v4().to_string()),
                 thin,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -311,6 +312,7 @@ async fn test_lvol_bdev_snapshot() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -368,6 +370,7 @@ async fn test_lvol_handle_snapshot() {
             32 * 1024 * 1024,
             Some(&Uuid::new_v4().to_string()),
             false,
+            None,
         )
         .await
         .expect("Failed to create test lvol");
@@ -425,6 +428,7 @@ async fn test_lvol_list_snapshot() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -513,6 +517,7 @@ async fn test_list_all_snapshots() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -570,6 +575,7 @@ async fn test_list_all_snapshots() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -645,6 +651,7 @@ async fn test_list_pool_snapshots() {
                 16 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -733,6 +740,7 @@ async fn test_list_all_snapshots_with_replica_destroy() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -789,6 +797,7 @@ async fn test_snapshot_referenced_size() {
                 LVOL_SIZE,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -1012,6 +1021,7 @@ async fn test_snapshot_clone() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -1127,6 +1137,7 @@ async fn test_snapshot_volume_provisioning_mode() {
                 LVOL_SIZE,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -1183,6 +1194,7 @@ async fn test_snapshot_attr() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -1307,6 +1319,7 @@ async fn test_delete_snapshot_with_valid_clone() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None
             )
             .await
             .expect("Failed to create test lvol");
@@ -1431,6 +1444,7 @@ async fn test_delete_snapshot_with_valid_clone_fail_1() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 false,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -1616,6 +1630,7 @@ async fn test_snapshot_parent_usage_post_snapshot_destroy() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 true,
+                None,
             )
             .await
             .expect("Failed to create test lvol");
@@ -1701,6 +1716,7 @@ async fn test_clone_snapshot_usage_post_clone_destroy() {
                 32 * 1024 * 1024,
                 Some(&Uuid::new_v4().to_string()),
                 true,
+                None,
             )
             .await
             .expect("Failed to create test lvol");

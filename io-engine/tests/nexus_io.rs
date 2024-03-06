@@ -1078,7 +1078,7 @@ async fn nexus_io_write_zeroes() {
             .unwrap();
 
             let pool = Lvs::lookup(POOL_NAME).unwrap();
-            pool.create_lvol(REPL_UUID, 32 * 1024 * 1024, None, true)
+            pool.create_lvol(REPL_UUID, 32 * 1024 * 1024, None, true, None)
                 .await
                 .unwrap();
 

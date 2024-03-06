@@ -12,7 +12,7 @@ use crate::{
         UpdateProps,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
-    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol},
+    lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol, PropValue},
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -220,8 +220,7 @@ impl ReplicaRpc for ReplicaService {
                     }
                 };
                 // if pooltype is not Lvs, the provided replica uuid need to be added as
-                // a metadata on the volume.
-                match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), args.thin).await {
+                match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), args.thin, args.entity_id).await {
                     Ok(mut lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf => {
                         let props = ShareProps::new()
@@ -252,9 +251,6 @@ impl ReplicaRpc for ReplicaService {
                     }
                     Ok(lvol) => {
                         debug!("created lvol {:?}", lvol);
-                        if let Some(v) = &args.entity_id {
-                            let _ = lvol.set_blob_attr("entity_id", v.to_string(), true).await;
-                        }
                         Ok(Replica::from(lvol))
                     }
                     Err(e) => Err(e),
@@ -548,10 +544,10 @@ impl ReplicaRpc for ReplicaService {
                     if let Some(bdev) =
                         UntypedBdev::lookup_by_uuid_str(&args.uuid)
                     {
-                        let lvol = Lvol::try_from(bdev)?;
-                        let _ = lvol
-                            .set_blob_attr("entity_id", args.entity_id, true)
-                            .await;
+                        let mut lvol = Lvol::try_from(bdev)?;
+                        Pin::new(&mut lvol)
+                            .set(PropValue::EntityId(args.entity_id))
+                            .await?;
                         Ok(Replica::from(lvol))
                     } else {
                         Err(LvsError::InvalidBdev {
