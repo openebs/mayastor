@@ -790,7 +790,7 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
         (event.bits.async_event_type(), event.bits.async_event_info())
     };
 
-    debug!(
+    info!(
         "Received AER event: event_type={:?}, event_info={:?}",
         event_type, event_info
     );

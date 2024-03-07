@@ -11,7 +11,6 @@ use common::{
     pool::PoolBuilder,
     replica::ReplicaBuilder,
 };
-use std::time::Duration;
 
 use async_trait::async_trait;
 
@@ -119,9 +118,6 @@ async fn do_resize_after_replica_resize(
         let ret = replica.resize(EXPANDED_SIZE).await.unwrap();
         assert!(ret.size >= EXPANDED_SIZE);
     }
-    // todo: remove this WA when the nexus resize waits for
-    //  refreshes the child size.
-    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let nexus_obj = nexus
         .resize(EXPANDED_SIZE)
@@ -222,30 +218,27 @@ async fn setup_cluster_and_run(cfg: StorConfig, test: ResizeTest) {
 
     // Run I/O on the nexus in a thread, and resize the underlying replicas
     // and the nexus's size.
-    let _ = {
-        let (_cg, path) = nex_0.nvmf_location().open().unwrap();
+    let (_cg, path) = nex_0.nvmf_location().open().unwrap();
 
-        let fio = FioBuilder::new()
-            .with_job(
-                FioJobBuilder::new()
-                    .with_name("fio_vol_resize")
-                    .with_filename(path)
-                    .with_ioengine("libaio")
-                    .with_iodepth(8)
-                    .with_numjobs(4)
-                    .with_direct(true)
-                    .with_rw("write")
-                    .with_runtime(20)
-                    .build(),
-            )
-            .build();
+    let fio = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_name("fio_vol_resize")
+                .with_filename(path)
+                .with_ioengine("libaio")
+                .with_iodepth(4)
+                .with_numjobs(1)
+                .with_direct(true)
+                .with_rw("write")
+                .with_runtime(20)
+                .build(),
+        )
+        .build();
 
-        tokio::spawn(async { fio.run() }).await.unwrap()
-    };
+    tokio::task::spawn_blocking(|| fio.run());
 
     // Wait a few secs for fio to have started.
-    // XXX: See if can check process status deterministically.
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     test.call(&nex_0, vec![&mut repl_0, &mut repl_1, &mut repl_2])
         .await;
