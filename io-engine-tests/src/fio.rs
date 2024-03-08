@@ -338,12 +338,8 @@ impl Fio {
 /// Spawns a tokio task and runs the given FIO on it. Any FIO error is converted
 /// into an `std::io::Result`.
 pub async fn spawn_fio_task(fio: &Fio) -> std::io::Result<()> {
-    let fio = tokio::spawn({
-        let fio = fio.clone();
-        async move { fio.run() }
-    })
-    .await
-    .unwrap();
+    let frun = fio.clone();
+    let fio = tokio::task::spawn_blocking(|| frun.run()).await.unwrap();
 
     if fio.exit == 0 {
         Ok(())
