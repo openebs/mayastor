@@ -62,11 +62,6 @@ impl RebuildMap {
     pub(crate) fn count_dirty_blks(&self) -> u64 {
         self.segments.count_dirty_blks()
     }
-
-    /// Get the rebuild map segment size in blocks.
-    pub(crate) fn segment_size_blks(&self) -> u64 {
-        self.segments.segment_size_blks()
-    }
 }
 
 impl From<RebuildMap> for BitVec {

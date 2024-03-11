@@ -1,8 +1,11 @@
-use crate::rebuild::{
-    rebuild_descriptor::RebuildDescriptor,
-    rebuild_task::{RebuildTask, RebuildTaskCopier},
-    RebuildError,
-    RebuildMap,
+use crate::{
+    core::SegmentMap,
+    rebuild::{
+        rebuild_descriptor::RebuildDescriptor,
+        rebuild_task::{RebuildTask, RebuildTaskCopier},
+        RebuildError,
+        RebuildMap,
+    },
 };
 use bit_vec::BitVec;
 use std::{ops::Range, rc::Rc};
@@ -84,7 +87,7 @@ impl<T: RebuildTaskCopier> PartialRebuild<T> {
     /// Create a partial sequential rebuild with the given copier and segment
     /// map.
     #[allow(dead_code)]
-    pub(super) fn new(map: RebuildMap, copier: T) -> Self {
+    pub(super) fn new(map: SegmentMap, copier: T) -> Self {
         let total_blks = map.count_dirty_blks();
         let segment_size_blks = map.segment_size_blks();
         let bit_vec: BitVec = map.into();

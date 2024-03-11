@@ -13,8 +13,10 @@ pub enum RebuildError {
     JobAlreadyExists { job: String },
     #[snafu(display("Failed to allocate buffer for the rebuild copy"))]
     NoCopyBuffer { source: DmaError },
-    #[snafu(display("Failed to validate rebuild job creation parameters"))]
-    InvalidParameters {},
+    #[snafu(display("Source and Destination size range is not compatible"))]
+    InvalidSrcDstRange {},
+    #[snafu(display("Map range is not compatible with rebuild range"))]
+    InvalidMapRange {},
     #[snafu(display(
         "The same device was specified for both source and destination: {bdev}"
     ))]
