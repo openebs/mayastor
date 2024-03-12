@@ -102,7 +102,7 @@ async fn init_nvmf_share() -> String {
             .unwrap();
 
             let mut lvol = pool
-                .create_lvol(REPL_NAME, POOL_SIZE, Some(REPL_UUID), false)
+                .create_lvol(REPL_NAME, POOL_SIZE, Some(REPL_UUID), false, None)
                 .await
                 .unwrap();
 

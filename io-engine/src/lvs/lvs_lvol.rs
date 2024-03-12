@@ -75,6 +75,7 @@ pub(crate) const WIPE_SUPER_LEN: u64 = (1 << 20) * 8;
 pub enum PropValue {
     Shared(bool),
     AllowedHosts(Vec<String>),
+    EntityId(String),
 }
 
 #[derive(Debug)]
@@ -82,6 +83,7 @@ pub enum PropValue {
 pub enum PropName {
     Shared,
     AllowedHosts,
+    EntityId,
 }
 
 impl From<&PropValue> for PropName {
@@ -89,6 +91,7 @@ impl From<&PropValue> for PropName {
         match v {
             PropValue::Shared(_) => Self::Shared,
             PropValue::AllowedHosts(_) => Self::AllowedHosts,
+            PropValue::EntityId(_) => Self::EntityId,
         }
     }
 }
@@ -109,6 +112,7 @@ impl Display for PropName {
         let name = match self {
             PropName::Shared => "shared",
             PropName::AllowedHosts => "allowed-hosts",
+            PropName::EntityId => "entity_id",
         };
         write!(f, "{name}")
     }
@@ -842,6 +846,33 @@ impl LvsLvol for Lvol {
                     }),
                 }
             }
+
+            PropName::EntityId => {
+                let name = prop.to_string().into_cstring();
+                let mut value: *const libc::c_char =
+                    std::ptr::null::<libc::c_char>();
+                let mut value_len: u64 = 0;
+                unsafe {
+                    spdk_blob_get_xattr_value(
+                        blob,
+                        name.as_ptr(),
+                        &mut value as *mut *const c_char as *mut *const c_void,
+                        &mut value_len,
+                    )
+                }
+                .to_result(|e| Error::GetProperty {
+                    source: Errno::from_i32(e),
+                    prop,
+                    name: self.name(),
+                })?;
+                match unsafe { CStr::from_ptr(value).to_str() } {
+                    Ok(id) => Ok(PropValue::EntityId(id.to_string())),
+                    _ => Err(Error::Property {
+                        source: Errno::EINVAL,
+                        name: self.name(),
+                    }),
+                }
+            }
         }
     }
 
@@ -929,6 +960,23 @@ impl LvsLvol for Lvol {
             PropValue::AllowedHosts(hosts) => {
                 let name = PropName::from(&prop).to_string().into_cstring();
                 let value = hosts.join(",").into_cstring();
+                unsafe {
+                    spdk_blob_set_xattr(
+                        blob,
+                        name.as_ptr(),
+                        value.as_bytes_with_nul().as_ptr() as *const _,
+                        value.as_bytes_with_nul().len() as u16,
+                    )
+                }
+                .to_result(|e| Error::SetProperty {
+                    source: Errno::from_i32(e),
+                    prop: prop.to_string(),
+                    name: self.name(),
+                })?;
+            }
+            PropValue::EntityId(id) => {
+                let name = PropName::from(&prop).to_string().into_cstring();
+                let value = id.into_cstring();
                 unsafe {
                     spdk_blob_set_xattr(
                         blob,

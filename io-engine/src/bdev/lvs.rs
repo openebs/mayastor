@@ -192,7 +192,7 @@ impl CreateDestroy for Lvol {
     async fn create(&self) -> Result<String, Self::Error> {
         let lvs = self.lvs.create().await?;
         self.lvs.destroy_lvol(&self.name).await.ok();
-        lvs.create_lvol(&self.name, self.size, None, false)
+        lvs.create_lvol(&self.name, self.size, None, false, None)
             .await
             .map_err(|error| BdevError::CreateBdevFailedStr {
                 error: error.to_string(),

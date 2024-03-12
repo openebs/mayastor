@@ -18,7 +18,7 @@ use tonic::{Request, Response, Status};
 use crate::{
     bdev::{nexus, Nexus},
     core::{BlockDeviceIoStats, CoreError, LogicalVolume, UntypedBdev},
-    lvs::{Lvol, LvsLvol},
+    lvs::{Lvol, LvsLvol, PropName, PropValue},
 };
 use ::function_name::named;
 
@@ -215,7 +215,6 @@ impl StatsRpc for StatsService {
         )
         .await
     }
-
     async fn get_replica_io_stats(
         &self,
         request: Request<ListStatsOption>,
@@ -329,7 +328,12 @@ async fn replica_stats(lvol: Lvol) -> Result<ReplicaIoStats, CoreError> {
         IoStats::from(ExternalType((lvol.name(), lvol.uuid(), stats)));
     let replica_stat = ReplicaIoStats {
         stats: Some(io_stat),
-        entity_id: lvol.entity_id(),
+        entity_id: lvol.get(PropName::EntityId).await.ok().and_then(|id| {
+            match id {
+                PropValue::EntityId(id) => Some(id),
+                _ => None,
+            }
+        }),
     };
     Ok(replica_stat)
 }
