@@ -98,7 +98,7 @@ pub(crate) fn reject_unknown_parameters(
     }
 }
 
-// Lookup up a block device via its symbolic name.
+/// Lookup up a block device via its symbolic name.
 pub fn device_lookup(name: &str) -> Option<Box<dyn BlockDevice>> {
     // First try to lookup NVMF devices, then try to lookup SPDK native devices.
     nvmx::lookup_by_name(name).or_else(|| SpdkBlockDevice::lookup_by_name(name))

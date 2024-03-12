@@ -13,7 +13,7 @@ use super::{
     RebuildStats,
 };
 use crate::{
-    core::{Reactors, VerboseError},
+    core::{Reactors, ReadOptions, VerboseError},
     rebuild::{
         rebuild_descriptor::RebuildDescriptor,
         rebuild_job_backend::{RebuildBackend, RebuildJobManager},
@@ -33,9 +33,17 @@ pub enum RebuildVerifyMode {
 }
 
 /// Rebuild job options.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct RebuildJobOptions {
     pub verify_mode: RebuildVerifyMode,
+    pub read_opts: ReadOptions,
+}
+impl RebuildJobOptions {
+    /// Use the given `ReadOptions`.
+    pub fn with_read_opts(mut self, read_opts: ReadOptions) -> Self {
+        self.read_opts = read_opts;
+        self
+    }
 }
 
 /// Operations used to control the state of the job.
@@ -242,6 +250,11 @@ impl RebuildJob {
     /// Get the uri of the rebuild source.
     pub fn src_uri(&self) -> &str {
         &self.src_uri
+    }
+
+    /// Get the name of this rebuild job (ie the rebuild target).
+    pub fn name(&self) -> &str {
+        self.dst_uri()
     }
 
     /// Get the uri of the rebuild destination.

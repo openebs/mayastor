@@ -24,6 +24,7 @@ use spdk_rs::{
         spdk_bdev_write_zeroes_blocks,
         spdk_bdev_writev_blocks,
         SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
+        SPDK_NVME_IO_FLAG_CURRENT_UNWRITTEN_READ_FAIL,
     },
     nvme_admin_opc,
     AsIoVecPtr,
@@ -282,12 +283,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        let flags = match opts {
-            ReadOptions::None => 0,
-            ReadOptions::UnwrittenFail => {
-                SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
-            }
-        };
+        let flags: u32 = opts.into();
 
         let ctx = alloc_bdev_io_ctx(
             IoType::Read,
@@ -808,4 +804,18 @@ pub fn bdev_event_callback<T: BdevOps>(
 /// Dispatches a special event for loopback device removal.
 pub fn dispatch_loopback_removed(name: &str) {
     dispatch_bdev_event(DeviceEventType::LoopbackRemoved, name);
+}
+
+impl From<ReadOptions> for u32 {
+    fn from(opts: ReadOptions) -> Self {
+        match opts {
+            ReadOptions::None => 0,
+            ReadOptions::UnwrittenFail => {
+                SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
+            }
+            ReadOptions::CurrentUnwrittenFail => {
+                SPDK_NVME_IO_FLAG_CURRENT_UNWRITTEN_READ_FAIL
+            }
+        }
+    }
 }

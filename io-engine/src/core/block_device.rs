@@ -144,11 +144,15 @@ pub type OpCompletionCallbackArg = *mut c_void;
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
 /// Read options.
+#[derive(Default, Debug, Copy, Clone)]
 pub enum ReadOptions {
     /// Normal read operation.
+    #[default]
     None,
     /// Fail when reading an unwritten block of a thin-provisioned device.
     UnwrittenFail,
+    /// Fail when reading an unwritten block of a thin-provisioned device.
+    CurrentUnwrittenFail,
 }
 
 /// Core trait that represents a device I/O handle.

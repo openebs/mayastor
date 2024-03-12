@@ -25,7 +25,6 @@ use spdk_rs::{
         spdk_nvme_ns_cmd_write,
         spdk_nvme_ns_cmd_write_zeroes,
         spdk_nvme_ns_cmd_writev,
-        SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL,
         SPDK_NVME_SC_INTERNAL_DEVICE_ERROR,
     },
     nvme_admin_opc,
@@ -740,12 +739,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         check_io_args(IoType::Read, iovs, offset_blocks, num_blocks)?;
 
         // Get read flags.
-        let flags = match opts {
-            ReadOptions::None => self.prchk_flags,
-            ReadOptions::UnwrittenFail => {
-                self.prchk_flags | SPDK_NVME_IO_FLAGS_UNWRITTEN_READ_FAIL
-            }
-        };
+        let flags = self.prchk_flags | u32::from(opts);
 
         let channel = self.io_channel.as_ptr();
         let inner = NvmeIoChannel::inner_from_channel(channel);

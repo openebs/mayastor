@@ -1,5 +1,6 @@
 use super::{RebuildError, RebuildOperation};
 use crate::rebuild::RebuildStats;
+use chrono::Utc;
 
 /// Allowed states for a rebuild job.
 #[derive(Default, Debug, PartialEq, Copy, Clone)]
@@ -72,7 +73,8 @@ impl RebuildStates {
         &self.final_stats
     }
     /// Set the final rebuild statistics.
-    pub(super) fn set_final_stats(&mut self, stats: RebuildStats) {
+    pub(super) fn set_final_stats(&mut self, mut stats: RebuildStats) {
+        stats.end_time = Some(Utc::now());
         self.final_stats = Some(stats);
     }
 
