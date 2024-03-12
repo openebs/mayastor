@@ -10,6 +10,7 @@ mod rebuild_state;
 mod rebuild_stats;
 mod rebuild_task;
 mod rebuilders;
+mod snapshot_rebuild;
 
 pub use bdev_rebuild::BdevRebuildJob;
 pub use nexus_rebuild::{NexusRebuildJob, NexusRebuildJobStarter};
@@ -28,6 +29,7 @@ use rebuild_state::RebuildStates;
 pub(crate) use rebuild_stats::HistoryRecord;
 pub use rebuild_stats::RebuildStats;
 use rebuild_task::{RebuildTasks, TaskResult};
+pub use snapshot_rebuild::SnapshotRebuildJob;
 
 /// Number of concurrent copy tasks per rebuild job
 const SEGMENT_TASKS: usize = 16;

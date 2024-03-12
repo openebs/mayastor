@@ -17,6 +17,7 @@ use io_engine::{
 
 pub mod common;
 use common::{compose::MayastorTest, reactor_poll, wait_for_rebuild};
+use io_engine::rebuild::SnapshotRebuildJob;
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
@@ -442,6 +443,38 @@ async fn rebuild_bdev_partial() {
 
         device_destroy(src_uri).await.unwrap();
         device_destroy(dst_uri).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn rebuild_snapshot() {
+    test_ini("rebuild_snapshot");
+
+    let ms = get_ms();
+
+    ms.spawn(async move {
+        // todo: this is just a dummy rebuild... no snapshot rebuild here...
+        let src_uri = "malloc:///d?size_mb=100";
+        let dst_uri = "malloc:///d2?size_mb=100";
+
+        device_create(src_uri).await.unwrap();
+        device_create(dst_uri).await.unwrap();
+
+        let job = SnapshotRebuildJob::builder()
+            .build(src_uri, dst_uri)
+            .await
+            .unwrap();
+        let chan = job.start().await.unwrap();
+        let state = chan.await.unwrap();
+        // todo: use completion channel with stats rather than just state?
+        let stats = job.stats().await;
+
+        device_destroy(src_uri).await.unwrap();
+        device_destroy(dst_uri).await.unwrap();
+
+        assert_eq!(state, RebuildState::Completed, "Rebuild should succeed");
+        assert_eq!(stats.blocks_transferred, 100 * 1024 * 2);
     })
     .await;
 }
