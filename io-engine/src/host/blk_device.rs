@@ -67,6 +67,8 @@ pub struct BlockDevice {
     pub partition: Option<Partition>,
     pub filesystem: Option<FileSystem>,
     pub available: bool,
+    pub connection_type: String,
+    pub is_rotational: Option<bool>,
 }
 
 impl From<Property<'_>> for String {
@@ -249,6 +251,9 @@ fn new_device(
             && (partition.is_none() || usable_partition(&partition))
             && filesystem.is_none();
 
+        let rotational_attribute: Option<String> =
+            Property(device.attribute_value("queue/rotational")).into();
+
         return Some(BlockDevice {
             devname: String::from(devname.to_str().unwrap_or("")),
             devtype: Property(device.property_value("DEVTYPE")).into(),
@@ -256,6 +261,8 @@ fn new_device(
             devmin: Property(device.property_value("MINOR")).into(),
             model: Property(device.property_value("ID_MODEL")).into(),
             devpath: Property(device.property_value("DEVPATH")).into(),
+            connection_type: Property(device.property_value("ID_BUS")).into(),
+            is_rotational: rotational_attribute.map(|s| s == "1"),
             devlinks: device
                 .property_value("DEVLINKS")
                 .and_then(|s| s.to_str())
