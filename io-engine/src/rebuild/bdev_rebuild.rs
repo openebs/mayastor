@@ -11,8 +11,9 @@ use super::{
 };
 
 use crate::{
+    core::SegmentMap,
     gen_rebuild_instances,
-    rebuild::rebuilders::{FullRebuild, RangeRebuilder},
+    rebuild::rebuilders::{FullRebuild, PartialRebuild, RangeRebuilder},
 };
 
 /// A Bdev rebuild job is responsible for managing a rebuild (copy) which reads
@@ -32,25 +33,73 @@ impl Deref for BdevRebuildJob {
     }
 }
 
-impl BdevRebuildJob {
-    /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end (of the data partition); notify_fn callback is called
-    /// when the rebuild state is updated - with the source and destination
-    /// bdev URI's as arguments.
-    pub async fn new(
+/// Builder for the `BdevRebuildJob`, allowing for custom bdev to bdev rebuilds.
+#[derive(Default)]
+pub struct BdevRebuildJobBuilder {
+    range: Option<Range<u64>>,
+    options: RebuildJobOptions,
+    notify_fn: Option<fn(&str, &str) -> ()>,
+    rebuild_map: Option<SegmentMap>,
+}
+impl BdevRebuildJobBuilder {
+    /// Specify a particular range.
+    pub fn with_range(mut self, range: Range<u64>) -> Self {
+        self.range = Some(range);
+        self
+    }
+    /// Specify the rebuild options.
+    pub fn with_option(mut self, options: RebuildJobOptions) -> Self {
+        self.options = options;
+        self
+    }
+    /// Specify a notification function.
+    pub fn with_notify_fn(mut self, notify_fn: fn(&str, &str) -> ()) -> Self {
+        self.notify_fn = Some(notify_fn);
+        self
+    }
+    /// Specify a rebuild map, turning it into a partial rebuild.
+    pub fn with_bitmap(mut self, rebuild_map: SegmentMap) -> Self {
+        self.rebuild_map = Some(rebuild_map);
+        self
+    }
+    /// Builds a `BdevRebuildJob` which can be started and which will then
+    /// rebuild from source to destination.
+    pub async fn build(
+        self,
         src_uri: &str,
         dst_uri: &str,
-        range: Option<Range<u64>>,
-        options: RebuildJobOptions,
-        notify_fn: fn(&str, &str) -> (),
-    ) -> Result<Self, RebuildError> {
+    ) -> Result<BdevRebuildJob, RebuildError> {
         let descriptor =
-            RebuildDescriptor::new(src_uri, dst_uri, range, options).await?;
-        let tasks = RebuildTasks::new(SEGMENT_TASKS, &descriptor)?;
-        let backend =
-            BdevRebuildJobBackend::new(tasks, notify_fn, descriptor).await?;
+            RebuildDescriptor::new(src_uri, dst_uri, self.range, self.options)
+                .await?;
+        let task_pool = RebuildTasks::new(SEGMENT_TASKS, &descriptor)?;
+        let notify_fn = self.notify_fn.unwrap_or(|_, _| {});
+        match self.rebuild_map {
+            Some(map) => {
+                descriptor.validate_map(&map)?;
+                let backend = BdevRebuildJobBackend {
+                    task_pool,
+                    notify_fn,
+                    copier: PartialRebuild::new(map, descriptor),
+                };
+                RebuildJob::from_backend(backend).await.map(BdevRebuildJob)
+            }
+            None => {
+                let backend = BdevRebuildJobBackend {
+                    task_pool,
+                    notify_fn,
+                    copier: FullRebuild::new(descriptor),
+                };
+                RebuildJob::from_backend(backend).await.map(BdevRebuildJob)
+            }
+        }
+    }
+}
 
-        RebuildJob::from_backend(backend).await.map(Self)
+impl BdevRebuildJob {
+    /// Helps create a `Self` using a builder: `BdevRebuildJobBuilder`.
+    pub fn builder() -> BdevRebuildJobBuilder {
+        BdevRebuildJobBuilder::default()
     }
 }
 
@@ -58,17 +107,19 @@ gen_rebuild_instances!(BdevRebuildJob);
 
 /// A rebuild job which is responsible for rebuilding from
 /// source to target of the `RebuildDescriptor`.
-pub(super) struct BdevRebuildJobBackend {
+pub(super) struct BdevRebuildJobBackend<R: RangeRebuilder<RebuildDescriptor>> {
     /// A pool of tasks which perform the actual data rebuild.
     task_pool: RebuildTasks,
     /// A generic rebuild descriptor.
-    copier: FullRebuild<RebuildDescriptor>,
+    copier: R,
     /// Notification callback with src and dst uri's.
     notify_fn: fn(&str, &str) -> (),
 }
 
 #[async_trait::async_trait(?Send)]
-impl RebuildBackend for BdevRebuildJobBackend {
+impl<R: RangeRebuilder<RebuildDescriptor>> RebuildBackend
+    for BdevRebuildJobBackend<R>
+{
     fn on_state_change(&mut self) {
         let desc = self.common_desc();
         (self.notify_fn)(&desc.src_uri, &desc.dst_uri);
@@ -110,33 +161,19 @@ impl RebuildBackend for BdevRebuildJobBackend {
     }
 }
 
-impl std::fmt::Debug for BdevRebuildJobBackend {
+impl<R: RangeRebuilder<RebuildDescriptor>> std::fmt::Debug
+    for BdevRebuildJobBackend<R>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BdevRebuildJob")
             .field("next", &self.copier.peek_next())
             .finish()
     }
 }
-impl std::fmt::Display for BdevRebuildJobBackend {
+impl<R: RangeRebuilder<RebuildDescriptor>> std::fmt::Display
+    for BdevRebuildJobBackend<R>
+{
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
-    }
-}
-
-impl BdevRebuildJobBackend {
-    /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end (of the data partition); notify_fn callback is called
-    /// when the rebuild state is updated - with the source and destination
-    /// URI as arguments.
-    pub async fn new(
-        task_pool: RebuildTasks,
-        notify_fn: fn(&str, &str) -> (),
-        descriptor: RebuildDescriptor,
-    ) -> Result<Self, RebuildError> {
-        Ok(Self {
-            task_pool,
-            copier: FullRebuild::new(descriptor),
-            notify_fn,
-        })
     }
 }

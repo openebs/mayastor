@@ -17,6 +17,7 @@ use crate::{
         CoreError,
         IoCompletionStatus,
         ReadOptions,
+        SegmentMap,
     },
     rebuild::{
         rebuild_error::{BdevInvalidUri, NoCopyBuffer},
@@ -108,7 +109,7 @@ impl RebuildDescriptor {
             destination_hdl.get_device(),
             &range,
         ) {
-            return Err(RebuildError::InvalidParameters {});
+            return Err(RebuildError::InvalidSrcDstRange {});
         }
 
         let block_size = dst_descriptor.get_device().block_len();
@@ -128,7 +129,7 @@ impl RebuildDescriptor {
     }
 
     /// Check if the source and destination block devices are compatible for
-    /// rebuild
+    /// rebuild.
     fn validate(
         source: &dyn BlockDevice,
         destination: &dyn BlockDevice,
@@ -139,6 +140,17 @@ impl RebuildDescriptor {
         range.within(data_partition_start .. source.num_blocks())
             && range.within(data_partition_start .. destination.num_blocks())
             && source.block_len() == destination.block_len()
+    }
+
+    /// Check if the rebuild range is compatible with the rebuild segment map.
+    pub(crate) fn validate_map(
+        &self,
+        map: &SegmentMap,
+    ) -> Result<(), RebuildError> {
+        if map.size_blks() > self.range.end {
+            return Err(RebuildError::InvalidMapRange {});
+        }
+        Ok(())
     }
 
     /// Return the size of the segment to be copied.

@@ -5,17 +5,18 @@ use once_cell::sync::{Lazy, OnceCell};
 use tracing::error;
 
 use io_engine::{
-    bdev::{device_open, nexus::nexus_lookup_mut},
+    bdev::{
+        device_create,
+        device_destroy,
+        device_open,
+        nexus::nexus_lookup_mut,
+    },
     core::{MayastorCliArgs, Mthread, Protocol},
-    rebuild::{NexusRebuildJob, RebuildState, RebuildState::Completed},
+    rebuild::{BdevRebuildJob, NexusRebuildJob, RebuildState},
 };
 
 pub mod common;
 use common::{compose::MayastorTest, reactor_poll, wait_for_rebuild};
-use io_engine::{
-    bdev::device_create,
-    rebuild::{BdevRebuildJob, RebuildJobOptions},
-};
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
@@ -133,7 +134,7 @@ async fn wait_for_replica_rebuild(src_replica: &str, new_replica: &str) {
                     Err(_e) => true, /* Rebuild task completed and was
                                        * removed */
                     // discarded.
-                    Ok(s) => s == Completed,
+                    Ok(s) => s == RebuildState::Completed,
                 }
             })
             .await;
@@ -337,18 +338,110 @@ async fn rebuild_bdev() {
         device_create(src_uri).await.unwrap();
         device_create(dst_uri).await.unwrap();
 
-        let job = BdevRebuildJob::new(
-            src_uri,
-            dst_uri,
-            None,
-            RebuildJobOptions::default(),
-            |_, _| {},
-        )
-        .await
-        .unwrap();
+        let job = BdevRebuildJob::builder()
+            .build(src_uri, dst_uri)
+            .await
+            .unwrap();
         let chan = job.start().await.unwrap();
         let state = chan.await.unwrap();
+        // todo: use completion channel with stats rather than just state?
+        let stats = job.stats().await;
+
+        device_destroy(src_uri).await.unwrap();
+        device_destroy(dst_uri).await.unwrap();
+
         assert_eq!(state, RebuildState::Completed, "Rebuild should succeed");
+        assert_eq!(stats.blocks_transferred, 100 * 1024 * 2);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn rebuild_bdev_partial() {
+    test_ini("rebuild_bdev_partial");
+
+    let ms = get_ms();
+
+    use io_engine::core::segment_map::SegmentMap;
+
+    struct PartialMap(SegmentMap);
+    impl PartialMap {
+        fn new() -> Self {
+            let size = 100 * 1024 * 1024;
+            let seg_size = Self::seg_size();
+            let blk_size = Self::blk_size();
+            let rebuild_map =
+                SegmentMap::new(size / blk_size, blk_size, seg_size);
+            Self(rebuild_map)
+        }
+        fn blk_size() -> u64 {
+            512
+        }
+        fn seg_size() -> u64 {
+            64 * 1024
+        }
+        fn seg_blks() -> u64 {
+            Self::seg_size() / Self::blk_size()
+        }
+        fn seg(self, seg: u64) -> Self {
+            self.seg_n(seg, 1)
+        }
+        fn blk_n(mut self, blk: u64, cnt: u64) -> Self {
+            assert!(cnt > 0, "Must set something!");
+            self.0.set(blk, cnt, true);
+            self
+        }
+        fn seg_n(self, seg: u64, cnt: u64) -> Self {
+            let seg_size = Self::seg_blks();
+            self.blk_n(seg * seg_size, seg_size * cnt)
+        }
+        fn build(self) -> SegmentMap {
+            self.0
+        }
+    }
+
+    ms.spawn(async move {
+        let src_uri = "malloc:///d?size_mb=100";
+        let dst_uri = "malloc:///d2?size_mb=100";
+
+        device_create(src_uri).await.unwrap();
+        device_create(dst_uri).await.unwrap();
+
+        let rebuild_check = |rebuild_map: SegmentMap, index: usize| async move {
+            let dirty_blks = rebuild_map.count_dirty_blks();
+            let job = BdevRebuildJob::builder()
+                .with_bitmap(rebuild_map)
+                .build(src_uri, dst_uri)
+                .await
+                .unwrap();
+            let chan = job.start().await.unwrap();
+            let state = chan.await.unwrap();
+            assert_eq!(
+                state,
+                RebuildState::Completed,
+                "Rebuild should succeed"
+            );
+            let stats = job.stats().await;
+            assert_eq!(
+                stats.blocks_transferred, dirty_blks,
+                "Test {} failed",
+                index
+            );
+        };
+
+        let test_table = vec![
+            PartialMap::new().seg(1).seg(2),
+            PartialMap::new().seg(1).seg(2).seg(1).seg_n(2, 1),
+            PartialMap::new().seg(20).seg(3).seg(10),
+            PartialMap::new().seg(20).seg(3).seg_n(10, 2),
+        ];
+
+        for (i, test) in test_table.into_iter().enumerate() {
+            rebuild_check(test.build(), i).await;
+        }
+
+        device_destroy(src_uri).await.unwrap();
+        device_destroy(dst_uri).await.unwrap();
     })
     .await;
 }

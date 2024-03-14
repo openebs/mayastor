@@ -1,4 +1,4 @@
-use bit_vec::BitVec;
+use bit_vec::{BitBlock, BitVec};
 use std::fmt::{Debug, Formatter};
 
 // Returns ceil of an integer division.
@@ -10,10 +10,10 @@ fn div_ceil(a: u64, b: u64) -> u64 {
 /// It marks every segment as a clean (no need to rebuild, or already
 /// transferred), or dirty (need to transfer from a healthy device).
 #[derive(Clone)]
-pub(crate) struct SegmentMap {
+pub struct SegmentMap<B: BitBlock = u32> {
     /// Bitmap of rebuild segments of a device. Zeros indicate clean segments,
     /// ones mark dirty ones.
-    segments: BitVec,
+    segments: BitVec<B>,
     /// Device size in segments.
     num_segments: u64,
     /// Device size in blocks.
@@ -24,7 +24,7 @@ pub(crate) struct SegmentMap {
     segment_size: u64,
 }
 
-impl Debug for SegmentMap {
+impl<B: BitBlock> Debug for SegmentMap<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -37,15 +37,11 @@ impl Debug for SegmentMap {
     }
 }
 
-impl SegmentMap {
+impl<B: BitBlock> SegmentMap<B> {
     /// Creates a new segment map with the given parameters.
-    pub(crate) fn new(
-        num_blocks: u64,
-        block_len: u64,
-        segment_size: u64,
-    ) -> Self {
+    pub fn new(num_blocks: u64, block_len: u64, segment_size: u64) -> Self {
         let num_segments = div_ceil(num_blocks * block_len, segment_size);
-        let mut segments = BitVec::new();
+        let mut segments = BitVec::<B>::default();
         segments.grow(num_segments as usize, false);
         Self {
             segments,
@@ -57,14 +53,14 @@ impl SegmentMap {
     }
 
     /// Merges (bitwise OR) this map with another.
-    pub(crate) fn merge(mut self, other: &SegmentMap) -> Self {
+    pub(crate) fn merge(mut self, other: &SegmentMap<B>) -> Self {
         self.segments.or(&other.segments);
         self
     }
 
     /// Sets a segment bit corresponding to the given logical block, to the
     /// given value.
-    pub(crate) fn set(&mut self, lbn: u64, lbn_cnt: u64, value: bool) {
+    pub fn set(&mut self, lbn: u64, lbn_cnt: u64, value: bool) {
         assert_ne!(self.num_blocks, 0);
 
         let start_seg = self.lbn_to_seg(lbn);
@@ -76,7 +72,7 @@ impl SegmentMap {
     }
 
     /// Returns value of segment bit corresponding to the given logical block.
-    pub(crate) fn get(&self, lbn: u64) -> Option<bool> {
+    pub fn get(&self, lbn: u64) -> Option<bool> {
         let seg = self.lbn_to_seg(lbn);
         self.segments.get(seg)
     }
@@ -93,13 +89,18 @@ impl SegmentMap {
     }
 
     /// Counts the total number of dirty blocks.
-    pub(crate) fn count_dirty_blks(&self) -> u64 {
+    pub fn count_dirty_blks(&self) -> u64 {
         self.count_ones() * self.segment_size / self.block_len
     }
 
     /// Get the segment size in blocks.
     pub(crate) fn segment_size_blks(&self) -> u64 {
         self.segment_size / self.block_len
+    }
+
+    /// Get the full size reference by the bitmap in blocks.
+    pub(crate) fn size_blks(&self) -> u64 {
+        self.num_blocks
     }
 }
 

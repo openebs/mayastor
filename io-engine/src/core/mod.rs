@@ -98,7 +98,7 @@ mod nic;
 pub mod partition;
 mod reactor;
 pub mod runtime;
-pub(crate) mod segment_map;
+pub mod segment_map;
 mod share;
 pub mod snapshot;
 pub(crate) mod thread;

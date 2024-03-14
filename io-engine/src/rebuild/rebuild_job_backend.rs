@@ -313,7 +313,12 @@ impl RebuildJobBackendManager {
         let blocks_remaining = self.backend.blocks_remaining();
 
         let progress = (blocks_recovered * 100) / blocks_total;
-        assert!(progress < 100 || blocks_remaining == 0);
+        assert!(
+            progress < 100 || blocks_remaining == 0,
+            "progress is {}% but there are {} blocks remaining",
+            progress,
+            blocks_remaining
+        );
 
         RebuildStats {
             start_time: descriptor.start_time,
