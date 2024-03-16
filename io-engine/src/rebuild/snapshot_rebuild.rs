@@ -1,28 +1,38 @@
-use std::ops::Deref;
+use snafu::ResultExt;
+use std::{convert::TryFrom, ops::Deref};
 
 use super::{rebuild_error::RebuildError, RebuildJob, RebuildJobOptions};
 
 use crate::{
-    core::SegmentMap,
+    bdev::{device_create, device_destroy},
+    core::{Bdev, Reactors, SegmentMap},
     gen_rebuild_instances,
-    rebuild::{bdev_rebuild::BdevRebuildJobBuilder, BdevRebuildJob},
+    lvs::Lvol,
+    rebuild::{
+        bdev_rebuild::BdevRebuildJobBuilder,
+        rebuild_error::{SnapshotRebuildError, SourceUriBdev},
+        BdevRebuildJob,
+    },
 };
 
 /// A Snapshot rebuild job is responsible for managing a rebuild (copy) which
 /// reads from a source snapshot and writes into a local replica from specified
 /// start to end.
-pub struct SnapshotRebuildJob(BdevRebuildJob);
+pub struct SnapshotRebuildJob {
+    inner: BdevRebuildJob,
+    replica_uuid: String,
+}
 
 impl std::fmt::Debug for SnapshotRebuildJob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.inner.fmt(f)
     }
 }
 impl Deref for SnapshotRebuildJob {
     type Target = RebuildJob;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
@@ -47,11 +57,29 @@ impl SnapshotRebuildJobBuilder {
     pub async fn build(
         self,
         src_uri: &str,
-        dst_uri: &str,
+        replica_uuid: &str,
     ) -> Result<SnapshotRebuildJob, RebuildError> {
-        // todo: verify that source is a snapshot, is this possible?
-        //  and verify that source is a local replica?
-        self.0.build(src_uri, dst_uri).await.map(SnapshotRebuildJob)
+        // todo: verify that source is a snapshot, is this even possible?
+
+        // ensure that replica exists
+        // todo: when we have new backends, we can't just use `Lvol` directly.
+        let _lvol = Bdev::lookup_by_uuid_str(replica_uuid)
+            .ok_or(SnapshotRebuildError::ReplicaBdevNotFound {})
+            .and_then(|bdev| {
+                Lvol::try_from(bdev)
+                    .map_err(|_| SnapshotRebuildError::NotAReplica {})
+            })?;
+
+        device_create(src_uri).await.context(SourceUriBdev)?;
+
+        let dst_uri = format!("bdev:///{replica_uuid}");
+        match self.0.build(src_uri, &dst_uri).await {
+            Ok(job) => Ok(SnapshotRebuildJob::new(replica_uuid, job)),
+            Err(error) => {
+                device_destroy(src_uri).await.ok();
+                Err(error)
+            }
+        }
     }
 }
 
@@ -59,6 +87,36 @@ impl SnapshotRebuildJob {
     /// Helps create a `Self` using a builder: `SnapshotRebuildJobBuilder`.
     pub fn builder() -> SnapshotRebuildJobBuilder {
         SnapshotRebuildJobBuilder::default()
+    }
+    fn new(replica_uuid: &str, job: BdevRebuildJob) -> Self {
+        Self {
+            replica_uuid: replica_uuid.to_owned(),
+            inner: job,
+        }
+    }
+    pub fn list() -> Vec<std::sync::Arc<SnapshotRebuildJob>> {
+        Self::get_instances().values().cloned().collect()
+    }
+    pub fn name(&self) -> &str {
+        &self.replica_uuid
+    }
+    pub fn destroy(self: std::sync::Arc<Self>) {
+        let _ = Self::remove(self.name());
+    }
+}
+
+impl Drop for SnapshotRebuildJob {
+    fn drop(&mut self) {
+        let src_uri = self.src_uri().to_owned();
+        Reactors::master().send_future(async move {
+            if let Err(error) = device_destroy(&src_uri).await {
+                // todo: how do we know it's safe to destroy?
+                //  we don't use refcounts for this, but maybe we should?
+                tracing::error!(
+                    "Failed to close source of rebuild job: {error}"
+                );
+            }
+        });
     }
 }
 

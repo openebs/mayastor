@@ -15,7 +15,7 @@ mod snapshot_rebuild;
 pub use bdev_rebuild::BdevRebuildJob;
 pub use nexus_rebuild::{NexusRebuildJob, NexusRebuildJobStarter};
 use rebuild_descriptor::RebuildDescriptor;
-pub(crate) use rebuild_error::RebuildError;
+pub(crate) use rebuild_error::{RebuildError, SnapshotRebuildError};
 use rebuild_job::RebuildOperation;
 pub use rebuild_job::{RebuildJob, RebuildJobOptions, RebuildVerifyMode};
 use rebuild_job_backend::{
@@ -51,5 +51,15 @@ impl WithinRange<u64> for std::ops::Range<u64> {
             && right.start < right.end
             && self.start >= right.start
             && self.end <= right.end
+    }
+}
+
+/// Shutdown all pending snapshot rebuilds.
+pub(crate) async fn shutdown_snapshot_rebuilds() {
+    let jobs = SnapshotRebuildJob::list().into_iter();
+    for recv in jobs.map(|job| job.force_stop()).collect::<Vec<_>>() {
+        tracing::error!("Waiting for job..");
+        recv.await.ok();
+        tracing::error!("Waited for job..");
     }
 }

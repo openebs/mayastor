@@ -332,6 +332,7 @@ impl RebuildJobBackendManager {
             block_size: descriptor.block_size,
             tasks_total: self.task_pool().total as u64,
             tasks_active: self.task_pool().active as u64,
+            end_time: None,
         }
     }
 

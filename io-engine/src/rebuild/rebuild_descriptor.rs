@@ -143,7 +143,7 @@ impl RebuildDescriptor {
     }
 
     /// Check if the rebuild range is compatible with the rebuild segment map.
-    pub(crate) fn validate_map(
+    pub(super) fn validate_map(
         &self,
         map: &SegmentMap,
     ) -> Result<(), RebuildError> {

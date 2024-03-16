@@ -84,4 +84,29 @@ pub enum RebuildError {
     BackendGone,
     #[snafu(display("The rebuild task pool channel is unexpectedly closed with {} active tasks", active))]
     RebuildTasksChannel { active: usize },
+    #[snafu(display("Snapshot Rebuild: {source}"))]
+    SnapshotRebuild { source: SnapshotRebuildError },
+}
+
+/// Various snapshot rebuild errors.
+#[derive(Debug, Snafu, Clone)]
+#[snafu(visibility(pub(crate)), context(suffix(false)))]
+#[allow(missing_docs)]
+pub enum SnapshotRebuildError {
+    #[snafu(display("Destination replica bdev not found"))]
+    ReplicaBdevNotFound {},
+    #[snafu(display("Destination replica bdev uri is missing"))]
+    ReplicaNoUri {},
+    #[snafu(display("Given destination uuid is not a replica"))]
+    NotAReplica {},
+    #[snafu(display("Failed to open the source uri as a bdev: {source}"))]
+    SourceUriBdev { source: BdevError },
+}
+
+impl From<SnapshotRebuildError> for RebuildError {
+    fn from(source: SnapshotRebuildError) -> Self {
+        Self::SnapshotRebuild {
+            source,
+        }
+    }
 }

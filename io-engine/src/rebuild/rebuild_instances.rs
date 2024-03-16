@@ -8,8 +8,7 @@ macro_rules! gen_rebuild_instances {
         impl $T {
             /// Get the rebuild job instances container, we ensure that this can
             /// only ever be called on a properly allocated thread
-            fn get_instances<'a>(
-            ) -> parking_lot::MutexGuard<'a, RebuildJobInstances> {
+            fn get_instances<'a>() -> parking_lot::MutexGuard<'a, RebuildJobInstances> {
                 assert!(
                     spdk_rs::Thread::is_spdk_thread(),
                     "not called from SPDK thread"
@@ -29,8 +28,7 @@ macro_rules! gen_rebuild_instances {
                 Self::get_instances().len()
             }
 
-            /// Lookup a rebuild job by its destination uri then remove and drop
-            /// it.
+            /// Lookup a rebuild job by its name then remove and drop it.
             pub fn remove(
                 name: &str,
             ) -> Result<std::sync::Arc<Self>, super::RebuildError> {
@@ -46,33 +44,33 @@ macro_rules! gen_rebuild_instances {
             pub fn store(self) -> Result<(), super::RebuildError> {
                 let mut rebuild_list = Self::get_instances();
 
-                if rebuild_list.contains_key(&self.dst_uri) {
+                if rebuild_list.contains_key(self.name()) {
                     Err(RebuildError::JobAlreadyExists {
                         job: self.dst_uri().to_string(),
                     })
                 } else {
                     let _ = rebuild_list.insert(
-                        self.dst_uri.clone(),
+                        self.name().to_owned(),
                         std::sync::Arc::new(self),
                     );
                     Ok(())
                 }
             }
 
-            /// Lookup a rebuild job by its destination uri and return it.
+            /// Lookup a rebuild job by its name and return it.
             pub fn lookup(
-                dst_uri: &str,
+                name: &str,
             ) -> Result<std::sync::Arc<Self>, super::RebuildError> {
-                if let Some(job) = Self::get_instances().get(dst_uri) {
+                if let Some(job) = Self::get_instances().get(name) {
                     Ok(job.clone())
                 } else {
                     Err(RebuildError::JobNotFound {
-                        job: dst_uri.to_owned(),
+                        job: name.to_owned(),
                     })
                 }
             }
 
-            /// Lookup all rebuilds jobs with name as its source.
+            /// Lookup all rebuilds jobs with `src_uri` as its source uri.
             pub fn lookup_src(src_uri: &str) -> Vec<std::sync::Arc<Self>> {
                 Self::get_instances()
                     .iter_mut()

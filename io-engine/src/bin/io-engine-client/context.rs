@@ -66,6 +66,8 @@ mod v1 {
     pub type HostRpcClient = host::HostRpcClient<Channel>;
     pub type NexusRpcClient = nexus::NexusRpcClient<Channel>;
     pub type SnapshotRpcClient = snapshot::SnapshotRpcClient<Channel>;
+    pub type SnapshotRebuildRpcClient =
+        snapshot_rebuild::SnapshotRebuildRpcClient<Channel>;
     pub type TestRpcClient = test::TestRpcClient<Channel>;
     pub type StatsRpcClient = stats::StatsRpcClient<Channel>;
 
@@ -77,6 +79,7 @@ mod v1 {
         pub host: HostRpcClient,
         pub nexus: NexusRpcClient,
         pub snapshot: SnapshotRpcClient,
+        pub snapshot_rebuild: SnapshotRebuildRpcClient,
         pub test: TestRpcClient,
         pub stats: StatsRpcClient,
     }
@@ -90,6 +93,8 @@ mod v1 {
             let host = HostRpcClient::connect(h.clone()).await.unwrap();
             let nexus = NexusRpcClient::connect(h.clone()).await.unwrap();
             let snapshot = SnapshotRpcClient::connect(h.clone()).await.unwrap();
+            let snapshot_rebuild =
+                SnapshotRebuildRpcClient::connect(h.clone()).await.unwrap();
             let test = TestRpcClient::connect(h.clone()).await.unwrap();
             let stats = StatsRpcClient::connect(h).await.unwrap();
 
@@ -101,6 +106,7 @@ mod v1 {
                 host,
                 nexus,
                 snapshot,
+                snapshot_rebuild,
                 test,
                 stats,
             })

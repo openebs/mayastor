@@ -244,6 +244,10 @@ impl RebuildJob {
         &self.src_uri
     }
 
+    pub fn name(&self) -> &str {
+        self.src_uri()
+    }
+
     /// Get the uri of the rebuild destination.
     pub fn dst_uri(&self) -> &str {
         &self.dst_uri

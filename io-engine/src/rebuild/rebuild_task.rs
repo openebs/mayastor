@@ -127,7 +127,7 @@ impl RebuildTasks {
 
         Ok(RebuildTasks {
             total: tasks.len(),
-            tasks: tasks.collect::<Result<_, _>>()?,
+            tasks: tasks.collect::<Result<_, RebuildError>>()?,
             channel,
             active: 0,
             segments_done: 0,

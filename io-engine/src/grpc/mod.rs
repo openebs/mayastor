@@ -168,6 +168,15 @@ where
         .map_err(|_| Status::resource_exhausted("ENOMEM"))
 }
 
+pub fn rpc_submit_ext<F, R>(future: F) -> Result<Receiver<R>, tonic::Status>
+where
+    F: Future<Output = R> + 'static,
+    R: Send + Debug + 'static,
+{
+    Reactor::spawn_at_primary(future)
+        .map_err(|_| Status::resource_exhausted("ENOMEM"))
+}
+
 macro_rules! default_ip {
     () => {
         "0.0.0.0"
