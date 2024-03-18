@@ -90,7 +90,7 @@ impl MayastorGrpcServer {
             }))
             .add_optional_service(
                 enable_v1
-                    .map(|_| v1::pool::PoolRpcServer::new(PoolService::new())),
+                    .map(|_| v1::pool::PoolRpcServer::new(pool_v1.clone())),
             )
             .add_optional_service(enable_v1.map(|_| {
                 v1::replica::ReplicaRpcServer::new(replica_v1.clone())

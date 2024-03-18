@@ -863,11 +863,20 @@ impl Lvs {
             .map(Lvol::from_inner_ptr)?;
 
         if let Some(id) = entity_id {
-            let mut lvol_mut = Pin::new(&mut lvol);
-            lvol_mut.as_mut().set(PropValue::EntityId(id)).await?;
+            if let Err(error) =
+                Pin::new(&mut lvol).set(PropValue::EntityId(id)).await
+            {
+                let lvol_uuid = lvol.uuid();
+                if let Err(error) = lvol.destroy().await {
+                    warn!(
+                        "uuid/{lvol_uuid}: failed to destroy lvol after failing to set entity id: {error:?}",
+                    );
+                }
+                return Err(error);
+            }
         }
 
-        info!("{:?}: wiping super", lvol);
+        info!("{lvol:?}: wiping super");
 
         if let Err(error) = lvol.wipe_super().await {
             // If we fail to destroy it hopefully the control-plane will clean
@@ -876,14 +885,13 @@ impl Lvs {
             let lvol_uuid = lvol.uuid();
             if let Err(error) = lvol.destroy().await {
                 warn!(
-                    "uuid/{}: failed to destroy lvol after failing to wipe super: {:?}",
-                    lvol_uuid, error
+                    "uuid/{lvol_uuid}: failed to destroy lvol after failing to wipe super: {error:?}",
                 );
             }
             return Err(error);
         }
 
-        info!("{:?}: created", lvol);
+        info!("{lvol:?}: created");
         lvol.event(EventAction::Create).generate();
         Ok(lvol)
     }
