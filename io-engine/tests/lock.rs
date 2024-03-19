@@ -38,14 +38,17 @@ async fn test_lock_level(level: LockLevel) {
 
         // Step 1: acquire lock.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(None).await,
+            LockLevel::Global => lock_mgr.write_lock(None).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(None).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .write_lock_subsystem(None)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, None)
+                    .write_lock_resource(TEST_RESOURCE, None)
                     .await
             }
         };
@@ -81,14 +84,17 @@ async fn test_lock_level(level: LockLevel) {
         // Try to grab the lock - we must wait, since the lock is already
         // acquired.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(None).await,
+            LockLevel::Global => lock_mgr.write_lock(None).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(None).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .write_lock_subsystem(None)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, None)
+                    .write_lock_resource(TEST_RESOURCE, None)
                     .await
             }
         };
@@ -97,9 +103,122 @@ async fn test_lock_level(level: LockLevel) {
         // Adjust the counter to denote that lock is acquired.
         STEP_COUNT.fetch_add(1, Ordering::SeqCst);
     });
-
     h1.await.expect("Test task panicked");
     h2.await.expect("Test task panicked");
+}
+
+async fn test_read_write_lock_level(level: LockLevel) {
+    static STEP_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+    let (tx, rx) = oneshot::channel();
+
+    STEP_COUNT.store(0, Ordering::Relaxed);
+
+    // Task that owns the lock.
+    let h1 = tokio::spawn(async move {
+        let lock_mgr = get_lock_manager();
+
+        // Step 1: acquire lock.
+        let guard = match level {
+            LockLevel::Global => lock_mgr.write_lock(None).await,
+            LockLevel::Subsystem => {
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .write_lock_subsystem(None)
+                    .await
+            }
+            LockLevel::Resource => {
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .write_lock_resource(TEST_RESOURCE, None)
+                    .await
+            }
+        };
+        assert!(guard.is_some(), "Failed to acquire the lock");
+
+        // Adjust the counter to denote that lock is acquired.
+        STEP_COUNT.fetch_add(2, Ordering::SeqCst);
+        // Notify that the lock is acquired.
+        tx.send(0).expect("Failed to notify the peer ");
+
+        // Sleep to let the other part of test execute.
+        // Note: the lock is held so the other task must wait.
+        sleep(Duration::from_millis(500)).await;
+
+        // Check that the counter remains unchanged since we're still holding
+        // the lock.
+        assert_eq!(
+            STEP_COUNT.load(Ordering::Relaxed),
+            2,
+            "Protected resource accessed by the other task"
+        );
+
+        // Lock will be automatically released here when lock guard leaves the
+        // scope.
+    });
+
+    // Task that triggers lock contention.
+    let h2 = tokio::spawn(async move {
+        let lock_mgr = get_lock_manager();
+
+        // Wait till the lock is acquired.
+        rx.await
+            .expect("Failed to receive notification that the lock is acquired");
+
+        // Try to grab the lock - we must wait, since the lock is already
+        // acquired.
+        let guard = match level {
+            LockLevel::Global => lock_mgr.read_lock(None).await,
+            LockLevel::Subsystem => {
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .read_lock_subsystem(None)
+                    .await
+            }
+            LockLevel::Resource => {
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .read_lock_resource(TEST_RESOURCE, None)
+                    .await
+            }
+        };
+        assert!(guard.is_some(), "Failed to acquire the lock");
+        assert_eq!(
+            STEP_COUNT.load(Ordering::Relaxed),
+            2,
+            "Protected resource accessed by the other task"
+        );
+    });
+    let h3 = tokio::spawn(async move {
+        let lock_mgr = get_lock_manager();
+
+        // Try to grab the lock - we must wait, since the lock is already
+        // acquired.
+        let guard = match level {
+            LockLevel::Global => lock_mgr.read_lock(None).await,
+            LockLevel::Subsystem => {
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .read_lock_subsystem(None)
+                    .await
+            }
+            LockLevel::Resource => {
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .read_lock_resource(TEST_RESOURCE, None)
+                    .await
+            }
+        };
+        assert!(guard.is_some(), "Failed to acquire the lock");
+        assert_eq!(
+            STEP_COUNT.load(Ordering::Relaxed),
+            2,
+            "Protected resource accessed by the other task"
+        );
+    });
+    h1.await.expect("Test task panicked");
+    h2.await.expect("Test task panicked");
+    h3.await.expect("Test task panicked");
 }
 
 // Helper function to test all possible lock levels from 2 tasks
@@ -113,14 +232,17 @@ async fn test_lock_timed_level(level: LockLevel) {
 
         // Step 1: acquire lock.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(None).await,
+            LockLevel::Global => lock_mgr.write_lock(None).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(None).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .write_lock_subsystem(None)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, None)
+                    .write_lock_resource(TEST_RESOURCE, None)
                     .await
             }
         };
@@ -147,14 +269,17 @@ async fn test_lock_timed_level(level: LockLevel) {
         // Try to grab the lock - we must wait, since the lock is already
         // acquired.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(duration).await,
+            LockLevel::Global => lock_mgr.write_lock(duration).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(duration).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .write_lock_subsystem(duration)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, duration)
+                    .write_lock_resource(TEST_RESOURCE, duration)
                     .await
             }
         };
@@ -196,4 +321,19 @@ async fn test_lock_timed_subsystem() {
 #[tokio::test]
 async fn test_lock_timed_resource() {
     test_lock_timed_level(LockLevel::Resource).await
+}
+
+#[tokio::test]
+async fn test_read_write_lock_global() {
+    test_read_write_lock_level(LockLevel::Global).await
+}
+
+#[tokio::test]
+async fn test_read_write_lock_subsystem() {
+    test_read_write_lock_level(LockLevel::Subsystem).await
+}
+
+#[tokio::test]
+async fn test_read_write_lock_resource() {
+    test_read_write_lock_level(LockLevel::Resource).await
 }

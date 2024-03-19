@@ -1,6 +1,17 @@
 use crate::{
-    core::Share,
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    core::{
+        lock::{ProtectedSubsystems, ResourceLockManager},
+        ResourceSubsystem,
+        Share,
+    },
+    grpc::{
+        rpc_submit,
+        GrpcClientContext,
+        GrpcRWSerializer,
+        GrpcResult,
+        RWLock,
+        RWSerializer,
+    },
     lvs::{Error as LvsError, Lvs},
     pool_backend::{PoolArgs, PoolBackend},
 };
@@ -21,6 +32,13 @@ pub struct PoolService {
     name: String,
     client_context:
         std::sync::Arc<tokio::sync::RwLock<Option<GrpcClientContext>>>,
+}
+#[async_trait::async_trait]
+impl<F, T> GrpcRWSerializer<F, T> for PoolService
+where
+    T: Send + 'static,
+    F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
+{
 }
 
 #[async_trait::async_trait]
@@ -161,6 +179,10 @@ impl PoolService {
             name: String::from("PoolSvc"),
             client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
+    }
+    fn init_subsystem(&self) -> &ResourceSubsystem {
+        let lock_manager = ResourceLockManager::get_instance();
+        lock_manager.get_subsystem(ProtectedSubsystems::POOL)
     }
 }
 
@@ -308,14 +330,20 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<ImportPoolRequest>,
     ) -> GrpcResult<Pool> {
-        self.locked(
-            GrpcClientContext::new(&request, function_name!()),
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+        let pool_args = PoolArgs::try_from(args.clone())?;
+
+        self.serialize_grpc(
+            ctx,
+            Some(vec![pool_args.name.clone()]),
+            self.init_subsystem().clone(),
+            false,
+            true,
             async move {
-                let args = request.into_inner();
                 info!("{:?}", args);
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool = Lvs::import_from_args(PoolArgs::try_from(args)?)
-                        .await?;
+                    let pool = Lvs::import_from_args(pool_args).await?;
                     Ok(Pool::from(pool))
                 })?;
 

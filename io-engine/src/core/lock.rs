@@ -4,13 +4,16 @@ use std::{
     time::Duration,
 };
 
-use futures::lock::{Mutex, MutexGuard};
 use once_cell::sync::OnceCell;
+use std::sync::Arc;
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Common IO engine resource subsystems.
 pub struct ProtectedSubsystems;
 impl ProtectedSubsystems {
     pub const NEXUS: &'static str = "nexus";
+    pub const REPLICA: &'static str = "replica";
+    pub const POOL: &'static str = "pool";
 }
 
 /// Configuration parameters for initialization of the Lock manager.
@@ -41,10 +44,11 @@ impl ResourceLockManagerConfig {
 }
 
 /// Resource subsystem that holds locks for all resources withing this system.
+#[derive(Clone)]
 pub struct ResourceSubsystem {
     id: String,
-    object_locks: Vec<Mutex<LockStats>>,
-    subsystem_lock: Mutex<LockStats>,
+    object_locks: Vec<Arc<RwLock<LockStats>>>,
+    subsystem_lock: Arc<RwLock<LockStats>>,
 }
 
 impl ResourceSubsystem {
@@ -52,27 +56,27 @@ impl ResourceSubsystem {
     /// objects.
     fn new(id: String, num_objects: usize) -> Self {
         let object_locks =
-            std::iter::repeat_with(|| Mutex::new(LockStats::default()))
+            std::iter::repeat_with(|| RwLock::new(LockStats::default()).into())
                 .take(num_objects)
                 .collect::<Vec<_>>();
 
         Self {
             id,
             object_locks,
-            subsystem_lock: Mutex::new(LockStats::default()),
+            subsystem_lock: RwLock::new(LockStats::default()).into(),
         }
     }
 
-    /// Acquire the subsystem lock.
-    pub async fn lock(
+    /// Acquire the subsystem write lock.
+    pub async fn write_lock_subsystem(
         &self,
         wait_timeout: Option<Duration>,
     ) -> Option<ResourceLockGuard<'_>> {
-        acquire_lock(&self.subsystem_lock, wait_timeout).await
+        acquire_write_lock(&self.subsystem_lock, wait_timeout).await
     }
 
-    /// Lock subsystem resource by its ID and obtain a lock guard.
-    pub async fn lock_resource<T: AsRef<str>>(
+    /// Write lock subsystem resource by its ID and obtain a lock guard.
+    pub async fn write_lock_resource<T: AsRef<str>>(
         &self,
         id: T,
         wait_timeout: Option<Duration>,
@@ -81,14 +85,34 @@ impl ResourceSubsystem {
         let mut hasher = DefaultHasher::new();
         id.as_ref().hash(&mut hasher);
         let mutex_id = hasher.finish() as usize % self.object_locks.len();
+        acquire_write_lock(&self.object_locks[mutex_id], wait_timeout).await
+    }
 
-        acquire_lock(&self.object_locks[mutex_id], wait_timeout).await
+    /// Acquire the subsystem read lock.
+    pub async fn read_lock_subsystem(
+        &self,
+        wait_timeout: Option<Duration>,
+    ) -> Option<ResourceLockGuard<'_>> {
+        acquire_read_lock(&self.subsystem_lock, wait_timeout).await
+    }
+
+    /// Read lock subsystem resource by its ID and obtain a lock guard.
+    pub async fn read_lock_resource<T: AsRef<str>>(
+        &self,
+        id: T,
+        wait_timeout: Option<Duration>,
+    ) -> Option<ResourceLockGuard<'_>> {
+        // Calculate hash of the object to get the mutex index.
+        let mut hasher = DefaultHasher::new();
+        id.as_ref().hash(&mut hasher);
+        let mutex_id = hasher.finish() as usize % self.object_locks.len();
+        acquire_read_lock(&self.object_locks[mutex_id], wait_timeout).await
     }
 }
 
 /// Structure that holds per-lock statistics.
 #[derive(Debug, Default)]
-struct LockStats {
+pub struct LockStats {
     num_acquires: usize,
 }
 
@@ -107,37 +131,53 @@ pub struct ResourceLockManager {
     /// All known resource subsystems with locks.
     subsystems: Vec<ResourceSubsystem>,
     /// Global resource lock,
-    mgr_lock: Mutex<LockStats>,
+    mgr_lock: Arc<RwLock<LockStats>>,
 }
 
-/// Automatically releases the lock once dropped.
-pub struct ResourceLockGuard<'a> {
-    _lock_guard: MutexGuard<'a, LockStats>,
+/// Resource guard for read and write which automatically released once dropped.
+pub enum ResourceLockGuard<'a> {
+    Read(RwLockReadGuard<'a, LockStats>),
+    Write(RwLockWriteGuard<'a, LockStats>),
 }
 
 /// Global instance of the resource lock manager.
 static LOCK_MANAGER: OnceCell<ResourceLockManager> = OnceCell::new();
 
-/// Helper function to abstract common lock acquisition logic.
-async fn acquire_lock(
-    lock: &Mutex<LockStats>,
+/// Helper function to aquire read lock.
+async fn acquire_read_lock(
+    lock: &Arc<RwLock<LockStats>>,
     wait_timeout: Option<Duration>,
 ) -> Option<ResourceLockGuard<'_>> {
-    let mut lock_guard = if let Some(d) = wait_timeout {
-        match tokio::time::timeout(d, lock.lock()).await {
+    let lock_guard = if let Some(d) = wait_timeout {
+        match tokio::time::timeout(d, lock.read()).await {
             Err(_) => return None,
             Ok(g) => g,
         }
     } else {
         // No timeout, wait for the lock indefinitely.
-        lock.lock().await
+        lock.read().await
     };
 
+    Some(ResourceLockGuard::Read(lock_guard))
+}
+
+/// Helper function to aquire write lock.
+async fn acquire_write_lock(
+    lock: &RwLock<LockStats>,
+    wait_timeout: Option<Duration>,
+) -> Option<ResourceLockGuard<'_>> {
+    let mut lock_guard = if let Some(d) = wait_timeout {
+        match tokio::time::timeout(d, lock.write()).await {
+            Err(_) => return None,
+            Ok(g) => g,
+        }
+    } else {
+        // No timeout, wait for the lock indefinitely.
+        lock.write().await
+    };
     lock_guard.num_acquires += 1;
 
-    Some(ResourceLockGuard {
-        _lock_guard: lock_guard,
-    })
+    Some(ResourceLockGuard::Write(lock_guard))
 }
 
 impl ResourceLockManager {
@@ -153,17 +193,25 @@ impl ResourceLockManager {
 
             ResourceLockManager {
                 subsystems,
-                mgr_lock: Mutex::new(LockStats::default()),
+                mgr_lock: RwLock::new(LockStats::default()).into(),
             }
         });
     }
 
-    /// Acquire the global Lock manager lock.
-    pub async fn lock(
+    /// Acquire the global Lock manager write lock.
+    pub async fn write_lock(
         &self,
         wait_timeout: Option<Duration>,
     ) -> Option<ResourceLockGuard<'_>> {
-        acquire_lock(&self.mgr_lock, wait_timeout).await
+        acquire_write_lock(&self.mgr_lock, wait_timeout).await
+    }
+
+    /// Acquire the global Lock manager read lock.
+    pub async fn read_lock(
+        &self,
+        wait_timeout: Option<Duration>,
+    ) -> Option<ResourceLockGuard<'_>> {
+        acquire_read_lock(&self.mgr_lock, wait_timeout).await
     }
 
     /// Get resource subsystem by its id.
@@ -185,5 +233,3 @@ impl ResourceLockManager {
         LOCK_MANAGER.get().expect("Lock Manager is not initialized")
     }
 }
-
-impl ResourceLockGuard<'_> {}
