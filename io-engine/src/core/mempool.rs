@@ -13,6 +13,7 @@ use spdk_rs::libspdk::{
     spdk_mempool_free,
     spdk_mempool_get,
     spdk_mempool_put,
+    SPDK_MEMPOOL_DEFAULT_CACHE_SIZE,
 };
 
 use crate::ffihelper::IntoCString;
@@ -28,7 +29,9 @@ unsafe impl<T: Sized> Send for MemoryPool<T> {}
 unsafe impl<T: Sized> Sync for MemoryPool<T> {}
 
 impl<T: Sized> MemoryPool<T> {
-    /// Create memory pool with given name and size.
+    /// Create memory pool with given name, size and per-core cache size.
+    /// Providing default cache size selects a suitable default in spdk.
+    /// For mayastor, it'll get set to 512(max allowed).
     pub fn create(name: &str, size: u64) -> Option<Self> {
         let cname = name.into_cstring();
 
@@ -37,7 +40,7 @@ impl<T: Sized> MemoryPool<T> {
                 cname.as_ptr(),
                 size,
                 size_of::<T>() as u64,
-                0,
+                SPDK_MEMPOOL_DEFAULT_CACHE_SIZE as u64,
                 -1,
             )
         };
