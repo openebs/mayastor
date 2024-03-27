@@ -95,8 +95,7 @@ async fn init_nvmf_share() -> String {
             let pool = Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEV_NAME.to_string()],
-                uuid: None,
-                cluster_size: None,
+                ..Default::default()
             })
             .await
             .unwrap();

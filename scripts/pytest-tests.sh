@@ -47,7 +47,7 @@ function run_tests()
     (
       set -x
       report=$(echo "${name}-xunit-report.xml" | tr  '/' '-')
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$ROOTDIR/$report"
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$ROOTDIR/$report" $TEST_ARGS
     )
     elif [ -f "$name" ] || [ -f "${name%::*}" ]
     then
@@ -56,7 +56,7 @@ function run_tests()
       base=$(dirname "$name")
       ( cd "$base"; docker-compose down 2>/dev/null || true )
       report=$(echo "$base/${name%.py}-xunit-report.xml" | tr  '/' '-')
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$ROOTDIR/$report"
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$ROOTDIR/$report" $TEST_ARGS
     )
     fi
   done
@@ -71,6 +71,7 @@ fi
 pushd "$SRCDIR/test/python" >/dev/null && source ./venv/bin/activate && popd >/dev/null
 
 TEST_LIST=
+TEST_ARGS=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --clean-all)
@@ -87,6 +88,8 @@ while [ "$#" -gt 0 ]; do
       param="$1"
       if [ -d "$real_1" ] || [ -f "$real_1" ] || [ -f "${real_1%::*}" ]; then
         param="$real_1"
+      else
+        TEST_ARGS="${TEST_ARGS:-}$1"
       fi
       TEST_LIST="$TEST_LIST \n$param"
       ;;

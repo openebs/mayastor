@@ -99,6 +99,7 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
+            logical_volume_manager: f.logical_volume_manager,
         }
     }
 }

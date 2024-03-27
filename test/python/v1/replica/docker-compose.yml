@@ -11,9 +11,11 @@ services:
         - MY_POD_IP=10.0.0.2
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
-        - PATH=${LLVM_SYMBOLIZER_DIR:-}
+        - PATH=${LLVM_SYMBOLIZER_DIR:-}:${LVM_BINS:-}
         - ASAN_OPTIONS=detect_leaks=0
-    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 1 -r /tmp/ms0.sock
+        - ENABLE_LVM=true
+        - RUST_LOG=debug
+    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 1 -r /tmp/ms0.sock --reactor-freeze-detection
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.2
@@ -32,6 +34,14 @@ services:
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
       - /var/tmp:/var/tmp
+      - /dev:/dev
+      - /run/udev:/run/udev
+    privileged: true
+    devices:
+      - /dev/loop0
+      - /dev/loop1
+      - /dev/loop2
+    ipc: "host"
 networks:
   mayastor_net:
     name: mayastor_net

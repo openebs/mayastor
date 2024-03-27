@@ -118,6 +118,7 @@ impl PoolBuilder {
                 uuid: None,
                 pooluuid: self.uuid.clone(),
                 query: None,
+                pooltypes: vec![],
             })
             .await
             .map(|r| r.into_inner().replicas)
