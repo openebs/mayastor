@@ -1,20 +1,27 @@
+use futures::{channel::oneshot::Receiver, FutureExt};
+use nix::errno::Errno;
+pub use server::MayastorGrpcServer;
 use std::{
     error::Error,
     fmt::{Debug, Display},
     future::Future,
     time::Duration,
 };
-
-use futures::channel::oneshot::Receiver;
-use nix::errno::Errno;
-pub use server::MayastorGrpcServer;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 use crate::{
     bdev_api::BdevError,
-    core::{CoreError, Reactor, VerboseError},
+    core::{
+        lock::ResourceLockManager,
+        CoreError,
+        Reactor,
+        ResourceSubsystem,
+        VerboseError,
+    },
 };
+
+use std::panic::AssertUnwindSafe;
 
 impl From<BdevError> for tonic::Status {
     fn from(e: BdevError) -> Self {
@@ -131,6 +138,129 @@ pub(crate) trait RWSerializer<F, T> {
     async fn shared(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
 }
 
+/// Global read/write lock function for grpc serialization.
+async fn acquire_lock(
+    ctx: &GrpcClientContext,
+    resources: Option<Vec<String>>,
+    subsystem: ResourceSubsystem,
+    write_lock: bool,
+    global_operation: bool,
+) -> Result<(), Status> {
+    let lock_manager = ResourceLockManager::get_instance();
+    if global_operation {
+        if write_lock {
+            match lock_manager.write_lock(Some(ctx.timeout)).await {
+                Some(_) => (),
+                None => return Err(Status::deadline_exceeded(
+                    "Failed to acquire global write lock within given timeout"
+                        .to_string(),
+                )),
+            }
+        } else {
+            match lock_manager.read_lock(Some(ctx.timeout)).await {
+                Some(_) => (),
+                None => return Err(Status::deadline_exceeded(
+                    "Failed to acquire global read lock within given timeout"
+                        .to_string(),
+                )),
+            }
+        }
+    }
+    if let Some(resources) = resources {
+        for resource in resources {
+            if write_lock {
+                match subsystem.write_lock_resource(resource, Some(ctx.timeout))
+                    .await {
+                        Some(_) => (),
+                        None => return Err(Status::deadline_exceeded(
+                            "Failed to acquire write lock for the resource within given timeout"
+                            .to_string()
+                        )),
+                    };
+            } else {
+                match subsystem.read_lock_resource(resource, Some(ctx.timeout))
+                    .await {
+                        Some(_) => (),
+                        None => return Err(Status::deadline_exceeded(
+                            "Failed to acquire read lock for the resource within given timeout"
+                            .to_string()
+                        )),
+                    };
+            }
+        }
+    } else if write_lock {
+        match subsystem.write_lock_subsystem(Some(ctx.timeout)).await {
+            Some(_) => (),
+            None => return Err(Status::deadline_exceeded(
+                "Failed to acquire subsystem write lock within given timeout"
+                    .to_string(),
+            )),
+        };
+    } else {
+        match subsystem.read_lock_subsystem(Some(ctx.timeout)).await {
+            Some(_) => (),
+            None => return Err(Status::deadline_exceeded(
+                "Failed to acquire subsystem read lock within given timeout"
+                    .to_string(),
+            )),
+        };
+    }
+    Ok(())
+}
+/// Trait give the default implementation of the gRPC serialization.
+/// Each service can implement its own serialization logic.
+#[async_trait::async_trait]
+pub(crate) trait GrpcRWSerializer<F, T> {
+    async fn serialize_grpc(
+        &self,
+        ctx: GrpcClientContext,
+        resources: Option<Vec<String>>,
+        subsystem: ResourceSubsystem,
+        global_operation: bool,
+        write_lock: bool,
+        f: F,
+    ) -> Result<T, Status>
+    where
+        T: Send + 'static,
+        F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
+    {
+        let fut = AssertUnwindSafe(f).catch_unwind();
+        // Schedule a Tokio task to detach it from the high-level gRPC future
+        // and avoid task cancellation when the top-level gRPC future is
+        // cancelled.
+        match tokio::spawn(async move {
+            acquire_lock(
+                &ctx,
+                resources,
+                subsystem,
+                write_lock,
+                global_operation,
+            )
+            .await?;
+
+            let r = fut.await;
+
+            match r {
+                Ok(r) => r,
+                Err(_e) => {
+                    warn!(
+                        "{}: gRPC method panicked, args: {}",
+                        ctx.id, ctx.args
+                    );
+                    Err(Status::cancelled(format!(
+                        "{}: gRPC method panicked",
+                        ctx.id
+                    )))
+                }
+            }
+        })
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => Err(Status::cancelled("gRPC call cancelled")),
+        }
+    }
+}
 /// Trait allows service implementing to return RWLock of itself to the
 /// caller.
 #[async_trait::async_trait]

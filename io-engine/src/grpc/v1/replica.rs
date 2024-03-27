@@ -2,16 +2,25 @@ use crate::{
     bdev::PtplFileOps,
     bdev_api::BdevError,
     core::{
+        lock::{ProtectedSubsystems, ResourceLockManager},
         logical_volume::LogicalVolume,
         Bdev,
         CloneXattrs,
         Protocol,
+        ResourceSubsystem,
         Share,
         ShareProps,
         UntypedBdev,
         UpdateProps,
     },
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    grpc::{
+        rpc_submit,
+        GrpcClientContext,
+        GrpcRWSerializer,
+        GrpcResult,
+        RWLock,
+        RWSerializer,
+    },
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol, PropValue},
 };
 use ::function_name::named;
@@ -29,6 +38,13 @@ pub struct ReplicaService {
         std::sync::Arc<tokio::sync::RwLock<Option<GrpcClientContext>>>,
 }
 
+#[async_trait::async_trait]
+impl<F, T> GrpcRWSerializer<F, T> for ReplicaService
+where
+    T: Send + 'static,
+    F: core::future::Future<Output = Result<T, Status>> + Send + 'static,
+{
+}
 #[async_trait::async_trait]
 impl<F, T> RWSerializer<F, T> for ReplicaService
 where
@@ -153,7 +169,12 @@ impl ReplicaService {
             client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
+    fn init_subsystem(&self) -> &ResourceSubsystem {
+        let lock_manager = ResourceLockManager::get_instance();
+        lock_manager.get_subsystem(ProtectedSubsystems::REPLICA)
+    }
 }
+
 fn filter_replicas_by_replica_type(
     replica_list: Vec<Replica>,
     query: Option<list_replica_options::Query>,
@@ -190,9 +211,15 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.locked(GrpcClientContext::new(&request, function_name!()), async move {
-
-            let args = request.into_inner();
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+        let pool_name = if let Some(pool) = Lvs::lookup_by_uuid(&args.pooluuid)
+        {
+            pool.name().to_string()
+        } else {
+            args.pooluuid.to_string()
+        };
+        self.serialize_grpc(ctx, Some(vec![args.uuid.clone(), pool_name]), self.init_subsystem().clone(), true, true, async move {
             info!("{:?}", args);
             if !matches!(
                 Protocol::try_from(args.share)?,
@@ -268,70 +295,78 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<()> {
-        self.locked(GrpcClientContext::new(&request, function_name!()), async {
-            let args = request.into_inner();
-            info!("{:?}", args);
-            let rx = rpc_submit::<_, _, LvsError>(async move {
-                // todo: is there still a race here, can the pool be exported
-                //   right after the check here and before we
-                //   probe for the replica?
-                let lvs = match &args.pool {
-                    Some(destroy_replica_request::Pool::PoolUuid(uuid)) => {
-                        Lvs::lookup_by_uuid(uuid)
-                            .ok_or(LvsError::RepDestroy {
-                                source: Errno::ENOMEDIUM,
-                                name: args.uuid.to_owned(),
-                                msg: format!("Pool uuid={uuid} is not loaded"),
-                            })
-                            .map(Some)
-                    }
-                    Some(destroy_replica_request::Pool::PoolName(name)) => {
-                        Lvs::lookup(name)
-                            .ok_or(LvsError::RepDestroy {
-                                source: Errno::ENOMEDIUM,
-                                name: args.uuid.to_owned(),
-                                msg: format!("Pool name={name} is not loaded"),
-                            })
-                            .map(Some)
-                    }
-                    None => {
-                        // back-compat, we keep existing behaviour.
-                        Ok(None)
-                    }
-                }?;
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                info!("{:?}", args);
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    // todo: is there still a race here, can the pool be
+                    // exported   right after the check here
+                    // and before we   probe for the
+                    // replica?
+                    let lvs = match &args.pool {
+                        Some(destroy_replica_request::Pool::PoolUuid(uuid)) => {
+                            Lvs::lookup_by_uuid(uuid)
+                                .ok_or(LvsError::RepDestroy {
+                                    source: Errno::ENOMEDIUM,
+                                    name: args.uuid.to_owned(),
+                                    msg: format!(
+                                        "Pool uuid={uuid} is not loaded"
+                                    ),
+                                })
+                                .map(Some)
+                        }
+                        Some(destroy_replica_request::Pool::PoolName(name)) => {
+                            Lvs::lookup(name)
+                                .ok_or(LvsError::RepDestroy {
+                                    source: Errno::ENOMEDIUM,
+                                    name: args.uuid.to_owned(),
+                                    msg: format!(
+                                        "Pool name={name} is not loaded"
+                                    ),
+                                })
+                                .map(Some)
+                        }
+                        None => {
+                            // back-compat, we keep existing behaviour.
+                            Ok(None)
+                        }
+                    }?;
 
-                let lvol = Bdev::lookup_by_uuid_str(&args.uuid)
-                    .and_then(|b| Lvol::try_from(b).ok())
-                    .ok_or(LvsError::RepDestroy {
-                        source: Errno::ENOENT,
-                        name: args.uuid.to_owned(),
-                        msg: "Replica not found".into(),
-                    })?;
+                    let lvol = Bdev::lookup_by_uuid_str(&args.uuid)
+                        .and_then(|b| Lvol::try_from(b).ok())
+                        .ok_or(LvsError::RepDestroy {
+                            source: Errno::ENOENT,
+                            name: args.uuid.to_owned(),
+                            msg: "Replica not found".into(),
+                        })?;
 
-                if let Some(lvs) = lvs {
-                    if lvs.name() != lvol.pool_name()
-                        || lvs.uuid() != lvol.pool_uuid()
-                    {
-                        let msg = format!(
+                    if let Some(lvs) = lvs {
+                        if lvs.name() != lvol.pool_name()
+                            || lvs.uuid() != lvol.pool_uuid()
+                        {
+                            let msg = format!(
                             "Specified {lvs:?} does match the target {lvol:?}!"
                         );
-                        tracing::error!("{msg}");
-                        return Err(LvsError::RepDestroy {
-                            source: Errno::EMEDIUMTYPE,
-                            name: args.uuid,
-                            msg,
-                        });
+                            tracing::error!("{msg}");
+                            return Err(LvsError::RepDestroy {
+                                source: Errno::EMEDIUMTYPE,
+                                name: args.uuid,
+                                msg,
+                            });
+                        }
                     }
-                }
-                lvol.destroy_replica().await?;
-                Ok(())
-            })?;
+                    lvol.destroy_replica().await?;
+                    Ok(())
+                })?;
 
-            rx.await
-                .map_err(|_| Status::cancelled("cancelled"))?
-                .map_err(Status::from)
-                .map(Response::new)
-        })
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
         .await
     }
 
@@ -340,50 +375,53 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ListReplicaOptions>,
     ) -> GrpcResult<ListReplicasResponse> {
-        self.shared(GrpcClientContext::new(&request, function_name!()), async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let rx = rpc_submit::<_, _, LvsError>(async move {
-                let mut lvols = Vec::new();
-                if let Some(bdev) = UntypedBdev::bdev_first() {
-                    lvols = bdev
-                        .into_iter()
-                        .filter(|b| b.driver() == "lvol")
-                        .map(|b| Lvol::try_from(b).unwrap())
-                        .collect();
-                }
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                trace!("{:?}", args);
+                let rx = rpc_submit::<_, _, LvsError>(async move {
+                    let mut lvols = Vec::new();
+                    if let Some(bdev) = UntypedBdev::bdev_first() {
+                        lvols = bdev
+                            .into_iter()
+                            .filter(|b| b.driver() == "lvol")
+                            .map(|b| Lvol::try_from(b).unwrap())
+                            .collect();
+                    }
 
-                // perform filtering on lvols
-                if let Some(pool_name) = args.poolname {
-                    lvols.retain(|l| l.pool_name() == pool_name);
-                }
-                // perform filtering on lvols
-                if let Some(pool_uuid) = args.pooluuid {
-                    lvols.retain(|l| l.pool_uuid() == pool_uuid);
-                }
+                    // perform filtering on lvols
+                    if let Some(pool_name) = args.poolname {
+                        lvols.retain(|l| l.pool_name() == pool_name);
+                    }
+                    // perform filtering on lvols
+                    if let Some(pool_uuid) = args.pooluuid {
+                        lvols.retain(|l| l.pool_uuid() == pool_uuid);
+                    }
 
-                // convert lvols to replicas
-                let mut replicas: Vec<Replica> =
-                    lvols.into_iter().map(Replica::from).collect();
+                    // convert lvols to replicas
+                    let mut replicas: Vec<Replica> =
+                        lvols.into_iter().map(Replica::from).collect();
 
-                // perform the filtering on the replica list
-                if let Some(name) = args.name {
-                    replicas.retain(|r| r.name == name);
-                } else if let Some(uuid) = args.uuid {
-                    replicas.retain(|r| r.uuid == uuid);
-                }
-                let replicas =
-                    filter_replicas_by_replica_type(replicas, args.query);
-                Ok(ListReplicasResponse {
-                    replicas,
-                })
-            })?;
+                    // perform the filtering on the replica list
+                    if let Some(name) = args.name {
+                        replicas.retain(|r| r.name == name);
+                    } else if let Some(uuid) = args.uuid {
+                        replicas.retain(|r| r.uuid == uuid);
+                    }
+                    let replicas =
+                        filter_replicas_by_replica_type(replicas, args.query);
+                    Ok(ListReplicasResponse {
+                        replicas,
+                    })
+                })?;
 
-            rx.await
-                .map_err(|_| Status::cancelled("cancelled"))?
-                .map_err(Status::from)
-                .map(Response::new)
-        })
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
         .await
     }
 
@@ -427,14 +465,19 @@ impl ReplicaRpc for ReplicaService {
                                 Protocol::Nvmf => {
                                     let props = ShareProps::new()
                                         .with_allowed_hosts(args.allowed_hosts)
-                                        .with_ptpl(lvol.ptpl().create().map_err(
-                                            |source| LvsError::LvolShare {
-                                                source: crate::core::CoreError::Ptpl {
+                                        .with_ptpl(
+                                            lvol.ptpl().create().map_err(
+                                                |source| {
+                                                    LvsError::LvolShare {
+                                            source:
+                                                crate::core::CoreError::Ptpl {
                                                     reason: source.to_string(),
                                                 },
-                                                name: lvol.name(),
-                                            },
-                                        )?);
+                                            name: lvol.name(),
+                                        }
+                                                },
+                                            )?,
+                                        );
                                     Pin::new(&mut lvol)
                                         .share_nvmf(Some(props))
                                         .await?;
@@ -459,7 +502,7 @@ impl ReplicaRpc for ReplicaService {
                     .map(Response::new)
             },
         )
-            .await
+        .await
     }
 
     #[named]

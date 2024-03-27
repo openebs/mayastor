@@ -56,7 +56,6 @@ pub use reactor::{
 
 pub use lock::{
     ProtectedSubsystems,
-    ResourceLockGuard,
     ResourceLockManager,
     ResourceLockManagerConfig,
     ResourceSubsystem,
