@@ -9,4 +9,5 @@ pytest-docker-compose
 pytest-testconfig
 pytest-timeout
 pytest-variables
+pytest==7.4.4
 retrying
