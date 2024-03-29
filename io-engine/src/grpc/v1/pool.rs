@@ -1,6 +1,16 @@
 use crate::{
-    core::Share,
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    core::{
+        lock::{ProtectedSubsystems, ResourceLockManager},
+        Share,
+    },
+    grpc::{
+        acquire_subsystem_lock,
+        rpc_submit,
+        GrpcClientContext,
+        GrpcResult,
+        RWLock,
+        RWSerializer,
+    },
     lvs::{Error as LvsError, Lvs},
     pool_backend::{PoolArgs, PoolBackend},
 };
@@ -314,6 +324,21 @@ impl PoolRpc for PoolService {
                 let args = request.into_inner();
                 info!("{:?}", args);
                 let rx = rpc_submit::<_, _, LvsError>(async move {
+                    let pool_subsystem = ResourceLockManager::get_instance()
+                        .get_subsystem(ProtectedSubsystems::POOL);
+                    let _lock_guard = acquire_subsystem_lock(
+                        pool_subsystem,
+                        Some(&args.name),
+                    )
+                    .await
+                    .map_err(|_| {
+                        LvsError::ResourceLockFailed {
+                            msg: format!(
+                                "resource {}, for disk pool {:?}",
+                                &args.name, &args.disks,
+                            ),
+                        }
+                    })?;
                     let pool = Lvs::import_from_args(PoolArgs::try_from(args)?)
                         .await?;
                     Ok(Pool::from(pool))

@@ -100,7 +100,9 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     // Initialize Lock manager.
     let cfg = ResourceLockManagerConfig::default()
-        .with_subsystem(ProtectedSubsystems::NEXUS, 512);
+        .with_subsystem(ProtectedSubsystems::POOL, 32)
+        .with_subsystem(ProtectedSubsystems::NEXUS, 512)
+        .with_subsystem(ProtectedSubsystems::REPLICA, 1024);
     ResourceLockManager::initialize(cfg);
 
     Mthread::spawn_unaffinitized(move || {
