@@ -38,18 +38,40 @@ async fn test_lock_level(level: LockLevel) {
 
         // Step 1: acquire lock.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(None).await,
+            LockLevel::Global => lock_mgr.lock(None, false).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(None).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .lock(None, false)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, None)
+                    .lock_resource(TEST_RESOURCE, None, false)
                     .await
             }
         };
         assert!(guard.is_some(), "Failed to acquire the lock");
+
+        if guard.is_some() {
+            let try_lock_guard = match level {
+                LockLevel::Global => lock_mgr.lock(None, true).await,
+                LockLevel::Subsystem => {
+                    lock_mgr
+                        .get_subsystem(TEST_SUBSYSTEM)
+                        .lock(None, true)
+                        .await
+                }
+                LockLevel::Resource => {
+                    lock_mgr
+                        .get_subsystem(TEST_SUBSYSTEM)
+                        .lock_resource(TEST_RESOURCE, None, true)
+                        .await
+                }
+            };
+            assert!(try_lock_guard.is_none(), "Double Lock acquired");
+        }
 
         // Notify that the lock is acquired.
         tx.send(0).expect("Failed to notify the peer ");
@@ -81,14 +103,17 @@ async fn test_lock_level(level: LockLevel) {
         // Try to grab the lock - we must wait, since the lock is already
         // acquired.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(None).await,
+            LockLevel::Global => lock_mgr.lock(None, false).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(None).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .lock(None, false)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, None)
+                    .lock_resource(TEST_RESOURCE, None, false)
                     .await
             }
         };
@@ -113,14 +138,17 @@ async fn test_lock_timed_level(level: LockLevel) {
 
         // Step 1: acquire lock.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(None).await,
+            LockLevel::Global => lock_mgr.lock(None, false).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(None).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .lock(None, false)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, None)
+                    .lock_resource(TEST_RESOURCE, None, false)
                     .await
             }
         };
@@ -147,14 +175,17 @@ async fn test_lock_timed_level(level: LockLevel) {
         // Try to grab the lock - we must wait, since the lock is already
         // acquired.
         let guard = match level {
-            LockLevel::Global => lock_mgr.lock(duration).await,
+            LockLevel::Global => lock_mgr.lock(duration, false).await,
             LockLevel::Subsystem => {
-                lock_mgr.get_subsystem(TEST_SUBSYSTEM).lock(duration).await
+                lock_mgr
+                    .get_subsystem(TEST_SUBSYSTEM)
+                    .lock(duration, false)
+                    .await
             }
             LockLevel::Resource => {
                 lock_mgr
                     .get_subsystem(TEST_SUBSYSTEM)
-                    .lock_resource(TEST_RESOURCE, duration)
+                    .lock_resource(TEST_RESOURCE, duration, false)
                     .await
             }
         };

@@ -178,6 +178,10 @@ pub enum Error {
     WipeFailed {
         source: crate::core::wiper::Error,
     },
+    #[snafu(display("Failed to acquire resource lock, {}", msg))]
+    ResourceLockFailed {
+        msg: String,
+    },
 }
 
 /// Map CoreError to errno code.
@@ -265,6 +269,9 @@ impl ToErrno for Error {
             Self::WipeFailed {
                 ..
             } => Errno::EINVAL,
+            Self::ResourceLockFailed {
+                ..
+            } => Errno::EBUSY,
         }
     }
 }

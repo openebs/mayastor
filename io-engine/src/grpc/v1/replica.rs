@@ -2,6 +2,7 @@ use crate::{
     bdev::PtplFileOps,
     bdev_api::BdevError,
     core::{
+        lock::{ProtectedSubsystems, ResourceLockManager},
         logical_volume::LogicalVolume,
         Bdev,
         CloneXattrs,
@@ -11,7 +12,14 @@ use crate::{
         UntypedBdev,
         UpdateProps,
     },
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    grpc::{
+        acquire_subsystem_lock,
+        rpc_submit,
+        GrpcClientContext,
+        GrpcResult,
+        RWLock,
+        RWSerializer,
+    },
     lvs::{Error as LvsError, Lvol, LvolSpaceUsage, Lvs, LvsLvol, PropValue},
 };
 use ::function_name::named;
@@ -219,6 +227,20 @@ impl ReplicaRpc for ReplicaService {
                         }
                     }
                 };
+                let pool_subsystem = ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
+                let _lock_guard = acquire_subsystem_lock(
+                    pool_subsystem, Some(lvs.name())
+                )
+                .await
+                .map_err(|_|
+                    LvsError::ResourceLockFailed {
+                        msg: format!(
+                            "resource {}, for pooluuid {}",
+                            lvs.name(),
+                            args.pooluuid
+                        )
+                    }
+                )?;
                 // if pooltype is not Lvs, the provided replica uuid need to be added as
                 match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), args.thin, args.entity_id).await {
                     Ok(mut lvol)
@@ -401,7 +423,19 @@ impl ReplicaRpc for ReplicaService {
                     match Bdev::lookup_by_uuid_str(&args.uuid) {
                         Some(bdev) => {
                             let mut lvol = Lvol::try_from(bdev)?;
-
+                            let pool_subsystem = ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
+                            let _lock_guard = acquire_subsystem_lock(
+                                pool_subsystem,
+                                Some(lvol.lvs().name()),
+                            )
+                            .await
+                            .map_err(|_| LvsError::ResourceLockFailed {
+                                msg: format!(
+                                    "resource {}, for lvol {:?}",
+                                    lvol.lvs().name(),
+                                    lvol
+                                ),
+                            })?;
                             // if we are already shared with the same protocol
                             if lvol.shared()
                                 == Some(Protocol::try_from(args.share)?)
