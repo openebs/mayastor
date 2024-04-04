@@ -346,8 +346,14 @@ impl<'n> NexusChannel<'n> {
         child_device: &str,
         reason: FaultReason,
     ) -> Option<IOLogChannel> {
-        self.nexus_mut()
-            .retire_child_device(child_device, reason, true)
+        let Some(io_log) =
+            self.nexus_mut()
+                .retire_child_device(child_device, reason, true)
+        else {
+            return None;
+        };
+        self.reconnect_io_logs();
+        Some(io_log)
     }
 
     /// Returns core on which channel was created.
