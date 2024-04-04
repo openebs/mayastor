@@ -237,6 +237,12 @@ impl<'n> NexusChannel<'n> {
             self.detached.push(t);
         }
 
+        // Since we've removed the device from the IO path, make sure we
+        // reconnect the io logs in case we haven't done so yet.
+        // Otherwise, a given channel might never see an error for this device
+        // and will therefore not log the IOs until a reconnect_io_logs.
+        self.reconnect_io_logs();
+
         debug!("{self:?}: device '{device_name}' detached");
     }
 
