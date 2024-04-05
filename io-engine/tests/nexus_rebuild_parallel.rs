@@ -52,13 +52,13 @@ async fn nexus_rebuild_parallel() {
         .add_container_bin(
             "ms_1",
             Binary::from_dbg("io-engine")
-                .with_args(vec!["-l", "2,3", "-Fcolor,compact,nodate,host"])
+                .with_args(vec!["-l", "3,4", "-Fcolor,compact,nodate,host"])
                 .with_bind("/tmp", "/host/tmp"),
         )
         .add_container_bin(
             "ms_2",
             Binary::from_dbg("io-engine")
-                .with_args(vec!["-l", "4,5", "-Fcolor,compact,nodate,host"])
+                .with_args(vec!["-l", "5,6", "-Fcolor,compact,nodate,host"])
                 .with_bind("/tmp", "/host/tmp"),
         )
         .with_clean(true)
