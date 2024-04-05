@@ -100,6 +100,8 @@ mkShell {
     ${pkgs.lib.optionalString (asan) "echo '  LLVM_SYMBOLIZER_DIR     :' $\{LLVM_SYMBOLIZER_DIR\}"}
     ${pkgs.lib.optionalString (asan) "echo"}
 
+                                         echo 'FIO version     :' $(fio --version 2> /dev/null)
+                                         echo 'FIO path        :' $(which fio 2> /dev/null)
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK version    :' $(echo $SPDK_PATH | sed 's/.*libspdk-//g')"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK path       :' $SPDK_PATH"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK FIO plugin :' $FIO_SPDK"}

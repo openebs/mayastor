@@ -66,6 +66,8 @@ mkShell {
   IO_ENGINE_DIR = "target/debug";
 
   shellHook = ''
+    echo 'FIO version     :' $(fio --version 2> /dev/null)
+    echo 'FIO path        :' $(which fio 2> /dev/null)
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK version    :' $(echo $SPDK_PATH | sed 's/.*libspdk-//g')"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK path       :' $SPDK_PATH"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK FIO plugin :' $FIO_SPDK"}
