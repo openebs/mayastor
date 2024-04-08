@@ -241,7 +241,7 @@ impl SnapshotService {
         match tokio::spawn(async move {
             // Grab global operation lock, if requested.
             let _global_guard = if global_operation {
-                match lock_manager.lock(Some(ctx.timeout)).await {
+                match lock_manager.lock(Some(ctx.timeout), false).await {
                     Some(g) => Some(g),
                     None => return Err(Status::deadline_exceeded(
                         "Failed to acquire access to object within given timeout"
@@ -255,7 +255,7 @@ impl SnapshotService {
             // Grab per-object lock before executing the future.
             let _resource_guard = match lock_manager
                 .get_subsystem(ProtectedSubsystems::NEXUS)
-                .lock_resource(nexus_uuid, Some(ctx.timeout))
+                .lock_resource(nexus_uuid, Some(ctx.timeout), false)
                 .await {
                     Some(g) => g,
                     None => return Err(Status::deadline_exceeded(

@@ -50,7 +50,7 @@ where
         let lock_manager = ResourceLockManager::get_instance();
         // For nexus global lock.
         let _global_guard =
-            match lock_manager.lock(Some(ctx.timeout)).await {
+            match lock_manager.lock(Some(ctx.timeout), false).await {
                 Some(g) => Some(g),
                 None => return Err(Status::deadline_exceeded(
                     "Failed to acquire access to object within given timeout",
@@ -96,7 +96,7 @@ impl StatsService {
         let lock_manager = ResourceLockManager::get_instance();
         // For nexus global lock.
         let _global_guard =
-            match lock_manager.lock(Some(ctx.timeout)).await {
+            match lock_manager.lock(Some(ctx.timeout), false).await {
                 Some(g) => Some(g),
                 None => return Err(Status::deadline_exceeded(
                     "Failed to acquire access to object within given timeout",

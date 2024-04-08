@@ -1,19 +1,24 @@
+use futures::channel::oneshot::Receiver;
+use nix::errno::Errno;
+pub use server::MayastorGrpcServer;
 use std::{
     error::Error,
     fmt::{Debug, Display},
     future::Future,
     time::Duration,
 };
-
-use futures::channel::oneshot::Receiver;
-use nix::errno::Errno;
-pub use server::MayastorGrpcServer;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 use crate::{
     bdev_api::BdevError,
-    core::{CoreError, Reactor, VerboseError},
+    core::{
+        CoreError,
+        Reactor,
+        ResourceLockGuard,
+        ResourceSubsystem,
+        VerboseError,
+    },
 };
 
 impl From<BdevError> for tonic::Status {
@@ -166,6 +171,29 @@ where
 {
     Reactor::spawn_at_primary(future)
         .map_err(|_| Status::resource_exhausted("ENOMEM"))
+}
+
+/// Manage locks across multiple grpc services.
+pub async fn acquire_subsystem_lock<'a>(
+    subsystem: &'a ResourceSubsystem,
+    resource: Option<&str>,
+) -> Result<ResourceLockGuard<'a>, Status> {
+    if let Some(resource) = resource {
+        match subsystem.lock_resource(resource.to_string(), None, true).await {
+            Some(lock_guard) => Ok(lock_guard),
+            None => Err(Status::already_exists(format!(
+                "Failed to acquire lock for the resource: {resource}, lock already held"
+            ))),
+        }
+    } else {
+        match subsystem.lock(None, true).await {
+            Some(lock_guard) => Ok(lock_guard),
+            None => Err(Status::already_exists(format!(
+                "Failed to acquire subsystem lock: {:?}, lock already held",
+                subsystem
+            ))),
+        }
+    }
 }
 
 macro_rules! default_ip {
