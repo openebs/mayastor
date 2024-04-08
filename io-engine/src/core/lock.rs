@@ -11,6 +11,8 @@ use once_cell::sync::OnceCell;
 pub struct ProtectedSubsystems;
 impl ProtectedSubsystems {
     pub const NEXUS: &'static str = "nexus";
+    pub const POOL: &'static str = "pool";
+    pub const REPLICA: &'static str = "replica";
 }
 
 /// Configuration parameters for initialization of the Lock manager.
@@ -41,6 +43,7 @@ impl ResourceLockManagerConfig {
 }
 
 /// Resource subsystem that holds locks for all resources withing this system.
+#[derive(Debug)]
 pub struct ResourceSubsystem {
     id: String,
     object_locks: Vec<Mutex<LockStats>>,
@@ -67,8 +70,9 @@ impl ResourceSubsystem {
     pub async fn lock(
         &self,
         wait_timeout: Option<Duration>,
+        try_lock: bool,
     ) -> Option<ResourceLockGuard<'_>> {
-        acquire_lock(&self.subsystem_lock, wait_timeout).await
+        acquire_lock(&self.subsystem_lock, wait_timeout, try_lock).await
     }
 
     /// Lock subsystem resource by its ID and obtain a lock guard.
@@ -76,13 +80,13 @@ impl ResourceSubsystem {
         &self,
         id: T,
         wait_timeout: Option<Duration>,
+        try_lock: bool,
     ) -> Option<ResourceLockGuard<'_>> {
         // Calculate hash of the object to get the mutex index.
         let mut hasher = DefaultHasher::new();
         id.as_ref().hash(&mut hasher);
         let mutex_id = hasher.finish() as usize % self.object_locks.len();
-
-        acquire_lock(&self.object_locks[mutex_id], wait_timeout).await
+        acquire_lock(&self.object_locks[mutex_id], wait_timeout, try_lock).await
     }
 }
 
@@ -122,14 +126,21 @@ static LOCK_MANAGER: OnceCell<ResourceLockManager> = OnceCell::new();
 async fn acquire_lock(
     lock: &Mutex<LockStats>,
     wait_timeout: Option<Duration>,
+    try_lock: bool,
 ) -> Option<ResourceLockGuard<'_>> {
     let mut lock_guard = if let Some(d) = wait_timeout {
         match tokio::time::timeout(d, lock.lock()).await {
             Err(_) => return None,
             Ok(g) => g,
         }
+    } else if try_lock {
+        // No timeout, try for taking lock immediately.
+        match lock.try_lock() {
+            Some(l) => l,
+            None => return None,
+        }
     } else {
-        // No timeout, wait for the lock indefinitely.
+        // No timeout, wait indefinitely.
         lock.lock().await
     };
 
@@ -162,8 +173,9 @@ impl ResourceLockManager {
     pub async fn lock(
         &self,
         wait_timeout: Option<Duration>,
+        try_lock: bool,
     ) -> Option<ResourceLockGuard<'_>> {
-        acquire_lock(&self.mgr_lock, wait_timeout).await
+        acquire_lock(&self.mgr_lock, wait_timeout, try_lock).await
     }
 
     /// Get resource subsystem by its id.
