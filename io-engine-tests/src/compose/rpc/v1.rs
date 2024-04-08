@@ -51,6 +51,7 @@ pub struct RpcHandle {
     pub host: host::HostRpcClient<Channel>,
     pub nexus: nexus::NexusRpcClient<Channel>,
     pub snapshot: snapshot::SnapshotRpcClient<Channel>,
+    pub stats: stats::StatsRpcClient<Channel>,
     pub test: test::TestRpcClient<Channel>,
 }
 
@@ -106,6 +107,11 @@ impl RpcHandle {
                 .await
                 .unwrap();
 
+        let stats =
+            stats::StatsRpcClient::connect(format!("http://{endpoint}"))
+                .await
+                .unwrap();
+
         let test = test::TestRpcClient::connect(format!("http://{endpoint}"))
             .await
             .unwrap();
@@ -120,6 +126,7 @@ impl RpcHandle {
             host,
             nexus,
             snapshot,
+            stats,
             test,
         })
     }
