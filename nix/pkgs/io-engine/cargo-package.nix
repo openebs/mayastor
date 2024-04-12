@@ -95,6 +95,9 @@ let
   };
 in
 {
+  cargoDeps = rustPlatform.importCargoLock {
+    lockFile = ../../../Cargo.lock;
+  };
   release = rustPlatform.buildRustPackage (buildProps // {
     cargoBuildFlags = "--bin io-engine --bin io-engine-client --bin casperf";
     buildType = "release";

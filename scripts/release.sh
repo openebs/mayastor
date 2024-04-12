@@ -30,6 +30,39 @@ nix_experimental() {
       echo -n " "
   fi
 }
+pre_fetch_cargo_deps() {
+  local nixAttrPath=$1
+  local project=$2
+  local maxAttempt=$3
+
+  local outLink="--no-out-link"
+  local cargoVendorMsg=""
+  if [ -n "$CARGO_VENDOR_DIR" ]; then
+    if [ "$(realpath -s "$CARGO_VENDOR_DIR")" = "$(realpath -s "$SCRIPTDIR/..")" ]; then
+      cargoVendorDir="$CARGO_VENDOR_DIR/$GIT_BRANCH"
+    else
+      cargoVendorDir="$CARGO_VENDOR_DIR/$project/$GIT_BRANCH"
+    fi
+
+    outLink="--out-link "$cargoVendorDir""
+    cargoVendorMsg="into $(realpath -s "$cargoVendorDir") "
+  fi
+
+  for (( attempt=1; attempt<=maxAttempt; attempt++ )); do
+     if $NIX_BUILD $outLink -A "$nixAttrPath"; then
+       echo "Cargo vendored dependencies pre-fetched "$cargoVendorMsg"after $attempt attempt(s)"
+       return 0
+     fi
+     sleep 1
+  done
+  if [ "$attempt" = "1" ]; then
+    echo "Cargo vendor pre-fetch is disabled"
+    return 0
+  fi
+
+  echo "Failed to pre-fetch the cargo vendored dependencies in $maxAttempt attempts"
+  exit 1
+}
 
 help() {
   cat <<EOF
@@ -59,8 +92,8 @@ RM="rm"
 SCRIPTDIR=$(dirname "$0")
 TAG=`get_tag`
 HASH=`get_hash`
-BRANCH=`git rev-parse --abbrev-ref HEAD`
-BRANCH=${BRANCH////-}
+GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
+BRANCH=${GIT_BRANCH////-}
 IMAGES=
 UPLOAD=
 SKIP_PUBLISH=
@@ -69,6 +102,8 @@ REGISTRY=
 ALIAS=
 DEBUG=
 OVERRIDE_COMMIT_HASH=
+CARGO_VENDOR_DIR=${CARGO_VENDOR_DIR:-}
+CARGO_VENDOR_ATTEMPTS=${CARGO_VENDOR_ATTEMPTS:-25}
 
 # Check if all needed tools are installed
 curl --version >/dev/null
@@ -139,6 +174,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 cd $SCRIPTDIR/..
+
+# pre-fetch build dependencies with a number of attempts to harden against flaky networks
+pre_fetch_cargo_deps units.cargoDeps "mayastor-io-engine" "$CARGO_VENDOR_ATTEMPTS"
 
 if [ -z "$IMAGES" ]; then
   if [ -z "$DEBUG" ]; then
