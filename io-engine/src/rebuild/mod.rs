@@ -15,7 +15,7 @@ mod snapshot_rebuild;
 pub use bdev_rebuild::BdevRebuildJob;
 pub use nexus_rebuild::{NexusRebuildJob, NexusRebuildJobStarter};
 use rebuild_descriptor::RebuildDescriptor;
-pub(crate) use rebuild_error::RebuildError;
+pub(crate) use rebuild_error::{RebuildError, SnapshotRebuildError};
 use rebuild_job::RebuildOperation;
 pub use rebuild_job::{RebuildJob, RebuildJobOptions, RebuildVerifyMode};
 use rebuild_job_backend::{
