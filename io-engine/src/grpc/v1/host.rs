@@ -117,6 +117,8 @@ impl From<blk_device::BlockDevice> for host_rpc::BlockDevice {
             partition: b.partition.map(host_rpc::Partition::from),
             filesystem: b.filesystem.map(host_rpc::Filesystem::from),
             available: b.available,
+            connection_type: b.connection_type,
+            is_rotational: b.is_rotational,
         }
     }
 }
