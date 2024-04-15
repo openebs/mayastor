@@ -14,5 +14,5 @@ self: super: rec {
   ms-buildenv = super.callPackage ./pkgs/ms-buildenv { };
   nvme-cli = super.callPackage ./pkgs/nvme-cli { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
-  units = (super.callPackage ./pkgs/io-engine/units.nix { });
+  units = (super.callPackage ./pkgs/io-engine/units.nix { inherit tag sourcer; });
 }
