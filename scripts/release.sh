@@ -37,6 +37,7 @@ pre_fetch_cargo_deps() {
 
   local outLink="--no-out-link"
   local cargoVendorMsg=""
+  local cargoVendorDir=""
   if [ -n "$CARGO_VENDOR_DIR" ]; then
     if [ "$(realpath -s "$CARGO_VENDOR_DIR")" = "$(realpath -s "$SCRIPTDIR/..")" ]; then
       cargoVendorDir="$CARGO_VENDOR_DIR/$GIT_BRANCH"
@@ -45,11 +46,11 @@ pre_fetch_cargo_deps() {
     fi
 
     outLink="--out-link "$cargoVendorDir""
-    cargoVendorMsg="into $(realpath -s "$cargoVendorDir") "
   fi
 
   for (( attempt=1; attempt<=maxAttempt; attempt++ )); do
      if $NIX_BUILD $outLink -A "$nixAttrPath"; then
+       [ -n "$cargoVendorDir" ] && cargoVendorMsg="into $(realpath -s "$cargoVendorDir") "
        echo "Cargo vendored dependencies pre-fetched "$cargoVendorMsg"after $attempt attempt(s)"
        return 0
      fi
