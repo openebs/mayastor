@@ -221,9 +221,17 @@ impl Share for Lvol {
     }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         props: P,
     ) -> Result<(), Self::Error> {
+        let props = UpdateProps::from(props.into());
+        let allowed_hosts = props.allowed_hosts().clone();
+        // Set but don't sync in lvol metadata. Sync will happen in case the
+        // node reboots e.g during upgrade.
+        self.as_mut()
+            .set_no_sync(PropValue::AllowedHosts(allowed_hosts))
+            .await?;
+
         Pin::new(&mut self.as_bdev())
             .update_properties(props)
             .await
@@ -564,7 +572,7 @@ pub trait LvsLvol: LogicalVolume + Share {
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol>;
 
-    /// Get/Read a property from this lvol from disk.
+    /// Get/Read a property of this lvol from the in-memory metadata copy.
     async fn get(&self, prop: PropName) -> Result<PropValue, Error>;
 
     /// Destroy the lvol.
@@ -781,7 +789,7 @@ impl LvsLvol for Lvol {
         None
     }
 
-    /// Get/Read a property from this lvol from disk.
+    /// Get/Read a property of this lvol from the in-memory metadata copy.
     async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = self.blob_checked();
 
@@ -943,6 +951,14 @@ impl LvsLvol for Lvol {
             PropValue::Shared(val) => {
                 let name = PropName::from(&prop).to_string().into_cstring();
                 let value = if val { "true" } else { "false" }.into_cstring();
+                // Return Ok early if the current value is already same as the
+                // new value.
+                if let Ok(pval) = self.get(PropName::Shared).await {
+                    match pval {
+                        PropValue::Shared(s) if s == val => return Ok(()),
+                        _ => (),
+                    }
+                };
                 unsafe {
                     spdk_blob_set_xattr(
                         blob,
@@ -957,9 +973,22 @@ impl LvsLvol for Lvol {
                     name: self.name(),
                 })?;
             }
-            PropValue::AllowedHosts(hosts) => {
+            PropValue::AllowedHosts(mut hosts) => {
                 let name = PropName::from(&prop).to_string().into_cstring();
                 let value = hosts.join(",").into_cstring();
+                // Return Ok early if the current value is already same as the
+                // new value.
+                if let Ok(PropValue::AllowedHosts(mut hlist)) =
+                    self.get(PropName::AllowedHosts).await
+                {
+                    if hlist.len() == hosts.len() {
+                        hosts.sort();
+                        hlist.sort();
+                        if hosts == hlist {
+                            return Ok(());
+                        }
+                    }
+                };
                 unsafe {
                     spdk_blob_set_xattr(
                         blob,
@@ -976,6 +1005,14 @@ impl LvsLvol for Lvol {
             }
             PropValue::EntityId(id) => {
                 let name = PropName::from(&prop).to_string().into_cstring();
+                // Return Ok early if the current value is already same as the
+                // new value.
+                if let Ok(pval) = self.get(PropName::EntityId).await {
+                    match pval {
+                        PropValue::EntityId(e) if e == id => return Ok(()),
+                        _ => (),
+                    }
+                };
                 let value = id.into_cstring();
                 unsafe {
                     spdk_blob_set_xattr(
