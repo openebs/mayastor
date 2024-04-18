@@ -61,6 +61,7 @@ mkShell {
   FIO_SPDK = if nospdk then null else "${spdk}/fio/spdk_nvme";
   ETCD_BIN = "${etcd}/bin/etcd";
   ETCDCTL_API = "3";
+  LVM_BINS = "${lvm2.bin}/bin";
 
   IO_ENGINE_DIR = "target/debug";
 
@@ -68,6 +69,7 @@ mkShell {
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK version    :' $(echo $SPDK_PATH | sed 's/.*libspdk-//g')"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK path       :' $SPDK_PATH"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK FIO plugin :' $FIO_SPDK"}
+    echo 'LVM path        :' $LVM_BINS
     echo 'Rust version    :' $(rustc --version 2> /dev/null || echo '${norustc_msg}')
     echo 'Rust path       :' $(which rustc 2> /dev/null || echo '${norustc_msg}')
     echo 'I/O engine dir  :' $IO_ENGINE_DIR

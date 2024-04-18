@@ -46,6 +46,7 @@ use crate::{
     core::{
         nic,
         reactor::{Reactor, ReactorState, Reactors},
+        runtime,
         Cores,
         MayastorFeatures,
         Mthread,
@@ -245,18 +246,23 @@ pub struct MayastorCliArgs {
         hide = true
     )]
     pub enable_nexus_channel_debug: bool,
+    /// Enables experimental LVM backend support.
+    /// LVM pools can then be created by specifying the LVM pool type.
+    /// If LVM is enabled and LVM_SUPPRESS_FD_WARNINGS is not set then it will
+    /// be set to 1.
+    #[clap(long = "enable-lvm", env = "ENABLE_LVM")]
+    pub lvm: bool,
 }
 
 /// Mayastor features.
 impl MayastorFeatures {
     fn init_features() -> MayastorFeatures {
-        let ana = match std::env::var("NEXUS_NVMF_ANA_ENABLE") {
-            Ok(s) => s == "1",
-            Err(_) => false,
-        };
+        let ana = env::var("NEXUS_NVMF_ANA_ENABLE").as_deref() == Ok("1");
+        let lvm = env::var("LVM").as_deref() == Ok("1");
 
         MayastorFeatures {
             asymmetric_namespace_access: ana,
+            logical_volume_manager: lvm,
         }
     }
 
@@ -299,6 +305,7 @@ impl Default for MayastorCliArgs {
             enable_io_all_thrd_nexus_channels: false,
             events_url: None,
             enable_nexus_channel_debug: false,
+            lvm: false,
         }
     }
 }
@@ -484,6 +491,12 @@ async fn do_shutdown(arg: *mut c_void) {
     }
     nexus::shutdown_nexuses().await;
     crate::lvs::Lvs::export_all().await;
+
+    runtime::spawn_await(async {
+        crate::lvm::VolumeGroup::export_all().await;
+    })
+    .await;
+
     unsafe {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);

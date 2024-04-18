@@ -298,7 +298,9 @@ def pool_creation_should_fail(find_pool):
 
 @then("the pool create command should fail")
 def the_pool_create_command_should_fail(create_pool_that_already_exists):
-    assert create_pool_that_already_exists.value.code() == grpc.StatusCode.ALREADY_EXISTS
+    assert (
+        create_pool_that_already_exists.value.code() == grpc.StatusCode.ALREADY_EXISTS
+    )
 
 
 @then("the pool destroy command should fail")

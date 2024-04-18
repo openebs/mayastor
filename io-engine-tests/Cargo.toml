@@ -56,7 +56,7 @@ url = "2.4.1"
 composer = { path = "../utils/dependencies/composer" }
 libnvme-rs = { path = "../libnvme-rs" }
 io-engine-api = { path = "../utils/dependencies/apis/io-engine" }
-version-info = { path = "../utils/dependencies/version-info" }
+version-info = { path = "../utils/dependencies/version-info", features = ["deps-logs-head"] }
 io-engine = { path = "../io-engine" }
 io-engine-tests-macros = { path = "./io-engine-tests-macros" }
 

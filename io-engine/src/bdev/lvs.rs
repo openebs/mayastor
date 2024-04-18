@@ -31,7 +31,7 @@ use crate::{
     bdev_api::BdevError,
     core::LogicalVolume,
     lvs::LvsLvol,
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 
 /// An lvol specified via URI.
@@ -215,6 +215,7 @@ impl Lvs {
             disks: vec![self.disk.to_owned()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         };
         match &self.mode {
             LvsMode::Create => {

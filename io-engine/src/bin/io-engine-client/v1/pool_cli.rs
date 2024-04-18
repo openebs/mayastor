@@ -9,7 +9,9 @@ use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str::FromStr};
+use strum::VariantNames;
+use strum_macros::{AsRefStr, EnumString, EnumVariantNames};
 use tonic::Status;
 
 pub fn subcommands() -> Command {
@@ -39,6 +41,15 @@ pub fn subcommands() -> Command {
                 .action(clap::ArgAction::Append)
                 .index(2)
                 .help("Disk device files"),
+        )
+        .arg(
+            Arg::new("type")
+                .short('t')
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(PoolType::types().to_vec())
+                .default_value(PoolType::Lvs.as_ref()),
         );
 
     let import = Command::new("import")
@@ -51,6 +62,7 @@ pub fn subcommands() -> Command {
         )
         .arg(
             Arg::new("uuid")
+                .short('u')
                 .long("uuid")
                 .required(false)
                 .help("Storage pool uuid"),
@@ -61,22 +73,78 @@ pub fn subcommands() -> Command {
                 .action(clap::ArgAction::Append)
                 .index(2)
                 .help("Disk device files"),
+        )
+        .arg(
+            Arg::new("type")
+                .short('t')
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(PoolType::types().to_vec())
+                .default_value(PoolType::Lvs.as_ref()),
         );
 
-    let destroy = Command::new("destroy").about("Destroy storage pool").arg(
-        Arg::new("pool")
-            .required(true)
-            .index(1)
-            .help("Storage pool name"),
-    );
-
-    let export = Command::new("export")
-        .about("Export storage pool without destroying it")
+    let destroy = Command::new("destroy")
+        .about("Destroy storage pool")
         .arg(
             Arg::new("pool")
                 .required(true)
                 .index(1)
                 .help("Storage pool name"),
+        )
+        .arg(
+            Arg::new("uuid")
+                .short('u')
+                .long("uuid")
+                .required(false)
+                .help("Storage pool uuid"),
+        )
+        .arg(
+            Arg::new("type")
+                .short('t')
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(PoolType::types().to_vec())
+                .default_value(PoolType::Lvs.as_ref()),
+        );
+
+    let export = Command::new("export")
+        .about("Export storage pool without destroying it")
+        .arg(
+            Arg::new("name")
+                .required(true)
+                .index(1)
+                .help("Storage pool name"),
+        )
+        .arg(
+            Arg::new("uuid")
+                .short('u')
+                .long("uuid")
+                .required(false)
+                .help("Storage pool uuid"),
+        )
+        .arg(
+            Arg::new("type")
+                .short('t')
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(PoolType::types().to_vec())
+                .default_value(PoolType::Lvs.as_ref()),
+        );
+
+    let list = Command::new("list")
+        .about("List storage pools")
+        .arg(Arg::new("name").required(false).help("Storage pool name"))
+        .arg(Arg::new("uuid").required(false).help("Storage pool uuid"))
+        .arg(
+            Arg::new("type")
+                .short('t')
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(PoolType::types().to_vec()),
         );
 
     Command::new("pool")
@@ -87,7 +155,7 @@ pub fn subcommands() -> Command {
         .subcommand(import)
         .subcommand(destroy)
         .subcommand(export)
-        .subcommand(Command::new("list").about("List storage pools"))
+        .subcommand(list)
 }
 
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -122,6 +190,13 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .map(|dev| dev.to_owned())
         .collect();
 
+    let pooltype = matches
+        .get_one::<String>("type")
+        .map(|s| PoolType::from_str(s.as_str()))
+        .unwrap()
+        .map_err(|e| Status::invalid_argument(e.to_string()))
+        .context(GrpcStatus)?;
+
     let cluster_size = match matches.get_one::<String>("cluster-size") {
         Some(s) => match parse_size(s) {
             Ok(s) => Some(s.get_bytes() as u32),
@@ -142,7 +217,7 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             name: name.clone(),
             uuid: uuid.map(ToString::to_string),
             disks: disks_list,
-            pooltype: v1rpc::pool::PoolType::Lvs as i32,
+            pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
             cluster_size,
         })
         .await
@@ -166,6 +241,26 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
+#[derive(EnumString, EnumVariantNames, AsRefStr)]
+#[strum(serialize_all = "camelCase")]
+pub(super) enum PoolType {
+    Lvs,
+    Lvm,
+}
+impl PoolType {
+    pub(crate) fn types() -> &'static [&'static str] {
+        Self::VARIANTS
+    }
+}
+impl From<PoolType> for v1rpc::pool::PoolType {
+    fn from(value: PoolType) -> Self {
+        match value {
+            PoolType::Lvs => Self::Lvs,
+            PoolType::Lvm => Self::Lvm,
+        }
+    }
+}
+
 async fn import(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
         .get_one::<String>("pool")
@@ -181,6 +276,12 @@ async fn import(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         })?
         .map(|dev| dev.to_owned())
         .collect();
+    let pooltype = matches
+        .get_one::<String>("type")
+        .map(|s| PoolType::from_str(s.as_str()))
+        .unwrap()
+        .map_err(|e| Status::invalid_argument(e.to_string()))
+        .context(GrpcStatus)?;
 
     let response = ctx
         .v1
@@ -189,7 +290,7 @@ async fn import(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             name: name.clone(),
             uuid: uuid.map(ToString::to_string),
             disks: disks_list,
-            pooltype: v1rpc::pool::PoolType::Lvs as i32,
+            pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
         })
         .await
         .context(GrpcStatus)?;
@@ -219,13 +320,14 @@ async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             field: "pool".to_string(),
         })?
         .to_owned();
+    let uuid = matches.get_one::<String>("uuid").cloned();
 
     let _ = ctx
         .v1
         .pool
         .destroy_pool(v1rpc::pool::DestroyPoolRequest {
             name: name.clone(),
-            uuid: None,
+            uuid,
         })
         .await
         .context(GrpcStatus)?;
@@ -242,18 +344,19 @@ async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
 
 async fn export(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
-        .get_one::<String>("pool")
+        .get_one::<String>("name")
         .ok_or_else(|| ClientError::MissingValue {
-            field: "pool".to_string(),
+            field: "name".to_string(),
         })?
         .to_owned();
+    let uuid = matches.get_one::<String>("uuid").cloned();
 
     let _ = ctx
         .v1
         .pool
         .export_pool(v1rpc::pool::ExportPoolRequest {
             name: name.clone(),
-            uuid: None,
+            uuid,
         })
         .await
         .context(GrpcStatus)?;
@@ -268,16 +371,27 @@ async fn export(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
+
+    let name = matches.get_one::<String>("name").cloned();
+    let uuid = matches.get_one::<String>("uuid").cloned();
+    let pooltype = matches
+        .get_one::<String>("type")
+        .map(|s| PoolType::from_str(s.as_str()))
+        .transpose()
+        .map_err(|e| Status::invalid_argument(e.to_string()))
+        .context(GrpcStatus)?;
 
     let response = ctx
         .v1
         .pool
         .list_pools(v1rpc::pool::ListPoolOptions {
-            name: None,
-            pooltype: None,
-            uuid: None,
+            name,
+            uuid,
+            pooltype: pooltype.map(|pooltype| v1rpc::pool::PoolTypeValue {
+                value: v1rpc::pool::PoolType::from(pooltype) as i32,
+            }),
         })
         .await
         .context(GrpcStatus)?;

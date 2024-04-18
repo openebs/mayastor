@@ -16,6 +16,7 @@ import snapshot_pb2_grpc as snapshot_rpc
 import host_pb2_grpc as host_rpc
 from pytest_testconfig import config
 from functools import partial
+import mayastor_pb2 as pb
 
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 
@@ -125,7 +126,7 @@ class MayastorHandle(object):
         ).bdevs
         return bdev_list
 
-    def pool_create(self, name, uuid, disks):
+    def pool_create(self, name, uuid, disks, type=pool_pb.Lvs):
         """Create a pool with given name on this node using the bdev as the
         backend device. The bdev is implicitly created."""
         opts = pool_pb.CreatePoolRequest(name=name, disks=disks)
@@ -175,7 +176,7 @@ class MayastorHandle(object):
 
     def mayastor_info(self):
         """Get information about Mayastor instance"""
-        return self.host_rpc.GetMayastorInfo()
+        return self.host_rpc.GetMayastorInfo(pb.Null())
 
     def nexus_create(
         self, name, uuid, size, min_cntlid, max_cntlid, resv_key, preempt_key, children

@@ -39,7 +39,7 @@ use super::{Error, Lvs};
 use crate::{
     bdev::PtplFileOps,
     core::{
-        logical_volume::LogicalVolume,
+        logical_volume::{LogicalVolume, LvolSpaceUsage},
         wiper::{WipeMethod, Wiper},
         Bdev,
         CloneXattrs,
@@ -128,27 +128,6 @@ struct ResizeCbCtx {
     req_size: u64,
 }
 
-/// Lvol space usage.
-#[derive(Default, Copy, Clone, Debug)]
-pub struct LvolSpaceUsage {
-    /// Lvol size in bytes.
-    pub capacity_bytes: u64,
-    /// Amount of actually allocated disk space for this replica in bytes.
-    pub allocated_bytes: u64,
-    /// Cluster size in bytes.
-    pub cluster_size: u64,
-    /// Total number of clusters.
-    pub num_clusters: u64,
-    /// Number of actually allocated clusters.
-    pub num_allocated_clusters: u64,
-    /// Amount of disk space allocated by snapshots of this volume.
-    pub allocated_bytes_snapshots: u64,
-    /// Number of clusters allocated by snapshots of this volume.
-    pub num_allocated_clusters_snapshots: u64,
-    /// Actual Amount of disk space allocated by snapshot which is created from
-    /// clone.
-    pub allocated_bytes_snapshot_from_clone: Option<u64>,
-}
 #[derive(Clone)]
 /// struct representing an lvol
 pub struct Lvol {
@@ -618,6 +597,12 @@ pub trait LvsLvol: LogicalVolume + Share {
         curr_blob: *mut spdk_blob,
     ) -> Option<*mut spdk_blob>;
 
+    /// Get lvol inner ptr.
+    fn as_inner_ptr(&self) -> *mut spdk_lvol;
+
+    /// Get BlobPtr from spdk_lvol.
+    fn blob_checked(&self) -> *mut spdk_blob;
+
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
     async fn destroy_replica(mut self) -> Result<String, Error>;
@@ -630,13 +615,6 @@ pub trait LvsLvol: LogicalVolume + Share {
 
 ///  LogicalVolume implement Generic interface for Lvol.
 impl LogicalVolume for Lvol {
-    type InnerPtr = *mut spdk_lvol;
-    type BlobPtr = *mut spdk_blob;
-
-    /// Get lvol inner ptr.
-    fn as_inner_ptr(&self) -> Self::InnerPtr {
-        self.inner.as_ptr()
-    }
     /// Returns the name of the Snapshot.
     fn name(&self) -> String {
         self.as_bdev().name().to_string()
@@ -675,13 +653,6 @@ impl LogicalVolume for Lvol {
     /// Return the size of the Logical Volume in bytes.
     fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
-    }
-
-    /// Get BlobPtr from spdk_lvol.
-    fn blob_checked(&self) -> Self::BlobPtr {
-        let blob = self.as_inner_ref().blob;
-        assert!(!blob.is_null());
-        blob
     }
 
     /// Return the committed size of the Logical Volume in bytes.
@@ -1117,6 +1088,17 @@ impl LvsLvol for Lvol {
         } else {
             Some(parent_blob)
         }
+    }
+
+    /// Get lvol inner ptr.
+    fn as_inner_ptr(&self) -> *mut spdk_lvol {
+        self.inner.as_ptr()
+    }
+    /// Get BlobPtr from spdk_lvol.
+    fn blob_checked(&self) -> *mut spdk_blob {
+        let blob = self.as_inner_ref().blob;
+        assert!(!blob.is_null());
+        blob
     }
 
     /// Wrapper function to destroy replica and its associated snapshot if

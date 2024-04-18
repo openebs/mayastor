@@ -1,5 +1,6 @@
 use byte_unit::Byte;
 use snafu::{Backtrace, Snafu};
+use strum::ParseError;
 use tonic::transport::Channel;
 
 use io_engine_api::v0::{
@@ -21,6 +22,11 @@ pub enum ClientError {
     #[snafu(display("gRPC status: {}", source))]
     GrpcStatus {
         source: tonic::Status,
+        backtrace: Backtrace,
+    },
+    #[snafu(display("gRPC status: {}", source))]
+    GrpcParseStatus {
+        source: ParseError,
         backtrace: Backtrace,
     },
     #[snafu(display("Context building error: {}", source))]

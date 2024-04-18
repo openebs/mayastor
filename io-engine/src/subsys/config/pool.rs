@@ -1,15 +1,14 @@
-use std::{fmt::Display, fs, path::Path, sync::Mutex};
-
 use futures::channel::oneshot;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
+use std::{fmt::Display, fs, path::Path, sync::Mutex};
 use tonic::Status;
 
 use crate::{
     core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
     lvs::{Error as LvsError, Lvs, LvsBdev},
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 
 static CONFIG_FILE: OnceCell<String> = OnceCell::new();
@@ -165,6 +164,7 @@ struct Pool {
     /// list of replicas (not required, informational only)
     #[serde(skip_serializing)]
     replicas: Option<Vec<Replica>>,
+    backend: PoolBackend,
 }
 
 /// Convert a Pool into a gRPC request payload
@@ -175,6 +175,7 @@ impl From<&Pool> for PoolArgs {
             disks: pool.disks.clone(),
             uuid: None,
             cluster_size: None,
+            backend: pool.backend,
         }
     }
 }
@@ -189,6 +190,7 @@ impl From<LvsBdev> for Pool {
                 .bdev_uri_str()
                 .unwrap_or_else(|| base.name().to_string())],
             replicas: None,
+            backend: PoolBackend::Lvs,
         }
     }
 }

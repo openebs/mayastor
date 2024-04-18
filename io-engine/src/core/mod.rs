@@ -287,7 +287,7 @@ pub enum CoreError {
     NvmeIoPassthruFailed {
         opcode: u16,
     },
-    #[snafu(display("failed to share"))]
+    #[snafu(display("failed to share: {source}"))]
     ShareNvmf {
         source: NvmfError,
     },
@@ -516,5 +516,13 @@ pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone)]
 pub struct MayastorFeatures {
+    /// When set to true, support for ANA is enabled.
     pub asymmetric_namespace_access: bool,
+    /// When set to true, support for lvm pools and volumes is enabled.
+    pub logical_volume_manager: bool,
+}
+impl MayastorFeatures {
+    pub fn lvm(&self) -> bool {
+        self.logical_volume_manager
+    }
 }

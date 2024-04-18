@@ -102,7 +102,7 @@ jsonrpc = { path = "../jsonrpc"}
 io-engine-api = { path = "../utils/dependencies/apis/io-engine" }
 spdk-rs = { path = "../spdk-rs" }
 sysfs = { path = "../sysfs" }
-version-info = { path = "../utils/dependencies/version-info" }
+version-info = { path = "../utils/dependencies/version-info", features = ["deps-logs-head"] }
 events-api = { path = "../utils/dependencies/apis/events" }
 event-publisher = { path = "../utils/dependencies/event-publisher" }
 tracing-filter = { path = "../utils/dependencies/tracing-filter" }

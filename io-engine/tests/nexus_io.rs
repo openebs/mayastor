@@ -1071,8 +1071,7 @@ async fn nexus_io_write_zeroes() {
             Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME.to_string(),
                 disks: vec![BDEVNAME1.to_string()],
-                uuid: None,
-                cluster_size: None,
+                ..Default::default()
             })
             .await
             .unwrap();

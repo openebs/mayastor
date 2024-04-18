@@ -9,7 +9,7 @@ use io_engine::{
         UntypedBdev,
     },
     lvs::{Lvs, LvsLvol, PropName, PropValue},
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
     subsys::NvmfSubsystem,
 };
 use std::pin::Pin;
@@ -43,6 +43,7 @@ async fn lvs_pool_test() {
             disks: vec!["aio:///tmp/disk1.img".into()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         })
         .await
         .unwrap();
@@ -146,6 +147,7 @@ async fn lvs_pool_test() {
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         })
         .await
         .unwrap();
@@ -182,6 +184,7 @@ async fn lvs_pool_test() {
             disks: vec!["aio:///tmp/disk1.img".to_string()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         })
         .await
         .unwrap();
@@ -321,6 +324,7 @@ async fn lvs_pool_test() {
             disks: vec!["aio:///tmp/disk1.img".into()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         })
         .await
         .unwrap();
@@ -351,6 +355,7 @@ async fn lvs_pool_test() {
             disks: vec!["aio:///tmp/disk1.img".into()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         })
         .await
         .err()
@@ -367,6 +372,7 @@ async fn lvs_pool_test() {
             disks: vec!["/tmp/disk2.img".into()],
             uuid: None,
             cluster_size: None,
+            backend: PoolBackend::Lvs,
         })
         .await
         .unwrap();

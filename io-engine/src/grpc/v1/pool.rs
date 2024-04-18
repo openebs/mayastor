@@ -1,17 +1,6 @@
 use crate::{
-    core::{
-        lock::{ProtectedSubsystems, ResourceLockManager},
-        Share,
-    },
-    grpc::{
-        acquire_subsystem_lock,
-        rpc_submit,
-        GrpcClientContext,
-        GrpcResult,
-        RWLock,
-        RWSerializer,
-    },
-    lvs::{Error as LvsError, Lvs},
+    grpc::{GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    lvs::Error as LvsError,
     pool_backend::{PoolArgs, PoolBackend},
 };
 use ::function_name::named;
@@ -21,8 +10,21 @@ use nix::errno::Errno;
 use std::{convert::TryFrom, fmt::Debug, panic::AssertUnwindSafe};
 use tonic::{Request, Response, Status};
 
+use super::{
+    lvm::pool::PoolService as LvmSvc,
+    lvs::pool::PoolService as LvsSvc,
+};
+
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
+
+/// Probe for pools using this criteria.
+#[derive(Debug, Clone)]
+pub enum PoolProbe {
+    Uuid(String),
+    UuidOrName(String),
+    NameUuid { name: String, uuid: Option<String> },
+}
 
 /// RPC service for mayastor pool operations
 #[derive(Debug, Clone)]
@@ -113,13 +115,21 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             });
         }
 
-        if let Some(s) = args.uuid.clone() {
-            let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
-                LvsError::Invalid {
-                    source: Errno::EINVAL,
-                    msg: format!("invalid uuid provided, {e}"),
-                }
-            })?;
+        let backend = PoolType::try_from(args.pooltype).map_err(|_| {
+            LvsError::Invalid {
+                source: Errno::EINVAL,
+                msg: format!("invalid pooltype provided: {}", args.pooltype),
+            }
+        })?;
+        if backend == PoolType::Lvs {
+            if let Some(s) = args.uuid.clone() {
+                let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
+                    LvsError::Invalid {
+                        source: Errno::EINVAL,
+                        msg: format!("invalid uuid provided, {e}"),
+                    }
+                })?;
+            }
         }
 
         Ok(Self {
@@ -127,7 +137,29 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             disks: args.disks,
             uuid: args.uuid,
             cluster_size: args.cluster_size,
+            backend: backend.into(),
         })
+    }
+}
+impl From<PoolType> for PoolBackend {
+    fn from(value: PoolType) -> Self {
+        match value {
+            PoolType::Lvs => Self::Lvs,
+            PoolType::Lvm => Self::Lvm,
+        }
+    }
+}
+impl TryFrom<i32> for PoolBackend {
+    type Error = std::io::Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match PoolType::try_from(value) {
+            Ok(value) => Ok(value.into()),
+            Err(_) => Err(Self::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid pool type {value}"),
+            )),
+        }
     }
 }
 
@@ -141,13 +173,21 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             });
         }
 
-        if let Some(s) = args.uuid.clone() {
-            let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
-                LvsError::Invalid {
-                    source: Errno::EINVAL,
-                    msg: format!("invalid uuid provided, {e}"),
-                }
-            })?;
+        let backend = PoolType::try_from(args.pooltype).map_err(|_| {
+            LvsError::Invalid {
+                source: Errno::EINVAL,
+                msg: format!("invalid pooltype provided: {}", args.pooltype),
+            }
+        })?;
+        if backend == PoolType::Lvs {
+            if let Some(s) = args.uuid.clone() {
+                let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
+                    LvsError::Invalid {
+                        source: Errno::EINVAL,
+                        msg: format!("invalid uuid provided, {e}"),
+                    }
+                })?;
+            }
         }
 
         Ok(Self {
@@ -155,6 +195,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             disks: args.disks,
             uuid: args.uuid,
             cluster_size: None,
+            backend: backend.into(),
         })
     }
 }
@@ -172,23 +213,44 @@ impl PoolService {
             client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
-}
+    /// Return a backend for the given type.
+    fn backend(
+        &self,
+        pooltype: i32,
+    ) -> Result<Box<dyn PoolRpc>, tonic::Status> {
+        Ok(match PoolBackend::try_from(pooltype)? {
+            PoolBackend::Lvs => Box::new(LvsSvc::new()),
+            PoolBackend::Lvm => Box::new(LvmSvc::new()),
+        })
+    }
+    /// Probe backends for the given name and/or uuid and return the right one.
+    async fn probe_backend(
+        &self,
+        name: &str,
+        uuid: &Option<String>,
+    ) -> Result<Box<dyn PoolRpc>, tonic::Status> {
+        let probe = PoolProbe::NameUuid {
+            name: name.to_owned(),
+            uuid: uuid.to_owned(),
+        };
+        Ok(match self.probe_backend_kind(probe).await? {
+            PoolBackend::Lvm => Box::new(LvmSvc::new()),
+            PoolBackend::Lvs => Box::new(LvsSvc::new()),
+        })
+    }
 
-impl From<Lvs> for Pool {
-    fn from(l: Lvs) -> Self {
-        Self {
-            uuid: l.uuid(),
-            name: l.name().into(),
-            disks: vec![l
-                .base_bdev()
-                .bdev_uri_str()
-                .unwrap_or_else(|| "".into())],
-            state: PoolState::PoolOnline.into(),
-            capacity: l.capacity(),
-            used: l.used(),
-            committed: l.committed(),
-            pooltype: PoolType::Lvs as i32,
-            cluster_size: l.blob_cluster_size() as u32,
+    pub(crate) async fn probe_backend_kind(
+        &self,
+        probe: PoolProbe,
+    ) -> Result<PoolBackend, tonic::Status> {
+        match (
+            LvmSvc::probe(&probe).await,
+            LvsSvc::probe(probe.clone()).await,
+        ) {
+            (Ok(true), _) => Ok(PoolBackend::Lvm),
+            (_, Ok(true)) => Ok(PoolBackend::Lvs),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Err(Status::not_found(format!("Pool {probe:?} not found"))),
         }
     }
 }
@@ -200,27 +262,13 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<CreatePoolRequest>,
     ) -> GrpcResult<Pool> {
+        let backend = self.backend(request.get_ref().pooltype)?;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                match PoolBackend::try_from(args.pooltype)? {
-                    PoolBackend::Lvs => {
-                        let rx = rpc_submit::<_, _, LvsError>(async move {
-                            let pool = Lvs::create_or_import(
-                                PoolArgs::try_from(args)?,
-                            )
-                            .await?;
-                            Ok(Pool::from(pool))
-                        })?;
+                info!("{:?}", request.get_ref());
 
-                        rx.await
-                            .map_err(|_| Status::cancelled("cancelled"))?
-                            .map_err(Status::from)
-                            .map(Response::new)
-                    }
-                }
+                backend.create_pool(request).await
             },
         )
         .await
@@ -231,41 +279,15 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<DestroyPoolRequest>,
     ) -> GrpcResult<()> {
+        let backend = self
+            .probe_backend(&request.get_ref().name, &request.get_ref().uuid)
+            .await?;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit::<_, _, LvsError>(async move {
-                    if let Some(pool) = Lvs::lookup(&args.name) {
-                        if args.uuid.is_some() && args.uuid != Some(pool.uuid())
-                        {
-                            return Err(LvsError::Invalid {
-                                source: Errno::EINVAL,
-                                msg: format!(
-                                    "invalid uuid {}, found pool with uuid {}",
-                                    args.uuid.unwrap(),
-                                    pool.uuid(),
-                                ),
-                            });
-                        }
-                        pool.destroy().await?;
-                    } else {
-                        return Err(LvsError::PoolNotFound {
-                            source: Errno::EINVAL,
-                            msg: format!(
-                                "Destroy failed as pool {} was not found",
-                                args.name,
-                            ),
-                        });
-                    }
-                    Ok(())
-                })?;
+                info!("{:?}", request.get_ref());
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                backend.destroy_pool(request).await
             },
         )
         .await
@@ -276,38 +298,15 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<ExportPoolRequest>,
     ) -> GrpcResult<()> {
+        let backend = self
+            .probe_backend(&request.get_ref().name, &request.get_ref().uuid)
+            .await?;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit::<_, _, LvsError>(async move {
-                    if let Some(pool) = Lvs::lookup(&args.name) {
-                        if args.uuid.is_some() && args.uuid != Some(pool.uuid())
-                        {
-                            return Err(LvsError::Invalid {
-                                source: Errno::EINVAL,
-                                msg: format!(
-                                    "invalid uuid {}, found pool with uuid {}",
-                                    args.uuid.unwrap(),
-                                    pool.uuid(),
-                                ),
-                            });
-                        }
-                        pool.export().await?;
-                    } else {
-                        return Err(LvsError::Invalid {
-                            source: Errno::EINVAL,
-                            msg: format!("pool {} not found", args.name),
-                        });
-                    }
-                    Ok(())
-                })?;
+                info!("{:?}", request.get_ref());
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                backend.export_pool(request).await
             },
         )
         .await
@@ -318,36 +317,13 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<ImportPoolRequest>,
     ) -> GrpcResult<Pool> {
+        let backend = self.backend(request.get_ref().pooltype)?;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool_subsystem = ResourceLockManager::get_instance()
-                        .get_subsystem(ProtectedSubsystems::POOL);
-                    let _lock_guard = acquire_subsystem_lock(
-                        pool_subsystem,
-                        Some(&args.name),
-                    )
-                    .await
-                    .map_err(|_| {
-                        LvsError::ResourceLockFailed {
-                            msg: format!(
-                                "resource {}, for disk pool {:?}",
-                                &args.name, &args.disks,
-                            ),
-                        }
-                    })?;
-                    let pool = Lvs::import_from_args(PoolArgs::try_from(args)?)
-                        .await?;
-                    Ok(Pool::from(pool))
-                })?;
+                info!("{:?}", request.get_ref());
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                backend.import_pool(request).await
             },
         )
         .await
@@ -362,38 +338,58 @@ impl PoolRpc for PoolService {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-                let pool_type = match &args.pooltype {
-                    Some(pool_type) => pool_type.value,
-                    None => PoolType::Lvs as i32,
+
+                // todo: what is the intent here when None, to only return pools
+                //  of Lvs?
+                // todo: Also, what todo when we hit an error listing any of the
+                //  types? Or should we have separate lists per type?
+                let pool_type = args.pooltype.as_ref().map(|v| v.value);
+                let pool_type = match pool_type {
+                    None => None,
+                    Some(pool_type) => {
+                        Some(PoolType::try_from(pool_type).map_err(|_| {
+                            Status::invalid_argument("Unknown pool type")
+                        })?)
+                    }
                 };
-                if pool_type != PoolType::Lvs as i32 {
-                    return Err(tonic::Status::invalid_argument(
-                        "Only pools of Lvs pool type are supported",
-                    ));
+
+                let lvm = matches!(pool_type, None | Some(PoolType::Lvm));
+                let lvs = matches!(pool_type, None | Some(PoolType::Lvs));
+
+                let mut pools = vec![];
+                if lvm {
+                    pools.extend(
+                        match LvmSvc::new().list_svc_pools(&args).await {
+                            Ok(pools) => Ok(pools),
+                            Err(mut status) => {
+                                status.metadata_mut().insert(
+                                    "lvm",
+                                    tonic::metadata::MetadataValue::from(0),
+                                );
+                                Err(status)
+                            }
+                        }?,
+                    );
                 }
 
-                let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let mut pools = Vec::new();
-                    if let Some(name) = args.name {
-                        if let Some(l) = Lvs::lookup(&name) {
-                            pools.push(l.into());
-                        }
-                    } else if let Some(uuid) = args.uuid {
-                        if let Some(l) = Lvs::lookup_by_uuid(&uuid) {
-                            pools.push(l.into());
-                        }
-                    } else {
-                        Lvs::iter().for_each(|l| pools.push(l.into()));
-                    }
-                    Ok(ListPoolsResponse {
-                        pools,
-                    })
-                })?;
+                if lvs {
+                    pools.extend(
+                        match LvsSvc::new().list_svc_pools(&args).await {
+                            Ok(pools) => Ok(pools),
+                            Err(mut status) => {
+                                status.metadata_mut().insert(
+                                    "lvs",
+                                    tonic::metadata::MetadataValue::from(0),
+                                );
+                                Err(status)
+                            }
+                        }?,
+                    );
+                }
 
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                Ok(Response::new(ListPoolsResponse {
+                    pools,
+                }))
             },
         )
         .await
