@@ -2,7 +2,6 @@ use crate::{
     core::{ProtectedSubsystems, ResourceLockManager, Share},
     grpc::{
         acquire_subsystem_lock,
-        lvm_enabled,
         rpc_submit,
         rpc_submit_ext,
         v1::pool::PoolProbe,
@@ -182,7 +181,6 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<ImportPoolRequest>,
     ) -> GrpcResult<Pool> {
-        lvm_enabled()?;
         let args = PoolArgs::try_from(request.into_inner())?;
 
         let rx = rpc_submit::<_, _, LvsError>(async move {
