@@ -1,4 +1,3 @@
-use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 use std::time::Duration;
 
@@ -11,12 +10,12 @@ use io_engine::{
 pub mod common;
 use common::compose::MayastorTest;
 use io_engine::{
-    core::{LogicalVolume, ReadOptions, Share, ToErrno},
-    lvs::{Lvol, Lvs, LvsLvol},
-    pool_backend::PoolArgs,
+    core::{LogicalVolume, ReadOptions, Share},
+    lvs::{Lvol, LvsLvol},
     rebuild::{RebuildJobOptions, SnapshotRebuildJob},
     sleep::mayastor_sleep,
 };
+use io_engine_tests::pool::{PoolBuilderLocal, PoolLocal, PoolOps};
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -28,29 +27,8 @@ fn get_ms() -> &'static MayastorTest<'static> {
     })
 }
 
-async fn create_pool() -> Result<Lvs, String> {
-    match Lvs::create_or_import(PoolArgs {
-        name: "tpool".into(),
-        disks: vec!["malloc:///md?size_mb=100".into()],
-        uuid: None,
-        cluster_size: None,
-        backend: Default::default(),
-    })
-    .await
-    {
-        Err(error) => {
-            let err_str = error.to_string();
-            if error.to_errno() == Errno::EEXIST {
-                Lvs::lookup("tpool").ok_or("Failed to lookup".into())
-            } else {
-                Err(err_str)
-            }
-        }
-        Ok(pool) => Ok(pool),
-    }
-}
-async fn create_replica(pool: &Lvs, uuid: &str) -> Result<Lvol, String> {
-    pool.create_lvol(uuid, SIZE_MB * 1024 * 1024, Some(uuid), true, None)
+async fn create_replica(pool: &PoolLocal, uuid: &str) -> Result<Lvol, String> {
+    pool.create_repl(uuid, SIZE_MB * 1024 * 1024, Some(uuid), true, None)
         .await
         .map_err(|error| error.to_string())
 }
@@ -67,6 +45,7 @@ fn mb_to_blocks(mb: u64) -> u64 {
     (mb * 1024 * 1024) / BLOCK_SIZE
 }
 const SIZE_MB: u64 = 32;
+const POOL_SZ_MB: u64 = SIZE_MB * 3;
 
 #[tokio::test]
 async fn malloc_to_malloc() {
@@ -115,7 +94,7 @@ async fn malloc_to_replica() {
     ms.spawn(async move {
         let src_uri = format!("malloc:///d?size_mb={SIZE_MB}");
 
-        let pool = create_pool().await.unwrap();
+        let pool = PoolBuilderLocal::malloc("md", POOL_SZ_MB).await.unwrap();
         let replica =
             create_replica(&pool, "3be1219f-682b-4672-b88b-8b9d07e8104a")
                 .await
@@ -149,7 +128,7 @@ async fn replica_to_rebuild_full() {
     let ms = get_ms();
 
     ms.spawn(async move {
-        let pool = create_pool().await.unwrap();
+        let pool = PoolBuilderLocal::malloc("md", POOL_SZ_MB).await.unwrap();
         let replica_src =
             create_replica(&pool, "2be1219f-682b-4672-b88b-8b9d07e8104a")
                 .await
@@ -191,7 +170,7 @@ async fn replica_to_rebuild_partial() {
     let ms = get_ms();
 
     ms.spawn(async move {
-        let pool = create_pool().await.unwrap();
+        let pool = PoolBuilderLocal::malloc("md", POOL_SZ_MB).await.unwrap();
         let replica_src =
             create_replica(&pool, "2be1219f-682b-4672-b88b-8b9d07e8104a")
                 .await
