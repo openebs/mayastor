@@ -143,7 +143,7 @@ impl RebuildDescriptor {
     }
 
     /// Check if the rebuild range is compatible with the rebuild segment map.
-    pub(crate) fn validate_map(
+    pub(super) fn validate_map(
         &self,
         map: &SegmentMap,
     ) -> Result<(), RebuildError> {
@@ -227,6 +227,7 @@ impl RebuildDescriptor {
         &self,
         offset_blk: u64,
         iovs: &mut [IoVec],
+        opts: ReadOptions,
     ) -> Result<bool, RebuildError> {
         match self
             .src_io_handle()
@@ -235,7 +236,7 @@ impl RebuildDescriptor {
                 iovs,
                 offset_blk,
                 self.get_segment_size_blks(offset_blk),
-                ReadOptions::UnwrittenFail,
+                opts,
             )
             .await
         {

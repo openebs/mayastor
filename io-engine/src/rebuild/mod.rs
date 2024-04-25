@@ -10,11 +10,12 @@ mod rebuild_state;
 mod rebuild_stats;
 mod rebuild_task;
 mod rebuilders;
+mod snapshot_rebuild;
 
 pub use bdev_rebuild::BdevRebuildJob;
 pub use nexus_rebuild::{NexusRebuildJob, NexusRebuildJobStarter};
 use rebuild_descriptor::RebuildDescriptor;
-pub(crate) use rebuild_error::RebuildError;
+pub(crate) use rebuild_error::{RebuildError, SnapshotRebuildError};
 use rebuild_job::RebuildOperation;
 pub use rebuild_job::{RebuildJob, RebuildJobOptions, RebuildVerifyMode};
 use rebuild_job_backend::{
@@ -28,6 +29,7 @@ use rebuild_state::RebuildStates;
 pub(crate) use rebuild_stats::HistoryRecord;
 pub use rebuild_stats::RebuildStats;
 use rebuild_task::{RebuildTasks, TaskResult};
+pub use snapshot_rebuild::SnapshotRebuildJob;
 
 /// Number of concurrent copy tasks per rebuild job
 const SEGMENT_TASKS: usize = 16;
@@ -49,5 +51,27 @@ impl WithinRange<u64> for std::ops::Range<u64> {
             && right.start < right.end
             && self.start >= right.start
             && self.end <= right.end
+    }
+}
+
+/// Shutdown all pending snapshot rebuilds.
+pub(crate) async fn shutdown_snapshot_rebuilds() {
+    let jobs = SnapshotRebuildJob::list().into_iter();
+    for recv in jobs.map(|job| job.force_stop()).collect::<Vec<_>>() {
+        recv.await.ok();
+    }
+}
+
+/// Parse the given url as string into a `url::Url`.
+pub(crate) fn parse_url(url: &str) -> Result<url::Url, RebuildError> {
+    match url::Url::parse(url) {
+        Ok(url) => Ok(url),
+        Err(source) => Err(RebuildError::BdevInvalidUri {
+            source: crate::bdev_api::BdevError::UriParseFailed {
+                uri: url.to_owned(),
+                source,
+            },
+            uri: url.to_owned(),
+        }),
     }
 }

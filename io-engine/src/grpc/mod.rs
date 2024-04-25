@@ -170,6 +170,7 @@ where
         .map_err(|e| e.into())
 }
 
+/// Submit rpc code to the primary reactor.
 pub fn rpc_submit<F, R, E>(
     future: F,
 ) -> Result<Receiver<Result<R, E>>, tonic::Status>
@@ -181,6 +182,8 @@ where
     Reactor::spawn_at_primary(future)
         .map_err(|_| Status::resource_exhausted("ENOMEM"))
 }
+/// Submit rpc code to the primary reactor.
+/// Similar to `rpc_submit` but with a more generic response abstraction.
 pub fn rpc_submit_ext<F, R>(future: F) -> Result<Receiver<R>, tonic::Status>
 where
     F: Future<Output = R> + 'static,

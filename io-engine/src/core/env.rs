@@ -490,6 +490,7 @@ async fn do_shutdown(arg: *mut c_void) {
         reg.fini();
     }
     nexus::shutdown_nexuses().await;
+    crate::rebuild::shutdown_snapshot_rebuilds().await;
     crate::lvs::Lvs::export_all().await;
 
     runtime::spawn_await(async {

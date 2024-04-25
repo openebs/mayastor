@@ -61,7 +61,10 @@ impl RebuildTask {
         let iov = desc.adjusted_iov(&self.buffer, offset_blk);
         let iovs = &mut [iov];
 
-        if !desc.read_src_segment(offset_blk, iovs).await? {
+        if !desc
+            .read_src_segment(offset_blk, iovs, desc.options.read_opts)
+            .await?
+        {
             // Segment is not allocated in the source, skip the write.
             return Ok(false);
         }
@@ -127,7 +130,7 @@ impl RebuildTasks {
 
         Ok(RebuildTasks {
             total: tasks.len(),
-            tasks: tasks.collect::<Result<_, _>>()?,
+            tasks: tasks.collect::<Result<_, RebuildError>>()?,
             channel,
             active: 0,
             segments_done: 0,

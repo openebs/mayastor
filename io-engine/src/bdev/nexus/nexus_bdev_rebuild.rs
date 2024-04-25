@@ -186,6 +186,7 @@ impl<'n> Nexus<'n> {
 
         let opts = RebuildJobOptions {
             verify_mode,
+            read_opts: crate::core::ReadOptions::UnwrittenFail,
         };
 
         NexusRebuildJob::new_starter(

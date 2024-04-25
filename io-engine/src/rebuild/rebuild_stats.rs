@@ -27,6 +27,8 @@ pub struct RebuildStats {
     pub start_time: DateTime<Utc>,
     /// Is this a partial rebuild?
     pub is_partial: bool,
+    /// End time of this rebuild.
+    pub end_time: Option<DateTime<Utc>>,
 }
 
 impl Default for RebuildStats {
@@ -43,6 +45,7 @@ impl Default for RebuildStats {
             tasks_active: 0,
             start_time: Utc::now(),
             is_partial: false,
+            end_time: None,
         }
     }
 }

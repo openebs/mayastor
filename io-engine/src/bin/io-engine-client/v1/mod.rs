@@ -9,6 +9,7 @@ pub mod pool_cli;
 pub mod rebuild_cli;
 pub mod replica_cli;
 pub mod snapshot_cli;
+mod snapshot_rebuild_cli;
 pub mod stats_cli;
 mod test_cli;
 
@@ -73,6 +74,7 @@ pub(super) async fn main_() -> crate::Result<()> {
         .subcommand(device_cli::subcommands())
         .subcommand(perf_cli::subcommands())
         .subcommand(rebuild_cli::subcommands())
+        .subcommand(snapshot_rebuild_cli::subcommands())
         .subcommand(snapshot_cli::subcommands())
         .subcommand(jsonrpc_cli::subcommands())
         .subcommand(controller_cli::subcommands())
@@ -94,6 +96,9 @@ pub(super) async fn main_() -> crate::Result<()> {
         ("pool", args) => pool_cli::handler(ctx, args).await,
         ("replica", args) => replica_cli::handler(ctx, args).await,
         ("rebuild", args) => rebuild_cli::handler(ctx, args).await,
+        ("snapshot-rebuild", args) => {
+            snapshot_rebuild_cli::handler(ctx, args).await
+        }
         ("snapshot", args) => snapshot_cli::handler(ctx, args).await,
         ("stats", args) => stats_cli::handler(ctx, args).await,
         ("controller", args) => controller_cli::handler(ctx, args).await,
