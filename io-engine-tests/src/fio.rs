@@ -53,8 +53,14 @@ pub struct FioJob {
     /// Number of clones (processes/threads performing the same workload) of
     /// this job. Default: 1.
     pub numjobs: u32,
-    /// TODO
-    pub thread: u32,
+    /// Specifies the number of iterations (runs of the same workload) of this
+    /// job. Default: 1.
+    #[builder(setter(strip_option))]
+    pub loops: Option<u32>,
+    /// Use threads created with `pthread_create` instead of processes created
+    /// with `fork`.
+    /// Default is true.
+    pub thread: Option<bool>,
     /// Terminate processing after the specified number of seconds.
     /// If this field is defined, --timebased=1 is set as well.
     #[builder(setter(strip_option))]
@@ -62,8 +68,11 @@ pub struct FioJob {
     /// Total size of I/O for this job.
     #[builder(setter(strip_option, into))]
     pub size: Option<DataSize>,
-    /// TODO
-    pub norandommap: bool,
+    /// Normally fio will cover every block of the file when doing random I/O.
+    /// If this parameter is given, a new offset will be chosen without looking
+    /// at past I/O history. This parameter is mutually exclusive with verify.
+    /// The default is true.
+    pub norandommap: Option<bool>,
     /// TODO
     #[builder(setter(into))]
     pub random_generator: Option<String>,
@@ -127,10 +136,11 @@ impl FioJob {
             offset: None,
             iodepth: None,
             numjobs: 1,
-            thread: 1,
+            loops: None,
+            thread: Some(true),
             runtime: None,
             size: None,
-            norandommap: true,
+            norandommap: Some(true),
             random_generator: Some("tausworthe64".to_string()),
             do_verify: None,
             verify: None,
@@ -182,6 +192,8 @@ impl FioJob {
 #[builder(default)]
 #[allow(dead_code)]
 pub struct Fio {
+    /// FIO binary.
+    pub fio_binary: String,
     /// TODO
     #[builder(setter(custom))]
     pub jobs: Vec<FioJob>,
@@ -238,7 +250,14 @@ impl Fio {
     }
 
     pub fn run(mut self) -> Self {
-        let cmd = "sudo -E LD_PRELOAD=$FIO_SPDK fio";
+        if self.fio_binary.is_empty() {
+            self.fio_binary = "fio".to_string();
+        }
+
+        let cmd = format!(
+            "sudo -E LD_PRELOAD=$FIO_SPDK {fio}",
+            fio = self.fio_binary
+        );
 
         let args = self
             .jobs

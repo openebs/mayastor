@@ -9,9 +9,10 @@ default-run = "io-engine-client"
 [features]
 default = ["spdk-async-qpair-connect"]
 io-engine-testing = ["fault-injection"]
+extended-tests = [] # Extended I/O engine tests: not intended for daily runs.
 fault-injection = [] # Enables fault injection code.
 nexus-io-tracing = [] # Enables nexus I/O tracing code.
-spdk-async-qpair-connect = []
+spdk-async-qpair-connect = [] # Enables async qpair connection.
 
 [[bin]]
 name = "io-engine"
