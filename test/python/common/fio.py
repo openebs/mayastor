@@ -20,7 +20,7 @@ class Fio(object):
             size = "--size={}".format(self.size)
 
         command = (
-            "sudo fio --ioengine=linuxaio --direct=1 --bs=4k "
+            "nix-sudo fio --ioengine=linuxaio --direct=1 --bs=4k "
             "--time_based=1 {} --rw={} "
             "--group_reporting=1 --norandommap=1 --iodepth=64 "
             "--runtime={} --name={} --filename={} {}"

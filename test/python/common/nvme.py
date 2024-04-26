@@ -7,7 +7,7 @@ from common.command import run_cmd_async_at
 
 
 async def nvme_remote_connect_all(remote, host, port):
-    command = f"sudo nvme connect-all -t tcp -s {port} -a {host}"
+    command = f"nix-sudo nvme connect-all -t tcp -s {port} -a {host}"
     await run_cmd_async_at(remote, command)
 
 
@@ -18,11 +18,13 @@ async def nvme_remote_connect(remote, uri):
     host = u.hostname
     nqn = u.path[1:]
 
-    command = "sudo nvme connect -t tcp -s {0} -a {1} -n {2}".format(port, host, nqn)
+    command = "nix-sudo nvme connect -t tcp -s {0} -a {1} -n {2}".format(
+        port, host, nqn
+    )
 
     await run_cmd_async_at(remote, command)
     time.sleep(1)
-    command = "sudo nvme list -v -o json"
+    command = "nix-sudo nvme list -v -o json"
 
     discover = await run_cmd_async_at(remote, command)
     discover = json.loads(discover.stdout)
@@ -41,7 +43,7 @@ async def nvme_remote_disconnect(remote, uri):
     u = urlparse(uri)
     nqn = u.path[1:]
 
-    command = "sudo nvme disconnect -n {0}".format(nqn)
+    command = "nix-sudo nvme disconnect -n {0}".format(nqn)
     await run_cmd_async_at(remote, command)
 
 
@@ -51,7 +53,7 @@ async def nvme_remote_discover(remote, uri):
     port = u.port
     host = u.hostname
 
-    command = "sudo nvme discover -t tcp -s {0} -a {1}".format(port, host)
+    command = "nix-sudo nvme discover -t tcp -s {0} -a {1}".format(port, host)
     output = await run_cmd_async_at(remote, command).stdout
     if not u.path[1:] in str(output.stdout):
         raise ValueError("uri {} is not discovered".format(u.path[1:]))
@@ -64,11 +66,11 @@ def nvme_connect(uri, delay=10, tmo=600):
     nqn = u.path[1:]
 
     command = (
-        f"sudo nvme connect -t tcp -s {port} -a {host} -n {nqn} -c {delay} -l {tmo}"
+        f"nix-sudo nvme connect -t tcp -s {port} -a {host} -n {nqn} -c {delay} -l {tmo}"
     )
     subprocess.run(command, check=True, shell=True, capture_output=False)
     time.sleep(1)
-    command = "sudo nvme list -v -o json"
+    command = "nix-sudo nvme list -v -o json"
     discover = json.loads(
         subprocess.run(
             command, shell=True, check=True, text=True, capture_output=True
@@ -85,7 +87,7 @@ def nvme_connect(uri, delay=10, tmo=600):
 
 def nvme_id_ctrl(device):
     """Identify controller."""
-    command = "sudo nvme id-ctrl {0} -o json".format(device)
+    command = "nix-sudo nvme id-ctrl {0} -o json".format(device)
     id_ctrl = json.loads(
         subprocess.run(
             command, shell=True, check=True, text=True, capture_output=True
@@ -97,7 +99,7 @@ def nvme_id_ctrl(device):
 
 def nvme_resv_report(device):
     """Reservation report."""
-    command = "sudo nvme resv-report {0} -c 1 -o json".format(device)
+    command = "nix-sudo nvme resv-report {0} -c 1 -o json".format(device)
     resv_report = json.loads(
         subprocess.run(
             command, shell=True, check=True, text=True, capture_output=True
@@ -113,7 +115,7 @@ def nvme_discover(uri):
     port = u.port
     host = u.hostname
 
-    command = "sudo nvme discover -t tcp -s {0} -a {1}".format(port, host)
+    command = "nix-sudo nvme discover -t tcp -s {0} -a {1}".format(port, host)
     output = subprocess.run(
         command, check=True, shell=True, capture_output=True, encoding="utf-8"
     )
@@ -126,25 +128,25 @@ def nvme_disconnect(uri):
     u = urlparse(uri)
     nqn = u.path[1:]
 
-    command = "sudo nvme disconnect -n {0}".format(nqn)
+    command = "nix-sudo nvme disconnect -n {0}".format(nqn)
     subprocess.run(command, check=True, shell=True, capture_output=True)
 
 
 def nvme_disconnect_controller(name):
     """Disconnect the given NVMe controller on this host."""
-    command = "sudo nvme disconnect -d {0}".format(name)
+    command = "nix-sudo nvme disconnect -d {0}".format(name)
     subprocess.run(command, check=True, shell=True, capture_output=True)
 
 
 def nvme_disconnect_all():
     """Disconnect from all connected nvme subsystems"""
-    command = "sudo nvme disconnect-all"
+    command = "nix-sudo nvme disconnect-all"
     subprocess.run(command, check=True, shell=True, capture_output=True)
 
 
 def nvme_list_subsystems(device):
     """Retrieve information for NVMe subsystems"""
-    command = "sudo nvme list-subsys {} -o json".format(device)
+    command = "nix-sudo nvme list-subsys {} -o json".format(device)
     return json.loads(
         subprocess.run(
             command, check=True, shell=True, capture_output=True, encoding="utf-8"
@@ -157,7 +159,7 @@ NS_PROPS = ["nguid", "eui64"]
 
 def identify_namespace(device):
     """Get properties of a namespace on this host"""
-    command = "sudo nvme id-ns {}".format(device)
+    command = "nix-sudo nvme id-ns {}".format(device)
     output = subprocess.run(
         command, check=True, shell=True, capture_output=True, encoding="utf-8"
     )
@@ -182,8 +184,8 @@ def nvme_delete_controller(device):
     p = "/sys/class/nvme/%s/delete_controller" % m.group(1)
 
     # Forcibly trigger controller removal. Note that operations must be executed
-    # with root privileges, hence sudo for python interpreter.
+    # with root privileges, hence nix-sudo for python interpreter.
     script = "\"f = open('%s', 'w'); f.write('1'); f.flush()\"" % p
     # Run privileged Python script.
-    command = "sudo python -c {} ".format(script)
+    command = "nix-sudo python -c {} ".format(script)
     subprocess.run(command, check=True, shell=True, capture_output=True)

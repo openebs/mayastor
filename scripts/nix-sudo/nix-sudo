@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+BIN=
+CMD=''
+for arg in "$@"; do
+    arg="${arg//\\/\\\\}"
+    if [ -n "$BIN" ]; then
+      CMD="$CMD \"${arg//\"/\\\"}\""
+      shift
+      continue
+    fi
+    case $1 in
+      *=*|-*)
+        CMD="$CMD \"${arg//\"/\\\"}\""
+        shift;;
+      *)
+        BIN="$(which "$1")"
+        CMD="$CMD \"${BIN//\"/\\\"}\""
+        shift;;
+    esac
+done
+bash -c "sudo -E $CMD"

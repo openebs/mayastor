@@ -87,6 +87,7 @@ mkShell {
   RUST_BACKTRACE = if asan then "full" else null;
 
   shellHook = ''
+    export FIO="$(which fio 2> /dev/null)"
     ${pkgs.lib.optionalString (asan) "export LLVM_SYMBOLIZER_DIR=$(dirname $(realpath $(which llvm-symbolizer)))"}
 
     ${pkgs.lib.optionalString (asan) "echo 'AddressSanitizer is enabled, forcing nightly rustc.'"}
@@ -101,7 +102,7 @@ mkShell {
     ${pkgs.lib.optionalString (asan) "echo"}
 
                                          echo 'FIO version     :' $(fio --version 2> /dev/null)
-                                         echo 'FIO path        :' $(which fio 2> /dev/null)
+                                         echo 'FIO path        :' $FIO
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK version    :' $(echo $SPDK_PATH | sed 's/.*libspdk-//g')"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK path       :' $SPDK_PATH"}
     ${pkgs.lib.optionalString (!nospdk) "echo 'SPDK FIO plugin :' $FIO_SPDK"}
@@ -123,5 +124,6 @@ mkShell {
       pre-commit install
       pre-commit install --hook commit-msg
     fi
+    export PATH=$PATH:$(pwd)/scripts/nix-sudo
   '';
 }

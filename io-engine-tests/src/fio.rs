@@ -251,13 +251,11 @@ impl Fio {
 
     pub fn run(mut self) -> Self {
         if self.fio_binary.is_empty() {
-            self.fio_binary = "fio".to_string();
+            self.fio_binary = "$FIO".to_string();
         }
 
-        let cmd = format!(
-            "sudo -E LD_PRELOAD=$FIO_SPDK {fio}",
-            fio = self.fio_binary
-        );
+        let cmd =
+            format!("sudo LD_PRELOAD=$FIO_SPDK {fio}", fio = self.fio_binary);
 
         let args = self
             .jobs
