@@ -119,6 +119,8 @@ async fn do_resize_after_replica_resize(
         assert!(ret.size >= EXPANDED_SIZE);
     }
 
+    // Slight wait to let replica resize events consolidate.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let nexus_obj = nexus
         .resize(EXPANDED_SIZE)
         .await
