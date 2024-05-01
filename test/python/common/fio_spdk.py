@@ -30,7 +30,7 @@ class FioSpdk(object):
                 spdk_path = os.getcwd() + "/../../spdk-rs/spdk/build"
             spdk_fio_path = "{}/fio/spdk_nvme".format(spdk_path)
         command = (
-            "sudo LD_PRELOAD={} fio --ioengine=spdk "
+            "sudo LD_PRELOAD={} $FIO --ioengine=spdk "
             "--direct=1 --bs=4k --time_based=1 --runtime={} "
             "--thread=1 --rw={} --group_reporting=1 --norandommap=1 "
             "--iodepth=64 --name={} --filename={}"

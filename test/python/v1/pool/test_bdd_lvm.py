@@ -74,11 +74,11 @@ def volgrp_with_losetup_disk():
         capture_output=True,
     )
     disk = out.stdout.decode("ascii").strip("\n")
-    run_cmd(f"sudo -E pvcreate '{disk}'", True)
-    run_cmd(f"sudo -E vgcreate '{name}' '{disk}'", True)
+    run_cmd(f"nix-sudo pvcreate '{disk}'", True)
+    run_cmd(f"nix-sudo vgcreate '{name}' '{disk}'", True)
     pytest.disk = disk
     yield name
-    run_cmd(f"sudo -E losetup -d '{disk}'", True)
+    run_cmd(f"nix-sudo losetup -d '{disk}'", True)
     run_cmd(f"rm -f '{file}'", True)
 
 

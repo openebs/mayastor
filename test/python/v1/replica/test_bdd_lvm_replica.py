@@ -83,7 +83,7 @@ def create_pool(get_mayastor_instance):
 @pytest.fixture
 def volgrp_with_losetup_disk(container_mod):
     pool_name = "lvmpool"
-    p = subprocess.run(f"sudo vgs {pool_name}", shell=True, check=False)
+    p = subprocess.run(f"nix-sudo vgs {pool_name}", shell=True, check=False)
     file = "/tmp/ms0-disk0.img"
     # if volume group already exists then don't create it again
     if p.returncode != 0:
@@ -96,10 +96,10 @@ def volgrp_with_losetup_disk(container_mod):
             capture_output=True,
         )
         disk = out.stdout.decode("ascii").strip("\n")
-        run_cmd(f"sudo -E pvcreate '{disk}'", True)
-        run_cmd(f"sudo -E vgcreate '{pool_name}' '{disk}'", True)
+        run_cmd(f"nix-sudo pvcreate '{disk}'", True)
+        run_cmd(f"nix-sudo vgcreate '{pool_name}' '{disk}'", True)
     out = subprocess.run(
-        f"sudo -E pvs -opv_name --select=vg_name={pool_name} --noheadings",
+        f"nix-sudo pvs -opv_name --select=vg_name={pool_name} --noheadings",
         shell=True,
         check=True,
         capture_output=True,
@@ -107,7 +107,7 @@ def volgrp_with_losetup_disk(container_mod):
     disk = out.stdout.decode("ascii").strip("\n").lstrip()
     pytest.disk = disk
     out = subprocess.run(
-        f"sudo -E vgs lvmpool -ovg_uuid --noheadings",
+        f"nix-sudo vgs lvmpool -ovg_uuid --noheadings",
         shell=True,
         check=True,
         capture_output=True,
@@ -115,7 +115,7 @@ def volgrp_with_losetup_disk(container_mod):
     pytest.vg_uuid = out.stdout.decode("ascii").strip("\n").lstrip()
     yield pool_name
     try:
-        run_cmd(f"sudo -E vgremove -y {pool_name}", True)
+        run_cmd(f"nix-sudo vgremove -y {pool_name}", True)
     except:
         pass
     if p.returncode != 0:
