@@ -78,7 +78,7 @@ pub enum PropValue {
     EntityId(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[non_exhaustive]
 pub enum PropName {
     Shared,
@@ -191,9 +191,11 @@ impl Share for Lvol {
                 name: self.name(),
             })?;
 
-        self.as_mut().set_no_sync(PropValue::Shared(true)).await?;
         self.as_mut()
-            .set(PropValue::AllowedHosts(allowed_hosts))
+            .set_props(vec![
+                PropValue::Shared(true),
+                PropValue::AllowedHosts(allowed_hosts),
+            ])
             .await?;
         info!("{:?}: shared as NVMF", self);
         Ok(share)
@@ -232,7 +234,7 @@ impl Share for Lvol {
 
         self.as_mut().set(PropValue::Shared(false)).await?;
 
-        info!("{:?}: unshared ", self);
+        info!("{:?}: unshared", self);
         Ok(())
     }
 
@@ -558,16 +560,36 @@ pub trait LvsLvol: LogicalVolume + Share {
     async fn destroy(mut self) -> Result<String, LvsError>;
 
     /// Write the property prop on to the lvol but do not sync the metadata yet.
+    /// Returns whether the property was modified or not.
     async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
-    ) -> Result<(), LvsError>;
+    ) -> Result<bool, LvsError>;
 
     /// Write the property prop on to the lvol which is stored on disk.
+    /// If the property has been modified the metadata is synced.
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), LvsError>;
+
+    /// Write the properties on to the lvol which is stored on disk.
+    /// If any of the properties are modified the metadata is synced.
+    async fn set_props(
+        mut self: Pin<&mut Self>,
+        props: Vec<PropValue>,
+    ) -> Result<(), LvsError> {
+        let mut sync = false;
+        for property in props {
+            if self.as_mut().set_no_sync(property).await? {
+                sync = true;
+            }
+        }
+        if sync {
+            self.sync_metadata().await?;
+        }
+        Ok(())
+    }
 
     /// Callback executed after synchronizing the lvols metadata.
     extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32);
@@ -609,7 +631,7 @@ pub trait LvsLvol: LogicalVolume + Share {
 
     /// Resize a replica. The resize can be expand or shrink, depending
     /// upon if required size is more or less than current size of
-    /// the replpica.
+    /// the replica.
     async fn resize_replica(&mut self, resize_to: u64) -> Result<(), LvsError>;
 }
 
@@ -713,7 +735,7 @@ impl LogicalVolume for Lvol {
 }
 
 /// LvsLvol Trait Implementation for Lvol for Volume Specific Interface.
-#[async_trait(? Send)]
+#[async_trait(?Send)]
 impl LvsLvol for Lvol {
     /// Return lvs for the Logical Volume.
     fn lvs(&self) -> Lvs {
@@ -764,52 +786,38 @@ impl LvsLvol for Lvol {
     async fn get(&self, prop: PropName) -> Result<PropValue, LvsError> {
         let blob = self.blob_checked();
 
+        let name = prop.to_string().into_cstring();
+        let mut value: *const libc::c_char = std::ptr::null::<libc::c_char>();
+        let mut value_len: u64 = 0;
+        unsafe {
+            spdk_blob_get_xattr_value(
+                blob,
+                name.as_ptr(),
+                &mut value as *mut *const c_char as *mut *const c_void,
+                &mut value_len,
+            )
+        }
+        .to_result(|e| LvsError::GetProperty {
+            source: BsError::from_i32(e),
+            prop,
+            name: self.name(),
+        })?;
+        let einval = || {
+            Err(LvsError::Property {
+                source: BsError::InvalidArgument{},
+                name: self.name(),
+            })
+        };
+
         match prop {
             PropName::Shared => {
-                let name = prop.to_string().into_cstring();
-                let mut value: *const libc::c_char =
-                    std::ptr::null::<libc::c_char>();
-                let mut value_len: u64 = 0;
-                unsafe {
-                    spdk_blob_get_xattr_value(
-                        blob,
-                        name.as_ptr(),
-                        &mut value as *mut *const c_char as *mut *const c_void,
-                        &mut value_len,
-                    )
-                }
-                .to_result(|e| LvsError::GetProperty {
-                    source: BsError::from_i32(e),
-                    prop,
-                    name: self.name(),
-                })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok("true") => Ok(PropValue::Shared(true)),
                     Ok("false") => Ok(PropValue::Shared(false)),
-                    _ => Err(LvsError::Property {
-                        source: BsError::InvalidArgument {},
-                        name: self.name(),
-                    }),
+                    _ => einval(),
                 }
             }
             PropName::AllowedHosts => {
-                let name = prop.to_string().into_cstring();
-                let mut value: *const libc::c_char =
-                    std::ptr::null::<libc::c_char>();
-                let mut value_len: u64 = 0;
-                unsafe {
-                    spdk_blob_get_xattr_value(
-                        blob,
-                        name.as_ptr(),
-                        &mut value as *mut *const c_char as *mut *const c_void,
-                        &mut value_len,
-                    )
-                }
-                .to_result(|e| LvsError::GetProperty {
-                    source: BsError::from_i32(e),
-                    prop,
-                    name: self.name(),
-                })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok(list) if list.is_empty() => {
                         Ok(PropValue::AllowedHosts(vec![]))
@@ -819,37 +827,13 @@ impl LvsLvol for Lvol {
                             .map(|s| s.to_string())
                             .collect::<Vec<_>>(),
                     )),
-                    _ => Err(LvsError::Property {
-                        source: BsError::InvalidArgument {},
-                        name: self.name(),
-                    }),
+                    _ => einval(),
                 }
             }
-
             PropName::EntityId => {
-                let name = prop.to_string().into_cstring();
-                let mut value: *const libc::c_char =
-                    std::ptr::null::<libc::c_char>();
-                let mut value_len: u64 = 0;
-                unsafe {
-                    spdk_blob_get_xattr_value(
-                        blob,
-                        name.as_ptr(),
-                        &mut value as *mut *const c_char as *mut *const c_void,
-                        &mut value_len,
-                    )
-                }
-                .to_result(|e| LvsError::GetProperty {
-                    source: BsError::from_i32(e),
-                    prop,
-                    name: self.name(),
-                })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok(id) => Ok(PropValue::EntityId(id.to_string())),
-                    _ => Err(LvsError::Property {
-                        source: BsError::InvalidArgument {},
-                        name: self.name(),
-                    }),
+                    _ => einval(),
                 }
             }
         }
@@ -884,7 +868,7 @@ impl LvsLvol for Lvol {
         r.await
             .expect("lvol destroy callback is gone")
             .to_result(|e| {
-                warn!("error while destroying lvol {}", name);
+                warn!("error while destroying lvol {name}");
                 LvsError::RepDestroy {
                     source: BsError::from_i32(e),
                     name: name.clone(),
@@ -893,62 +877,37 @@ impl LvsLvol for Lvol {
             })?;
         if let Err(error) = ptpl.destroy() {
             tracing::error!(
-                "{}: Failed to clean up persistence through power loss for replica: {}",
-                name,
-                error
+                "{name}: Failed to clean up persistence through power loss for replica: {error}",
             );
         }
 
-        info!("destroyed lvol {}", name);
+        info!("destroyed lvol {name}");
         event.generate();
         Ok(name)
     }
 
-    /// Write the property prop on to the lvol but do not sync the metadata yet.
     async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
-    ) -> Result<(), LvsError> {
+    ) -> Result<bool, LvsError> {
         let blob = self.blob_checked();
 
         if self.is_snapshot() {
             warn!("ignoring set property on snapshot {}", self.name());
-            return Ok(());
+            return Ok(false);
         }
         if self.is_read_only() {
             warn!("{} is read-only", self.name());
         }
-        match prop.clone() {
+        let set_value = match prop.clone() {
             PropValue::Shared(val) => {
-                let name = PropName::from(&prop).to_string().into_cstring();
-                let value = if val { "true" } else { "false" }.into_cstring();
-                // Return Ok early if the current value is already same as the
-                // new value.
-                if let Ok(pval) = self.get(PropName::Shared).await {
-                    match pval {
-                        PropValue::Shared(s) if s == val => return Ok(()),
-                        _ => (),
-                    }
-                };
-                unsafe {
-                    spdk_blob_set_xattr(
-                        blob,
-                        name.as_ptr(),
-                        value.as_bytes_with_nul().as_ptr() as *const _,
-                        value.as_bytes_with_nul().len() as u16,
-                    )
+                if matches!(self.get(PropName::Shared).await, Ok(PropValue::Shared(s)) if s == val)
+                {
+                    return Ok(false);
                 }
-                .to_result(|e| LvsError::SetProperty {
-                    source: BsError::from_i32(e),
-                    prop: prop.to_string(),
-                    name: self.name(),
-                })?;
+                if val { "true" } else { "false" }.into_cstring()
             }
             PropValue::AllowedHosts(mut hosts) => {
-                let name = PropName::from(&prop).to_string().into_cstring();
-                let value = hosts.join(",").into_cstring();
-                // Return Ok early if the current value is already same as the
-                // new value.
                 if let Ok(PropValue::AllowedHosts(mut hlist)) =
                     self.get(PropName::AllowedHosts).await
                 {
@@ -956,63 +915,47 @@ impl LvsLvol for Lvol {
                         hosts.sort();
                         hlist.sort();
                         if hosts == hlist {
-                            return Ok(());
+                            return Ok(false);
                         }
                     }
-                };
-                unsafe {
-                    spdk_blob_set_xattr(
-                        blob,
-                        name.as_ptr(),
-                        value.as_bytes_with_nul().as_ptr() as *const _,
-                        value.as_bytes_with_nul().len() as u16,
-                    )
                 }
-                .to_result(|e| LvsError::SetProperty {
-                    source: BsError::from_i32(e),
-                    prop: prop.to_string(),
-                    name: self.name(),
-                })?;
+                hosts.join(",").into_cstring()
             }
             PropValue::EntityId(id) => {
-                let name = PropName::from(&prop).to_string().into_cstring();
-                // Return Ok early if the current value is already same as the
-                // new value.
-                if let Ok(pval) = self.get(PropName::EntityId).await {
-                    match pval {
-                        PropValue::EntityId(e) if e == id => return Ok(()),
-                        _ => (),
-                    }
-                };
-                let value = id.into_cstring();
-                unsafe {
-                    spdk_blob_set_xattr(
-                        blob,
-                        name.as_ptr(),
-                        value.as_bytes_with_nul().as_ptr() as *const _,
-                        value.as_bytes_with_nul().len() as u16,
-                    )
+                if matches!(self.get(PropName::EntityId).await, Ok(PropValue::EntityId(e)) if e == id)
+                {
+                    return Ok(false);
                 }
-                .to_result(|e| LvsError::SetProperty {
-                    source: BsError::from_i32(e),
-                    prop: prop.to_string(),
-                    name: self.name(),
-                })?;
+                id.into_cstring()
             }
+        };
+        let name = PropName::from(&prop).to_string().into_cstring();
+        unsafe {
+            spdk_blob_set_xattr(
+                blob,
+                name.as_ptr(),
+                set_value.as_bytes_with_nul().as_ptr() as *const _,
+                set_value.as_bytes_with_nul().len() as u16,
+            )
         }
-        Ok(())
+        .to_result(|e| LvsError::SetProperty {
+            source: BsError::from_i32(e),
+            prop: prop.to_string(),
+            name: self.name(),
+        })?;
+        Ok(true)
     }
 
-    /// Write the property prop on to the lvol which is stored on disk.
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
     ) -> Result<(), LvsError> {
-        self.as_mut().set_no_sync(prop).await?;
-        self.sync_metadata().await
+        if self.as_mut().set_no_sync(prop).await? {
+            self.sync_metadata().await?;
+        }
+        Ok(())
     }
 
-    /// Write the property prop on to the lvol which is stored on disk.
     async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), LvsError> {
         let blob = self.blob_checked();
 
@@ -1047,7 +990,7 @@ impl LvsLvol for Lvol {
             Box::from_raw(arg as *mut oneshot::Sender<(*mut spdk_blob, i32)>)
         };
         if errno != 0 {
-            error!("Blobstore Operation failed, errno {}", errno);
+            error!("Blobstore Operation failed, errno {errno}");
         }
         s.send((blob, errno)).ok();
     }
