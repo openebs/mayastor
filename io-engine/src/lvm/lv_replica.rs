@@ -121,15 +121,21 @@ pub struct LogicalVolume {
 #[derive(Debug, Default, Clone)]
 pub struct RunLogicalVolume {
     /// The protocol of the SPDK Bdev which is created against the lv_path.
+    /// This is a mirror of the equivalent LV property tag.
     share: Protocol,
     /// LV's are created with name as a tag, so we have to probe the tags and
     /// set name if we find the tag.
+    /// This is a mirror of the equivalent LV property tag.
     name: Option<String>,
     /// The entity id which owns this resource, eg: the parent volume.
+    /// This is a mirror of the equivalent LV property tag.
     entity_id: Option<String>,
 
     /// SPDK Bdev parameters which are needed by LVM.
     bdev: Option<BdevOpts>,
+    /// When modifying the properties, we may fail to update the LVM LV tags.
+    /// In such case, set the dirty flag.
+    tags_dirty: bool,
 }
 
 /// Runtime settings for the LogicalVolume.
@@ -309,7 +315,7 @@ impl LogicalVolume {
         crate::spdk_run!(async move {
             if let Ok(mut bdev) = Self::bdev(&uri) {
                 // todo: must we error if we can't unshare?
-                Self::bdev_none_props(&mut bdev).await?;
+                Self::bdev_unshare(&mut bdev).await?;
             }
 
             let bdev = crate::bdev::uri::parse(&uri).unwrap();
@@ -388,23 +394,18 @@ impl LogicalVolume {
         Ok(())
     }
 
-    async fn set_share_opts(
-        &mut self,
-        protocol: Protocol,
-        hosts: Vec<String>,
-    ) -> Result<(), Error> {
-        let mut args =
-            self.set_property_args(Property::LvShare(protocol)).await;
-        args.extend(
-            self.set_property_args(Property::LvAllowedHosts(hosts))
-                .await,
-        );
-        if args.is_empty() {
+    async fn sync_share_opts(&mut self) -> Result<(), Error> {
+        let Some(opts) = &self.bdev else {
             return Ok(());
-        }
-        LvmCmd::lv_change().args(args).arg(&self.path).run().await
+        };
+        let properties = vec![
+            Property::LvShare(opts.share),
+            Property::LvAllowedHosts(opts.allowed_hosts.clone()),
+        ];
+
+        self.set_properties(properties).await
     }
-    async fn set_share_protocol(
+    async fn sync_share_protocol(
         &mut self,
         protocol: Protocol,
     ) -> Result<(), Error> {
@@ -412,28 +413,53 @@ impl LogicalVolume {
         self.share = protocol;
         Ok(())
     }
-
-    async fn set_property_args(&self, property: Property) -> Vec<String> {
+    async fn build_set_properties_args(
+        &self,
+        properties: Vec<Property>,
+    ) -> Vec<String> {
+        let mut args = Vec::new();
+        for property in properties {
+            args.extend(self.build_set_property_args(property).await);
+        }
+        args
+    }
+    async fn build_set_property_args(&self, property: Property) -> Vec<String> {
         let existing = self.properties(&property.type_());
+        let mut add = true;
         let mut args = existing
             .iter()
-            .filter(|&old| old != &property)
-            .map(|old| old.del())
+            .flat_map(|old| match old == &property {
+                true => {
+                    add = false;
+                    None
+                }
+                false => Some(old.del()),
+            })
             .collect::<Vec<_>>();
-        if existing.is_empty() || args.len() != existing.len() {
+        if add {
             args.push(property.add());
         }
         args
     }
-    async fn set_property(&self, property: Property) -> Result<(), Error> {
-        let args = self.set_property_args(property).await;
+    async fn set_properties(
+        &mut self,
+        properties: Vec<Property>,
+    ) -> Result<(), Error> {
+        let args = self.build_set_properties_args(properties).await;
         if args.is_empty() {
             return Ok(());
         }
-        LvmCmd::lv_change().args(args).arg(&self.path).run().await
+        let result = LvmCmd::lv_change().args(args).arg(&self.path).run().await;
+        if result.is_err() {
+            self.tags_dirty = true;
+        }
+        result
+    }
+    async fn set_property(&mut self, property: Property) -> Result<(), Error> {
+        self.set_properties(vec![property]).await
     }
 
-    async fn bdev_share_props(
+    async fn bdev_sync_props(
         bdev: &mut UntypedBdev,
         protocol: Protocol,
         ptpl: impl PtplFileOps,
@@ -450,10 +476,10 @@ impl LogicalVolume {
                             },
                         }
                     })?);
-                Self::bdev_nvmf_props(bdev, Some(props)).await?;
+                Self::bdev_share_nvmf(bdev, Some(props)).await?;
             }
             Protocol::Off => {
-                Self::bdev_none_props(bdev).await?;
+                Self::bdev_unshare(bdev).await?;
             }
         }
 
@@ -484,7 +510,7 @@ impl LogicalVolume {
             }
 
             let mut bdev = Self::bdev(&disk_uri)?;
-            Self::bdev_share_props(&mut bdev, share, ptpl, allowed_hosts)
+            Self::bdev_sync_props(&mut bdev, share, ptpl, allowed_hosts)
                 .await?;
 
             Ok(BdevOpts::from(bdev))
@@ -523,6 +549,7 @@ impl LogicalVolume {
         self.entity_id = self
             .property(&PropertyType::LvEntityId)
             .and_then(|p| p.LvEntityId());
+        self.tags_dirty = false;
         tracing::trace!("{self:?}");
     }
 
@@ -613,7 +640,7 @@ impl LogicalVolume {
         UntypedBdev::get_by_name(uri).map_err(|_| Error::BdevMissing {})
     }
 
-    async fn bdev_nvmf_props(
+    async fn bdev_share_nvmf(
         bdev: &mut UntypedBdev,
         props: Option<ShareProps>,
     ) -> Result<String, Error> {
@@ -637,7 +664,7 @@ impl LogicalVolume {
             }
         }
     }
-    async fn bdev_none_props(
+    async fn bdev_unshare(
         bdev: &mut UntypedBdev,
     ) -> Result<Option<String>, Error> {
         let mut bdev = Pin::new(bdev);
@@ -655,7 +682,7 @@ impl LogicalVolume {
     }
 
     /// Share the lvol via nvmf.
-    pub(crate) async fn share_bdev_nvmf(
+    pub(crate) async fn share_nvmf(
         &mut self,
         props: Option<ShareProps>,
     ) -> Result<String, Error> {
@@ -663,7 +690,7 @@ impl LogicalVolume {
 
         let (nqn, bdev_opts) = crate::spdk_run!(async move {
             let mut bdev = Self::bdev(&uri)?;
-            let nqn = Self::bdev_nvmf_props(&mut bdev, props).await?;
+            let nqn = Self::bdev_share_nvmf(&mut bdev, props).await?;
             Ok((nqn, BdevOpts::from(bdev)))
         })?;
 
@@ -675,8 +702,7 @@ impl LogicalVolume {
         // nqn.2019-05.io.openebs:d514adef-f4ce-4575-b10e-eb301de2cf99
 
         bdev.update_from(bdev_opts);
-        let allowed_hosts = bdev.allowed_hosts.clone();
-        self.set_share_opts(Protocol::Nvmf, allowed_hosts).await?;
+        self.sync_share_opts().await?;
 
         info!("{:?}: shared as NVMF", self);
         Ok(nqn)
@@ -700,22 +726,23 @@ impl LogicalVolume {
             Ok(BdevOpts::from(bdev))
         })?;
         bdev.update_from(bdev_opts);
+        self.sync_share_opts().await?;
         Ok(())
     }
 
     /// Unshare the nvmf target.
-    pub(crate) async fn unshare_bdev(&mut self) -> Result<(), Error> {
+    pub(crate) async fn unshare(&mut self) -> Result<(), Error> {
         let (bdev, uri) = self.bdev_mut_uri()?;
         let share = crate::spdk_run!(async move {
             let mut bdev = Self::bdev(&uri)?;
-            Self::bdev_none_props(&mut bdev).await
+            Self::bdev_unshare(&mut bdev).await
         })?;
 
         bdev.share_uri = share;
         bdev.share = Protocol::Off;
-        self.set_share_protocol(Protocol::Off).await?;
+        self.sync_share_protocol(Protocol::Off).await?;
 
-        info!("{:?}: unshared ", self);
+        info!("{self:?}: unshared");
         Ok(())
     }
 
@@ -797,8 +824,7 @@ impl crate::core::LogicalVolume for LogicalVolume {
     }
 
     fn entity_id(&self) -> Option<String> {
-        // todo: impl entity id
-        None
+        self.entity_id.clone()
     }
 
     fn is_thin(&self) -> bool {
@@ -840,7 +866,7 @@ impl Share for LogicalVolume {
         mut self: Pin<&mut Self>,
         props: Option<ShareProps>,
     ) -> Result<Self::Output, Self::Error> {
-        self.share_bdev_nvmf(props).await
+        self.share_nvmf(props).await
     }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(
@@ -851,7 +877,7 @@ impl Share for LogicalVolume {
     }
 
     async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
-        self.unshare_bdev().await
+        self.unshare().await
     }
 
     fn shared(&self) -> Option<Protocol> {

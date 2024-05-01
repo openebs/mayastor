@@ -42,6 +42,7 @@ impl Display for Protocol {
 }
 
 /// Persist Through Power Loss properties
+#[derive(Debug)]
 pub struct PtplProps {
     /// The path to the json file where the reservations will be stored.
     file: std::path::PathBuf,
@@ -60,7 +61,7 @@ impl PtplProps {
 }
 
 /// Share properties when sharing a device.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ShareProps {
     /// Controller Id range.
     cntlid_range: Option<(u16, u16)>,

@@ -146,7 +146,7 @@ impl ReplicaService {
                         }
                     })?);
 
-                if let Err(error) = lvol.share_bdev_nvmf(Some(props)).await {
+                if let Err(error) = lvol.share_nvmf(Some(props)).await {
                     error!("Failed to share lvol: {error}...");
                     if created {
                         // if we have created it here, then let's undo it
@@ -157,7 +157,7 @@ impl ReplicaService {
             }
             Protocol::Off => {
                 if lvol.share() != Protocol::Off {
-                    lvol.unshare_bdev().await?;
+                    lvol.unshare().await?;
                 }
             }
         }
@@ -236,7 +236,7 @@ impl ReplicaService {
                             },
                         }
                     })?);
-                lvol.share_bdev_nvmf(Some(props)).await?;
+                lvol.share_nvmf(Some(props)).await?;
             }
         }
 
@@ -256,7 +256,7 @@ impl ReplicaService {
         .await?;
 
         if lvol.share_proto().is_some() {
-            lvol.unshare_bdev().await?;
+            lvol.unshare().await?;
         }
 
         Ok(Response::new(lvol.into()))
