@@ -7,6 +7,7 @@ use std::{
 };
 
 use byte_unit::Byte;
+use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
@@ -51,18 +52,15 @@ use crate::{
         snapshot::{SnapshotOps, VolumeSnapshotDescriptor},
         Bdev,
         IoType,
+        NvmfShareProps,
         Share,
-        ShareProps,
         UntypedBdev,
     },
+    eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::lvs_lvol::{LvsLvol, WIPE_SUPER_LEN},
     pool_backend::PoolArgs,
 };
-
-use events_api::event::EventAction;
-
-use crate::eventing::Event;
 
 static ROUND_TO_MB: u32 = 1024 * 1024;
 /// Default spdk cluster size is 4MiB.
@@ -650,7 +648,7 @@ impl Lvs {
                     match prop {
                         PropValue::Shared(true) => {
                             let name = l.name().clone();
-                            let props = ShareProps::new()
+                            let props = NvmfShareProps::new()
                                 .with_allowed_hosts(allowed_hosts)
                                 .with_ptpl(
                                     l.ptpl().create().unwrap_or_default(),

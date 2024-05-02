@@ -43,10 +43,10 @@ use crate::{
         wiper::{WipeMethod, Wiper},
         Bdev,
         CloneXattrs,
+        NvmfShareProps,
         Protocol,
         PtplProps,
         Share,
-        ShareProps,
         SnapshotOps,
         SnapshotXattrs,
         ToErrno,
@@ -138,7 +138,7 @@ impl TryFrom<UntypedBdev> for Lvol {
     type Error = LvsError;
 
     fn try_from(mut b: UntypedBdev) -> Result<Self, Self::Error> {
-        if b.driver() == "lvol" {
+        if Lvol::is_lvol(&b) {
             unsafe {
                 Ok(Lvol {
                     inner: NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
@@ -177,7 +177,7 @@ impl Share for Lvol {
     /// share the lvol as a nvmf target
     async fn share_nvmf(
         mut self: Pin<&mut Self>,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         let allowed_hosts = props
             .as_ref()
@@ -199,6 +199,15 @@ impl Share for Lvol {
             .await?;
         info!("{:?}: shared as NVMF", self);
         Ok(share)
+    }
+
+    fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {
+        self.ptpl().create().map_err(|source| LvsError::LvolShare {
+            source: crate::core::CoreError::Ptpl {
+                reason: source.to_string(),
+            },
+            name: self.name(),
+        })
     }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(
@@ -280,6 +289,23 @@ impl Lvol {
     #[inline(always)]
     fn as_inner_ref(&self) -> &spdk_lvol {
         unsafe { self.inner.as_ref() }
+    }
+
+    pub fn ok_from(mut bdev: UntypedBdev) -> Option<Self> {
+        if !Self::is_lvol(&bdev) {
+            return None;
+        }
+        Some(unsafe {
+            Lvol {
+                inner: NonNull::new_unchecked(vbdev_lvol_get_from_bdev(
+                    bdev.unsafe_inner_mut_ptr(),
+                )),
+            }
+        })
+    }
+
+    pub fn is_lvol(bdev: &UntypedBdev) -> bool {
+        bdev.driver() == "lvol"
     }
 
     /// Wipe the first 8MB if unmap is not supported on failure the operation
@@ -489,7 +515,7 @@ impl Lvol {
     }
 }
 
-struct LvolPtpl {
+pub struct LvolPtpl {
     lvs: super::lvs_store::LvsPtpl,
     uuid: String,
 }
@@ -804,7 +830,7 @@ impl LvsLvol for Lvol {
         })?;
         let einval = || {
             Err(LvsError::Property {
-                source: BsError::InvalidArgument{},
+                source: BsError::InvalidArgument {},
                 name: self.name(),
             })
         };

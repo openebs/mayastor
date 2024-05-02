@@ -2,7 +2,14 @@ use super::{cli::de, error::Error, vg_pool::VolumeGroup, CmnQueryArgs};
 use crate::{
     bdev::PtplFileOps,
     bdev_api::{bdev_create, BdevError},
-    core::{Protocol, PtplProps, Share, ShareProps, UntypedBdev, UpdateProps},
+    core::{
+        NvmfShareProps,
+        Protocol,
+        PtplProps,
+        Share,
+        UntypedBdev,
+        UpdateProps,
+    },
     lvm::{
         cli::LvmCmd,
         property::{Property, PropertyType},
@@ -455,7 +462,10 @@ impl LogicalVolume {
         }
         result
     }
-    async fn set_property(&mut self, property: Property) -> Result<(), Error> {
+    pub(crate) async fn set_property(
+        &mut self,
+        property: Property,
+    ) -> Result<(), Error> {
         self.set_properties(vec![property]).await
     }
 
@@ -467,7 +477,7 @@ impl LogicalVolume {
     ) -> Result<(), Error> {
         match protocol {
             Protocol::Nvmf => {
-                let props = ShareProps::new()
+                let props = NvmfShareProps::new()
                     .with_allowed_hosts(allowed_hosts)
                     .with_ptpl(ptpl.create().map_err(|source| {
                         Error::BdevShare {
@@ -642,7 +652,7 @@ impl LogicalVolume {
 
     async fn bdev_share_nvmf(
         bdev: &mut UntypedBdev,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<String, Error> {
         let mut bdev = Pin::new(bdev);
         match bdev.shared() {
@@ -684,7 +694,7 @@ impl LogicalVolume {
     /// Share the lvol via nvmf.
     pub(crate) async fn share_nvmf(
         &mut self,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<String, Error> {
         let (bdev, uri) = self.bdev_mut_uri()?;
 
@@ -757,7 +767,7 @@ impl LogicalVolume {
     }
 }
 
-struct LvolPtpl {
+pub struct LvolPtpl {
     vg: super::vg_pool::VgPtpl,
     uuid: String,
 }
@@ -864,9 +874,16 @@ impl Share for LogicalVolume {
 
     async fn share_nvmf(
         mut self: Pin<&mut Self>,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         self.share_nvmf(props).await
+    }
+    fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {
+        self.ptpl().create().map_err(|source| Error::BdevShare {
+            source: crate::core::CoreError::Ptpl {
+                reason: source.to_string(),
+            },
+        })
     }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(

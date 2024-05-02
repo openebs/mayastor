@@ -7,7 +7,7 @@ use tonic::Status;
 use crate::{
     core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
-    lvs::{LvsError, Lvs, LvsBdev},
+    lvs::{Lvs, LvsBdev, LvsError},
     pool_backend::{PoolArgs, PoolBackend},
 };
 

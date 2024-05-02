@@ -1,7 +1,7 @@
 use crate::{
     bdev_api::{bdev_create, bdev_destroy, BdevError},
     core,
-    core::{CoreError, Protocol, Share, ShareProps},
+    core::{CoreError, NvmfShareProps, Protocol, Share},
     grpc::{rpc_submit, GrpcResult},
 };
 use io_engine_api::v1::bdev::{
@@ -141,8 +141,8 @@ impl BdevRpc for BdevService {
             Ok(Protocol::Nvmf) => {
                 rpc_submit::<_, Bdev, CoreError>(async move {
                     let mut bdev = core::UntypedBdev::get_by_name(&bdev_name)?;
-                    let props =
-                        ShareProps::new().with_allowed_hosts(r.allowed_hosts);
+                    let props = NvmfShareProps::new()
+                        .with_allowed_hosts(r.allowed_hosts);
                     Pin::new(&mut bdev).share_nvmf(Some(props)).await?;
                     let bdev = core::UntypedBdev::get_by_name(&bdev_name)?;
                     Ok(bdev.into())

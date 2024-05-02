@@ -172,7 +172,7 @@ impl VolumeGroup {
         self.list_lvs().await?;
         Ok(())
     }
-    async fn list_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
+    pub async fn list_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
         let query = super::QueryArgs::new()
             .with_lv(CmnQueryArgs::ours())
             .with_vg(CmnQueryArgs::ours().uuid(self.uuid()).named(self.name()));
@@ -253,7 +253,7 @@ impl VolumeGroup {
     }
 
     /// Exports the volume group by unloading all logical volumes and finally
-    /// removing our tag from it
+    /// removing our tag from it.
     pub(crate) async fn export(&mut self) -> Result<(), Error> {
         let lvs = self.list_lvs().await?;
         for mut lv in lvs {

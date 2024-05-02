@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
 
-use crate::core::{Protocol, Share, ShareProps, UpdateProps};
+use crate::core::{NvmfShareProps, Protocol, PtplProps, Share, UpdateProps};
 
 ///
 /// The sharing of the nexus is different compared to regular bdevs
@@ -20,9 +20,20 @@ impl<'n> Share for Nexus<'n> {
     type Error = Error;
     type Output = String;
 
+    fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {
+        self.ptpl()
+            .create()
+            .map_err(|source| Error::ShareNvmfNexus {
+                source: crate::core::CoreError::Ptpl {
+                    reason: source.to_string(),
+                },
+                name: self.name.to_string(),
+            })
+    }
+
     async fn share_nvmf(
         mut self: Pin<&mut Self>,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         let uri = match self.shared() {
             Some(Protocol::Off) | None => {
@@ -170,21 +181,14 @@ impl<'n> Nexus<'n> {
                 Ok(uri)
             }
             Protocol::Nvmf => {
-                let props = ShareProps::new()
+                let props = NvmfShareProps::new()
                     .with_range(Some((
                         self.nvme_params.min_cntlid,
                         self.nvme_params.max_cntlid,
                     )))
                     .with_ana(true)
                     .with_allowed_hosts(allowed_hosts)
-                    .with_ptpl(self.ptpl().create().map_err(|source| {
-                        Error::ShareNvmfNexus {
-                            source: crate::core::CoreError::Ptpl {
-                                reason: source.to_string(),
-                            },
-                            name: self.name.to_string(),
-                        }
-                    })?);
+                    .with_ptpl(self.create_ptpl()?);
                 let uri = self.as_mut().share_nvmf(Some(props)).await?;
 
                 unsafe {

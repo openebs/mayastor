@@ -1,16 +1,14 @@
 use crate::{
-    bdev::PtplFileOps,
     bdev_api::BdevError,
     core::{
         logical_volume::LogicalVolume,
         Bdev,
         CloneXattrs,
-        CoreError,
+        NvmfShareProps,
         ProtectedSubsystems,
         Protocol,
         ResourceLockManager,
         Share,
-        ShareProps,
         UntypedBdev,
         UpdateProps,
     },
@@ -165,16 +163,9 @@ impl ReplicaService {
                 .await
             {
                 Ok(mut lvol) if protocol == Protocol::Nvmf => {
-                    let props = ShareProps::new()
+                    let props = NvmfShareProps::new()
                         .with_allowed_hosts(args.allowed_hosts)
-                        .with_ptpl(lvol.ptpl().create().map_err(|source| {
-                            LvsError::LvolShare {
-                                source: CoreError::Ptpl {
-                                    reason: source.to_string(),
-                                },
-                                name: lvol.name(),
-                            }
-                        })?);
+                        .with_ptpl(lvol.create_ptpl()?);
                     match Pin::new(&mut lvol).share_nvmf(Some(props)).await {
                         Ok(share_uri) => {
                             debug!(
@@ -314,16 +305,9 @@ impl ReplicaService {
                             })
                         }
                         Protocol::Nvmf => {
-                            let props = ShareProps::new()
+                            let props = NvmfShareProps::new()
                                 .with_allowed_hosts(args.allowed_hosts)
-                                .with_ptpl(lvol.ptpl().create().map_err(
-                                    |source| LvsError::LvolShare {
-                                        source: crate::core::CoreError::Ptpl {
-                                            reason: source.to_string(),
-                                        },
-                                        name: lvol.name(),
-                                    },
-                                )?);
+                                .with_ptpl(lvol.create_ptpl()?);
                             Pin::new(&mut lvol).share_nvmf(Some(props)).await?;
                         }
                     }

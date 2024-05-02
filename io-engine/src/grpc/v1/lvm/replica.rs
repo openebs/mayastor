@@ -1,13 +1,12 @@
 use crate::{
-    bdev::PtplFileOps,
     core::{
-        CoreError,
         LogicalVolume,
         MayastorFeatures,
+        NvmfShareProps,
         ProtectedSubsystems,
         Protocol,
         ResourceLockManager,
-        ShareProps,
+        Share,
         UpdateProps,
     },
     grpc::{acquire_subsystem_lock, lvm_enabled, GrpcResult},
@@ -136,15 +135,9 @@ impl ReplicaService {
         let protocol = Protocol::try_from(args.share)?;
         match protocol {
             Protocol::Nvmf => {
-                let props = ShareProps::new()
+                let props = NvmfShareProps::new()
                     .with_allowed_hosts(args.allowed_hosts)
-                    .with_ptpl(lvol.ptpl().create().map_err(|source| {
-                        Error::BdevShare {
-                            source: CoreError::Ptpl {
-                                reason: source.to_string(),
-                            },
-                        }
-                    })?);
+                    .with_ptpl(lvol.create_ptpl()?);
 
                 if let Err(error) = lvol.share_nvmf(Some(props)).await {
                     error!("Failed to share lvol: {error}...");
@@ -227,15 +220,9 @@ impl ReplicaService {
                 ));
             }
             Protocol::Nvmf => {
-                let props = ShareProps::new()
+                let props = NvmfShareProps::new()
                     .with_allowed_hosts(args.allowed_hosts)
-                    .with_ptpl(lvol.ptpl().create().map_err(|source| {
-                        Error::BdevShare {
-                            source: CoreError::Ptpl {
-                                reason: source.to_string(),
-                            },
-                        }
-                    })?);
+                    .with_ptpl(lvol.create_ptpl()?);
                 lvol.share_nvmf(Some(props)).await?;
             }
         }

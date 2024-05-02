@@ -106,7 +106,7 @@ pub fn register_module(register_json: bool) {
     }
 
     use crate::{
-        core::{Share, ShareProps, UntypedBdev},
+        core::{NvmfShareProps, Share, UntypedBdev},
         jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
     };
 
@@ -126,7 +126,7 @@ pub fn register_module(register_json: bool) {
                     let mut bdev = Pin::new(&mut bdev);
                     match proto.as_str() {
                         "nvmf" => {
-                            let share = ShareProps::new().with_range(Some((args.cntlid_min, args.cntlid_max))).with_ana(true);
+                            let share = NvmfShareProps::new().with_range(Some((args.cntlid_min, args.cntlid_max))).with_ana(true);
                             bdev.as_mut().share_nvmf(Some(share))
                                 .await
                                 .map_err(|e| {
