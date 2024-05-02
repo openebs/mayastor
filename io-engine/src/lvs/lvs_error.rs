@@ -8,6 +8,7 @@ use crate::{
     core::{CoreError, ToErrno},
 };
 
+/// LVS import error reason.
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum ImportErrorReason {
@@ -21,23 +22,113 @@ pub enum ImportErrorReason {
     UuidMismatch { uuid: String },
 }
 
+/// Low-level blob store errors.
+/// This error type is introduced to eliminate the use of low-level `Errno`
+/// codes in high-level LVS code.
+#[derive(Debug, Snafu, Copy, Clone)]
+pub enum BsError {
+    #[snafu(display(""))]
+    Generic { source: Errno },
+    #[snafu(display(""))]
+    InvalidArgument {},
+    #[snafu(display(": volume not found"))]
+    LvolNotFound {},
+    #[snafu(display(": volume already exists"))]
+    VolAlreadyExists {},
+    #[snafu(display(": volume is busy"))]
+    VolBusy {},
+    #[snafu(display(": cannot import LVS"))]
+    CannotImportLvs {},
+    #[snafu(display(": LVS not found or was not loaded"))]
+    LvsNotFound {},
+    #[snafu(display(": LVS name or UUID mismatch"))]
+    LvsIdMismatch {},
+    #[snafu(display(": not enough space"))]
+    NoSpace {},
+    #[snafu(display(": out of metadata pages"))]
+    OutOfMetadata {},
+    #[snafu(display(": capacity overflow"))]
+    CapacityOverflow {},
+}
+
+impl BsError {
+    /// Creates a `BsError` from an `Errno` value.
+    pub fn from_errno(value: Errno) -> Self {
+        match value {
+            Errno::UnknownErrno => {
+                // Unknown errno may indicate that the source negative i32 value
+                // was passed instead of taking the abs.
+                warn!("Blob store: got unknown errno");
+                BsError::Generic {
+                    source: value,
+                }
+            }
+            Errno::EINVAL => BsError::InvalidArgument {},
+            Errno::ENOENT => BsError::LvolNotFound {},
+            Errno::EEXIST => BsError::VolAlreadyExists {},
+            Errno::EBUSY => BsError::VolBusy {},
+            Errno::EILSEQ => BsError::CannotImportLvs {},
+            Errno::ENOMEDIUM => BsError::LvsNotFound {},
+            Errno::EMEDIUMTYPE => BsError::LvsIdMismatch {},
+            Errno::ENOSPC => BsError::NoSpace {},
+            Errno::EMFILE => BsError::OutOfMetadata {},
+            Errno::EOVERFLOW => BsError::CapacityOverflow {},
+            _ => BsError::Generic {
+                source: value,
+            },
+        }
+    }
+
+    /// Creates a `BsError` from a raw i32 errno value.
+    pub fn from_i32(value: i32) -> Self {
+        let r = Errno::from_i32(value.abs());
+
+        if value < 0 {
+            warn!("Blob store: negative errno passed: {r}");
+        }
+
+        Self::from_errno(r)
+    }
+}
+
+impl ToErrno for BsError {
+    fn to_errno(self) -> Errno {
+        match self {
+            Self::Generic {
+                source,
+            } => source,
+            Self::InvalidArgument {} => Errno::EINVAL,
+            Self::LvolNotFound {} => Errno::ENOENT,
+            Self::VolAlreadyExists {} => Errno::EEXIST,
+            Self::VolBusy {} => Errno::EBUSY,
+            Self::CannotImportLvs {} => Errno::EILSEQ,
+            Self::LvsNotFound {} => Errno::ENOMEDIUM,
+            Self::LvsIdMismatch {} => Errno::EMEDIUMTYPE,
+            Self::NoSpace {} => Errno::ENOSPC,
+            Self::OutOfMetadata {} => Errno::EMFILE,
+            Self::CapacityOverflow {} => Errno::EOVERFLOW,
+        }
+    }
+}
+
+/// LVS errors.
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
-pub enum Error {
+pub enum LvsError {
     #[snafu(display("{source}, failed to import pool {name}{reason}"))]
     Import {
-        source: Errno,
+        source: BsError,
         name: String,
         reason: ImportErrorReason,
     },
     #[snafu(display("{source}, failed to create pool {name}"))]
     PoolCreate {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("{source}, failed to export pool {name}"))]
     Export {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("{source}, failed to destroy pool {name}"))]
@@ -47,7 +138,7 @@ pub enum Error {
     },
     #[snafu(display("{}", msg))]
     PoolNotFound {
-        source: Errno,
+        source: BsError,
         msg: String,
     },
     InvalidBdev {
@@ -56,7 +147,7 @@ pub enum Error {
     },
     #[snafu(display("errno {}: {}", source, msg))]
     Invalid {
-        source: Errno,
+        source: BsError,
         msg: String,
     },
     #[snafu(display(
@@ -66,34 +157,34 @@ pub enum Error {
         name
     ))]
     InvalidClusterSize {
-        source: Errno,
+        source: BsError,
         name: String,
         msg: String,
     },
     #[snafu(display("lvol exists {}", name))]
     RepExists {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("errno: {} failed to create lvol {}", source, name))]
     RepCreate {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("failed to destroy lvol {} {}", name, if msg.is_empty() { "" } else { msg.as_str() }))]
     RepDestroy {
-        source: Errno,
+        source: BsError,
         name: String,
         msg: String,
     },
     #[snafu(display("failed to resize lvol {}", name))]
     RepResize {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("bdev {} is not a lvol", name))]
     NotALvol {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("failed to share lvol {}", name))]
@@ -118,24 +209,24 @@ pub enum Error {
         name
     ))]
     GetProperty {
-        source: Errno,
+        source: BsError,
         prop: PropName,
         name: String,
     },
     #[snafu(display("failed to set property {} on {}", prop, name))]
     SetProperty {
-        source: Errno,
+        source: BsError,
         prop: String,
         name: String,
     },
     #[snafu(display("failed to sync properties {}", name))]
     SyncProperty {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("invalid property value: {}", name))]
     Property {
-        source: Errno,
+        source: BsError,
         name: String,
     },
     #[snafu(display("invalid replica share protocol value: {}", value))]
@@ -144,12 +235,12 @@ pub enum Error {
     },
     #[snafu(display("Snapshot {} creation failed", msg))]
     SnapshotCreate {
-        source: Errno,
+        source: BsError,
         msg: String,
     },
     #[snafu(display("SnapshotClone {} creation failed", msg))]
     SnapshotCloneCreate {
-        source: Errno,
+        source: BsError,
         msg: String,
     },
     #[snafu(display("Flush Failed for replica {}", name))]
@@ -185,48 +276,48 @@ pub enum Error {
 }
 
 /// Map CoreError to errno code.
-impl ToErrno for Error {
+impl ToErrno for LvsError {
     fn to_errno(self) -> Errno {
         match self {
             Self::Import {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::PoolCreate {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::Export {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::Destroy {
                 ..
             } => Errno::ENXIO,
             Self::PoolNotFound {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::InvalidBdev {
                 ..
             } => Errno::ENXIO,
             Self::Invalid {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::InvalidClusterSize {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::RepExists {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::RepCreate {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::RepDestroy {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::RepResize {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::NotALvol {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::LvolShare {
                 source, ..
             } => source.to_errno(),
@@ -238,22 +329,22 @@ impl ToErrno for Error {
             } => source.to_errno(),
             Self::GetProperty {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::SetProperty {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::SyncProperty {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::SnapshotCreate {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::FlushFailed {
                 ..
             } => Errno::EIO,
             Self::Property {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::SnapshotConfigFailed {
                 ..
             }
@@ -262,7 +353,7 @@ impl ToErrno for Error {
             } => Errno::EINVAL,
             Self::SnapshotCloneCreate {
                 source, ..
-            } => source,
+            } => source.to_errno(),
             Self::CloneConfigFailed {
                 ..
             } => Errno::EINVAL,
@@ -276,7 +367,7 @@ impl ToErrno for Error {
     }
 }
 
-impl From<crate::core::wiper::Error> for Error {
+impl From<crate::core::wiper::Error> for LvsError {
     fn from(source: crate::core::wiper::Error) -> Self {
         Self::WipeFailed {
             source,

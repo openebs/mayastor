@@ -23,7 +23,7 @@ use crate::{
         GrpcResult,
         RWSerializer,
     },
-    lvs::{Error as LvsError, Lvol, Lvs, LvsLvol},
+    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol},
     spdk_rs::ffihelper::IntoCString,
 };
 use ::function_name::named;
@@ -31,7 +31,6 @@ use chrono::{DateTime, Utc};
 use core::ffi::{c_char, c_void};
 use futures::FutureExt;
 use io_engine_api::v1::snapshot::*;
-use nix::errno::Errno;
 use spdk_rs::libspdk::spdk_blob_get_xattr_value;
 use std::{convert::TryFrom, panic::AssertUnwindSafe};
 use strum::IntoEnumIterator;
@@ -389,7 +388,7 @@ impl SnapshotRpc for SnapshotService {
                         Some(bdev) => Lvol::try_from(bdev)?,
                         None => {
                             return Err(LvsError::Invalid {
-                                source: Errno::ENOENT,
+                                source: BsError::LvolNotFound {},
                                 msg: format!(
                                     "Replica {} not found",
                                     args.replica_uuid
@@ -399,7 +398,7 @@ impl SnapshotRpc for SnapshotService {
                     };
                     if UntypedBdev::lookup_by_uuid_str(&args.snapshot_uuid).is_some() {
                         return Err(LvsError::Invalid {
-                            source: Errno::EEXIST,
+                            source: BsError::VolAlreadyExists {},
                             msg: format!(
                                 "Snapshot {} already exist in the system",
                                 args.snapshot_uuid
@@ -418,7 +417,7 @@ impl SnapshotRpc for SnapshotService {
                             // if any of the prepare parameters not passed,
                             // return failure as invalid argument.
                             None => return Err(LvsError::Invalid {
-                                source: Errno::EINVAL,
+                                source: BsError::InvalidArgument {},
                                 msg: format!(
                                     "Snapshot {} some parameters not provided",
                                     args.snapshot_uuid
@@ -474,7 +473,7 @@ impl SnapshotRpc for SnapshotService {
                             Some(bdev) => Lvol::try_from(bdev)?,
                             None => {
                                 return Err(LvsError::Invalid {
-                                    source: Errno::ENOENT,
+                                    source: BsError::LvolNotFound {},
                                     msg: format!(
                                         "Replica {snapshot_uuid} not found",
                                     ),
@@ -495,7 +494,7 @@ impl SnapshotRpc for SnapshotService {
                                 Some(bdev) => Lvol::try_from(bdev)?,
                                 None => {
                                     return Err(LvsError::Invalid {
-                                        source: Errno::ENOENT,
+                                        source: BsError::LvolNotFound {},
                                         msg: format!(
                                             "Replica {replica_uuid} not found",
                                         ),
@@ -546,7 +545,7 @@ impl SnapshotRpc for SnapshotService {
                         Some(destroy_snapshot_request::Pool::PoolUuid(uuid)) => {
                             Lvs::lookup_by_uuid(uuid)
                                 .ok_or(LvsError::RepDestroy {
-                                    source: Errno::ENOMEDIUM,
+                                    source: BsError::LvsNotFound {},
                                     name: args.snapshot_uuid.to_owned(),
                                     msg: format!(
                                         "Pool uuid={uuid} is not loaded"
@@ -557,7 +556,7 @@ impl SnapshotRpc for SnapshotService {
                         Some(destroy_snapshot_request::Pool::PoolName(name)) => {
                             Lvs::lookup(name)
                                 .ok_or(LvsError::RepDestroy {
-                                    source: Errno::ENOMEDIUM,
+                                    source: BsError::LvsNotFound {},
                                     name: args.snapshot_uuid.to_owned(),
                                     msg: format!(
                                         "Pool name={name} is not loaded"
@@ -584,7 +583,7 @@ impl SnapshotRpc for SnapshotService {
                         Some(lvol) => lvol,
                         None => {
                             return Err(LvsError::Invalid {
-                                source: Errno::ENOENT,
+                                source: BsError::LvolNotFound {},
                                 msg: format!(
                                     "Snapshot {} not found",
                                     args.snapshot_uuid
@@ -597,11 +596,11 @@ impl SnapshotRpc for SnapshotService {
                             || lvs.uuid() != device.pool_uuid()
                         {
                             let msg = format!(
-                                "Specified {lvs:?} does match the target {device:?}!"
+                                "Specified {lvs:?} does not match the target {device:?}!"
                             );
                             tracing::error!("{msg}");
                             return Err(LvsError::RepDestroy {
-                                source: Errno::EMEDIUMTYPE,
+                                source: BsError::LvsIdMismatch {},
                                 name: args.snapshot_uuid,
                                 msg,
                             });
@@ -636,7 +635,7 @@ impl SnapshotRpc for SnapshotService {
                         Some(bdev) => Lvol::try_from(bdev)?,
                         None => {
                             return Err(LvsError::Invalid {
-                                source: Errno::ENOENT,
+                                source: BsError::LvolNotFound {},
                                 msg: format!(
                                     "Snapshot {} not found",
                                     args.snapshot_uuid
@@ -646,7 +645,7 @@ impl SnapshotRpc for SnapshotService {
                     };
                     if UntypedBdev::lookup_by_uuid_str(&args.clone_uuid).is_some() {
                         return Err(LvsError::Invalid {
-                            source: Errno::EEXIST,
+                            source: BsError::VolAlreadyExists {},
                             msg: format!(
                                 "clone uuid {} already exist",
                                 args.clone_uuid
@@ -656,7 +655,7 @@ impl SnapshotRpc for SnapshotService {
                     // reject clone creation if "discardedSnapshot" xattr is marked as true.
                     if snap_lvol.is_discarded_snapshot() {
                         return Err(LvsError::Invalid {
-                            source: Errno::ENOENT,
+                            source: BsError::LvolNotFound {},
                             msg: format!(
                                 "Snapshot {} is marked to be deleted",
                                 args.snapshot_uuid
@@ -672,7 +671,7 @@ impl SnapshotRpc for SnapshotService {
                         ) {
                             Some(clone_config) => clone_config,
                             None => return Err(LvsError::Invalid {
-                                source: Errno::EINVAL,
+                                source: BsError::InvalidArgument {},
                                 msg: format!(
                                     "Invalid parameters clone_uuid: {}, clone_name: {}",
                                     args.clone_uuid,
@@ -723,7 +722,7 @@ impl SnapshotRpc for SnapshotService {
                             Some(bdev) => Lvol::try_from(bdev)?,
                             None => {
                                 return Err(LvsError::Invalid {
-                                    source: Errno::ENOENT,
+                                    source: BsError::LvolNotFound {},
                                     msg: format!(
                                         "Snapshot {snapshot_uuid} not found",
                                     ),

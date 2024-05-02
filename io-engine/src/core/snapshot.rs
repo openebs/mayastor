@@ -1,6 +1,7 @@
 use crate::{lvs::Lvol, subsys::NvmfReq};
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
 use spdk_rs::libspdk::{spdk_lvol, spdk_xattr_descriptor};
 use std::{
@@ -44,6 +45,7 @@ impl SnapshotParams {
         }
     }
 }
+
 /// Parameters details for the Snapshot Clone.
 #[derive(Clone, Debug)]
 pub struct CloneParams {
@@ -56,6 +58,7 @@ pub struct CloneParams {
     /// Timestamp when the clone is created.
     pub clone_create_time: Option<String>,
 }
+
 impl CloneParams {
     pub fn new(
         clone_name: Option<String>,
@@ -70,39 +73,48 @@ impl CloneParams {
             clone_create_time,
         }
     }
+
     /// Get clone name.
     pub fn clone_name(&self) -> Option<String> {
         self.clone_name.clone()
     }
+
     /// Set clone name.
     pub fn set_clone_name(&mut self, clone_name: String) {
         self.clone_name = Some(clone_name);
     }
+
     /// Get clone uuid.
     pub fn clone_uuid(&self) -> Option<String> {
         self.clone_uuid.clone()
     }
+
     /// Set clone uuid.
     pub fn set_clone_uuid(&mut self, clone_uuid: String) {
         self.clone_uuid = Some(clone_uuid);
     }
+
     /// Get source uuid from which clone is created.
     pub fn source_uuid(&self) -> Option<String> {
         self.source_uuid.clone()
     }
+
     /// Set source uuid.
     pub fn set_source_uuid(&mut self, uuid: String) {
         self.source_uuid = Some(uuid);
     }
+
     /// Get clone creation time.
     pub fn clone_create_time(&self) -> Option<String> {
         self.clone_create_time.clone()
     }
+
     /// Set clone create time.
     pub fn set_clone_create_time(&mut self, time: String) {
         self.clone_create_time = Some(time);
     }
 }
+
 /// Snapshot Descriptor to respond back as part of listsnapshot.
 #[derive(Clone, Debug)]
 pub struct VolumeSnapshotDescriptor {
@@ -115,6 +127,7 @@ pub struct VolumeSnapshotDescriptor {
     // set to false, if any of the snapshotdescriptor is not filled properly
     pub valid_snapshot: bool,
 }
+
 impl VolumeSnapshotDescriptor {
     pub fn new(
         snapshot_lvol: Lvol,
@@ -190,6 +203,7 @@ impl SnapshotXattrs {
         }
     }
 }
+
 /// Clone attributes used to store its properties.
 #[derive(Debug, EnumCountMacro, EnumIter)]
 pub enum CloneXattrs {
@@ -197,6 +211,7 @@ pub enum CloneXattrs {
     SourceUuid,
     CloneCreateTime,
 }
+
 impl CloneXattrs {
     pub fn name(&self) -> &'static str {
         match *self {
@@ -206,6 +221,10 @@ impl CloneXattrs {
         }
     }
 }
+
+/// Result for low-level Lvol calls.
+pub type LvolResult = Result<*mut spdk_lvol, Errno>;
+
 ///  Traits gives the common snapshot/clone interface for Local/Remote Lvol.
 #[async_trait(?Send)]
 pub trait SnapshotOps {
@@ -278,13 +297,14 @@ pub trait SnapshotOps {
         params: SnapshotParams,
         cstrs: &mut Vec<CString>,
     ) -> Result<(), Self::Error>;
+
     /// create replica snapshot inner function to call spdk snapshot create
     /// function.
     unsafe fn create_snapshot_inner(
         &self,
         snap_param: &SnapshotParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
+        done_cb_arg: *mut c_void,
     ) -> Result<(), Self::Error>;
 
     /// Supporting function for creating local snapshot.
@@ -292,8 +312,8 @@ pub trait SnapshotOps {
         &self,
         snap_param: SnapshotParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
+        done_cb_arg: *mut c_void,
+        receiver: oneshot::Receiver<LvolResult>,
     ) -> Result<Self::Lvol, Self::Error>;
 
     /// Supporting function for creating remote snapshot.
@@ -301,7 +321,7 @@ pub trait SnapshotOps {
         &self,
         snap_param: SnapshotParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
+        done_cb_arg: *mut c_void,
     ) -> Result<(), Self::Error>;
 
     /// Prepare clone xattrs.
@@ -317,7 +337,7 @@ pub trait SnapshotOps {
         &self,
         clone_param: &CloneParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
+        done_cb_arg: *mut c_void,
     ) -> Result<(), Self::Error>;
 
     /// Supporting function for creating clone.
@@ -325,8 +345,8 @@ pub trait SnapshotOps {
         &self,
         clone_param: CloneParams,
         done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
+        done_cb_arg: *mut c_void,
+        receiver: oneshot::Receiver<LvolResult>,
     ) -> Result<Self::Lvol, Self::Error>;
 
     /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.

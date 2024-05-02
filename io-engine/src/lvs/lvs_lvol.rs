@@ -34,7 +34,7 @@ use spdk_rs::libspdk::{
     LVS_CLEAR_WITH_UNMAP,
 };
 
-use super::{Error, Lvs};
+use super::{BsError, Lvs, LvsError};
 
 use crate::{
     bdev::PtplFileOps,
@@ -135,7 +135,7 @@ pub struct Lvol {
 }
 
 impl TryFrom<UntypedBdev> for Lvol {
-    type Error = Error;
+    type Error = LvsError;
 
     fn try_from(mut b: UntypedBdev) -> Result<Self, Self::Error> {
         if b.driver() == "lvol" {
@@ -147,8 +147,8 @@ impl TryFrom<UntypedBdev> for Lvol {
                 })
             }
         } else {
-            Err(Error::NotALvol {
-                source: Errno::EINVAL,
+            Err(LvsError::NotALvol {
+                source: BsError::InvalidArgument {},
                 name: b.name().to_string(),
             })
         }
@@ -171,7 +171,7 @@ impl Debug for Lvol {
 
 #[async_trait(? Send)]
 impl Share for Lvol {
-    type Error = Error;
+    type Error = LvsError;
     type Output = String;
 
     /// share the lvol as a nvmf target
@@ -186,7 +186,7 @@ impl Share for Lvol {
         let share = Pin::new(&mut self.as_bdev())
             .share_nvmf(props)
             .await
-            .map_err(|e| Error::LvolShare {
+            .map_err(|e| LvsError::LvolShare {
                 source: e,
                 name: self.name(),
             })?;
@@ -214,7 +214,7 @@ impl Share for Lvol {
         Pin::new(&mut self.as_bdev())
             .update_properties(props)
             .await
-            .map_err(|e| Error::UpdateShareProperties {
+            .map_err(|e| LvsError::UpdateShareProperties {
                 source: e,
                 name: self.name(),
             })?;
@@ -224,7 +224,7 @@ impl Share for Lvol {
     /// unshare the nvmf target
     async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
         Pin::new(&mut self.as_bdev()).unshare().await.map_err(|e| {
-            Error::LvolUnShare {
+            LvsError::LvolUnShare {
                 source: e,
                 name: self.name(),
             }
@@ -282,14 +282,14 @@ impl Lvol {
 
     /// Wipe the first 8MB if unmap is not supported on failure the operation
     /// needs to be repeated.
-    pub async fn wipe_super(&self) -> Result<(), Error> {
+    pub async fn wipe_super(&self) -> Result<(), LvsError> {
         if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
             let hdl = Bdev::open(&self.as_bdev(), true)
                 .and_then(|desc| desc.into_handle())
                 .map_err(|e| {
                     error!(?self, ?e, "failed to wipe lvol");
-                    Error::RepDestroy {
-                        source: Errno::ENXIO,
+                    LvsError::RepDestroy {
+                        source: BsError::from_errno(Errno::ENXIO),
                         name: self.name(),
                         msg: "failed to wipe lvol".into(),
                     }
@@ -301,8 +301,8 @@ impl Lvol {
                 std::cmp::min(self.as_bdev().size_in_bytes(), WIPE_SUPER_LEN);
             hdl.write_zeroes_at(0, wipe_size).await.map_err(|e| {
                 error!(?self, ?e);
-                Error::RepDestroy {
-                    source: Errno::EIO,
+                LvsError::RepDestroy {
+                    source: BsError::from_errno(Errno::EIO),
                     name: self.name(),
                     msg: "failed to write to lvol".into(),
                 }
@@ -315,12 +315,12 @@ impl Lvol {
     pub(crate) fn wiper(
         &self,
         wipe_method: WipeMethod,
-    ) -> Result<Wiper, Error> {
+    ) -> Result<Wiper, LvsError> {
         let hdl = Bdev::open(&self.as_bdev(), true)
             .and_then(|desc| desc.into_handle())
-            .map_err(|e| Error::Invalid {
+            .map_err(|e| LvsError::Invalid {
                 msg: e.to_string(),
-                source: e.to_errno(),
+                source: BsError::from_errno(e.to_errno()),
             })?;
 
         let wiper = Wiper::new(hdl, wipe_method)?;
@@ -427,7 +427,7 @@ impl Lvol {
         attr: A,
         value: String,
         sync_metadata: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<(), LvsError> {
         extern "C" fn blob_attr_set_cb(cb_arg: *mut c_void, errno: i32) {
             done_cb(cb_arg, errno);
         }
@@ -452,8 +452,8 @@ impl Lvol {
                 errno = r,
                 "Failed to set blob attribute"
             );
-            return Err(Error::SetProperty {
-                source: Errno::from_i32(r),
+            return Err(LvsError::SetProperty {
+                source: BsError::from_i32(r),
                 prop: attr.as_ref().to_owned(),
                 name: self.name(),
             });
@@ -478,8 +478,8 @@ impl Lvol {
             0 => Ok(()),
             errno => {
                 error!(lvol=self.name(), errno,"Failed to sync blob metadata, properties might be out of sync");
-                Err(Error::SyncProperty {
-                    source: Errno::from_i32(errno),
+                Err(LvsError::SyncProperty {
+                    source: BsError::from_i32(errno),
                     name: self.name(),
                 })
             }
@@ -552,28 +552,28 @@ pub trait LvsLvol: LogicalVolume + Share {
     fn is_snapshot_clone(&self) -> Option<Lvol>;
 
     /// Get/Read a property of this lvol from the in-memory metadata copy.
-    async fn get(&self, prop: PropName) -> Result<PropValue, Error>;
+    async fn get(&self, prop: PropName) -> Result<PropValue, LvsError>;
 
     /// Destroy the lvol.
-    async fn destroy(mut self) -> Result<String, Error>;
+    async fn destroy(mut self) -> Result<String, LvsError>;
 
     /// Write the property prop on to the lvol but do not sync the metadata yet.
     async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
-    ) -> Result<(), Error>;
+    ) -> Result<(), LvsError>;
 
     /// Write the property prop on to the lvol which is stored on disk.
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
-    ) -> Result<(), Error>;
+    ) -> Result<(), LvsError>;
 
     /// Callback executed after synchronizing the lvols metadata.
     extern "C" fn blob_sync_cb(sender_ptr: *mut c_void, errno: i32);
 
     /// Write the property prop on to the lvol which is stored on disk.
-    async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error>;
+    async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), LvsError>;
 
     /// Callback is executed when blobstore fetching is done using spdk api.
     extern "C" fn blob_op_complete_cb(
@@ -605,12 +605,12 @@ pub trait LvsLvol: LogicalVolume + Share {
 
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
-    async fn destroy_replica(mut self) -> Result<String, Error>;
+    async fn destroy_replica(mut self) -> Result<String, LvsError>;
 
     /// Resize a replica. The resize can be expand or shrink, depending
     /// upon if required size is more or less than current size of
     /// the replpica.
-    async fn resize_replica(&mut self, resize_to: u64) -> Result<(), Error>;
+    async fn resize_replica(&mut self, resize_to: u64) -> Result<(), LvsError>;
 }
 
 ///  LogicalVolume implement Generic interface for Lvol.
@@ -761,7 +761,7 @@ impl LvsLvol for Lvol {
     }
 
     /// Get/Read a property of this lvol from the in-memory metadata copy.
-    async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
+    async fn get(&self, prop: PropName) -> Result<PropValue, LvsError> {
         let blob = self.blob_checked();
 
         match prop {
@@ -778,16 +778,16 @@ impl LvsLvol for Lvol {
                         &mut value_len,
                     )
                 }
-                .to_result(|e| Error::GetProperty {
-                    source: Errno::from_i32(e),
+                .to_result(|e| LvsError::GetProperty {
+                    source: BsError::from_i32(e),
                     prop,
                     name: self.name(),
                 })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok("true") => Ok(PropValue::Shared(true)),
                     Ok("false") => Ok(PropValue::Shared(false)),
-                    _ => Err(Error::Property {
-                        source: Errno::EINVAL,
+                    _ => Err(LvsError::Property {
+                        source: BsError::InvalidArgument {},
                         name: self.name(),
                     }),
                 }
@@ -805,8 +805,8 @@ impl LvsLvol for Lvol {
                         &mut value_len,
                     )
                 }
-                .to_result(|e| Error::GetProperty {
-                    source: Errno::from_i32(e),
+                .to_result(|e| LvsError::GetProperty {
+                    source: BsError::from_i32(e),
                     prop,
                     name: self.name(),
                 })?;
@@ -819,8 +819,8 @@ impl LvsLvol for Lvol {
                             .map(|s| s.to_string())
                             .collect::<Vec<_>>(),
                     )),
-                    _ => Err(Error::Property {
-                        source: Errno::EINVAL,
+                    _ => Err(LvsError::Property {
+                        source: BsError::InvalidArgument {},
                         name: self.name(),
                     }),
                 }
@@ -839,15 +839,15 @@ impl LvsLvol for Lvol {
                         &mut value_len,
                     )
                 }
-                .to_result(|e| Error::GetProperty {
-                    source: Errno::from_i32(e),
+                .to_result(|e| LvsError::GetProperty {
+                    source: BsError::from_i32(e),
                     prop,
                     name: self.name(),
                 })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok(id) => Ok(PropValue::EntityId(id.to_string())),
-                    _ => Err(Error::Property {
-                        source: Errno::EINVAL,
+                    _ => Err(LvsError::Property {
+                        source: BsError::InvalidArgument {},
                         name: self.name(),
                     }),
                 }
@@ -862,7 +862,7 @@ impl LvsLvol for Lvol {
         sender.send(errno).expect("blob cb receiver is gone");
     }
     /// Destroy the lvol.
-    async fn destroy(mut self) -> Result<String, Error> {
+    async fn destroy(mut self) -> Result<String, LvsError> {
         let event = self.event(EventAction::Delete);
         extern "C" fn destroy_cb(sender: *mut c_void, errno: i32) {
             let sender =
@@ -885,8 +885,8 @@ impl LvsLvol for Lvol {
             .expect("lvol destroy callback is gone")
             .to_result(|e| {
                 warn!("error while destroying lvol {}", name);
-                Error::RepDestroy {
-                    source: Errno::from_i32(e),
+                LvsError::RepDestroy {
+                    source: BsError::from_i32(e),
                     name: name.clone(),
                     msg: "error while destroying lvol".into(),
                 }
@@ -908,7 +908,7 @@ impl LvsLvol for Lvol {
     async fn set_no_sync(
         self: Pin<&mut Self>,
         prop: PropValue,
-    ) -> Result<(), Error> {
+    ) -> Result<(), LvsError> {
         let blob = self.blob_checked();
 
         if self.is_snapshot() {
@@ -938,8 +938,8 @@ impl LvsLvol for Lvol {
                         value.as_bytes_with_nul().len() as u16,
                     )
                 }
-                .to_result(|e| Error::SetProperty {
-                    source: Errno::from_i32(e),
+                .to_result(|e| LvsError::SetProperty {
+                    source: BsError::from_i32(e),
                     prop: prop.to_string(),
                     name: self.name(),
                 })?;
@@ -968,8 +968,8 @@ impl LvsLvol for Lvol {
                         value.as_bytes_with_nul().len() as u16,
                     )
                 }
-                .to_result(|e| Error::SetProperty {
-                    source: Errno::from_i32(e),
+                .to_result(|e| LvsError::SetProperty {
+                    source: BsError::from_i32(e),
                     prop: prop.to_string(),
                     name: self.name(),
                 })?;
@@ -993,8 +993,8 @@ impl LvsLvol for Lvol {
                         value.as_bytes_with_nul().len() as u16,
                     )
                 }
-                .to_result(|e| Error::SetProperty {
-                    source: Errno::from_i32(e),
+                .to_result(|e| LvsError::SetProperty {
+                    source: BsError::from_i32(e),
                     prop: prop.to_string(),
                     name: self.name(),
                 })?;
@@ -1007,13 +1007,13 @@ impl LvsLvol for Lvol {
     async fn set(
         mut self: Pin<&mut Self>,
         prop: PropValue,
-    ) -> Result<(), Error> {
+    ) -> Result<(), LvsError> {
         self.as_mut().set_no_sync(prop).await?;
         self.sync_metadata().await
     }
 
     /// Write the property prop on to the lvol which is stored on disk.
-    async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), Error> {
+    async fn sync_metadata(self: Pin<&mut Self>) -> Result<(), LvsError> {
         let blob = self.blob_checked();
 
         if self.is_snapshot() {
@@ -1029,8 +1029,8 @@ impl LvsLvol for Lvol {
         };
 
         r.await.expect("sync callback is gone").to_result(|e| {
-            Error::SyncProperty {
-                source: Errno::from_i32(e),
+            LvsError::SyncProperty {
+                source: BsError::from_i32(e),
                 name: self.name(),
             }
         })?;
@@ -1103,7 +1103,7 @@ impl LvsLvol for Lvol {
 
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
-    async fn destroy_replica(mut self) -> Result<String, Error> {
+    async fn destroy_replica(mut self) -> Result<String, LvsError> {
         let snapshot_lvol = self.is_snapshot_clone();
         let name = self.name();
         self.destroy().await?;
@@ -1124,7 +1124,7 @@ impl LvsLvol for Lvol {
     /// Resize a replica. The resize can be expand or shrink, depending
     /// upon if required size is more or less than current size of
     /// the replica.
-    async fn resize_replica(&mut self, resize_to: u64) -> Result<(), Error> {
+    async fn resize_replica(&mut self, resize_to: u64) -> Result<(), LvsError> {
         let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
         let mut ctx = ResizeCbCtx {
             lvol: self.as_inner_ptr(),
@@ -1150,8 +1150,8 @@ impl LvsLvol for Lvol {
             }
             Err(errno) => {
                 error!("Resize {:?} failed, errno {errno}", self);
-                Err(Error::RepResize {
-                    source: errno,
+                Err(LvsError::RepResize {
+                    source: BsError::from_errno(errno),
                     name: self.name(),
                 })
             }

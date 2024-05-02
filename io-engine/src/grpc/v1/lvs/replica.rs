@@ -15,10 +15,9 @@ use crate::{
         UpdateProps,
     },
     grpc::{acquire_subsystem_lock, rpc_submit, rpc_submit_ext, GrpcResult},
-    lvs::{Error as LvsError, Lvol, Lvs, LvsLvol, PropValue},
+    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol, PropValue},
 };
 use io_engine_api::v1::{pool::PoolType, replica::*};
-use nix::errno::Errno;
 use std::{convert::TryFrom, pin::Pin};
 use tonic::{Request, Response, Status};
 
@@ -131,7 +130,7 @@ impl ReplicaService {
                         Some(lvs) => lvs,
                         None => {
                             return Err(LvsError::Invalid {
-                                source: Errno::ENOMEDIUM,
+                                source: BsError::LvsNotFound {},
                                 msg: format!(
                                     "Pool {} not found",
                                     args.pooluuid
@@ -217,7 +216,7 @@ impl ReplicaService {
                 Some(destroy_replica_request::Pool::PoolUuid(uuid)) => {
                     Lvs::lookup_by_uuid(uuid)
                         .ok_or(LvsError::RepDestroy {
-                            source: Errno::ENOMEDIUM,
+                            source: BsError::LvsNotFound {},
                             name: args.uuid.to_owned(),
                             msg: format!("Pool uuid={uuid} is not loaded"),
                         })
@@ -226,7 +225,7 @@ impl ReplicaService {
                 Some(destroy_replica_request::Pool::PoolName(name)) => {
                     Lvs::lookup(name)
                         .ok_or(LvsError::RepDestroy {
-                            source: Errno::ENOMEDIUM,
+                            source: BsError::LvsNotFound {},
                             name: args.uuid.to_owned(),
                             msg: format!("Pool name={name} is not loaded"),
                         })
@@ -241,7 +240,7 @@ impl ReplicaService {
             let lvol = Bdev::lookup_by_uuid_str(&args.uuid)
                 .and_then(|b| Lvol::try_from(b).ok())
                 .ok_or(LvsError::RepDestroy {
-                    source: Errno::ENOENT,
+                    source: BsError::LvolNotFound {},
                     name: args.uuid.to_owned(),
                     msg: "Replica not found".into(),
                 })?;
@@ -255,7 +254,7 @@ impl ReplicaService {
                     );
                     tracing::error!("{msg}");
                     return Err(LvsError::RepDestroy {
-                        source: Errno::EMEDIUMTYPE,
+                        source: BsError::LvsIdMismatch {},
                         name: args.uuid,
                         msg,
                     });
@@ -310,7 +309,7 @@ impl ReplicaService {
                     match Protocol::try_from(args.share)? {
                         Protocol::Off => {
                             return Err(LvsError::Invalid {
-                                source: Errno::EINVAL,
+                                source: BsError::InvalidArgument {},
                                 msg: "invalid share protocol NONE".to_string(),
                             })
                         }
@@ -382,7 +381,7 @@ impl ReplicaService {
             let mut lvol = Bdev::lookup_by_uuid_str(&args.uuid)
                 .and_then(|b| Lvol::try_from(b).ok())
                 .ok_or(LvsError::RepResize {
-                    source: Errno::ENOENT,
+                    source: BsError::LvolNotFound {},
                     name: args.uuid.to_owned(),
                 })?;
             let requested_size = args.requested_size;

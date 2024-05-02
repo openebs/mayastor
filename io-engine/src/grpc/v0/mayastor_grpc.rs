@@ -30,6 +30,7 @@ use crate::{
         Share,
         ShareProps,
         SnapshotParams,
+        ToErrno,
         UntypedBdev,
     },
     grpc::{
@@ -50,7 +51,7 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    lvs::{lvs_lvol::LvsLvol, Error as LvsError, Lvol, Lvs},
+    lvs::{lvs_lvol::LvsLvol, BsError, Lvol, Lvs, LvsError},
     pool_backend::PoolArgs,
     rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
@@ -202,7 +203,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
     fn try_from(args: CreatePoolRequest) -> Result<Self, Self::Error> {
         match args.disks.len() {
             0 => Err(LvsError::Invalid {
-                source: Errno::EINVAL,
+                source: BsError::InvalidArgument {},
                 msg: "invalid argument, missing devices".to_string(),
             }),
             _ => Ok(Self {
@@ -219,7 +220,7 @@ impl From<LvsError> for tonic::Status {
         match e {
             LvsError::Import {
                 source, ..
-            } => match source {
+            } => match source.to_errno() {
                 Errno::EINVAL => Status::invalid_argument(e.to_string()),
                 Errno::EEXIST => Status::already_exists(e.to_string()),
                 _ => Status::invalid_argument(e.to_string()),
@@ -227,7 +228,7 @@ impl From<LvsError> for tonic::Status {
             LvsError::RepCreate {
                 source, ..
             } => {
-                if source == Errno::ENOSPC {
+                if source.to_errno() == Errno::ENOSPC {
                     Status::resource_exhausted(e.to_string())
                 } else {
                     Status::invalid_argument(e.to_string())
@@ -235,7 +236,7 @@ impl From<LvsError> for tonic::Status {
             }
             LvsError::RepDestroy {
                 source, ..
-            } => match source {
+            } => match source.to_errno() {
                 Errno::ENOENT => {
                     let mut status = Status::not_found(e.to_string());
                     status.metadata_mut().insert(
@@ -250,7 +251,7 @@ impl From<LvsError> for tonic::Status {
             },
             LvsError::RepResize {
                 source, ..
-            } => match source {
+            } => match source.to_errno() {
                 Errno::ENOSPC | Errno::ENOMEM => {
                     Status::resource_exhausted(e.to_string())
                 }
@@ -271,7 +272,7 @@ impl From<LvsError> for tonic::Status {
             } => source.into(),
             LvsError::Invalid {
                 source, ..
-            } => match source {
+            } => match source.to_errno() {
                 Errno::EINVAL => Status::invalid_argument(e.to_string()),
                 Errno::ENOMEDIUM => Status::failed_precondition(e.to_string()),
                 Errno::ENOENT => Status::not_found(e.to_string()),
@@ -284,9 +285,9 @@ impl From<LvsError> for tonic::Status {
             LvsError::PoolCreate {
                 source, ..
             } => {
-                if source == Errno::EEXIST {
+                if source.to_errno() == Errno::EEXIST {
                     Status::already_exists(e.to_string())
-                } else if source == Errno::EINVAL {
+                } else if source.to_errno() == Errno::EINVAL {
                     Status::invalid_argument(e.to_string())
                 } else {
                     Status::internal(e.to_string())
@@ -599,7 +600,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             Err(LvsError::PoolCreate {
                                 source,
                                 name,
-                            }) if source == Errno::EEXIST => {
+                            }) if source.to_errno() == Errno::EEXIST => {
                                 info!(
                                     "returning already created pool {}",
                                     name,
@@ -693,7 +694,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
                     if Lvs::lookup(&args.pool).is_none() {
                         return Err(LvsError::Invalid {
-                            source: Errno::ENOSYS,
+                            source: BsError::from_errno(Errno::ENOSYS),
                             msg: format!("Pool {} not found", args.pool),
                         });
                     }
@@ -787,7 +788,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         Some(lvs) => lvs,
                         None => {
                             return Err(LvsError::Invalid {
-                                source: Errno::ENOSYS,
+                                source: BsError::from_errno(Errno::ENOSYS),
                                 msg: format!("Pool {} not found", args.pool),
                             })
                         }

@@ -33,7 +33,15 @@ use spdk_rs::libspdk::{
 };
 use url::Url;
 
-use super::{Error, ImportErrorReason, Lvol, LvsIter, PropName, PropValue};
+use super::{
+    BsError,
+    ImportErrorReason,
+    Lvol,
+    LvsError,
+    LvsIter,
+    PropName,
+    PropValue,
+};
 
 use crate::{
     bdev::{uri, PtplFileOps},
@@ -224,7 +232,7 @@ impl Lvs {
     }
 
     // checks for the disks length and parses to correct format
-    pub fn parse_disk(disks: Vec<String>) -> Result<String, Error> {
+    pub fn parse_disk(disks: Vec<String>) -> Result<String, LvsError> {
         let disk = match disks.first() {
             Some(disk) if disks.len() == 1 => {
                 if Url::parse(disk).is_err() {
@@ -234,8 +242,8 @@ impl Lvs {
                 }
             }
             _ => {
-                return Err(Error::Invalid {
-                    source: Errno::EINVAL,
+                return Err(LvsError::Invalid {
+                    source: BsError::InvalidArgument {},
                     msg: format!(
                         "invalid number {} of devices {:?}",
                         disks.len(),
@@ -248,13 +256,13 @@ impl Lvs {
     }
 
     /// imports a pool based on its name and base bdev name
-    pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
+    pub async fn import(name: &str, bdev: &str) -> Result<Lvs, LvsError> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
         debug!("Trying to import lvs '{}' from '{}'...", name, bdev);
 
         let mut bdev =
-            UntypedBdev::lookup_by_name(bdev).ok_or(Error::InvalidBdev {
+            UntypedBdev::lookup_by_name(bdev).ok_or(LvsError::InvalidBdev {
                 source: BdevError::BdevNotFound {
                     name: bdev.to_string(),
                 },
@@ -265,8 +273,8 @@ impl Lvs {
         // we will determine the usage of the bdev prior to examining it.
 
         if bdev.is_claimed() {
-            return Err(Error::Import {
-                source: Errno::EBUSY,
+            return Err(LvsError::Import {
+                source: BsError::VolBusy {},
                 name: bdev.name().to_string(),
                 reason: ImportErrorReason::None,
             });
@@ -283,8 +291,8 @@ impl Lvs {
         };
 
         if rc != 0 {
-            return Err(Error::Import {
-                source: Errno::EINVAL,
+            return Err(LvsError::Import {
+                source: BsError::InvalidArgument {},
                 name: name.to_string(),
                 reason: ImportErrorReason::None,
             });
@@ -295,8 +303,8 @@ impl Lvs {
         let lvs = receiver
             .await
             .expect("Cancellation is not supported")
-            .map_err(|err| Error::Import {
-                source: err,
+            .map_err(|err| LvsError::Import {
+                source: BsError::from_errno(err),
                 name: name.into(),
                 reason: ImportErrorReason::None,
             })?;
@@ -311,8 +319,8 @@ impl Lvs {
             );
             let pool_name = lvs.name().to_string();
             lvs.export().await?;
-            Err(Error::Import {
-                source: Errno::EINVAL,
+            Err(LvsError::Import {
+                source: BsError::InvalidArgument {},
                 name: name.to_string(),
                 reason: ImportErrorReason::NameMismatch {
                     name: pool_name,
@@ -327,10 +335,10 @@ impl Lvs {
 
     /// imports a pool based on its name, uuid and base bdev name
     #[tracing::instrument(level = "debug", err)]
-    pub async fn import_from_args(args: PoolArgs) -> Result<Lvs, Error> {
+    pub async fn import_from_args(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
 
-        let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
+        let parsed = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
             source: e,
             name: args.name.clone(),
         })?;
@@ -340,14 +348,14 @@ impl Lvs {
         if let Some(pool) = Self::lookup(&args.name) {
             let pool_name = pool.base_bdev().name().to_string();
             return if pool_name.as_str() == parsed.get_name() {
-                Err(Error::Import {
-                    source: Errno::EEXIST,
+                Err(LvsError::Import {
+                    source: BsError::VolAlreadyExists {},
                     name: args.name.clone(),
                     reason: ImportErrorReason::None,
                 })
             } else {
-                Err(Error::Import {
-                    source: Errno::EINVAL,
+                Err(LvsError::Import {
+                    source: BsError::InvalidArgument {},
                     name: args.name.clone(),
                     reason: ImportErrorReason::NameClash {
                         name: pool_name,
@@ -366,7 +374,7 @@ impl Lvs {
                 } if source == Errno::EEXIST => Ok(parsed.get_name()),
                 _ => {
                     tracing::error!("Failed to create pool bdev: {e:?}");
-                    Err(Error::InvalidBdev {
+                    Err(LvsError::InvalidBdev {
                         source: e,
                         name: args.disks[0].clone(),
                     })
@@ -387,8 +395,8 @@ impl Lvs {
                 Ok(pool)
             } else {
                 pool.export().await?;
-                Err(Error::Import {
-                    source: Errno::EINVAL,
+                Err(LvsError::Import {
+                    source: BsError::InvalidArgument {},
                     name: args.name,
                     reason: ImportErrorReason::UuidMismatch {
                         uuid: pool_uuid,
@@ -406,15 +414,15 @@ impl Lvs {
         bdev: &str,
         uuid: Option<String>,
         cluster_size: Option<u32>,
-    ) -> Result<Lvs, Error> {
+    ) -> Result<Lvs, LvsError> {
         let pool_name = name.into_cstring();
         let bdev_name = bdev.into_cstring();
         let cluster_size = if let Some(cluster_size) = cluster_size {
             if cluster_size % ROUND_TO_MB == 0 {
                 cluster_size
             } else {
-                return Err(Error::InvalidClusterSize {
-                    source: Errno::EINVAL,
+                return Err(LvsError::InvalidClusterSize {
+                    source: BsError::InvalidArgument {},
                     name: name.to_string(),
                     msg: format!("{cluster_size}, not multiple of 1MiB"),
                 });
@@ -423,8 +431,8 @@ impl Lvs {
             DEFAULT_CLUSTER_SIZE
         };
         if cluster_size > MAX_CLUSTER_SIZE {
-            return Err(Error::InvalidClusterSize {
-                source: Errno::EINVAL,
+            return Err(LvsError::InvalidClusterSize {
+                source: BsError::InvalidArgument {},
                 name: name.to_string(),
                 msg: format!(
                     "{cluster_size}, larger than max limit {MAX_CLUSTER_SIZE}"
@@ -469,16 +477,16 @@ impl Lvs {
                 )
             }
         }
-        .to_result(|e| Error::PoolCreate {
-            source: Errno::from_i32(e),
+        .to_result(|e| LvsError::PoolCreate {
+            source: BsError::from_i32(e),
             name: name.to_string(),
         })?;
 
         receiver
             .await
             .expect("Cancellation is not supported")
-            .map_err(|err| Error::PoolCreate {
-                source: err,
+            .map_err(|err| LvsError::PoolCreate {
+                source: BsError::from_errno(err),
                 name: name.to_string(),
             })?;
 
@@ -487,8 +495,8 @@ impl Lvs {
                 info!("{:?}: new lvs created successfully", pool);
                 Ok(pool)
             }
-            None => Err(Error::PoolCreate {
-                source: Errno::ENOENT,
+            None => Err(LvsError::PoolCreate {
+                source: BsError::LvolNotFound {},
                 name: name.to_string(),
             }),
         }
@@ -496,7 +504,7 @@ impl Lvs {
 
     /// imports the pool if it exists, otherwise try to create it
     #[tracing::instrument(level = "debug", err)]
-    pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, Error> {
+    pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
 
         info!(
@@ -504,20 +512,20 @@ impl Lvs {
             args.name, disk
         );
 
-        let parsed = uri::parse(&disk).map_err(|e| Error::InvalidBdev {
+        let parsed = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
             source: e,
             name: args.name.clone(),
         })?;
 
         if let Some(pool) = Self::lookup(&args.name) {
             return if pool.base_bdev().name() == parsed.get_name() {
-                Err(Error::PoolCreate {
-                    source: Errno::EEXIST,
+                Err(LvsError::PoolCreate {
+                    source: BsError::VolAlreadyExists {},
                     name: args.name.clone(),
                 })
             } else {
-                Err(Error::PoolCreate {
-                    source: Errno::EINVAL,
+                Err(LvsError::PoolCreate {
+                    source: BsError::InvalidArgument {},
                     name: args.name.clone(),
                 })
             };
@@ -533,7 +541,7 @@ impl Lvs {
                 } if source == Errno::EEXIST => Ok(parsed.get_name()),
                 _ => {
                     tracing::error!("Failed to create pool bdev: {e:?}");
-                    Err(Error::InvalidBdev {
+                    Err(LvsError::InvalidBdev {
                         source: e,
                         name: args.disks[0].clone(),
                     })
@@ -545,9 +553,9 @@ impl Lvs {
         match Self::import_from_args(args.clone()).await {
             Ok(pool) => Ok(pool),
             // try to create the pool
-            Err(Error::Import {
+            Err(LvsError::Import {
                 source, ..
-            }) if source == Errno::EILSEQ => {
+            }) if matches!(source, BsError::CannotImportLvs {}) => {
                 match Self::create(
                     &args.name,
                     &bdev,
@@ -578,7 +586,7 @@ impl Lvs {
 
     /// export the given lvs
     #[tracing::instrument(level = "debug", err)]
-    pub async fn export(self) -> Result<(), Error> {
+    pub async fn export(self) -> Result<(), LvsError> {
         let self_str = format!("{self:?}");
 
         info!("{}: exporting lvs...", self_str);
@@ -599,8 +607,8 @@ impl Lvs {
 
         r.await
             .expect("callback gone while exporting lvs")
-            .to_result(|e| Error::Export {
-                source: Errno::from_i32(e),
+            .to_result(|e| LvsError::Export {
+                source: BsError::from_i32(e),
                 name: pool.clone(),
             })?;
 
@@ -608,7 +616,7 @@ impl Lvs {
 
         bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
             .await
-            .map_err(|e| Error::Destroy {
+            .map_err(|e| LvsError::Destroy {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
@@ -670,7 +678,7 @@ impl Lvs {
     /// destroys the given pool deleting the on disk super blob before doing so,
     /// un share all targets
     #[tracing::instrument(level = "debug", err)]
-    pub async fn destroy(self) -> Result<(), Error> {
+    pub async fn destroy(self) -> Result<(), LvsError> {
         let self_str = format!("{self:?}");
         info!("{}: destroying lvs...", self_str);
 
@@ -695,8 +703,8 @@ impl Lvs {
 
         r.await
             .expect("callback gone while destroying lvs")
-            .to_result(|e| Error::Export {
-                source: Errno::from_i32(e),
+            .to_result(|e| LvsError::Export {
+                source: BsError::from_i32(e),
                 name: pool.clone(),
             })?;
 
@@ -706,7 +714,7 @@ impl Lvs {
 
         bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
             .await
-            .map_err(|e| Error::Destroy {
+            .map_err(|e| LvsError::Destroy {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
@@ -778,7 +786,7 @@ impl Lvs {
         uuid: Option<&str>,
         thin: bool,
         entity_id: Option<String>,
-    ) -> Result<Lvol, Error> {
+    ) -> Result<Lvol, LvsError> {
         let clear_method = if self.base_bdev().io_type_supported(IoType::Unmap)
         {
             LVOL_CLEAR_WITH_UNMAP
@@ -787,16 +795,16 @@ impl Lvs {
         };
         if let Some(uuid) = uuid {
             if UntypedBdev::lookup_by_uuid_str(uuid).is_some() {
-                return Err(Error::RepExists {
-                    source: Errno::EEXIST,
+                return Err(LvsError::RepExists {
+                    source: BsError::VolAlreadyExists {},
                     name: uuid.to_string(),
                 });
             }
         }
 
         if UntypedBdev::lookup_by_name(name).is_some() {
-            return Err(Error::RepExists {
-                source: Errno::EEXIST,
+            return Err(LvsError::RepExists {
+                source: BsError::VolAlreadyExists {},
                 name: name.to_string(),
             });
         };
@@ -804,8 +812,8 @@ impl Lvs {
         if clear_method != spdk_rs::libspdk::LVS_CLEAR_WITH_UNMAP
             && WIPE_SUPER_LEN > self.available()
         {
-            return Err(Error::RepCreate {
-                source: Errno::ENOSPC,
+            return Err(LvsError::RepCreate {
+                source: BsError::NoSpace {},
                 name: name.to_string(),
             });
         }
@@ -813,8 +821,8 @@ impl Lvs {
         // As it stands lvs pools can't grow, so limit the max replica size to
         // the pool capacity.
         if size > self.capacity() {
-            return Err(Error::RepCreate {
-                source: Errno::EOVERFLOW,
+            return Err(LvsError::RepCreate {
+                source: BsError::CapacityOverflow {},
                 name: name.to_string(),
             });
         }
@@ -848,16 +856,16 @@ impl Lvs {
                 ),
             }
         }
-        .to_result(|e| Error::RepCreate {
-            source: Errno::from_i32(e),
+        .to_result(|e| LvsError::RepCreate {
+            source: BsError::from_i32(e),
             name: name.to_string(),
         })?;
 
         let mut lvol = r
             .await
             .expect("lvol creation callback dropped")
-            .map_err(|e| Error::RepCreate {
-                source: e,
+            .map_err(|e| LvsError::RepCreate {
+                source: BsError::from_errno(e),
                 name: name.to_string(),
             })
             .map(Lvol::from_inner_ptr)?;

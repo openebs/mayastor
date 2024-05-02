@@ -6,7 +6,7 @@ use crate::{
         VerboseError,
     },
     grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWSerializer},
-    lvs::{Error as LvsError, Lvol, Lvs, LvsLvol},
+    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol},
 };
 use ::function_name::named;
 use io_engine_api::{
@@ -21,7 +21,6 @@ use io_engine_api::{
         WipeReplicaResponse,
     },
 };
-use nix::errno::Errno;
 use std::convert::{TryFrom, TryInto};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
@@ -349,7 +348,7 @@ fn validate_pool(
     let msg = format!("Specified {lvs:?} does match the target {lvol:?}!");
     tracing::error!("{msg}");
     Err(LvsError::Invalid {
-        source: Errno::EINVAL,
+        source: BsError::InvalidArgument {},
         msg,
     })
 }
@@ -358,13 +357,13 @@ fn lookup_pool(pool: wipe_replica_request::Pool) -> Result<Lvs, LvsError> {
     match pool {
         wipe_replica_request::Pool::PoolUuid(uuid) => {
             Lvs::lookup_by_uuid(&uuid).ok_or(LvsError::PoolNotFound {
-                source: Errno::ENOMEDIUM,
+                source: BsError::LvsNotFound {},
                 msg: format!("Pool uuid={uuid} is not loaded"),
             })
         }
         wipe_replica_request::Pool::PoolName(name) => {
             Lvs::lookup(&name).ok_or(LvsError::PoolNotFound {
-                source: Errno::ENOMEDIUM,
+                source: BsError::LvsNotFound {},
                 msg: format!("Pool name={name} is not loaded"),
             })
         }

@@ -7,11 +7,10 @@ use crate::{
         v1::pool::PoolProbe,
         GrpcResult,
     },
-    lvs::{Error as LvsError, Lvs},
+    lvs::{BsError, Lvs, LvsError},
     pool_backend::PoolArgs,
 };
 use io_engine_api::v1::pool::*;
-use nix::errno::Errno;
 use std::{convert::TryFrom, fmt::Debug};
 use tonic::{Request, Response, Status};
 
@@ -119,7 +118,7 @@ impl PoolRpc for PoolService {
         let rx = rpc_submit::<_, _, LvsError>(async move {
             let Some(pool) = Lvs::lookup(&args.name) else {
                 return Err(LvsError::PoolNotFound {
-                    source: Errno::ENOMEDIUM,
+                    source: BsError::LvsNotFound {},
                     msg: format!(
                         "Destroy failed as pool {} was not found",
                         args.name,
@@ -128,7 +127,7 @@ impl PoolRpc for PoolService {
             };
             if args.uuid.is_some() && args.uuid != Some(pool.uuid()) {
                 return Err(LvsError::Invalid {
-                    source: Errno::EINVAL,
+                    source: BsError::InvalidArgument {},
                     msg: format!(
                         "invalid uuid {}, found pool with uuid {}",
                         args.uuid.unwrap(),
@@ -153,7 +152,7 @@ impl PoolRpc for PoolService {
             if let Some(pool) = Lvs::lookup(&args.name) {
                 if args.uuid.is_some() && args.uuid != Some(pool.uuid()) {
                     return Err(LvsError::Invalid {
-                        source: Errno::EINVAL,
+                        source: BsError::InvalidArgument {},
                         msg: format!(
                             "invalid uuid {}, found pool with uuid {}",
                             args.uuid.unwrap(),
@@ -164,7 +163,7 @@ impl PoolRpc for PoolService {
                 pool.export().await?;
             } else {
                 return Err(LvsError::Invalid {
-                    source: Errno::EINVAL,
+                    source: BsError::InvalidArgument {},
                     msg: format!("pool {} not found", args.name),
                 });
             }

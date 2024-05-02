@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use pin_utils::core_reexport::fmt::Formatter;
 use std::{convert::TryFrom, fmt::Display, pin::Pin};
 
-use crate::lvs::Error as LvsError;
+use crate::lvs::LvsError;
 
 /// Indicates what protocol the bdev is shared as.
 #[derive(Debug, Default, PartialOrd, Eq, PartialEq, Copy, Clone)]

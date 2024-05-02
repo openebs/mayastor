@@ -1,12 +1,11 @@
 use crate::{
     grpc::{GrpcClientContext, GrpcResult, RWLock, RWSerializer},
-    lvs::Error as LvsError,
+    lvs::{BsError, LvsError},
     pool_backend::{PoolArgs, PoolBackend},
 };
 use ::function_name::named;
 use futures::FutureExt;
 use io_engine_api::v1::pool::*;
-use nix::errno::Errno;
 use std::{convert::TryFrom, fmt::Debug, panic::AssertUnwindSafe};
 use tonic::{Request, Response, Status};
 
@@ -110,14 +109,14 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
     fn try_from(args: CreatePoolRequest) -> Result<Self, Self::Error> {
         if args.disks.is_empty() {
             return Err(LvsError::Invalid {
-                source: Errno::EINVAL,
+                source: BsError::InvalidArgument {},
                 msg: "invalid argument, missing devices".to_string(),
             });
         }
 
         let backend = PoolType::try_from(args.pooltype).map_err(|_| {
             LvsError::Invalid {
-                source: Errno::EINVAL,
+                source: BsError::InvalidArgument {},
                 msg: format!("invalid pooltype provided: {}", args.pooltype),
             }
         })?;
@@ -125,7 +124,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             if let Some(s) = args.uuid.clone() {
                 let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
                     LvsError::Invalid {
-                        source: Errno::EINVAL,
+                        source: BsError::InvalidArgument {},
                         msg: format!("invalid uuid provided, {e}"),
                     }
                 })?;
@@ -168,14 +167,14 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
     fn try_from(args: ImportPoolRequest) -> Result<Self, Self::Error> {
         if args.disks.is_empty() {
             return Err(LvsError::Invalid {
-                source: Errno::EINVAL,
+                source: BsError::InvalidArgument {},
                 msg: "invalid argument, missing devices".to_string(),
             });
         }
 
         let backend = PoolType::try_from(args.pooltype).map_err(|_| {
             LvsError::Invalid {
-                source: Errno::EINVAL,
+                source: BsError::InvalidArgument {},
                 msg: format!("invalid pooltype provided: {}", args.pooltype),
             }
         })?;
@@ -183,7 +182,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             if let Some(s) = args.uuid.clone() {
                 let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| {
                     LvsError::Invalid {
-                        source: Errno::EINVAL,
+                        source: BsError::InvalidArgument {},
                         msg: format!("invalid uuid provided, {e}"),
                     }
                 })?;
