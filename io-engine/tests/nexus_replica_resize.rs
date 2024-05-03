@@ -2,22 +2,33 @@ pub mod common;
 
 use common::{
     compose::{
-        rpc::v1::{nexus::NexusState, GrpcConnect, SharedRpcHandle},
+        rpc::v1::{
+            nexus::NexusState,
+            snapshot::NexusCreateSnapshotReplicaDescriptor,
+            GrpcConnect,
+            SharedRpcHandle,
+        },
         Binary,
         Builder,
     },
-    fio::{FioBuilder, FioJobBuilder},
+    fio::{Fio, FioBuilder, FioJobBuilder},
     nexus::NexusBuilder,
     pool::PoolBuilder,
     replica::ReplicaBuilder,
 };
+use io_engine::core::SnapshotParams;
+use once_cell::sync::OnceCell;
+use std::path::PathBuf;
+use tokio::task::JoinHandle;
 
 use async_trait::async_trait;
 
-const POOL_SIZE: u64 = 500; // 500MiB
-const REPL_SIZE: u64 = 400; // 400MiB
-const EXPANDED_SIZE: u64 = 471859200; //450 MiB
+const POOL_SIZE: u64 = 800; // 800MiB
+const REPL_SIZE: u64 = 200; // 200MiB
+const EXPANDED_SIZE: u64 = 262144000; //250 MiB
 const DEFAULT_REPLICA_CNT: usize = 3;
+
+static NEXUS_CONNECT_PATH: OnceCell<PathBuf> = OnceCell::new();
 
 async fn compose_ms_nodes() -> io_engine_tests::compose::ComposeTest {
     common::composer_init();
@@ -55,6 +66,7 @@ enum ResizeTest {
     WithoutReplicaResize,
     AfterReplicaResize,
     WithRebuildingReplica,
+    ResizeAfterSnapshot,
 }
 
 // Define a trait for the test functions
@@ -64,6 +76,7 @@ trait ResizeTestTrait {
         &self,
         nexus: &NexusBuilder,
         replicas: Vec<&mut ReplicaBuilder>,
+        fio_instance: JoinHandle<Fio>,
     );
 }
 
@@ -74,6 +87,7 @@ impl ResizeTestTrait for ResizeTest {
         &self,
         nexus: &NexusBuilder,
         replicas: Vec<&mut ReplicaBuilder>,
+        fio_instance: JoinHandle<Fio>,
     ) {
         match self {
             ResizeTest::WithoutReplicaResize => {
@@ -84,6 +98,9 @@ impl ResizeTestTrait for ResizeTest {
             }
             ResizeTest::WithRebuildingReplica => {
                 do_resize_with_rebuilding_replica(nexus, replicas).await
+            }
+            ResizeTest::ResizeAfterSnapshot => {
+                do_resize_after_snapshot(nexus, replicas, fio_instance).await
             }
         }
     }
@@ -148,6 +165,91 @@ async fn do_resize_with_rebuilding_replica(
         NexusState::NexusDegraded as i32
     );
     do_resize_after_replica_resize(nexus, replicas).await
+}
+
+async fn do_resize_after_snapshot(
+    nexus: &NexusBuilder,
+    replicas: Vec<&mut ReplicaBuilder>,
+    fio_instance: JoinHandle<Fio>,
+) {
+    // Params for first snapshot (before volume expansion).
+    let snapshot1_params = SnapshotParams::new(
+        Some(String::from("ent1")),
+        Some(String::from("p1")),
+        Some(uuid::Uuid::new_v4().to_string()),
+        Some(String::from("snap_pre_vol_resize")),
+        Some(uuid::Uuid::new_v4().to_string()),
+        Some(chrono::Utc::now().to_string()),
+        false,
+    );
+
+    let num_descs = replicas.len();
+    let mut replica_descs: Vec<NexusCreateSnapshotReplicaDescriptor> =
+        Vec::with_capacity(num_descs);
+    for replica in &replicas {
+        replica_descs.push(NexusCreateSnapshotReplicaDescriptor {
+            replica_uuid: replica.uuid().to_string(),
+            snapshot_uuid: Some(uuid::Uuid::new_v4().to_string()),
+            skip: false,
+        })
+    }
+
+    // Create the snapshot prior to expansion.
+    nexus
+        .create_nexus_snapshot(&snapshot1_params, &replica_descs)
+        .await
+        .expect("Snapshot creation failed for a multireplica nexus");
+
+    // Params for second snapshot (after volume expansion).
+    let snapshot2_params = SnapshotParams::new(
+        Some(String::from("ent1")),
+        Some(String::from("p1")),
+        Some(uuid::Uuid::new_v4().to_string()),
+        Some(String::from("snap_post_vol_resize")),
+        Some(uuid::Uuid::new_v4().to_string()),
+        Some(chrono::Utc::now().to_string()),
+        false,
+    );
+    let mut replica_descs2: Vec<NexusCreateSnapshotReplicaDescriptor> =
+        Vec::with_capacity(num_descs);
+    for replica in &replicas {
+        replica_descs2.push(NexusCreateSnapshotReplicaDescriptor {
+            replica_uuid: replica.uuid().to_string(),
+            snapshot_uuid: Some(uuid::Uuid::new_v4().to_string()),
+            skip: false,
+        })
+    }
+
+    // Expand the nexus and underlying replicas now.
+    do_resize_after_replica_resize(nexus, replicas).await;
+    // Let the running fio finish and start a new fio spanning the expanded
+    // capacity.
+    let _ = fio_instance.await;
+
+    // Create the snapshot after expansion.
+    nexus
+        .create_nexus_snapshot(&snapshot2_params, &replica_descs2)
+        .await
+        .expect("Snapshot creation failed for a multireplica nexus");
+
+    // Run I/O on the nexus again and expect no error.
+    let cpath = NEXUS_CONNECT_PATH.get().unwrap();
+
+    let fio = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::new()
+                .with_name("fio_post_vol_resize")
+                .with_filename(cpath)
+                .with_ioengine("libaio")
+                .with_iodepth(4)
+                .with_numjobs(1)
+                .with_direct(true)
+                .with_rw("randrw")
+                .build(),
+        )
+        .build();
+
+    tokio::spawn(async { fio.run() }).await.unwrap();
 }
 
 /// Creates a nexus of 3 replicas and resize the replicas and nexus bdev while
@@ -221,6 +323,8 @@ async fn setup_cluster_and_run(cfg: StorConfig, test: ResizeTest) {
     // Run I/O on the nexus in a thread, and resize the underlying replicas
     // and the nexus's size.
     let (_cg, path) = nex_0.nvmf_location().open().unwrap();
+    // Save for later use.
+    let _ = NEXUS_CONNECT_PATH.set(path.clone());
 
     let fio = FioBuilder::new()
         .with_job(
@@ -231,18 +335,18 @@ async fn setup_cluster_and_run(cfg: StorConfig, test: ResizeTest) {
                 .with_iodepth(4)
                 .with_numjobs(1)
                 .with_direct(true)
-                .with_rw("write")
+                .with_rw("randrw")
                 .with_runtime(20)
                 .build(),
         )
         .build();
 
-    tokio::task::spawn_blocking(|| fio.run());
+    let fparam: JoinHandle<Fio> = tokio::task::spawn_blocking(|| fio.run());
 
     // Wait a few secs for fio to have started.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    test.call(&nex_0, vec![&mut repl_0, &mut repl_1, &mut repl_2])
+    test.call(&nex_0, vec![&mut repl_0, &mut repl_1, &mut repl_2], fparam)
         .await;
 }
 
@@ -305,6 +409,30 @@ async fn resize_with_rebuilding_replica() {
             ms_rep_2,
         },
         ResizeTest::WithRebuildingReplica,
+    )
+    .await
+}
+
+/// This test creates a volume and runs IO on it. Takes a snapshot of that
+/// volume. Expands the volume and lets fio finish, and takes a second snapshot.
+/// Runs the fio again on the volume.
+#[tokio::test]
+async fn resize_after_snapshot() {
+    let test = compose_ms_nodes().await;
+
+    let conn = GrpcConnect::new(&test);
+
+    let ms_nex_0 = conn.grpc_handle_shared("ms_nex_0").await.unwrap();
+    let ms_rep_1 = conn.grpc_handle_shared("ms_rep_1").await.unwrap();
+    let ms_rep_2 = conn.grpc_handle_shared("ms_rep_2").await.unwrap();
+
+    setup_cluster_and_run(
+        StorConfig {
+            ms_nex_0,
+            ms_rep_1,
+            ms_rep_2,
+        },
+        ResizeTest::ResizeAfterSnapshot,
     )
     .await
 }
