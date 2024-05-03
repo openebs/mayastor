@@ -1,20 +1,14 @@
 use crate::{
-    core::{
-        LogicalVolume,
-        MayastorFeatures,
-        NvmfShareProps,
-        ProtectedSubsystems,
-        Protocol,
-        ResourceLockManager,
-        Share,
-        UpdateProps,
+    core::{LogicalVolume, MayastorFeatures},
+    grpc::{
+        lvm_enabled,
+        v1::{pool::PoolGrpc, replica::ReplicaGrpc},
+        GrpcResult,
     },
-    grpc::{acquire_subsystem_lock, lvm_enabled, GrpcResult},
     lvm,
     lvm::{CmnQueryArgs, Error, QueryArgs},
 };
 use io_engine_api::v1::{pool::PoolType, replica::*};
-use std::convert::TryFrom;
 use tonic::{Request, Response, Status};
 
 #[derive(Debug, Clone)]
@@ -46,14 +40,42 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.create_lvm_replica(request.into_inner()).await
+        let args = request.into_inner();
+        lvm_enabled()?;
+
+        crate::lvm_run!(async move {
+            let pool = lvm::VolumeGroup::lookup(
+                CmnQueryArgs::ours().uuid(&args.pooluuid),
+            )
+            .await?;
+
+            PoolGrpc::new(pool).create_replica(args).await
+        })
     }
 
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<()> {
-        self.destroy_lvm_replica(request.into_inner()).await
+        let args = request.into_inner();
+        lvm_enabled()?;
+
+        crate::lvm_run!(async move {
+            let query =
+                QueryArgs::new().with_lv(CmnQueryArgs::ours().uuid(&args.uuid));
+            let query = match &args.pool {
+                Some(destroy_replica_request::Pool::PoolUuid(uuid)) => {
+                    query.with_vg(CmnQueryArgs::ours().uuid(uuid))
+                }
+                Some(destroy_replica_request::Pool::PoolName(name)) => {
+                    query.with_vg(CmnQueryArgs::ours().named(name))
+                }
+                None => query,
+            };
+
+            let replica = lvm::LogicalVolume::lookup(&query).await?;
+            ReplicaGrpc::new(replica).destroy().await
+        })
     }
 
     async fn list_replicas(
@@ -67,211 +89,84 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ShareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.share_lvm_replica(request.into_inner()).await
+        let args = request.into_inner();
+        lvm_enabled()?;
+
+        crate::lvm_run!(async move {
+            let replica = lvm::LogicalVolume::lookup(
+                &QueryArgs::new()
+                    .with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
+            )
+            .await?;
+
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.share(args).await?;
+            Ok(replica.into())
+        })
     }
 
     async fn unshare_replica(
         &self,
         request: Request<UnshareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.unshare_lvm_replica(request.into_inner()).await
+        let args = request.into_inner();
+        lvm_enabled()?;
+
+        crate::lvm_run!(async move {
+            let replica = lvm::LogicalVolume::lookup(
+                &QueryArgs::new()
+                    .with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
+            )
+            .await?;
+
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.unshare().await?;
+            Ok(replica.into())
+        })
     }
 
     async fn resize_replica(
         &self,
         request: Request<ResizeReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.resize_lvm_replica(request.into_inner()).await
+        let args = request.into_inner();
+        lvm_enabled()?;
+
+        crate::lvm_run!(async move {
+            let replica = lvm::LogicalVolume::lookup(
+                &QueryArgs::new()
+                    .with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
+            )
+            .await?;
+
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.resize(args.requested_size).await?;
+            Ok(replica.into())
+        })
     }
 
     async fn set_replica_entity_id(
         &self,
         request: Request<SetReplicaEntityIdRequest>,
     ) -> GrpcResult<Replica> {
-        self.set_replica_entity_id(request.into_inner()).await
+        let args = request.into_inner();
+        lvm_enabled()?;
+
+        crate::lvm_run!(async move {
+            let replica = lvm::LogicalVolume::lookup(
+                &QueryArgs::new()
+                    .with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
+            )
+            .await?;
+
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.set_entity_id(args.entity_id).await?;
+            Ok(replica.into())
+        })
     }
 }
 
 impl ReplicaService {
-    async fn create_lvm_replica(
-        &self,
-        args: CreateReplicaRequest,
-    ) -> GrpcResult<Replica> {
-        lvm_enabled()?;
-
-        let share = Protocol::try_from(args.share)?;
-
-        let pool =
-            lvm::VolumeGroup::lookup(CmnQueryArgs::ours().uuid(&args.pooluuid))
-                .await?;
-
-        let pool_subsystem = ResourceLockManager::get_instance()
-            .get_subsystem(ProtectedSubsystems::POOL);
-        let _lock_guard =
-            acquire_subsystem_lock(pool_subsystem, Some(pool.name())).await?;
-
-        let (mut lvol, created) =
-            match lvm::LogicalVolume::lookup(&lvm::QueryArgs::new().with_lv(
-                CmnQueryArgs::ours().uuid(&args.uuid).named(&args.name),
-            ))
-            .await
-            {
-                Ok(lvol) => (lvol, false),
-                Err(_) => (
-                    lvm::LogicalVolume::create(
-                        &args.pooluuid,
-                        &args.name,
-                        args.size,
-                        &args.uuid,
-                        args.thin,
-                        &args.entity_id,
-                        share,
-                    )
-                    .await?,
-                    true,
-                ),
-            };
-
-        let protocol = Protocol::try_from(args.share)?;
-        match protocol {
-            Protocol::Nvmf => {
-                let props = NvmfShareProps::new()
-                    .with_allowed_hosts(args.allowed_hosts)
-                    .with_ptpl(lvol.create_ptpl()?);
-
-                if let Err(error) = lvol.share_nvmf(Some(props)).await {
-                    error!("Failed to share lvol: {error}...");
-                    if created {
-                        // if we have created it here, then let's undo it
-                        lvol.destroy().await.ok();
-                    }
-                    return Err(error.into());
-                }
-            }
-            Protocol::Off => {
-                if lvol.share() != Protocol::Off {
-                    lvol.unshare().await?;
-                }
-            }
-        }
-
-        if !created {
-            return Err(Status::already_exists(format!("{lvol:?}")));
-        }
-
-        Ok(Response::new(Replica::from(lvol)))
-    }
-
-    async fn destroy_lvm_replica(
-        &self,
-        args: DestroyReplicaRequest,
-    ) -> GrpcResult<()> {
-        lvm_enabled()?;
-
-        let query =
-            QueryArgs::new().with_lv(CmnQueryArgs::ours().uuid(&args.uuid));
-        let query = match &args.pool {
-            Some(destroy_replica_request::Pool::PoolUuid(uuid)) => {
-                query.with_vg(CmnQueryArgs::ours().uuid(uuid))
-            }
-            Some(destroy_replica_request::Pool::PoolName(name)) => {
-                query.with_vg(CmnQueryArgs::ours().named(name))
-            }
-            None => query,
-        };
-
-        let replica = lvm::LogicalVolume::lookup(&query).await?;
-        replica.destroy().await?;
-
-        Ok(Response::new(()))
-    }
-
-    async fn share_lvm_replica(
-        &self,
-        args: ShareReplicaRequest,
-    ) -> GrpcResult<Replica> {
-        lvm_enabled()?;
-        let protocol = Protocol::try_from(args.share)?;
-
-        let mut lvol = lvm::LogicalVolume::lookup(
-            &QueryArgs::new().with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
-        )
-        .await?;
-
-        let pool_subsystem = ResourceLockManager::get_instance()
-            .get_subsystem(ProtectedSubsystems::POOL);
-        let _lock_guard =
-            acquire_subsystem_lock(pool_subsystem, Some(lvol.vg_name()))
-                .await?;
-
-        // if we are already shared with the same protocol
-        if lvol.share_proto() == Some(protocol) {
-            lvol.update_share_props(
-                UpdateProps::new().with_allowed_hosts(args.allowed_hosts),
-            )
-            .await?;
-            return Ok(Response::new(Replica::from(lvol)));
-        }
-
-        match protocol {
-            Protocol::Off => {
-                return Err(Status::invalid_argument(
-                    "invalid share protocol NONE",
-                ));
-            }
-            Protocol::Nvmf => {
-                let props = NvmfShareProps::new()
-                    .with_allowed_hosts(args.allowed_hosts)
-                    .with_ptpl(lvol.create_ptpl()?);
-                lvol.share_nvmf(Some(props)).await?;
-            }
-        }
-
-        Ok(Response::new(Replica::from(lvol)))
-    }
-
-    async fn unshare_lvm_replica(
-        &self,
-        args: UnshareReplicaRequest,
-    ) -> GrpcResult<Replica> {
-        lvm_enabled()?;
-
-        let mut lvol = lvm::LogicalVolume::lookup(
-            &lvm::QueryArgs::new()
-                .with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
-        )
-        .await?;
-
-        if lvol.share_proto().is_some() {
-            lvol.unshare().await?;
-        }
-
-        Ok(Response::new(lvol.into()))
-    }
-
-    async fn resize_lvm_replica(
-        &self,
-        args: ResizeReplicaRequest,
-    ) -> GrpcResult<Replica> {
-        lvm_enabled()?;
-
-        let mut replica = lvm::LogicalVolume::lookup(
-            &lvm::QueryArgs::new()
-                .with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
-        )
-        .await?;
-
-        replica.resize(args.requested_size).await?;
-        Ok(Response::new(replica.into()))
-    }
-
-    async fn set_replica_entity_id(
-        &self,
-        _args: SetReplicaEntityIdRequest,
-    ) -> GrpcResult<Replica> {
-        Err(Status::invalid_argument(""))
-    }
-
     pub(crate) async fn list_lvm_replicas(
         &self,
         args: &ListReplicaOptions,

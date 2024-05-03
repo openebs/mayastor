@@ -1,6 +1,15 @@
 use crate::{
-    core::{logical_volume::LvolSpaceUsage, Protocol},
+    core::{
+        logical_volume::LvolSpaceUsage,
+        NvmfShareProps,
+        ProtectedSubsystems,
+        Protocol,
+        ResourceLockManager,
+        Share,
+        UpdateProps,
+    },
     grpc::{
+        acquire_subsystem_lock,
         v1::pool::PoolProbe,
         GrpcClientContext,
         GrpcResult,
@@ -8,6 +17,7 @@ use crate::{
         RWSerializer,
     },
     pool_backend::PoolBackend,
+    replica_backend::ReplicaOps,
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -167,6 +177,88 @@ pub(crate) fn filter_replicas_by_replica_type(
             })
         })
         .collect()
+}
+
+pub(crate) struct ReplicaGrpc<R: ReplicaOps> {
+    replica: R,
+}
+
+impl<R: ReplicaOps + Into<Replica>> From<ReplicaGrpc<R>> for Replica {
+    fn from(value: ReplicaGrpc<R>) -> Self {
+        value.replica.into()
+    }
+}
+
+impl<R: ReplicaOps> ReplicaGrpc<R>
+where
+    Status: From<<R as ReplicaOps>::ReplError> + From<<R as Share>::Error>,
+    Replica: From<R>,
+{
+    pub(crate) fn new(replica: R) -> Self {
+        Self {
+            replica,
+        }
+    }
+    pub(crate) async fn destroy(self) -> Result<(), Status> {
+        self.replica.destroy().await?;
+        Ok(())
+    }
+    pub(crate) async fn share(
+        &mut self,
+        args: ShareReplicaRequest,
+    ) -> Result<(), Status> {
+        let pool_name = self.replica.pool_name();
+        let pool_subsystem = ResourceLockManager::get_instance()
+            .get_subsystem(ProtectedSubsystems::POOL);
+        let _lock_guard =
+            acquire_subsystem_lock(pool_subsystem, Some(&pool_name)).await?;
+
+        let protocol = Protocol::try_from(args.share)?;
+        // if we are already shared with the same protocol
+        if self.replica.shared() == Some(protocol) {
+            self.replica
+                .update_properties(
+                    UpdateProps::new().with_allowed_hosts(args.allowed_hosts),
+                )
+                .await?;
+            return Ok(());
+        }
+
+        if let Protocol::Off = protocol {
+            return Err(Status::invalid_argument(
+                "Invalid share protocol NONE",
+            ));
+        }
+
+        let props = NvmfShareProps::new()
+            .with_allowed_hosts(args.allowed_hosts)
+            .with_ptpl(self.replica.create_ptpl()?);
+        self.replica.share_nvmf(props).await?;
+        Ok(())
+    }
+    pub(crate) async fn unshare(&mut self) -> Result<(), Status> {
+        let pool_name = self.replica.pool_name();
+        let pool_subsystem = ResourceLockManager::get_instance()
+            .get_subsystem(ProtectedSubsystems::POOL);
+        let _lock_guard =
+            acquire_subsystem_lock(pool_subsystem, Some(&pool_name)).await?;
+
+        if self.replica.shared().is_some() {
+            self.replica.unshare().await?;
+        }
+        Ok(())
+    }
+    pub(crate) async fn resize(&mut self, resize: u64) -> Result<(), Status> {
+        self.replica.resize(resize).await?;
+        Ok(())
+    }
+    pub(crate) async fn set_entity_id(
+        &mut self,
+        id: String,
+    ) -> Result<(), Status> {
+        self.replica.set_entity_id(id).await?;
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]

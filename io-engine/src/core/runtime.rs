@@ -54,7 +54,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(4)
-        .max_blocking_threads(2)
+        .max_blocking_threads(6)
         .on_thread_start(Mthread::unaffinitize)
         .build()
         .unwrap();
@@ -65,6 +65,11 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 });
 
 impl Runtime {
+    pub fn new(rt: tokio::runtime::Runtime) -> Self {
+        Self {
+            rt,
+        }
+    }
     fn block_on(&self, f: impl Future<Output = ()> + Send + 'static) {
         self.rt.block_on(f);
     }

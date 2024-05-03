@@ -1,7 +1,21 @@
 use crate::{
-    grpc::{GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    core::{
+        NvmfShareProps,
+        ProtectedSubsystems,
+        Protocol,
+        ResourceLockManager,
+        Share,
+    },
+    grpc::{
+        acquire_subsystem_lock,
+        GrpcClientContext,
+        GrpcResult,
+        RWLock,
+        RWSerializer,
+    },
     lvs::{BsError, LvsError},
-    pool_backend::{PoolArgs, PoolBackend},
+    pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
+    replica_backend::ReplicaOps,
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -202,6 +216,76 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
 impl Default for PoolService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub(crate) struct PoolGrpc<P: PoolOps> {
+    pool: P,
+}
+
+impl<P: PoolOps> PoolGrpc<P>
+where
+    Status: From<<P as PoolOps>::Error>,
+    Status: From<<<P as PoolOps>::Replica as Share>::Error>,
+    io_engine_api::v1::replica::Replica: From<<P as PoolOps>::Replica>,
+{
+    pub(crate) fn new(pool: P) -> Self {
+        Self {
+            pool,
+        }
+    }
+    pub(crate) async fn create_replica(
+        &self,
+        args: io_engine_api::v1::replica::CreateReplicaRequest,
+    ) -> Result<io_engine_api::v1::replica::Replica, Status> {
+        let protocol = Protocol::try_from(args.share)?;
+        let pool_subsystem = ResourceLockManager::get_instance()
+            .get_subsystem(ProtectedSubsystems::POOL);
+        let _lock_guard =
+            acquire_subsystem_lock(pool_subsystem, Some(&args.name)).await?;
+        match self
+            .pool
+            .create_repl(ReplicaArgs {
+                name: args.name.to_string(),
+                size: args.size,
+                uuid: args.uuid,
+                thin: args.thin,
+                entity_id: args.entity_id,
+            })
+            .await
+        {
+            Ok(mut replica) if protocol == Protocol::Nvmf => {
+                let props = NvmfShareProps::new()
+                    .with_allowed_hosts(args.allowed_hosts)
+                    .with_ptpl(replica.create_ptpl()?);
+                match replica.share_nvmf(props).await {
+                    Ok(share_uri) => {
+                        debug!("created and shared {replica:?} as {share_uri}");
+                        Ok(io_engine_api::v1::replica::Replica::from(replica))
+                    }
+                    Err(error) => {
+                        warn!(
+                            "failed to share created lvol {replica:?}: {error} (destroying)"
+                        );
+                        let _ = replica.destroy().await;
+                        Err(error.into())
+                    }
+                }
+            }
+            Ok(replica) => {
+                debug!("created lvol {:?}", replica);
+                Ok(io_engine_api::v1::replica::Replica::from(replica))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub(crate) async fn destroy(self) -> Result<(), tonic::Status> {
+        self.pool.destroy().await?;
+        Ok(())
+    }
+    pub(crate) async fn export(self) -> Result<(), tonic::Status> {
+        self.pool.export().await?;
+        Ok(())
     }
 }
 
