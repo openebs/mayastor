@@ -56,13 +56,13 @@ let
   # 7. Copy SHA256 from 'got' of the error message to 'sha256' field.
   # 8. 'nix-shell' build must now succeed.
   drvAttrs = rec {
-    version = "23.05-4ffc9d2";
+    version = "24.01-535a9e2";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "4ffc9d2259c810e3ef3bc212112e629820c2add6";
-      sha256 = "sha256-3X9eRe/8fO4E1bv3XT5mhRm795kT23TtmfPKli74yL0=";
+      rev = "535a9e23cf9c0692e307a72f18856a528cdec9ce";
+      sha256 = "sha256-1FhOOr3gjmmk/p0IACI/A/uIIN2yiFxGSLAr377HiZQ=";
       fetchSubmodules = true;
     };
 
@@ -117,13 +117,15 @@ let
     [
       "--with-uring"
       "--without-uring-zns"
+      "--without-nvme-cuse"
+      "--without-fuse"
       "--disable-unit-tests"
       "--disable-tests"
     ];
 
     configurePhase = ''
       patchShebangs ./. > /dev/null
-      export AS=yasm
+      export AS=nasm
       ./configure ${builtins.concatStringsSep " " configureFlags}
     '';
     enableParallelBuilding = true;
@@ -180,6 +182,9 @@ let
         sed -i "s,$build_dir/build/lib,$out/lib,g" $i
         sed -i "s,$build_dir/dpdk/build,$out,g" $i
         sed -i "s,$build_dir/intel-ipsec-mb/lib,$out/lib,g" $i
+        sed -i "s,$build_dir/isa-l/.libs,$out/lib,g" $i
+        sed -i "s,$build_dir/isa-l-crypto/.libs,$out/lib,g" $i
+        sed -i "s,prefix\=/usr/local,prefix\=$out,g" $i
       done
     '' + lib.optionalString (with-fio && !multi-outputs) ''
       mkdir $out/fio
@@ -204,7 +209,7 @@ in
     buildInputs = drvAttrs.buildInputs ++ [ cunit lcov ];
     configurePhase = ''
       patchShebangs ./. > /dev/null
-      export AS=yasm
+      export AS=nasm
       ./configure ${builtins.concatStringsSep " " (drvAttrs.configureFlags ++
       [
         "--enable-debug"

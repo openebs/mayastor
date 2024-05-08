@@ -44,6 +44,7 @@ pub fn inject_error(error_device: &str, op: u32, mode: u32, count: u32) {
         error_num: count,
         corrupt_offset: 0,
         corrupt_value: 0,
+        error_qd: 0,
     };
 
     unsafe {

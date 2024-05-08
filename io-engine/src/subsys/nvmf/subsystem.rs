@@ -12,7 +12,6 @@ use nix::errno::Errno;
 use spdk_rs::{
     libspdk::{
         nvmf_subsystem_find_listener,
-        nvmf_subsystem_set_ana_state,
         nvmf_subsystem_set_cntlid_range,
         spdk_bdev_nvme_opts,
         spdk_nvmf_ctrlr_set_cpl_error_cb,
@@ -42,6 +41,7 @@ use spdk_rs::{
         spdk_nvmf_subsystem_resume,
         spdk_nvmf_subsystem_set_allow_any_host,
         spdk_nvmf_subsystem_set_ana_reporting,
+        spdk_nvmf_subsystem_set_ana_state,
         spdk_nvmf_subsystem_set_event_cb,
         spdk_nvmf_subsystem_set_mn,
         spdk_nvmf_subsystem_set_sn,
@@ -979,7 +979,7 @@ impl NvmfSubsystem {
         let (s, r) = oneshot::channel::<i32>();
 
         unsafe {
-            nvmf_subsystem_set_ana_state(
+            spdk_nvmf_subsystem_set_ana_state(
                 self.0.as_ptr(),
                 trid_replica.as_ptr(),
                 ana_state,

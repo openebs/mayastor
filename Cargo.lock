@@ -381,6 +381,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.69.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a00dc851838a2120612785d195287475a3ac45514741da670b735818822129a0"
+dependencies = [
+ "bitflags 2.4.0",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.11.0",
+ "lazy_static",
+ "lazycell",
+ "log",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.38",
+ "which",
+]
+
+[[package]]
 name = "bit-vec"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -924,7 +947,7 @@ dependencies = [
 name = "devinfo"
 version = "1.0.0"
 dependencies = [
- "bindgen",
+ "bindgen 0.68.1",
  "nix",
  "semver",
  "snafu",
@@ -1891,7 +1914,7 @@ dependencies = [
 name = "libnvme-rs"
 version = "0.1.0"
 dependencies = [
- "bindgen",
+ "bindgen 0.68.1",
  "cc",
  "glob",
  "libc",
@@ -2990,10 +3013,10 @@ dependencies = [
 
 [[package]]
 name = "spdk-rs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
- "bindgen",
+ "bindgen 0.69.4",
  "cc",
  "futures",
  "nix",

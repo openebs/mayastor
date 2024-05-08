@@ -463,6 +463,8 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             nvme_error_stat: false,
             rdma_srq_size: 0,
             io_path_stat: false,
+            allow_accel_sequence: false,
+            rdma_max_cq_size: 0,
         }
     }
 }
@@ -525,7 +527,8 @@ impl From<&BdevOpts> for spdk_bdev_opts {
             bdev_auto_examine: false,
             reserved9: Default::default(),
             opts_size: std::mem::size_of::<spdk_bdev_opts>() as u64,
-            reserved: Default::default(),
+            iobuf_small_cache_size: Default::default(),
+            iobuf_large_cache_size: Default::default(),
         }
     }
 }

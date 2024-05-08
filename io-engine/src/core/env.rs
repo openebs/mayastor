@@ -20,25 +20,36 @@ use futures::{channel::oneshot, future};
 use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
+use tokio::runtime::Builder;
+use version_info::{package_description, version_info_str};
+
 use spdk_rs::{
     libspdk::{
         spdk_app_shutdown_cb,
+        spdk_env_dpdk_post_init,
+        spdk_env_fini,
+        spdk_log_close,
         spdk_log_level,
         spdk_log_open,
+        spdk_log_set_flag,
         spdk_log_set_level,
         spdk_log_set_print_level,
         spdk_pci_addr,
+        spdk_rpc_finish,
+        spdk_rpc_initialize,
         spdk_rpc_set_state,
+        spdk_subsystem_fini,
+        spdk_subsystem_init,
         spdk_thread_lib_fini,
         spdk_thread_send_critical_msg,
+        spdk_trace_cleanup,
+        spdk_env_dpdk_rte_eal_init,
         SPDK_LOG_DEBUG,
         SPDK_LOG_INFO,
         SPDK_RPC_RUNTIME,
     },
     spdk_rs_log,
 };
-use tokio::runtime::Builder;
-use version_info::{package_description, version_info_str};
 
 use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
@@ -325,26 +336,6 @@ pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
 /// keep track if we have received a signal already
 pub static SIG_RECEIVED: Lazy<AtomicBool> =
     Lazy::new(|| AtomicBool::new(false));
-
-// FFI functions that are needed to initialize the environment
-extern "C" {
-    pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
-    pub fn spdk_trace_cleanup();
-    pub fn spdk_env_dpdk_post_init(legacy_mem: bool) -> i32;
-    pub fn spdk_env_fini();
-    pub fn spdk_log_close();
-    pub fn spdk_log_set_flag(name: *const c_char, enable: bool) -> i32;
-    pub fn spdk_rpc_finish();
-    pub fn spdk_rpc_initialize(listen: *mut libc::c_char);
-    pub fn spdk_subsystem_fini(
-        f: Option<unsafe extern "C" fn(*mut c_void)>,
-        ctx: *mut c_void,
-    );
-    pub fn spdk_subsystem_init(
-        f: Option<extern "C" fn(i32, *mut c_void)>,
-        ctx: *mut c_void,
-    );
-}
 
 #[derive(Debug, Snafu)]
 pub enum EnvError {
@@ -750,7 +741,7 @@ impl MayastorEnvironment {
         debug!("EAL arguments {:?}", args);
 
         if unsafe {
-            rte_eal_init(
+            spdk_env_dpdk_rte_eal_init(
                 (cargs.len() as libc::c_int) - 1,
                 cargs.as_ptr() as *mut *mut c_char,
             )
@@ -775,7 +766,7 @@ impl MayastorEnvironment {
         unsafe {
             for flag in &self.log_component {
                 let cflag = CString::new(flag.as_str()).unwrap();
-                if spdk_log_set_flag(cflag.as_ptr(), true) != 0 {
+                if spdk_log_set_flag(cflag.as_ptr()) != 0 {
                     error!("Failed to set SPDK log flag: {:?}", cflag);
                 }
             }
@@ -901,7 +892,10 @@ impl MayastorEnvironment {
         } else {
             info!("RPC server listening at: {}", ctx.rpc.to_str().unwrap());
             unsafe {
-                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut c_char);
+                spdk_rpc_initialize(
+                    ctx.rpc.as_ptr() as *mut c_char,
+                    std::ptr::null_mut(),
+                );
                 spdk_rpc_set_state(SPDK_RPC_RUNTIME);
             };
 

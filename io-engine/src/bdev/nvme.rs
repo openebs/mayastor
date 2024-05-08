@@ -10,13 +10,9 @@ use snafu::ResultExt;
 use url::Url;
 
 use spdk_rs::{
+    bdevs::bdev_nvme_delete_async,
     ffihelper::copy_str_with_null,
-    libspdk::{
-        bdev_nvme_create,
-        bdev_nvme_delete,
-        nvme_path_id,
-        spdk_nvme_transport_id,
-    },
+    libspdk::{bdev_nvme_create, spdk_nvme_transport_id},
 };
 
 use crate::{
@@ -136,25 +132,20 @@ impl CreateDestroy for NVMe {
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
             bdev.remove_alias(self.url.as_ref());
 
-            let mut path_id = nvme_path_id::default();
-            copy_str_with_null(&self.name, &mut path_id.trid.traddr);
-            path_id.trid.trtype = spdk_rs::libspdk::SPDK_NVME_TRANSPORT_PCIE;
+            let res = bdev_nvme_delete_async(&self.name, None).await;
 
-            let errno = unsafe {
-                bdev_nvme_delete(
-                    self.name.clone().into_cstring().as_ptr(),
-                    &path_id,
-                )
-            };
-            if errno != 0 {
+            // Restore the alias in the case the deletion failed.
+            if !res.is_ok_and(|e| e.is_ok()) {
                 UntypedBdev::lookup_by_name(&self.get_name())
                     .map(|mut b| b.add_alias(self.url.as_ref()));
             }
-            errno_result_from_i32((), errno).context(
-                bdev_api::DestroyBdevFailed {
-                    name: self.name.clone(),
-                },
-            )
+
+            res.context(bdev_api::BdevCommandCanceled {
+                name: self.name.clone(),
+            })?
+            .context(bdev_api::DestroyBdevFailed {
+                name: self.name.clone(),
+            })
         } else {
             Err(BdevError::BdevNotFound {
                 name: self.get_name(),

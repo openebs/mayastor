@@ -38,6 +38,7 @@ use std::{
 use spdk_rs::{AsIoVecs, DmaBuf};
 
 pub mod common;
+
 use io_engine::{
     constants::NVME_CONTROLLER_MODEL_ID,
     core::{DeviceEventListener, DeviceEventSink, ReadOptions},
@@ -266,7 +267,7 @@ fn flag_callback_invocation() {
             false,
             true,
             Ordering::Acquire,
-            Ordering::Relaxed
+            Ordering::Relaxed,
         ),
         Ok(false),
         "Callback is called more than once"
@@ -279,7 +280,7 @@ fn check_callback_invocation() {
             true,
             false,
             Ordering::Acquire,
-            Ordering::Relaxed
+            Ordering::Relaxed,
         ),
         Ok(true),
         "Callback has not been called"
@@ -1899,5 +1900,5 @@ async fn nvmf_device_hot_remove() {
             .await
             .expect_err("Device has been successfully created for controller without namespaces");
     })
-    .await;
+        .await;
 }
