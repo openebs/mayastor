@@ -1,7 +1,8 @@
 use std::{
     cell::RefCell,
     ffi::{c_void, CString},
-    ptr::NonNull,
+    mem::zeroed,
+    ptr::{null, NonNull},
 };
 
 use nix::errno::Errno;
@@ -225,7 +226,13 @@ impl Target {
     fn listen(&mut self) -> Result<()> {
         let cfg = Config::get();
         let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
-        let mut opts = spdk_nvmf_listen_opts::default();
+        let mut opts = spdk_nvmf_listen_opts {
+            opts_size: 0,
+            transport_specific: null(),
+            secure_channel: false,
+            reserved1: unsafe { zeroed() },
+            ana_state: 0,
+        };
         unsafe {
             spdk_nvmf_listen_opts_init(
                 &mut opts,

@@ -1,6 +1,7 @@
 use std::{
     convert::TryFrom,
     ffi::{c_ushort, c_void, CString},
+    mem::zeroed,
     os::raw::c_char,
 };
 
@@ -221,7 +222,7 @@ impl SnapshotOps for Lvol {
         cb_arg: *mut c_void,
     ) -> Result<(), LvsError> {
         let mut attr_descrs: [spdk_xattr_descriptor; SnapshotXattrs::COUNT] =
-            [spdk_xattr_descriptor::default(); SnapshotXattrs::COUNT];
+            [unsafe { zeroed() }; SnapshotXattrs::COUNT];
 
         // Vector to keep allocated CStrings before snapshot  creation
         // is complete to guarantee validity of attribute buffers
@@ -385,7 +386,7 @@ impl SnapshotOps for Lvol {
         cb_arg: *mut c_void,
     ) -> Result<(), LvsError> {
         let mut attr_descrs: [spdk_xattr_descriptor; CloneXattrs::COUNT] =
-            [spdk_xattr_descriptor::default(); CloneXattrs::COUNT];
+            [unsafe { zeroed() }; CloneXattrs::COUNT];
 
         // Vector to keep allocated CStrings before snapshot  creation
         // is complete to guarantee validity of attribute buffers

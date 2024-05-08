@@ -10,6 +10,7 @@ use std::{
     ffi::{c_void, CString},
     io::{Error, ErrorKind},
     iter::Iterator,
+    mem::zeroed,
     os::raw::{c_char, c_int},
     ptr::null_mut,
     vec::Vec,
@@ -35,7 +36,7 @@ fn main() -> Result<(), std::io::Error> {
         .collect::<Vec<*const c_char>>();
     c_args.push(std::ptr::null());
 
-    let mut opts: spdk_app_opts = Default::default();
+    let mut opts: spdk_app_opts = unsafe { zeroed() };
 
     unsafe {
         spdk_app_opts_init(

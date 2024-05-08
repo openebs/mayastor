@@ -23,11 +23,14 @@ use spdk_rs::{
         spdk_sock_impl_opts,
         spdk_sock_impl_set_opts,
     },
+    struct_size_init,
 };
 
 use std::{
     convert::TryFrom,
     fmt::{Debug, Display},
+    mem::zeroed,
+    ptr::null_mut,
     str::FromStr,
 };
 
@@ -98,11 +101,14 @@ pub struct NvmfTgtConfig {
 
 impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
     fn from(o: NvmfTgtConfig) -> Self {
-        let mut out = Self::default();
+        let mut out = spdk_nvmf_target_opts {
+            name: unsafe { zeroed() },
+            max_subsystems: o.max_namespaces,
+            crdt: o.crdt,
+            discovery_filter: 0,
+        };
         copy_str_with_null(&o.name, &mut out.name);
-        out.max_subsystems = o.max_namespaces;
-        out.crdt = o.crdt;
-        out
+        Box::new(out)
     }
 }
 
@@ -346,7 +352,7 @@ pub struct NvmeBdevOpts {
 
 impl GetOpts for NvmeBdevOpts {
     fn get(&self) -> Self {
-        let opts = spdk_bdev_nvme_opts::default();
+        let opts: spdk_bdev_nvme_opts = unsafe { zeroed() };
         unsafe {
             bdev_nvme_get_opts(&opts as *const _ as *mut spdk_bdev_nvme_opts)
         };
@@ -466,6 +472,8 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             nvme_error_stat: false,
             rdma_srq_size: 0,
             io_path_stat: false,
+            allow_accel_sequence: false,
+            rdma_max_cq_size: 0,
         }
     }
 }
@@ -477,17 +485,26 @@ pub struct BdevOpts {
     bdev_io_pool_size: u32,
     /// number of bdev IO structures cached per thread
     bdev_io_cache_size: u32,
+    /// Size of the per-thread iobuf small cache.
+    iobuf_small_cache_size: u32,
+    /// Size of the per-thread iobuf large cache.
+    iobuf_large_cache_size: u32,
 }
 
 impl GetOpts for BdevOpts {
     fn get(&self) -> Self {
-        let mut opts = spdk_bdev_opts::default();
-        unsafe {
-            spdk_bdev_get_opts(
-                &mut opts,
-                std::mem::size_of::<spdk_bdev_opts>() as u64,
-            )
-        };
+        let mut opts = struct_size_init!(
+            spdk_bdev_opts {
+                bdev_io_pool_size: 0,
+                bdev_io_cache_size: 0,
+                bdev_auto_examine: false,
+                reserved9: unsafe { zeroed() },
+                iobuf_small_cache_size: 0,
+                iobuf_large_cache_size: 0,
+            },
+            opts_size
+        );
+        unsafe { spdk_bdev_get_opts(&mut opts, opts.opts_size) };
         opts.into()
     }
 
@@ -507,6 +524,8 @@ impl Default for BdevOpts {
         Self {
             bdev_io_pool_size: try_from_env("BDEV_IO_POOL_SIZE", 65535),
             bdev_io_cache_size: try_from_env("BDEV_IO_CACHE_SIZE", 512),
+            iobuf_small_cache_size: try_from_env("BUF_SMALL_CACHE_SIZE", 128),
+            iobuf_large_cache_size: try_from_env("BUF_LARGE_CACHE_SIZE", 16),
         }
     }
 }
@@ -516,20 +535,25 @@ impl From<spdk_bdev_opts> for BdevOpts {
         Self {
             bdev_io_pool_size: o.bdev_io_pool_size,
             bdev_io_cache_size: o.bdev_io_cache_size,
+            iobuf_small_cache_size: o.iobuf_small_cache_size,
+            iobuf_large_cache_size: o.iobuf_large_cache_size,
         }
     }
 }
 
 impl From<&BdevOpts> for spdk_bdev_opts {
     fn from(o: &BdevOpts) -> Self {
-        Self {
-            bdev_io_pool_size: o.bdev_io_pool_size,
-            bdev_io_cache_size: o.bdev_io_cache_size,
-            bdev_auto_examine: false,
-            reserved9: Default::default(),
-            opts_size: std::mem::size_of::<spdk_bdev_opts>() as u64,
-            reserved: Default::default(),
-        }
+        struct_size_init!(
+            Self {
+                bdev_io_pool_size: o.bdev_io_pool_size,
+                bdev_io_cache_size: o.bdev_io_cache_size,
+                bdev_auto_examine: false,
+                reserved9: Default::default(),
+                iobuf_small_cache_size: o.iobuf_small_cache_size,
+                iobuf_large_cache_size: o.iobuf_large_cache_size,
+            },
+            opts_size
+        )
     }
 }
 
@@ -573,7 +597,25 @@ impl Default for PosixSocketOpts {
 
 impl GetOpts for PosixSocketOpts {
     fn get(&self) -> Self {
-        let opts = spdk_sock_impl_opts::default();
+        let opts = spdk_sock_impl_opts {
+            recv_buf_size: 0,
+            send_buf_size: 0,
+            enable_recv_pipe: false,
+            enable_zerocopy_send: false,
+            enable_quickack: false,
+            enable_placement_id: 0,
+            enable_zerocopy_send_server: false,
+            enable_zerocopy_send_client: false,
+            zerocopy_threshold: 0,
+            tls_version: 0,
+            enable_ktls: false,
+            psk_key: null_mut(),
+            psk_key_size: 0,
+            psk_identity: null_mut(),
+            get_key: None,
+            get_key_ctx: null_mut(),
+            tls_cipher_suites: null_mut(),
+        };
 
         unsafe {
             let name = std::ffi::CString::new("posix").unwrap();
@@ -655,7 +697,12 @@ pub struct IoBufOpts {
 
 impl GetOpts for IoBufOpts {
     fn get(&self) -> Self {
-        let mut opts = spdk_iobuf_opts::default();
+        let mut opts = spdk_iobuf_opts {
+            small_pool_count: 0,
+            large_pool_count: 0,
+            small_bufsize: 0,
+            large_bufsize: 0,
+        };
         unsafe { spdk_iobuf_get_opts(&mut opts) };
         opts.into()
     }

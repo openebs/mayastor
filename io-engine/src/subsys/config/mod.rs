@@ -6,7 +6,7 @@
 //! spell out the YAML spec for a given sub component. Serde will fill
 //! in the default when missing, which are defined within the individual
 //! options.
-use std::{fmt::Display, fs, io::Write, path::Path};
+use std::{fmt::Display, fs, io::Write, mem::zeroed, path::Path};
 
 use futures::FutureExt;
 use once_cell::sync::OnceCell;
@@ -104,13 +104,16 @@ impl ConfigSubsystem {
     pub fn new() -> Self {
         static MAYASTOR_SUBSYS: &str = "MayastorConfig";
         debug!("creating Mayastor subsystem...");
-        let mut ss = Box::<spdk_subsystem>::default();
+        let mut ss = spdk_subsystem {
+            name: unsafe { zeroed() },
+            init: Some(Self::init),
+            fini: Some(Self::fini),
+            write_config_json: Some(Self::config),
+            tailq: unsafe { zeroed() },
+        };
         ss.name = std::ffi::CString::new(MAYASTOR_SUBSYS).unwrap().into_raw();
-        ss.init = Some(Self::init);
-        ss.fini = Some(Self::fini);
-        ss.write_config_json = Some(Self::config);
 
-        Self(Box::into_raw(ss))
+        Self(Box::into_raw(Box::new(ss)))
     }
 }
 

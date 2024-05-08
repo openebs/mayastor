@@ -22,6 +22,7 @@ use spdk_rs::libspdk::{
     spdk_add_subsystem_depend,
     spdk_subsystem_depend,
 };
+use std::mem::zeroed;
 
 pub use registration::{
     registration_grpc::Registration,
@@ -39,11 +40,13 @@ pub mod registration;
 pub(crate) fn register_subsystem() {
     unsafe { spdk_add_subsystem(ConfigSubsystem::new().0) }
     unsafe {
-        let mut depend = Box::<spdk_subsystem_depend>::default();
-        depend.name = b"mayastor_nvmf_tgt\0" as *const u8 as *mut _;
-        depend.depends_on = b"bdev\0" as *const u8 as *mut _;
+        let depend = spdk_subsystem_depend {
+            name: b"mayastor_nvmf_tgt\0" as *const u8 as *mut _,
+            depends_on: b"bdev\0" as *const u8 as *mut _,
+            tailq: zeroed(),
+        };
         spdk_add_subsystem(Nvmf::new().0);
-        spdk_add_subsystem_depend(Box::into_raw(depend));
+        spdk_add_subsystem_depend(Box::into_raw(Box::new(depend)));
     }
     RegistrationSubsystem::register();
 }

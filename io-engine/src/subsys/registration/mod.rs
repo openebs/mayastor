@@ -13,7 +13,7 @@ use spdk_rs::libspdk::{
     spdk_subsystem_fini_next,
     spdk_subsystem_init_next,
 };
-use std::convert::TryFrom;
+use std::{convert::TryFrom, mem::zeroed};
 
 macro_rules! default_addr {
     () => {
@@ -70,13 +70,15 @@ impl RegistrationSubsystem {
 
     fn new() -> Self {
         info!("creating Mayastor registration subsystem...");
-        let mut ss = Box::<spdk_subsystem>::default();
-        ss.name = b"mayastor_grpc_registration\x00" as *const u8
-            as *const libc::c_char;
-        ss.init = Some(Self::init);
-        ss.fini = Some(Self::fini);
-        ss.write_config_json = None;
-        Self(Box::into_raw(ss))
+        let ss = spdk_subsystem {
+            name: b"mayastor_grpc_registration\x00" as *const u8
+                as *const libc::c_char,
+            init: Some(Self::init),
+            fini: Some(Self::fini),
+            write_config_json: None,
+            tailq: unsafe { zeroed() },
+        };
+        Self(Box::into_raw(Box::new(ss)))
     }
 
     /// register the subsystem with spdk

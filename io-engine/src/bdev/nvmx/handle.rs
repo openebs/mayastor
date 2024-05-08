@@ -1,4 +1,9 @@
-use std::{alloc::Layout, mem::ManuallyDrop, os::raw::c_void, sync::Arc};
+use std::{
+    alloc::Layout,
+    mem::{zeroed, ManuallyDrop},
+    os::raw::c_void,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -1118,12 +1123,12 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         // Fill max-size ranges until the remaining blocks fit into one range.
         while remaining > SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS {
             unsafe {
-                let mut range = spdk_nvme_dsm_range::default();
-
-                range.attributes.raw = 0;
-                range.length =
-                    SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS as u32;
-                range.starting_lba = offset;
+                let range = spdk_nvme_dsm_range {
+                    attributes: zeroed(),
+                    length: SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS
+                        as u32,
+                    starting_lba: offset,
+                };
 
                 *dsm_ranges.add(range_id) = range;
             }
@@ -1135,11 +1140,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         // Setup range that describes the remaining blocks and schedule unmap.
         let rc = unsafe {
-            let mut range = spdk_nvme_dsm_range::default();
-
-            range.attributes.raw = 0;
-            range.length = remaining as u32;
-            range.starting_lba = offset;
+            let range = spdk_nvme_dsm_range {
+                attributes: zeroed(),
+                length: remaining as u32,
+                starting_lba: offset,
+            };
 
             *dsm_ranges.add(range_id) = range;
 
