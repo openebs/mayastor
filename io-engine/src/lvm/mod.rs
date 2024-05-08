@@ -53,6 +53,19 @@ use crate::{
 };
 use futures::channel::oneshot::Receiver;
 
+pub(super) fn is_alphanumeric(name: &str, value: &str) -> Result<(), Error> {
+    if value.chars().any(|c| {
+        !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+'))
+    }) {
+        return Err(Error::NotFound {
+            query: format!(
+                "{name}('{value}') invalid: must be [a-zA-Z0-9.-_+]"
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// The LVM code currently uses an async executor which is not runnable within
 /// the spdk reactor, and as such we need a trampoline in order to use spdk
 /// functionality within the LVM code.

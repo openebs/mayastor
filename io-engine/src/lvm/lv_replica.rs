@@ -53,25 +53,29 @@ impl QueryArgs {
     }
     /// Get a comma-separated list of query selection args.
     /// todo: should be Display trait?
-    pub(super) fn query(&self) -> String {
-        let mut select = self.vg.query();
+    pub(super) fn query(&self) -> Result<String, Error> {
+        let mut select = self.vg.query()?;
         let args = &self.lv;
 
         if self.regular_lv {
             if let Some(lv_name) = &args.name {
+                super::is_alphanumeric("lv_name", lv_name)?;
                 select.push_str(&format!("lv_name={lv_name},"));
             }
             if let Some(lv_uuid) = &args.uuid {
+                super::is_alphanumeric("lv_uuid", lv_uuid)?;
                 select.push_str(&format!("lv_uuid={lv_uuid},"));
             }
         } else {
             if let Some(name) = &args.name {
+                super::is_alphanumeric("name", name)?;
                 select.push_str(&format!(
                     "lv_tags={},",
                     Property::LvName(name.to_string()).tag()
                 ));
             }
             if let Some(lv_name) = &args.uuid {
+                super::is_alphanumeric("lv_name", lv_name)?;
                 select.push_str(&format!("lv_name={lv_name},"));
             }
         }
@@ -79,7 +83,7 @@ impl QueryArgs {
         if let Some(lv_tag) = &args.tag {
             select.push_str(&format!("lv_tags={lv_tag},"));
         }
-        select
+        Ok(select)
     }
 }
 
@@ -220,7 +224,7 @@ impl LogicalVolume {
     pub(crate) async fn lookup(args: &QueryArgs) -> Result<Self, Error> {
         let vgs = Self::list(args).await?;
         vgs.into_iter().next().ok_or(Error::LvNotFound {
-            query: args.query(),
+            query: args.query().unwrap_or_else(|e| e.to_string()),
         })
     }
 
@@ -257,7 +261,7 @@ impl LogicalVolume {
             "--nosuffix",
             "-q",
         ];
-        let select = opts.query();
+        let select = opts.query()?;
         let select_query = format!("--select={select}");
         if !select.is_empty() {
             args.push(select_query.trim_end_matches(','));

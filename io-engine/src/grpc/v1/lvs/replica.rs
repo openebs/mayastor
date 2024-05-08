@@ -12,7 +12,7 @@ use crate::{
         v1::{pool::PoolGrpc, replica::ReplicaGrpc},
         GrpcResult,
     },
-    lvs::{LvsError, BsError, Lvol, Lvs, LvsLvol},
+    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol},
 };
 use io_engine_api::v1::{pool::PoolType, replica::*};
 use std::convert::TryFrom;

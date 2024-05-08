@@ -3,12 +3,12 @@ use crate::{
     grpc::{
         acquire_subsystem_lock,
         lvm_enabled,
-        v1::pool::{PoolGrpc, PoolProbe},
+        v1::pool::{PoolGrpc, PoolIdProbe, PoolSvcRpc},
         GrpcResult,
     },
     lvm::{CmnQueryArgs, Error as LvmError, VolumeGroup},
     lvs::Lvs,
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 use io_engine_api::v1::pool::*;
 use std::{convert::TryFrom, fmt::Debug};
@@ -28,16 +28,16 @@ impl PoolService {
     }
     /// Probe the LVM Pool service for a pool.
     pub(crate) async fn probe(
-        probe: &PoolProbe,
+        probe: &PoolIdProbe,
     ) -> Result<bool, tonic::Status> {
         if !MayastorFeatures::get_features().lvm() {
             return Ok(false);
         }
 
         let query = match probe {
-            PoolProbe::Uuid(uuid) => CmnQueryArgs::ours().uuid(uuid),
-            PoolProbe::UuidOrName(uuid) => CmnQueryArgs::ours().uuid(uuid),
-            PoolProbe::NameUuid {
+            PoolIdProbe::Uuid(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            PoolIdProbe::UuidOrName(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            PoolIdProbe::NameUuid {
                 name,
                 uuid,
             } => CmnQueryArgs::ours().named(name).uuid_opt(uuid),
@@ -99,6 +99,13 @@ async fn find_pool(
         VolumeGroup::lookup(CmnQueryArgs::ours().named(name).uuid_opt(uuid))
             .await?;
     Ok(pool)
+}
+
+#[async_trait::async_trait]
+impl PoolSvcRpc for PoolService {
+    fn kind(&self) -> PoolBackend {
+        PoolBackend::Lvm
+    }
 }
 
 #[tonic::async_trait]

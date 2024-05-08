@@ -54,6 +54,13 @@ def test_fail_destroying_a_replica_that_does_not_exist():
     """Destroying a replica that does not exist."""
 
 
+@scenario(
+    "features/replica.feature", "destroying a replica that does not exist in the pool"
+)
+def test_fail_destroying_a_replica_that_does_not_exist_in_the_pool():
+    """Destroying a replica that does not exist in the pool."""
+
+
 @scenario("features/replica.feature", "listing replicas")
 def test_listing_replicas():
     """Listing replicas."""
@@ -315,6 +322,23 @@ def the_user_destroys_a_replica_that_does_not_exist(
             replica_pb.DestroyReplicaRequest(uuid=replica_uuid)
         )
     assert error.value.code() == grpc.StatusCode.NOT_FOUND
+
+
+@when(
+    "the user destroys a replica that does not exist in the pool",
+    target_fixture="the_user_destroys_a_replica_that_does_not_exist_in_the_pool",
+)
+def the_user_destroys_a_replica_that_does_not_exist(
+    mayastor_instance, find_replica, replica_name, replica_uuid
+):
+    assert find_replica(replica_name, replica_uuid) == None
+    with pytest.raises(grpc.RpcError) as error:
+        mayastor_instance.replica_rpc.DestroyReplica(
+            replica_pb.DestroyReplicaRequest(
+                uuid=replica_uuid, pool_name="does not exist"
+            )
+        )
+    assert error.value.code() == grpc.StatusCode.FAILED_PRECONDITION
 
 
 @when("the user destroys the replica")

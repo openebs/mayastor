@@ -10,7 +10,7 @@ use crate::{
     },
     grpc::{
         acquire_subsystem_lock,
-        v1::pool::PoolProbe,
+        v1::pool::PoolIdProbe,
         GrpcClientContext,
         GrpcResult,
         RWLock,
@@ -108,6 +108,22 @@ impl RWLock for ReplicaService {
     }
 }
 
+enum Probe<'a> {
+    Replica(&'a str),
+    Pool(PoolIdProbe),
+    ReplicaPool(&'a str, Option<PoolIdProbe>),
+}
+impl<'a> From<&'a String> for Probe<'a> {
+    fn from(value: &'a String) -> Self {
+        Self::Replica(value.as_str())
+    }
+}
+impl From<PoolIdProbe> for Probe<'_> {
+    fn from(value: PoolIdProbe) -> Self {
+        Self::Pool(value)
+    }
+}
+
 impl ReplicaService {
     pub fn new(pool_svc: super::pool::PoolService) -> Self {
         Self {
@@ -118,34 +134,47 @@ impl ReplicaService {
     }
 
     /// Probe backends for the given replica uuid and return the right one.
-    async fn probe_backend(
+    async fn probe_backend<'a, P: Into<Probe<'a>>>(
         &self,
-        replica_uuid: &str,
+        probe: P,
     ) -> Result<Box<dyn ReplicaRpc>, tonic::Status> {
-        Ok(match self.probe_backend_kind(replica_uuid).await? {
-            PoolBackend::Lvs => Box::new(LvsSvc::new()),
-            PoolBackend::Lvm => Box::new(LvmSvc::new()),
-        })
+        let kind = match probe.into() {
+            Probe::Replica(replica_uuid)
+            | Probe::ReplicaPool(replica_uuid, None) => match (
+                LvsSvc::probe(replica_uuid).await,
+                LvmSvc::probe(replica_uuid).await,
+            ) {
+                (Ok(true), _) => Ok(PoolBackend::Lvs),
+                (_, Ok(true)) => Ok(PoolBackend::Lvm),
+                (Err(error), _) | (_, Err(error)) => Err(error),
+                _ => Err(Status::not_found(format!(
+                    "Replica {replica_uuid} not found"
+                ))),
+            }?,
+            Probe::Pool(probe) => self.pool_svc.probe(probe).await?.kind(),
+            Probe::ReplicaPool(_, Some(pool)) => {
+                match self.pool_svc.probe(pool).await {
+                    Err(status) if status.code() == tonic::Code::NotFound => {
+                        Err(Status::failed_precondition(status.to_string()))
+                    }
+                    _else => _else,
+                }?
+                .kind()
+            }
+        };
+        match kind {
+            PoolBackend::Lvs => Ok(Box::new(LvsSvc::new())),
+            PoolBackend::Lvm => Ok(Box::new(LvmSvc::new())),
+        }
     }
-    /// Probe backends for the given pool uuid and return the right one.
-    pub async fn probe_backend_pool(
-        &self,
-        probe: PoolProbe,
-    ) -> Result<Box<dyn ReplicaRpc>, tonic::Status> {
-        Ok(match self.pool_svc.probe_backend_kind(probe).await? {
-            PoolBackend::Lvs => Box::new(LvsSvc::new()),
-            PoolBackend::Lvm => Box::new(LvmSvc::new()),
-        })
-    }
-    async fn probe_backend_kind(
-        &self,
-        uuid: &str,
-    ) -> Result<PoolBackend, tonic::Status> {
-        match (LvsSvc::probe(uuid).await, LvmSvc::probe(uuid).await) {
-            (Ok(true), _) => Ok(PoolBackend::Lvs),
-            (_, Ok(true)) => Ok(PoolBackend::Lvm),
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            _ => Err(Status::not_found(format!("Replica {uuid} not found"))),
+}
+impl From<destroy_replica_request::Pool> for PoolIdProbe {
+    fn from(value: destroy_replica_request::Pool) -> Self {
+        match value {
+            destroy_replica_request::Pool::PoolName(name) => {
+                Self::UuidOrName(name)
+            }
+            destroy_replica_request::Pool::PoolUuid(uuid) => Self::Uuid(uuid),
         }
     }
 }
@@ -269,8 +298,8 @@ impl ReplicaRpc for ReplicaService {
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
         let probe =
-            PoolProbe::UuidOrName(request.get_ref().pooluuid.to_owned());
-        let backend = self.probe_backend_pool(probe).await?;
+            PoolIdProbe::UuidOrName(request.get_ref().pooluuid.to_owned());
+        let backend = self.probe_backend(probe).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
@@ -286,7 +315,7 @@ impl ReplicaRpc for ReplicaService {
                     )));
                 }
 
-                backend.create_replica(request).await
+                backend?.create_replica(request).await
             },
         )
         .await
@@ -297,13 +326,17 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<()> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await?;
+        let probe = Probe::ReplicaPool(
+            &request.get_ref().uuid,
+            request.get_ref().pool.clone().map(Into::into),
+        );
+        let backend = self.probe_backend(probe).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.destroy_replica(request).await
+                backend?.destroy_replica(request).await
             },
         )
         .await
@@ -352,13 +385,13 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ShareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await?;
+        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.share_replica(request).await
+                backend?.share_replica(request).await
             },
         )
         .await
@@ -369,13 +402,13 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<UnshareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await?;
+        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.unshare_replica(request).await
+                backend?.unshare_replica(request).await
             },
         )
         .await
@@ -386,13 +419,13 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ResizeReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await?;
+        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.resize_replica(request).await
+                backend?.resize_replica(request).await
             },
         )
         .await
@@ -403,13 +436,13 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<SetReplicaEntityIdRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await?;
+        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.set_replica_entity_id(request).await
+                backend?.set_replica_entity_id(request).await
             },
         )
         .await

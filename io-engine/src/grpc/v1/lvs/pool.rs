@@ -4,11 +4,11 @@ use crate::{
         acquire_subsystem_lock,
         rpc_submit,
         rpc_submit_ext,
-        v1::pool::{PoolGrpc, PoolProbe},
+        v1::pool::{PoolGrpc, PoolIdProbe, PoolSvcRpc},
         GrpcResult,
     },
     lvs::{BsError, Lvs, LvsError},
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 use io_engine_api::v1::pool::*;
 use std::{convert::TryFrom, fmt::Debug};
@@ -27,15 +27,17 @@ impl PoolService {
         Self {}
     }
     /// Probe the LVS Pool service for a pool.
-    pub(crate) async fn probe(probe: PoolProbe) -> Result<bool, tonic::Status> {
+    pub(crate) async fn probe(
+        probe: PoolIdProbe,
+    ) -> Result<bool, tonic::Status> {
         let rx = rpc_submit_ext(async move {
             match probe {
-                PoolProbe::Uuid(uuid) => Lvs::lookup_by_uuid(&uuid).is_some(),
-                PoolProbe::UuidOrName(id) => {
+                PoolIdProbe::Uuid(uuid) => Lvs::lookup_by_uuid(&uuid).is_some(),
+                PoolIdProbe::UuidOrName(id) => {
                     Lvs::lookup_by_uuid(&id).is_some()
                         || Lvs::lookup(&id).is_some()
                 }
-                PoolProbe::NameUuid {
+                PoolIdProbe::NameUuid {
                     name,
                     uuid,
                 } => match uuid {
@@ -88,7 +90,7 @@ async fn find_pool(
     let Some(pool) = Lvs::lookup(name) else {
         return Err(LvsError::PoolNotFound {
             source: BsError::LvsNotFound {},
-            msg: format!("Destroy failed as pool {name} was not found"),
+            msg: format!("Pool {name} was not found"),
         }
         .into());
     };
@@ -103,6 +105,13 @@ async fn find_pool(
         .into());
     }
     Ok(pool)
+}
+
+#[async_trait::async_trait]
+impl PoolSvcRpc for PoolService {
+    fn kind(&self) -> PoolBackend {
+        PoolBackend::Lvs
+    }
 }
 
 #[tonic::async_trait]
