@@ -21,22 +21,26 @@ pub(crate) struct QueryArgs(CmnQueryArgs);
 impl QueryArgs {
     /// Get a comma-separated list of query selection args.
     /// todo: should be Display trait?
-    pub(super) fn query(&self) -> String {
+    pub(super) fn query(&self) -> Result<String, Error> {
         Self::query_args(&self.0)
     }
     /// Get a comma-separated list of query selection args.
-    pub(super) fn query_args(args: &CmnQueryArgs) -> String {
+    pub(super) fn query_args(args: &CmnQueryArgs) -> Result<String, Error> {
         let mut select = String::new();
         if let Some(vg_name) = &args.name {
+            super::is_alphanumeric("vg_name", vg_name)?;
             select.push_str(&format!("vg_name={vg_name},"));
         }
         if let Some(vg_uuid) = &args.uuid {
+            super::is_alphanumeric("vg_uuid", vg_uuid)?;
+            // todo: validate more...
             select.push_str(&format!("vg_uuid={vg_uuid},"));
         }
         if let Some(vg_tag) = &args.tag {
+            super::is_alphanumeric("vg_tag", vg_tag)?;
             select.push_str(&format!("vg_tags={vg_tag},"));
         }
-        select
+        Ok(select)
     }
 }
 impl From<CmnQueryArgs> for QueryArgs {
@@ -96,7 +100,7 @@ impl VolumeGroup {
     pub(crate) async fn lookup(args: CmnQueryArgs) -> Result<Self, Error> {
         let vgs = Self::list(&args).await?;
         vgs.into_iter().next().ok_or(Error::NotFound {
-            query: QueryArgs(args).query(),
+            query: QueryArgs(args).query().unwrap_or_else(|e| e.to_string()),
         })
     }
 
@@ -111,7 +115,7 @@ impl VolumeGroup {
             "--options=vg_name,vg_uuid,vg_size,vg_free,vg_tags,pv_name",
             "--report-format=json",
         ];
-        let select = QueryArgs::query_args(opts);
+        let select = QueryArgs::query_args(opts)?;
         let select_query = format!("--select={select}");
         if !select.is_empty() {
             args.push(select_query.trim_end_matches(','));
@@ -172,7 +176,7 @@ impl VolumeGroup {
         self.list_lvs().await?;
         Ok(())
     }
-    async fn list_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
+    pub async fn list_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
         let query = super::QueryArgs::new()
             .with_lv(CmnQueryArgs::ours())
             .with_vg(CmnQueryArgs::ours().uuid(self.uuid()).named(self.name()));
@@ -253,7 +257,7 @@ impl VolumeGroup {
     }
 
     /// Exports the volume group by unloading all logical volumes and finally
-    /// removing our tag from it
+    /// removing our tag from it.
     pub(crate) async fn export(&mut self) -> Result<(), Error> {
         let lvs = self.list_lvs().await?;
         for mut lv in lvs {

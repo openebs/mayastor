@@ -14,10 +14,11 @@ use crate::{
     bdev::bdev_event_callback,
     bdev_api::bdev_uri_eq,
     core::{
-        share::{Protocol, Share, ShareProps, UpdateProps},
+        share::{NvmfShareProps, Protocol, Share, UpdateProps},
         BlockDeviceIoStats,
         CoreError,
         DescriptorGuard,
+        PtplProps,
         ShareNvmf,
         UnshareNvmf,
     },
@@ -205,10 +206,10 @@ where
     /// share the bdev over NVMe-OF TCP
     async fn share_nvmf(
         self: Pin<&mut Self>,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<Self::Output, Self::Error> {
         let me = unsafe { self.get_unchecked_mut() };
-        let props = ShareProps::from(props);
+        let props = NvmfShareProps::from(props);
 
         let ptpl = props.ptpl().as_ref().map(|ptpl| ptpl.path());
 
@@ -232,6 +233,10 @@ where
             .context(ShareNvmf {})?;
 
         subsystem.start().await.context(ShareNvmf {})
+    }
+
+    fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {
+        Ok(None)
     }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(

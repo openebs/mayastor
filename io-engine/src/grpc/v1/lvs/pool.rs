@@ -4,11 +4,11 @@ use crate::{
         acquire_subsystem_lock,
         rpc_submit,
         rpc_submit_ext,
-        v1::pool::PoolProbe,
+        v1::pool::{PoolGrpc, PoolIdProbe, PoolSvcRpc},
         GrpcResult,
     },
     lvs::{BsError, Lvs, LvsError},
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 use io_engine_api::v1::pool::*;
 use std::{convert::TryFrom, fmt::Debug};
@@ -27,15 +27,17 @@ impl PoolService {
         Self {}
     }
     /// Probe the LVS Pool service for a pool.
-    pub(crate) async fn probe(probe: PoolProbe) -> Result<bool, tonic::Status> {
+    pub(crate) async fn probe(
+        probe: PoolIdProbe,
+    ) -> Result<bool, tonic::Status> {
         let rx = rpc_submit_ext(async move {
             match probe {
-                PoolProbe::Uuid(uuid) => Lvs::lookup_by_uuid(&uuid).is_some(),
-                PoolProbe::UuidOrName(id) => {
+                PoolIdProbe::Uuid(uuid) => Lvs::lookup_by_uuid(&uuid).is_some(),
+                PoolIdProbe::UuidOrName(id) => {
                     Lvs::lookup_by_uuid(&id).is_some()
                         || Lvs::lookup(&id).is_some()
                 }
-                PoolProbe::NameUuid {
+                PoolIdProbe::NameUuid {
                     name,
                     uuid,
                 } => match uuid {
@@ -81,6 +83,37 @@ impl PoolService {
     }
 }
 
+async fn find_pool(
+    name: &str,
+    uuid: &Option<String>,
+) -> Result<Lvs, tonic::Status> {
+    let Some(pool) = Lvs::lookup(name) else {
+        return Err(LvsError::PoolNotFound {
+            source: BsError::LvsNotFound {},
+            msg: format!("Pool {name} was not found"),
+        }
+        .into());
+    };
+    let pool_uuid = pool.uuid();
+    if uuid.is_some() && uuid.as_ref() != Some(&pool_uuid) {
+        return Err(LvsError::Invalid {
+            source: BsError::LvsIdMismatch {},
+            msg: format!(
+                "invalid uuid {uuid:?}, found pool with uuid {pool_uuid}"
+            ),
+        }
+        .into());
+    }
+    Ok(pool)
+}
+
+#[async_trait::async_trait]
+impl PoolSvcRpc for PoolService {
+    fn kind(&self) -> PoolBackend {
+        PoolBackend::Lvs
+    }
+}
+
 #[tonic::async_trait]
 impl PoolRpc for PoolService {
     async fn create_pool(
@@ -88,26 +121,15 @@ impl PoolRpc for PoolService {
         request: Request<CreatePoolRequest>,
     ) -> GrpcResult<Pool> {
         let args = PoolArgs::try_from(request.into_inner())?;
-        let rx = rpc_submit::<_, _, LvsError>(async move {
+        crate::lvs_run!(async move {
             let pool_subsystem = ResourceLockManager::get_instance()
                 .get_subsystem(ProtectedSubsystems::POOL);
             let _lock_guard =
                 acquire_subsystem_lock(pool_subsystem, Some(&args.name))
-                    .await
-                    .map_err(|_| LvsError::ResourceLockFailed {
-                        msg: format!(
-                            "resource {}, for disk pool {:?}",
-                            &args.name, &args.disks,
-                        ),
-                    })?;
+                    .await?;
             let pool = Lvs::create_or_import(args).await?;
             Ok(Pool::from(pool))
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        })
     }
 
     async fn destroy_pool(
@@ -115,32 +137,11 @@ impl PoolRpc for PoolService {
         request: Request<DestroyPoolRequest>,
     ) -> GrpcResult<()> {
         let args = request.into_inner();
-        let rx = rpc_submit::<_, _, LvsError>(async move {
-            let Some(pool) = Lvs::lookup(&args.name) else {
-                return Err(LvsError::PoolNotFound {
-                    source: BsError::LvsNotFound {},
-                    msg: format!(
-                        "Destroy failed as pool {} was not found",
-                        args.name,
-                    ),
-                });
-            };
-            if args.uuid.is_some() && args.uuid != Some(pool.uuid()) {
-                return Err(LvsError::Invalid {
-                    source: BsError::InvalidArgument {},
-                    msg: format!(
-                        "invalid uuid {}, found pool with uuid {}",
-                        args.uuid.unwrap(),
-                        pool.uuid(),
-                    ),
-                });
-            }
-            pool.destroy().await
-        })?;
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+
+        crate::lvs_run!(async move {
+            let pool = find_pool(&args.name, &args.uuid).await?;
+            PoolGrpc::new(pool).destroy().await
+        })
     }
 
     async fn export_pool(
@@ -148,32 +149,11 @@ impl PoolRpc for PoolService {
         request: Request<ExportPoolRequest>,
     ) -> GrpcResult<()> {
         let args = request.into_inner();
-        let rx = rpc_submit::<_, _, LvsError>(async move {
-            if let Some(pool) = Lvs::lookup(&args.name) {
-                if args.uuid.is_some() && args.uuid != Some(pool.uuid()) {
-                    return Err(LvsError::Invalid {
-                        source: BsError::InvalidArgument {},
-                        msg: format!(
-                            "invalid uuid {}, found pool with uuid {}",
-                            args.uuid.unwrap(),
-                            pool.uuid(),
-                        ),
-                    });
-                }
-                pool.export().await?;
-            } else {
-                return Err(LvsError::Invalid {
-                    source: BsError::InvalidArgument {},
-                    msg: format!("pool {} not found", args.name),
-                });
-            }
-            Ok(())
-        })?;
 
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        crate::lvs_run!(async move {
+            let pool = find_pool(&args.name, &args.uuid).await?;
+            PoolGrpc::new(pool).export().await
+        })
     }
 
     async fn import_pool(
@@ -182,15 +162,10 @@ impl PoolRpc for PoolService {
     ) -> GrpcResult<Pool> {
         let args = PoolArgs::try_from(request.into_inner())?;
 
-        let rx = rpc_submit::<_, _, LvsError>(async move {
+        crate::lvs_run!(async move {
             let pool = Lvs::import_from_args(args).await?;
             Ok(Pool::from(pool))
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+        })
     }
 
     async fn list_pools(

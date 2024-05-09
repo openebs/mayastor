@@ -3,12 +3,12 @@ use crate::{
     grpc::{
         acquire_subsystem_lock,
         lvm_enabled,
-        v1::pool::PoolProbe,
+        v1::pool::{PoolGrpc, PoolIdProbe, PoolSvcRpc},
         GrpcResult,
     },
     lvm::{CmnQueryArgs, Error as LvmError, VolumeGroup},
     lvs::Lvs,
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 use io_engine_api::v1::pool::*;
 use std::{convert::TryFrom, fmt::Debug};
@@ -28,16 +28,16 @@ impl PoolService {
     }
     /// Probe the LVM Pool service for a pool.
     pub(crate) async fn probe(
-        probe: &PoolProbe,
+        probe: &PoolIdProbe,
     ) -> Result<bool, tonic::Status> {
         if !MayastorFeatures::get_features().lvm() {
             return Ok(false);
         }
 
         let query = match probe {
-            PoolProbe::Uuid(uuid) => CmnQueryArgs::ours().uuid(uuid),
-            PoolProbe::UuidOrName(uuid) => CmnQueryArgs::ours().uuid(uuid),
-            PoolProbe::NameUuid {
+            PoolIdProbe::Uuid(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            PoolIdProbe::UuidOrName(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            PoolIdProbe::NameUuid {
                 name,
                 uuid,
             } => CmnQueryArgs::ours().named(name).uuid_opt(uuid),
@@ -50,6 +50,7 @@ impl PoolService {
             Err(error) => Err(error.into()),
         }
     }
+
     pub(crate) async fn list_svc_pools(
         &self,
         args: &ListPoolOptions,
@@ -68,6 +69,45 @@ impl PoolService {
     }
 }
 
+async fn ensure_unique_pool(args: PoolArgs) -> Result<PoolArgs, tonic::Status> {
+    let args = crate::lvs_run!(async move {
+        // bail if an lvs pool already exists with the same name
+        if let Some(_pool) = Lvs::lookup(args.name.as_str()) {
+            return Err(Status::invalid_argument(
+                "lvs pool with the same name already exists",
+            ));
+        }
+        // check if the disks are used by existing lvs pool
+        if Lvs::iter()
+            .map(|l| l.base_bdev().name().to_string())
+            .any(|d| args.disks.contains(&d))
+        {
+            return Err(Status::invalid_argument(
+                "an lvs pool already uses the disk",
+            ));
+        }
+        Ok(args)
+    })?;
+    Ok(args.into_inner())
+}
+
+async fn find_pool(
+    name: &str,
+    uuid: &Option<String>,
+) -> Result<VolumeGroup, tonic::Status> {
+    let pool =
+        VolumeGroup::lookup(CmnQueryArgs::ours().named(name).uuid_opt(uuid))
+            .await?;
+    Ok(pool)
+}
+
+#[async_trait::async_trait]
+impl PoolSvcRpc for PoolService {
+    fn kind(&self) -> PoolBackend {
+        PoolBackend::Lvm
+    }
+}
+
 #[tonic::async_trait]
 impl PoolRpc for PoolService {
     async fn create_pool(
@@ -83,21 +123,7 @@ impl PoolRpc for PoolService {
         let _lock_guard =
             acquire_subsystem_lock(pool_subsystem, Some(&args.name)).await?;
 
-        // bail if an lvs pool already exists with the same name
-        if let Some(_pool) = Lvs::lookup(args.name.as_str()) {
-            return Err(Status::invalid_argument(
-                "lvs pool with the same name already exists",
-            ));
-        };
-        // check if the disks are used by existing lvs pool
-        if Lvs::iter()
-            .map(|l| l.base_bdev().name().to_string())
-            .any(|d| args.disks.contains(&d))
-        {
-            return Err(Status::invalid_argument(
-                "an lvs pool already uses the disk",
-            ));
-        };
+        let args = ensure_unique_pool(args).await?;
         VolumeGroup::create(args)
             .await
             .map_err(Status::from)
@@ -109,57 +135,41 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<DestroyPoolRequest>,
     ) -> GrpcResult<()> {
+        let args = request.into_inner();
         lvm_enabled()?;
 
-        let args = request.into_inner();
-        let pool = VolumeGroup::lookup(
-            CmnQueryArgs::ours().named(&args.name).uuid_opt(&args.uuid),
-        )
-        .await?;
-        pool.destroy()
-            .await
-            .map_err(Status::from)
-            .map(Response::new)
+        crate::lvm_run!(async move {
+            let pool = find_pool(&args.name, &args.uuid).await?;
+            PoolGrpc::new(pool).destroy().await
+        })
     }
 
     async fn export_pool(
         &self,
         request: Request<ExportPoolRequest>,
     ) -> GrpcResult<()> {
+        let args = request.into_inner();
         lvm_enabled()?;
 
-        let args = request.into_inner();
-        let mut pool = VolumeGroup::lookup(
-            CmnQueryArgs::ours().named(&args.name).uuid_opt(&args.uuid),
-        )
-        .await?;
-        pool.export().await?;
-        return Ok(Response::new(()));
+        crate::lvm_run!(async move {
+            let pool = find_pool(&args.name, &args.uuid).await?;
+            PoolGrpc::new(pool).export().await
+        })
     }
 
     async fn import_pool(
         &self,
         request: Request<ImportPoolRequest>,
     ) -> GrpcResult<Pool> {
+        let args = PoolArgs::try_from(request.into_inner())?;
         lvm_enabled()?;
 
-        let args = PoolArgs::try_from(request.into_inner())?;
+        let pool_subsystem = ResourceLockManager::get_instance()
+            .get_subsystem(ProtectedSubsystems::POOL);
+        let _lock_guard =
+            acquire_subsystem_lock(pool_subsystem, Some(&args.name)).await?;
 
-        // bail if an lvs pool already exists with the same name
-        if let Some(_pool) = Lvs::lookup(args.name.as_str()) {
-            return Err(Status::invalid_argument(
-                "lvs pool with the same name already exists",
-            ));
-        };
-        // check if the disks are used by existing lvs pool
-        if Lvs::iter()
-            .map(|l| l.base_bdev().name().to_string())
-            .any(|d| args.disks.contains(&d))
-        {
-            return Err(Status::invalid_argument(
-                "an lvs pool already uses the disk",
-            ));
-        };
+        let args = ensure_unique_pool(args).await?;
         VolumeGroup::import(args)
             .await
             .map_err(Status::from)

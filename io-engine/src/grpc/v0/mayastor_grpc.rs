@@ -26,9 +26,9 @@ use crate::{
         BlockDeviceIoStats,
         CoreError,
         MayastorFeatures,
+        NvmfShareProps,
         Protocol,
         Share,
-        ShareProps,
         SnapshotParams,
         ToErrno,
         UntypedBdev,
@@ -724,7 +724,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             if Protocol::try_from(args.share)?
                                 == Protocol::Nvmf =>
                         {
-                            let props = ShareProps::new()
+                            let props = NvmfShareProps::new()
                                 .with_allowed_hosts(args.allowed_hosts)
                                 .with_ptpl(lvol.ptpl().create().map_err(
                                     |source| LvsError::LvolShare {
@@ -822,7 +822,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             if Protocol::try_from(args.share)?
                                 == Protocol::Nvmf =>
                         {
-                            let props = ShareProps::new()
+                            let props = NvmfShareProps::new()
                                 .with_allowed_hosts(args.allowed_hosts)
                                 .with_ptpl(lvol.ptpl().create().map_err(
                                     |source| LvsError::LvolShare {
@@ -1026,7 +1026,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                                     lvol.as_mut().unshare().await?;
                                 }
                                 Protocol::Nvmf => {
-                                    let props = ShareProps::new()
+                                    let props = NvmfShareProps::new()
                                         .with_allowed_hosts(args.allowed_hosts)
                                         .with_ptpl(lvol.ptpl().create().map_err(
                                             |source| LvsError::LvolShare {

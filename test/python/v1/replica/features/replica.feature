@@ -95,6 +95,10 @@ Feature: Mayastor replica management
     When the user destroys a replica that does not exist
     Then the replica destroy command should fail
 
+  Scenario: destroying a replica that does not exist in the pool
+    When the user destroys a replica that does not exist in the pool
+    Then the replica destroy command should fail
+
   Scenario: writing to a shared replica
     Given a replica shared over "nvmf"
     When the user writes to the replica

@@ -41,7 +41,28 @@ impl Display for Protocol {
     }
 }
 
+/// Share properties when sharing a device.
+#[derive(Debug)]
+pub enum ShareProps {
+    Nvmf(NvmfShareProps),
+}
+impl ShareProps {
+    /// Get the share protocol.
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            ShareProps::Nvmf(_) => Protocol::Nvmf,
+        }
+    }
+    /// Get the allowed hosts list.
+    pub fn allowed_hosts(self) -> Vec<String> {
+        match self {
+            Self::Nvmf(props) => props.allowed_hosts,
+        }
+    }
+}
+
 /// Persist Through Power Loss properties
+#[derive(Debug)]
 pub struct PtplProps {
     /// The path to the json file where the reservations will be stored.
     file: std::path::PathBuf,
@@ -60,8 +81,8 @@ impl PtplProps {
 }
 
 /// Share properties when sharing a device.
-#[derive(Default)]
-pub struct ShareProps {
+#[derive(Default, Debug)]
+pub struct NvmfShareProps {
     /// Controller Id range.
     cntlid_range: Option<(u16, u16)>,
     /// Enable ANA reporting.
@@ -71,7 +92,7 @@ pub struct ShareProps {
     /// Persistent-Power-Loss settings.
     ptpl: Option<PtplProps>,
 }
-impl ShareProps {
+impl NvmfShareProps {
     /// Returns a new `Self`.
     pub fn new() -> Self {
         Self::default()
@@ -121,17 +142,24 @@ impl ShareProps {
         &self.ptpl
     }
 }
-impl From<Option<ShareProps>> for ShareProps {
-    fn from(opts: Option<ShareProps>) -> Self {
+impl From<Option<NvmfShareProps>> for NvmfShareProps {
+    fn from(opts: Option<NvmfShareProps>) -> Self {
         match opts {
             None => Self::new(),
             Some(props) => props,
         }
     }
 }
-impl From<ShareProps> for UpdateProps {
-    fn from(value: ShareProps) -> Self {
+impl From<NvmfShareProps> for UpdateProps {
+    fn from(value: NvmfShareProps) -> Self {
         UpdateProps::new().with_allowed_hosts(value.allowed_hosts)
+    }
+}
+impl From<ShareProps> for NvmfShareProps {
+    fn from(value: ShareProps) -> Self {
+        match value {
+            ShareProps::Nvmf(props) => props,
+        }
     }
 }
 
@@ -169,16 +197,22 @@ impl From<Option<UpdateProps>> for UpdateProps {
         }
     }
 }
+impl From<ShareProps> for UpdateProps {
+    fn from(opts: ShareProps) -> Self {
+        Self::new().with_allowed_hosts(opts.allowed_hosts())
+    }
+}
 
-#[async_trait(? Send)]
+#[async_trait(?Send)]
 pub trait Share: std::fmt::Debug {
     type Error;
     type Output: std::fmt::Display + std::fmt::Debug;
 
     async fn share_nvmf(
         self: Pin<&mut Self>,
-        props: Option<ShareProps>,
+        props: Option<NvmfShareProps>,
     ) -> Result<Self::Output, Self::Error>;
+    fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error>;
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(
         self: Pin<&mut Self>,

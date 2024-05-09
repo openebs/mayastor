@@ -45,7 +45,26 @@ pub(crate) use vg_pool::VolumeGroup;
 /// Logical volume and its query arguments.
 pub(crate) use lv_replica::{LogicalVolume, QueryArgs};
 
+use crate::{
+    core::{NvmfShareProps, Protocol, UpdateProps},
+    lvm::property::Property,
+    pool_backend::{PoolOps, ReplicaArgs},
+    replica_backend::ReplicaOps,
+};
 use futures::channel::oneshot::Receiver;
+
+pub(super) fn is_alphanumeric(name: &str, value: &str) -> Result<(), Error> {
+    if value.chars().any(|c| {
+        !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+'))
+    }) {
+        return Err(Error::NotFound {
+            query: format!(
+                "{name}('{value}') invalid: must be [a-zA-Z0-9.-_+]"
+            ),
+        });
+    }
+    Ok(())
+}
 
 /// The LVM code currently uses an async executor which is not runnable within
 /// the spdk reactor, and as such we need a trampoline in order to use spdk
@@ -69,4 +88,73 @@ macro_rules! spdk_run {
         let r = $crate::lvm::spdk_submit($fut)?;
         r.await.map_err(|_| Error::ReactorSpawnChannel {})?
     }};
+}
+
+#[async_trait::async_trait(?Send)]
+impl PoolOps for VolumeGroup {
+    type Replica = LogicalVolume;
+    type Error = Error;
+
+    async fn replicas(&self) -> Result<Vec<Self::Replica>, Self::Error> {
+        self.list_lvs().await
+    }
+    async fn create_repl(
+        &self,
+        args: ReplicaArgs,
+    ) -> Result<Self::Replica, Self::Error> {
+        let replica = LogicalVolume::create(
+            self.uuid(),
+            &args.name,
+            args.size,
+            &args.uuid,
+            args.thin,
+            &args.entity_id,
+            Protocol::Off,
+        )
+        .await?;
+        Ok(replica)
+    }
+    async fn destroy(self) -> Result<(), Self::Error> {
+        self.destroy().await
+    }
+
+    async fn export(mut self) -> Result<(), Self::Error> {
+        self.export().await
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl ReplicaOps for LogicalVolume {
+    type ReplError = Error;
+
+    async fn share_nvmf(
+        &mut self,
+        props: NvmfShareProps,
+    ) -> Result<String, Self::ReplError> {
+        self.share_nvmf(Some(props)).await
+    }
+    async fn unshare(&mut self) -> Result<(), Self::ReplError> {
+        self.unshare().await
+    }
+    async fn update_properties<P: Into<UpdateProps>>(
+        &mut self,
+        props: P,
+    ) -> Result<(), Self::ReplError> {
+        self.update_share_props(props.into()).await
+    }
+
+    async fn set_entity_id(
+        &mut self,
+        id: String,
+    ) -> Result<(), Self::ReplError> {
+        self.set_property(Property::LvEntityId(id)).await
+    }
+
+    async fn resize(&mut self, size: u64) -> Result<(), Self::ReplError> {
+        self.resize(size).await
+    }
+
+    async fn destroy(self) -> Result<(), Self::ReplError> {
+        self.destroy().await
+    }
 }

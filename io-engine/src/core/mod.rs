@@ -64,7 +64,14 @@ pub use lock::{
 
 pub use runtime::spawn;
 pub(crate) use segment_map::SegmentMap;
-pub use share::{Protocol, PtplProps, Share, ShareProps, UpdateProps};
+pub use share::{
+    NvmfShareProps,
+    Protocol,
+    PtplProps,
+    Share,
+    ShareProps,
+    UpdateProps,
+};
 pub use spdk_rs::{cpu_cores, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 

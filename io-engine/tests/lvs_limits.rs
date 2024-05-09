@@ -60,8 +60,7 @@ async fn lvs_metadata_limit() {
             let repl_uuid = format!("45c23e54-dc86-45f6-b55b-e44d05f1{i:04}");
 
             let lvol = match lvs
-                .create_lvol
-                (
+                .create_lvol(
                     &repl_name,
                     REPL_SIZE * 1024 * 1024,
                     Some(&repl_uuid),

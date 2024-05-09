@@ -84,6 +84,7 @@ pub mod v1 {
     pub mod bdev;
     pub mod host;
     pub mod json;
+    pub mod lvm;
     pub mod nexus;
     pub mod pool;
     pub mod replica;
@@ -91,10 +92,6 @@ pub mod v1 {
     pub mod snapshot_rebuild;
     pub mod stats;
     pub mod test;
-    pub mod lvm {
-        pub mod pool;
-        pub mod replica;
-    }
     pub mod lvs {
         pub mod pool;
         pub mod replica;
@@ -193,6 +190,20 @@ where
         .map_err(|_| Status::resource_exhausted("ENOMEM"))
 }
 
+/// Submit rpc code to the primary reactor.
+/// Similar to `rpc_submit_ext` but specifying a result output with tonic
+/// Status as error.
+pub fn rpc_submit_ext2<F, R>(
+    future: F,
+) -> Result<Receiver<Result<R, tonic::Status>>, tonic::Status>
+where
+    F: Future<Output = Result<R, tonic::Status>> + 'static,
+    R: Send + Debug + 'static,
+{
+    Reactor::spawn_at_primary(future)
+        .map_err(|_| Status::resource_exhausted("ENOMEM"))
+}
+
 /// Manage locks across multiple grpc services.
 pub async fn acquire_subsystem_lock<'a>(
     subsystem: &'a ResourceSubsystem,
@@ -209,8 +220,7 @@ pub async fn acquire_subsystem_lock<'a>(
         match subsystem.lock(None, true).await {
             Some(lock_guard) => Ok(lock_guard),
             None => Err(Status::already_exists(format!(
-                "Failed to acquire subsystem lock: {:?}, lock already held",
-                subsystem
+                "Failed to acquire subsystem lock: {subsystem:?}, lock already held",
             ))),
         }
     }

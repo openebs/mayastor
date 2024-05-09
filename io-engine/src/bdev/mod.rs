@@ -52,7 +52,7 @@ pub trait GetName {
 /// of a power loss.
 /// This can be implemented by each resource that deals with persistent nvme
 /// reservations.
-pub(crate) trait PtplFileOps {
+pub trait PtplFileOps {
     /// Create the necessary directory path roots.
     fn create(&self) -> Result<Option<PtplProps>, std::io::Error> {
         if let Some(path) = self.path() {

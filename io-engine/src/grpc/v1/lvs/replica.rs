@@ -1,25 +1,32 @@
 use crate::{
-    bdev::PtplFileOps,
     bdev_api::BdevError,
     core::{
         logical_volume::LogicalVolume,
         Bdev,
         CloneXattrs,
-        CoreError,
-        ProtectedSubsystems,
-        Protocol,
-        ResourceLockManager,
         Share,
-        ShareProps,
         UntypedBdev,
-        UpdateProps,
     },
-    grpc::{acquire_subsystem_lock, rpc_submit, rpc_submit_ext, GrpcResult},
-    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol, PropValue},
+    grpc::{
+        rpc_submit_ext,
+        v1::{pool::PoolGrpc, replica::ReplicaGrpc},
+        GrpcResult,
+    },
+    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol},
 };
 use io_engine_api::v1::{pool::PoolType, replica::*};
-use std::{convert::TryFrom, pin::Pin};
+use std::convert::TryFrom;
 use tonic::{Request, Response, Status};
+
+#[macro_export]
+macro_rules! lvs_run {
+    ($fut:expr) => {{
+        let r = $crate::grpc::rpc_submit_ext2($fut)?;
+        r.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map(Response::new)
+    }};
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ReplicaService {}
@@ -47,168 +54,31 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        self.create_lvs_replica(request.into_inner()).await
+        crate::lvs_run!(async move {
+            let args = request.into_inner();
+            let lvs = match Lvs::lookup_by_uuid(&args.pooluuid) {
+                Some(lvs) => Ok(lvs),
+                None => {
+                    // lookup takes care of backward compatibility
+                    match Lvs::lookup(&args.pooluuid) {
+                        Some(lvs) => Ok(lvs),
+                        None => Err(LvsError::Invalid {
+                            source: BsError::LvsNotFound {},
+                            msg: format!("Pool {} not found", args.pooluuid),
+                        }),
+                    }
+                }
+            }?;
+            PoolGrpc::new(lvs).create_replica(args).await
+        })
     }
 
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<()> {
-        self.destroy_lvs_replica(request.into_inner()).await
-    }
-
-    async fn list_replicas(
-        &self,
-        _request: Request<ListReplicaOptions>,
-    ) -> GrpcResult<ListReplicasResponse> {
-        unimplemented!("Request is not cloneable, so we have to use another fn")
-    }
-
-    async fn share_replica(
-        &self,
-        request: Request<ShareReplicaRequest>,
-    ) -> GrpcResult<Replica> {
-        self.share_lvs_replica(request.into_inner()).await
-    }
-
-    async fn unshare_replica(
-        &self,
-        request: Request<UnshareReplicaRequest>,
-    ) -> GrpcResult<Replica> {
-        self.unshare_lvs_replica(request.into_inner()).await
-    }
-
-    async fn resize_replica(
-        &self,
-        request: Request<ResizeReplicaRequest>,
-    ) -> GrpcResult<Replica> {
-        self.resize_lvs_replica(request.into_inner()).await
-    }
-
-    async fn set_replica_entity_id(
-        &self,
-        request: Request<SetReplicaEntityIdRequest>,
-    ) -> GrpcResult<Replica> {
-        let args = request.into_inner();
-        info!("{args:?}");
-        let rx = rpc_submit::<_, _, LvsError>(async move {
-            if let Some(bdev) = UntypedBdev::lookup_by_uuid_str(&args.uuid) {
-                let mut lvol = Lvol::try_from(bdev)?;
-                Pin::new(&mut lvol)
-                    .set(PropValue::EntityId(args.entity_id))
-                    .await?;
-                Ok(Replica::from(lvol))
-            } else {
-                Err(LvsError::InvalidBdev {
-                    source: BdevError::BdevNotFound {
-                        name: args.uuid.clone(),
-                    },
-                    name: args.uuid,
-                })
-            }
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
-    }
-}
-
-impl ReplicaService {
-    async fn create_lvs_replica(
-        &self,
-        args: CreateReplicaRequest,
-    ) -> GrpcResult<Replica> {
-        let rx = rpc_submit(async move {
-            let protocol = Protocol::try_from(args.share)?;
-            let lvs = match Lvs::lookup_by_uuid(&args.pooluuid) {
-                Some(lvs) => lvs,
-                None => {
-                    // lookup takes care of backward compatibility
-                    match Lvs::lookup(&args.pooluuid) {
-                        Some(lvs) => lvs,
-                        None => {
-                            return Err(LvsError::Invalid {
-                                source: BsError::LvsNotFound {},
-                                msg: format!(
-                                    "Pool {} not found",
-                                    args.pooluuid
-                                ),
-                            })
-                        }
-                    }
-                }
-            };
-            let pool_subsystem = ResourceLockManager::get_instance()
-                .get_subsystem(ProtectedSubsystems::POOL);
-            let _lock_guard =
-                acquire_subsystem_lock(pool_subsystem, Some(lvs.name()))
-                    .await
-                    .map_err(|_| LvsError::ResourceLockFailed {
-                        msg: format!(
-                            "resource {}, for pooluuid {}",
-                            lvs.name(),
-                            args.pooluuid
-                        ),
-                    })?;
-            // if pooltype is not Lvs, the provided replica uuid need to be
-            // added as a metadata on the volume.
-            match lvs
-                .create_lvol(
-                    &args.name,
-                    args.size,
-                    Some(&args.uuid),
-                    args.thin,
-                    args.entity_id,
-                )
-                .await
-            {
-                Ok(mut lvol) if protocol == Protocol::Nvmf => {
-                    let props = ShareProps::new()
-                        .with_allowed_hosts(args.allowed_hosts)
-                        .with_ptpl(lvol.ptpl().create().map_err(|source| {
-                            LvsError::LvolShare {
-                                source: CoreError::Ptpl {
-                                    reason: source.to_string(),
-                                },
-                                name: lvol.name(),
-                            }
-                        })?);
-                    match Pin::new(&mut lvol).share_nvmf(Some(props)).await {
-                        Ok(share_uri) => {
-                            debug!(
-                                "created and shared {lvol:?} as {share_uri}"
-                            );
-                            Ok(Replica::from(lvol))
-                        }
-                        Err(error) => {
-                            warn!(
-                                "failed to share created lvol {lvol:?}: {error} (destroying)"
-                            );
-                            let _ = lvol.destroy().await;
-                            Err(error)
-                        }
-                    }
-                }
-                Ok(lvol) => {
-                    debug!("created lvol {:?}", lvol);
-                    Ok(Replica::from(lvol))
-                }
-                Err(error) => Err(error),
-            }
-        })?;
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
-    }
-
-    async fn destroy_lvs_replica(
-        &self,
-        args: DestroyReplicaRequest,
-    ) -> GrpcResult<()> {
-        let rx = rpc_submit::<_, _, LvsError>(async move {
+        crate::lvs_run!(async move {
+            let args = request.into_inner();
             // todo: is there still a race here, can the pool be exported
             //   right after the check here and before we
             //   probe for the replica?
@@ -257,168 +127,116 @@ impl ReplicaService {
                         source: BsError::LvsIdMismatch {},
                         name: args.uuid,
                         msg,
-                    });
+                    }
+                    .into());
                 }
             }
-            lvol.destroy_replica().await?;
-            Ok(())
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+            ReplicaGrpc::new(lvol).destroy().await
+        })
     }
 
-    async fn share_lvs_replica(
+    async fn list_replicas(
         &self,
-        args: ShareReplicaRequest,
+        _request: Request<ListReplicaOptions>,
+    ) -> GrpcResult<ListReplicasResponse> {
+        unimplemented!("Request is not cloneable, so we have to use another fn")
+    }
+
+    async fn share_replica(
+        &self,
+        request: Request<ShareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let rx = rpc_submit(async move {
-            match Bdev::lookup_by_uuid_str(&args.uuid) {
-                Some(bdev) => {
-                    let mut lvol = Lvol::try_from(bdev)?;
-                    let pool_subsystem = ResourceLockManager::get_instance()
-                        .get_subsystem(ProtectedSubsystems::POOL);
-                    let _lock_guard = acquire_subsystem_lock(
-                        pool_subsystem,
-                        Some(lvol.lvs().name()),
-                    )
-                    .await
-                    .map_err(|_| {
-                        LvsError::ResourceLockFailed {
-                            msg: format!(
-                                "resource {}, for lvol {:?}",
-                                lvol.lvs().name(),
-                                lvol
-                            ),
-                        }
-                    })?;
-
-                    // if we are already shared with the same protocol
-                    if lvol.shared() == Some(Protocol::try_from(args.share)?) {
-                        Pin::new(&mut lvol)
-                            .update_properties(
-                                UpdateProps::new()
-                                    .with_allowed_hosts(args.allowed_hosts),
-                            )
-                            .await?;
-                        return Ok(Replica::from(lvol));
-                    }
-
-                    match Protocol::try_from(args.share)? {
-                        Protocol::Off => {
-                            return Err(LvsError::Invalid {
-                                source: BsError::InvalidArgument {},
-                                msg: "invalid share protocol NONE".to_string(),
-                            })
-                        }
-                        Protocol::Nvmf => {
-                            let props = ShareProps::new()
-                                .with_allowed_hosts(args.allowed_hosts)
-                                .with_ptpl(lvol.ptpl().create().map_err(
-                                    |source| LvsError::LvolShare {
-                                        source: crate::core::CoreError::Ptpl {
-                                            reason: source.to_string(),
-                                        },
-                                        name: lvol.name(),
-                                    },
-                                )?);
-                            Pin::new(&mut lvol).share_nvmf(Some(props)).await?;
-                        }
-                    }
-
-                    Ok(Replica::from(lvol))
-                }
-
+        crate::lvs_run!(async move {
+            let args = request.into_inner();
+            let replica = match Bdev::lookup_by_uuid_str(&args.uuid) {
+                Some(bdev) => Lvol::try_from(bdev),
                 None => Err(LvsError::InvalidBdev {
                     source: BdevError::BdevNotFound {
                         name: args.uuid.clone(),
                     },
-                    name: args.uuid,
+                    name: args.uuid.clone(),
                 }),
-            }
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+            }?;
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.share(args).await?;
+            Ok(replica.into())
+        })
     }
 
-    async fn unshare_lvs_replica(
+    async fn unshare_replica(
         &self,
-        args: UnshareReplicaRequest,
+        request: Request<UnshareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let rx = rpc_submit(async move {
-            match Bdev::lookup_by_uuid_str(&args.uuid) {
-                Some(bdev) => {
-                    let mut lvol = Lvol::try_from(bdev)?;
-                    if lvol.shared().is_some() {
-                        Pin::new(&mut lvol).unshare().await?;
-                    }
-                    Ok(Replica::from(lvol))
-                }
+        crate::lvs_run!(async move {
+            let args = request.into_inner();
+            let replica = match Bdev::lookup_by_uuid_str(&args.uuid) {
+                Some(bdev) => Lvol::try_from(bdev),
                 None => Err(LvsError::InvalidBdev {
                     source: BdevError::BdevNotFound {
                         name: args.uuid.clone(),
                     },
-                    name: args.uuid,
+                    name: args.uuid.clone(),
                 }),
-            }
-        })?;
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+            }?;
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.unshare().await?;
+            Ok(replica.into())
+        })
     }
 
-    async fn resize_lvs_replica(
+    async fn resize_replica(
         &self,
-        args: ResizeReplicaRequest,
+        request: Request<ResizeReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let rx = rpc_submit::<_, _, LvsError>(async move {
-            let mut lvol = Bdev::lookup_by_uuid_str(&args.uuid)
+        crate::lvs_run!(async move {
+            let args = request.into_inner();
+            let replica = Bdev::lookup_by_uuid_str(&args.uuid)
                 .and_then(|b| Lvol::try_from(b).ok())
                 .ok_or(LvsError::RepResize {
                     source: BsError::LvolNotFound {},
                     name: args.uuid.to_owned(),
                 })?;
-            let requested_size = args.requested_size;
-            lvol.resize_replica(requested_size).await?;
-            debug!("resized {:?}", lvol);
-            Ok(Replica::from(lvol))
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
-            .map(Response::new)
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.resize(args.requested_size).await?;
+            Ok(replica.into())
+        })
     }
 
+    async fn set_replica_entity_id(
+        &self,
+        request: Request<SetReplicaEntityIdRequest>,
+    ) -> GrpcResult<Replica> {
+        crate::lvs_run!(async move {
+            let args = request.into_inner();
+            let replica = match Bdev::lookup_by_uuid_str(&args.uuid) {
+                Some(bdev) => Lvol::try_from(bdev),
+                None => Err(LvsError::InvalidBdev {
+                    source: BdevError::BdevNotFound {
+                        name: args.uuid.clone(),
+                    },
+                    name: args.uuid.clone(),
+                }),
+            }?;
+            let mut replica = ReplicaGrpc::new(replica);
+            replica.set_entity_id(args.entity_id).await?;
+            Ok(replica.into())
+        })
+    }
+}
+
+impl ReplicaService {
     pub(crate) async fn list_lvs_replicas(
         &self,
     ) -> Result<Vec<Replica>, tonic::Status> {
-        let rx = rpc_submit::<_, _, LvsError>(async move {
-            let mut lvols = Vec::new();
-            if let Some(bdev) = UntypedBdev::bdev_first() {
-                lvols = bdev
-                    .into_iter()
-                    .filter(|b| b.driver() == "lvol")
-                    .map(|b| Lvol::try_from(b).unwrap())
-                    .collect();
-            }
+        crate::lvs_run!(async move {
+            let Some(bdev) = UntypedBdev::bdev_first() else {
+                return Ok(vec![]);
+            };
 
-            // convert lvols to replicas
-            let replicas: Vec<Replica> =
-                lvols.into_iter().map(Replica::from).collect();
-
-            Ok(replicas)
-        })?;
-
-        rx.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map_err(Status::from)
+            let lvols = bdev.into_iter().filter_map(Lvol::ok_from);
+            Ok(lvols.map(Replica::from).collect())
+        })
+        .map(|r| r.into_inner())
     }
 }
 

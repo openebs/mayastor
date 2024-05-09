@@ -1,7 +1,21 @@
 use crate::{
-    grpc::{GrpcClientContext, GrpcResult, RWLock, RWSerializer},
+    core::{
+        NvmfShareProps,
+        ProtectedSubsystems,
+        Protocol,
+        ResourceLockManager,
+        Share,
+    },
+    grpc::{
+        acquire_subsystem_lock,
+        GrpcClientContext,
+        GrpcResult,
+        RWLock,
+        RWSerializer,
+    },
     lvs::{BsError, LvsError},
-    pool_backend::{PoolArgs, PoolBackend},
+    pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
+    replica_backend::ReplicaOps,
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -19,10 +33,36 @@ struct UnixStream(tokio::net::UnixStream);
 
 /// Probe for pools using this criteria.
 #[derive(Debug, Clone)]
-pub enum PoolProbe {
+pub enum PoolIdProbe {
     Uuid(String),
     UuidOrName(String),
     NameUuid { name: String, uuid: Option<String> },
+}
+impl PoolIdProbe {
+    fn name_uuid(name: &str, uuid: &Option<String>) -> Self {
+        Self::NameUuid {
+            name: name.to_owned(),
+            uuid: uuid.to_owned(),
+        }
+    }
+}
+
+/// The different types of probing.
+pub(crate) enum ProbeType {
+    /// Probing the specific pool type directly.
+    ByKind(PoolBackend),
+    /// Probing using identifiers.
+    ById(PoolIdProbe),
+}
+impl From<PoolIdProbe> for ProbeType {
+    fn from(value: PoolIdProbe) -> Self {
+        Self::ById(value)
+    }
+}
+impl From<PoolBackend> for ProbeType {
+    fn from(value: PoolBackend) -> Self {
+        Self::ByKind(value)
+    }
 }
 
 /// RPC service for mayastor pool operations
@@ -205,6 +245,81 @@ impl Default for PoolService {
     }
 }
 
+#[async_trait::async_trait]
+pub trait PoolSvcRpc: PoolRpc {
+    fn kind(&self) -> PoolBackend;
+}
+
+pub(crate) struct PoolGrpc<P: PoolOps> {
+    pool: P,
+}
+
+impl<P: PoolOps> PoolGrpc<P>
+where
+    Status: From<<P as PoolOps>::Error>,
+    Status: From<<<P as PoolOps>::Replica as Share>::Error>,
+    io_engine_api::v1::replica::Replica: From<<P as PoolOps>::Replica>,
+{
+    pub(crate) fn new(pool: P) -> Self {
+        Self {
+            pool,
+        }
+    }
+    pub(crate) async fn create_replica(
+        &self,
+        args: io_engine_api::v1::replica::CreateReplicaRequest,
+    ) -> Result<io_engine_api::v1::replica::Replica, Status> {
+        let protocol = Protocol::try_from(args.share)?;
+        let pool_subsystem = ResourceLockManager::get_instance()
+            .get_subsystem(ProtectedSubsystems::POOL);
+        let _lock_guard =
+            acquire_subsystem_lock(pool_subsystem, Some(&args.name)).await?;
+        match self
+            .pool
+            .create_repl(ReplicaArgs {
+                name: args.name.to_string(),
+                size: args.size,
+                uuid: args.uuid,
+                thin: args.thin,
+                entity_id: args.entity_id,
+            })
+            .await
+        {
+            Ok(mut replica) if protocol == Protocol::Nvmf => {
+                let props = NvmfShareProps::new()
+                    .with_allowed_hosts(args.allowed_hosts)
+                    .with_ptpl(replica.create_ptpl()?);
+                match replica.share_nvmf(props).await {
+                    Ok(share_uri) => {
+                        debug!("created and shared {replica:?} as {share_uri}");
+                        Ok(io_engine_api::v1::replica::Replica::from(replica))
+                    }
+                    Err(error) => {
+                        warn!(
+                            "failed to share created lvol {replica:?}: {error} (destroying)"
+                        );
+                        let _ = replica.destroy().await;
+                        Err(error.into())
+                    }
+                }
+            }
+            Ok(replica) => {
+                debug!("created lvol {:?}", replica);
+                Ok(io_engine_api::v1::replica::Replica::from(replica))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub(crate) async fn destroy(self) -> Result<(), tonic::Status> {
+        self.pool.destroy().await?;
+        Ok(())
+    }
+    pub(crate) async fn export(self) -> Result<(), tonic::Status> {
+        self.pool.export().await?;
+        Ok(())
+    }
+}
+
 impl PoolService {
     pub fn new() -> Self {
         Self {
@@ -212,45 +327,31 @@ impl PoolService {
             client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
-    /// Return a backend for the given type.
-    fn backend(
-        &self,
-        pooltype: i32,
-    ) -> Result<Box<dyn PoolRpc>, tonic::Status> {
-        Ok(match PoolBackend::try_from(pooltype)? {
-            PoolBackend::Lvs => Box::new(LvsSvc::new()),
-            PoolBackend::Lvm => Box::new(LvmSvc::new()),
-        })
-    }
-    /// Probe backends for the given name and/or uuid and return the right one.
-    async fn probe_backend(
-        &self,
-        name: &str,
-        uuid: &Option<String>,
-    ) -> Result<Box<dyn PoolRpc>, tonic::Status> {
-        let probe = PoolProbe::NameUuid {
-            name: name.to_owned(),
-            uuid: uuid.to_owned(),
-        };
-        Ok(match self.probe_backend_kind(probe).await? {
-            PoolBackend::Lvm => Box::new(LvmSvc::new()),
-            PoolBackend::Lvs => Box::new(LvsSvc::new()),
-        })
-    }
 
-    pub(crate) async fn probe_backend_kind(
+    /// Probe backends for the given name and/or uuid and return the right one.
+    pub(crate) async fn probe<I: Into<ProbeType>>(
         &self,
-        probe: PoolProbe,
-    ) -> Result<PoolBackend, tonic::Status> {
-        match (
-            LvmSvc::probe(&probe).await,
-            LvsSvc::probe(probe.clone()).await,
-        ) {
-            (Ok(true), _) => Ok(PoolBackend::Lvm),
-            (_, Ok(true)) => Ok(PoolBackend::Lvs),
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            _ => Err(Status::not_found(format!("Pool {probe:?} not found"))),
-        }
+        probe: I,
+    ) -> Result<Box<dyn PoolSvcRpc>, tonic::Status> {
+        let probe = probe.into();
+        let kind = match probe {
+            ProbeType::ByKind(kind) => kind,
+            ProbeType::ById(probe) => match (
+                LvmSvc::probe(&probe).await,
+                LvsSvc::probe(probe.clone()).await,
+            ) {
+                (Ok(true), _) => Ok(PoolBackend::Lvm),
+                (_, Ok(true)) => Ok(PoolBackend::Lvs),
+                (Err(error), _) | (_, Err(error)) => Err(error),
+                _ => {
+                    Err(Status::not_found(format!("Pool {probe:?} not found")))
+                }
+            }?,
+        };
+        Ok(match kind {
+            PoolBackend::Lvs => Box::new(LvsSvc::new()),
+            PoolBackend::Lvm => Box::new(LvmSvc::new()),
+        })
     }
 }
 
@@ -261,13 +362,15 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<CreatePoolRequest>,
     ) -> GrpcResult<Pool> {
-        let backend = self.backend(request.get_ref().pooltype)?;
+        let backend = self
+            .probe(PoolBackend::try_from(request.get_ref().pooltype)?)
+            .await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.create_pool(request).await
+                backend?.create_pool(request).await
             },
         )
         .await
@@ -279,14 +382,17 @@ impl PoolRpc for PoolService {
         request: Request<DestroyPoolRequest>,
     ) -> GrpcResult<()> {
         let backend = self
-            .probe_backend(&request.get_ref().name, &request.get_ref().uuid)
-            .await?;
+            .probe(PoolIdProbe::name_uuid(
+                &request.get_ref().name,
+                &request.get_ref().uuid,
+            ))
+            .await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.destroy_pool(request).await
+                backend?.destroy_pool(request).await
             },
         )
         .await
@@ -298,14 +404,17 @@ impl PoolRpc for PoolService {
         request: Request<ExportPoolRequest>,
     ) -> GrpcResult<()> {
         let backend = self
-            .probe_backend(&request.get_ref().name, &request.get_ref().uuid)
-            .await?;
+            .probe(PoolIdProbe::name_uuid(
+                &request.get_ref().name,
+                &request.get_ref().uuid,
+            ))
+            .await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.export_pool(request).await
+                backend?.export_pool(request).await
             },
         )
         .await
@@ -316,13 +425,15 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<ImportPoolRequest>,
     ) -> GrpcResult<Pool> {
-        let backend = self.backend(request.get_ref().pooltype)?;
+        let backend = self
+            .probe(PoolBackend::try_from(request.get_ref().pooltype)?)
+            .await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 info!("{:?}", request.get_ref());
 
-                backend.import_pool(request).await
+                backend?.import_pool(request).await
             },
         )
         .await

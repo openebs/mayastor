@@ -10,7 +10,7 @@ macro_rules! impl_properties {
     ($tag:ident, $tag_key:literal, $($name:ident,$value:ty,$key:literal,)+) => {
         /// Various types of properties which we persist with LVM.
         #[derive(Eq, PartialEq, Debug, Clone)]
-        pub(super) enum Property {
+        pub(crate) enum Property {
             $tag,
             Unknown(String,String),
             $(
