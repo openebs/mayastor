@@ -1,24 +1,17 @@
-use crate::{
-    core::{
-        logical_volume::LogicalVolume,
-        snapshot::{CloneParams, SnapshotDescriptor, VolumeSnapshotDescriptor},
-        Bdev,
-        CloneXattrs,
-        SnapshotOps,
-        SnapshotParams,
-        SnapshotXattrs,
-        UntypedBdev,
-    },
-    eventing::Event,
-    ffihelper::{cb_arg, IntoCString},
-    lvs::{lvs_lvol::LvsLvol, Lvol},
-    subsys::NvmfReq,
+use std::{
+    convert::TryFrom,
+    ffi::{c_ushort, c_void, CString},
+    os::raw::c_char,
 };
+
 use async_trait::async_trait;
 use chrono::Utc;
-use events_api::event::EventAction;
-use futures::channel::oneshot;
+use futures::{channel::oneshot, future::join_all};
 use nix::errno::Errno;
+use strum::{EnumCount, IntoEnumIterator};
+
+use events_api::event::EventAction;
+
 use spdk_rs::libspdk::{
     spdk_blob,
     spdk_blob_reset_used_clusters_cache,
@@ -27,16 +20,31 @@ use spdk_rs::libspdk::{
     vbdev_lvol_create_clone_ext,
     vbdev_lvol_create_snapshot_ext,
 };
-use std::{
-    convert::TryFrom,
-    ffi::{c_ushort, c_void, CString},
-    os::raw::c_char,
+
+use crate::{
+    core::{
+        logical_volume::LogicalVolume,
+        snapshot::{
+            CloneParams,
+            LvolResult,
+            SnapshotDescriptor,
+            VolumeSnapshotDescriptor,
+        },
+        Bdev,
+        CloneXattrs,
+        SnapshotOps,
+        SnapshotParams,
+        SnapshotXattrs,
+        UntypedBdev,
+    },
+    eventing::Event,
+    ffihelper::{cb_arg, done_cb, IntoCString},
+    subsys::NvmfReq,
 };
-use strum::{EnumCount, IntoEnumIterator};
 
-use super::Error;
-use futures::future::join_all;
+use super::{BsError, Lvol, LvsError, LvsLvol};
 
+/// TODO
 pub trait AsyncParentIterator {
     type Item;
     fn parent(&mut self) -> Option<Self::Item>;
@@ -81,7 +89,7 @@ impl AsyncParentIterator for LvolSnapshotIter {
 
 #[async_trait(?Send)]
 impl SnapshotOps for Lvol {
-    type Error = Error;
+    type Error = LvsError;
     type SnapshotIter = LvolSnapshotIter;
     type Lvol = Lvol;
 
@@ -129,20 +137,21 @@ impl SnapshotOps for Lvol {
             false,
         ))
     }
+
     /// Prepare snapshot xattrs.
     fn prepare_snapshot_xattrs(
         &self,
         attr_descrs: &mut [spdk_xattr_descriptor; SnapshotXattrs::COUNT],
         params: SnapshotParams,
         cstrs: &mut Vec<CString>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), LvsError> {
         for (idx, attr) in SnapshotXattrs::iter().enumerate() {
             // Get attribute value from snapshot params.
             let av = match attr {
                 SnapshotXattrs::TxId => match params.txn_id() {
                     Some(v) => v,
                     None => {
-                        return Err(Error::SnapshotConfigFailed {
+                        return Err(LvsError::SnapshotConfigFailed {
                             name: self.as_bdev().name().to_string(),
                             msg: "txn id not provided".to_string(),
                         })
@@ -151,7 +160,7 @@ impl SnapshotOps for Lvol {
                 SnapshotXattrs::EntityId => match params.entity_id() {
                     Some(v) => v,
                     None => {
-                        return Err(Error::SnapshotConfigFailed {
+                        return Err(LvsError::SnapshotConfigFailed {
                             name: self.as_bdev().name().to_string(),
                             msg: "entity id not provided".to_string(),
                         })
@@ -160,7 +169,7 @@ impl SnapshotOps for Lvol {
                 SnapshotXattrs::ParentId => match params.parent_id() {
                     Some(v) => v,
                     None => {
-                        return Err(Error::SnapshotConfigFailed {
+                        return Err(LvsError::SnapshotConfigFailed {
                             name: self.as_bdev().name().to_string(),
                             msg: "parent id not provided".to_string(),
                         })
@@ -169,7 +178,7 @@ impl SnapshotOps for Lvol {
                 SnapshotXattrs::SnapshotUuid => match params.snapshot_uuid() {
                     Some(v) => v,
                     None => {
-                        return Err(Error::SnapshotConfigFailed {
+                        return Err(LvsError::SnapshotConfigFailed {
                             name: self.as_bdev().name().to_string(),
                             msg: "snapshot_uuid not provided".to_string(),
                         })
@@ -179,7 +188,7 @@ impl SnapshotOps for Lvol {
                     match params.create_time() {
                         Some(v) => v,
                         None => {
-                            return Err(Error::SnapshotConfigFailed {
+                            return Err(LvsError::SnapshotConfigFailed {
                                 name: self.as_bdev().name().to_string(),
                                 msg: "create_time not provided".to_string(),
                             })
@@ -202,14 +211,15 @@ impl SnapshotOps for Lvol {
 
         Ok(())
     }
+
     /// create replica snapshot inner function to call spdk snapshot create
     /// function.
     unsafe fn create_snapshot_inner(
         &self,
         snap_param: &SnapshotParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-    ) -> Result<(), Error> {
+        cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        cb_arg: *mut c_void,
+    ) -> Result<(), LvsError> {
         let mut attr_descrs: [spdk_xattr_descriptor; SnapshotXattrs::COUNT] =
             [spdk_xattr_descriptor::default(); SnapshotXattrs::COUNT];
 
@@ -234,44 +244,49 @@ impl SnapshotOps for Lvol {
                 c_snapshot_name.as_ptr(),
                 attr_descrs.as_mut_ptr(),
                 SnapshotXattrs::COUNT as u32,
-                Some(done_cb),
-                done_cb_arg,
+                Some(cb),
+                cb_arg,
             )
         };
         Ok(())
     }
+
+    /// Creates a snapshot.
     async fn do_create_snapshot(
         &self,
         snap_param: SnapshotParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
-    ) -> Result<Lvol, Error> {
+        cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        cb_arg: *mut c_void,
+        receiver: oneshot::Receiver<LvolResult>,
+    ) -> Result<Lvol, LvsError> {
         unsafe {
-            self.create_snapshot_inner(&snap_param, done_cb, done_cb_arg)?;
+            self.create_snapshot_inner(&snap_param, cb, cb_arg)?;
         }
+
         // Wait till operation succeeds, if requested.
-        let (error, lvol_ptr) =
-            receiver.await.expect("Snapshot done callback disappeared");
-        match error {
-            0 => {
+        let res = receiver.await.expect("Snapshot done callback disappeared");
+
+        match res {
+            Ok(lvol_ptr) => {
                 snap_param.event(EventAction::Create).generate();
                 Ok(Lvol::from_inner_ptr(lvol_ptr))
             }
-            _ => Err(Error::SnapshotCreate {
-                source: Errno::from_i32(error),
+            Err(e) => Err(LvsError::SnapshotCreate {
+                source: BsError::from_errno(e),
                 msg: snap_param.name().unwrap(),
             }),
         }
     }
+
+    /// Creates a remote snapshot.
     async fn do_create_snapshot_remote(
         &self,
         snap_param: SnapshotParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-    ) -> Result<(), Error> {
+        cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        cb_arg: *mut c_void,
+    ) -> Result<(), LvsError> {
         unsafe {
-            self.create_snapshot_inner(&snap_param, done_cb, done_cb_arg)?;
+            self.create_snapshot_inner(&snap_param, cb, cb_arg)?;
         }
         snap_param.event(EventAction::Create).generate();
         Ok(())
@@ -316,14 +331,14 @@ impl SnapshotOps for Lvol {
         attr_descrs: &mut [spdk_xattr_descriptor; CloneXattrs::COUNT],
         params: CloneParams,
         cstrs: &mut Vec<CString>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), LvsError> {
         for (idx, attr) in CloneXattrs::iter().enumerate() {
             // Get attribute value from CloneParams.
             let av = match attr {
                 CloneXattrs::SourceUuid => match params.source_uuid() {
                     Some(v) => v,
                     None => {
-                        return Err(Error::CloneConfigFailed {
+                        return Err(LvsError::CloneConfigFailed {
                             name: self.as_bdev().name().to_string(),
                             msg: "source uuid not provided".to_string(),
                         })
@@ -333,7 +348,7 @@ impl SnapshotOps for Lvol {
                     match params.clone_create_time() {
                         Some(v) => v,
                         None => {
-                            return Err(Error::CloneConfigFailed {
+                            return Err(LvsError::CloneConfigFailed {
                                 name: self.as_bdev().name().to_string(),
                                 msg: "create_time not provided".to_string(),
                             })
@@ -343,7 +358,7 @@ impl SnapshotOps for Lvol {
                 CloneXattrs::CloneUuid => match params.clone_uuid() {
                     Some(v) => v,
                     None => {
-                        return Err(Error::CloneConfigFailed {
+                        return Err(LvsError::CloneConfigFailed {
                             name: self.as_bdev().name().to_string(),
                             msg: "clone_uuid not provided".to_string(),
                         })
@@ -361,13 +376,14 @@ impl SnapshotOps for Lvol {
         }
         Ok(())
     }
+
     /// Create clone inner function to call spdk clone function.
     unsafe fn create_clone_inner(
         &self,
         clone_param: &CloneParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-    ) -> Result<(), Error> {
+        cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        cb_arg: *mut c_void,
+    ) -> Result<(), LvsError> {
         let mut attr_descrs: [spdk_xattr_descriptor; CloneXattrs::COUNT] =
             [spdk_xattr_descriptor::default(); CloneXattrs::COUNT];
 
@@ -391,37 +407,41 @@ impl SnapshotOps for Lvol {
                 c_clone_name.as_ptr(),
                 attr_descrs.as_mut_ptr(),
                 CloneXattrs::COUNT as u32,
-                Some(done_cb),
-                done_cb_arg,
+                Some(cb),
+                cb_arg,
             )
         };
         Ok(())
     }
+
+    /// Creates a clone.
     async fn do_create_clone(
         &self,
         clone_param: CloneParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut ::std::os::raw::c_void,
-        receiver: oneshot::Receiver<(i32, *mut spdk_lvol)>,
-    ) -> Result<Lvol, Error> {
+        cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
+        cb_arg: *mut c_void,
+        receiver: oneshot::Receiver<LvolResult>,
+    ) -> Result<Lvol, LvsError> {
         unsafe {
-            self.create_clone_inner(&clone_param, done_cb, done_cb_arg)?;
+            self.create_clone_inner(&clone_param, cb, cb_arg)?;
         }
         // Wait till operation succeeds, if requested.
-        let (error, lvol_ptr) = receiver
+        let res = receiver
             .await
             .expect("Snapshot Clone done callback disappeared");
-        match error {
-            0 => {
+
+        match res {
+            Ok(lvol_ptr) => {
                 clone_param.event(EventAction::Create).generate();
                 Ok(Lvol::from_inner_ptr(lvol_ptr))
             }
-            _ => Err(Error::SnapshotCloneCreate {
-                source: Errno::from_i32(error),
+            Err(err) => Err(LvsError::SnapshotCloneCreate {
+                source: BsError::from_errno(err),
                 msg: clone_param.clone_name().unwrap_or_default(),
             }),
         }
     }
+
     /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.
     fn snapshot_descriptor(
         &self,
@@ -497,23 +517,25 @@ impl SnapshotOps for Lvol {
     async fn create_snapshot(
         &self,
         snap_param: SnapshotParams,
-    ) -> Result<Lvol, Error> {
+    ) -> Result<Lvol, LvsError> {
         extern "C" fn snapshot_create_done_cb(
             arg: *mut c_void,
             lvol_ptr: *mut spdk_lvol,
             errno: i32,
         ) {
-            let s = unsafe {
-                Box::from_raw(
-                    arg as *mut oneshot::Sender<(i32, *mut spdk_lvol)>,
-                )
+            let res = if errno == 0 {
+                Ok(lvol_ptr)
+            } else {
+                assert!(errno < 0);
+                let e = Errno::from_i32(-errno);
+                error!("Create snapshot failed with errno {errno}: {e}");
+                Err(e)
             };
-            if errno != 0 {
-                error!("vbdev_lvol_create_snapshot failed errno {}", errno);
-            }
-            s.send((errno, lvol_ptr)).ok();
+
+            done_cb(arg, res);
         }
-        let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
+
+        let (s, r) = oneshot::channel::<LvolResult>();
 
         self.do_create_snapshot(
             snap_param,
@@ -523,6 +545,7 @@ impl SnapshotOps for Lvol {
         )
         .await
     }
+
     /// Create a snapshot in Remote.
     async fn create_snapshot_remote(
         &self,
@@ -566,10 +589,12 @@ impl SnapshotOps for Lvol {
             );
         }
     }
+
     /// Get a Snapshot Iterator.
     async fn snapshot_iter(self) -> LvolSnapshotIter {
         LvolSnapshotIter::new(self)
     }
+
     /// Destroy snapshot.
     async fn destroy_snapshot(mut self) -> Result<(), Self::Error> {
         if self.list_clones_by_snapshot_uuid().is_empty() {
@@ -602,6 +627,7 @@ impl SnapshotOps for Lvol {
         }
         snapshot_list
     }
+
     /// List Single snapshot details based on snapshot UUID.
     fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor> {
         let mut snapshot_list: Vec<VolumeSnapshotDescriptor> = Vec::new();
@@ -654,18 +680,19 @@ impl SnapshotOps for Lvol {
             lvol_ptr: *mut spdk_lvol,
             errno: i32,
         ) {
-            let s = unsafe {
-                Box::from_raw(
-                    arg as *mut oneshot::Sender<(i32, *mut spdk_lvol)>,
-                )
+            let res = if errno == 0 {
+                Ok(lvol_ptr)
+            } else {
+                assert!(errno < 0);
+                let e = Errno::from_i32(-errno);
+                error!("Snapshot Clone failed with errno {errno}: {e}");
+                Err(e)
             };
-            if errno != 0 {
-                error!("Snapshot Clone failed errno {}", errno);
-            }
-            s.send((errno, lvol_ptr)).ok();
+
+            done_cb(arg, res);
         }
 
-        let (s, r) = oneshot::channel::<(i32, *mut spdk_lvol)>();
+        let (s, r) = oneshot::channel::<LvolResult>();
 
         self.do_create_clone(clone_param, clone_done_cb, cb_arg(s), r)
             .await
@@ -705,6 +732,7 @@ impl SnapshotOps for Lvol {
             .filter(|b| b.is_snapshot_clone().is_some())
             .collect::<Vec<Lvol>>()
     }
+
     /// Check if the snapshot has been discarded.
     fn is_discarded_snapshot(&self) -> bool {
         Lvol::get_blob_xattr(
@@ -749,6 +777,7 @@ impl SnapshotOps for Lvol {
             }
         }
     }
+
     // if self is clone or a snapshot whose parent is clone, then do ancestor
     // calculation for all snapshot linked to clone.
     fn calculate_clone_source_snap_usage(

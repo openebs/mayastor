@@ -220,7 +220,7 @@ impl Lvs {
         match &self.mode {
             LvsMode::Create => {
                 match crate::lvs::Lvs::import_from_args(args.clone()).await {
-                    Err(crate::lvs::Error::Import {
+                    Err(crate::lvs::LvsError::Import {
                         ..
                     }) => crate::lvs::Lvs::create_or_import(args).await,
                     _ => {
