@@ -24,6 +24,7 @@
 , sourcer
 , img_tag ? ""
 , img_org ? ""
+, img_prefix
 }:
 let
   version = if img_tag != "" then img_tag else io-engine.version;
@@ -95,28 +96,28 @@ let
 in
 {
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
-    name = "${repo-org}/mayastor-io-engine";
+    name = "${repo-org}/${img_prefix}-io-engine";
     copyToRoot = [ busybox io-engine-bins mctl ];
   });
 
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
-    name = "${repo-org}/mayastor-io-engine-dev";
+    name = "${repo-org}/${img_prefix}-io-engine-dev";
     copyToRoot = [ busybox io-engine-dev ];
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
-    name = "${repo-org}/mayastor-io-engine-client";
+    name = "${repo-org}/${img_prefix}-io-engine-client";
     copyToRoot = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
 
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
-    name = "${repo-org}/mayastor-fio-spdk";
+    name = "${repo-org}/${img_prefix}-fio-spdk";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
   });
 
   mayastor-casperf = dockerTools.buildImage (clientImageProps // {
-    name = "${repo-org}/mayastor-casperf";
+    name = "${repo-org}/${img_prefix}-casperf";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf ];
   });
 }

@@ -1,8 +1,12 @@
-{ img_tag ? "", tag ? "", img_org ? "" }:
+{ img_tag ? "", tag ? "", img_org ? "", product_prefix ? "" }:
+let
+  config = import ./config.nix;
+  img_prefix = if product_prefix == "" then config.product_prefix else product_prefix;
+in
 self: super: rec {
   fio = super.callPackage ./pkgs/fio { };
   sourcer = super.callPackage ./lib/sourcer.nix { };
-  images = super.callPackage ./pkgs/images { inherit img_tag img_org; };
+  images = super.callPackage ./pkgs/images { inherit img_tag img_org img_prefix; };
   libnvme = super.callPackage ./pkgs/libnvme { };
   libspdk = (super.callPackage ./pkgs/libspdk { with-fio = false; }).release;
   libspdk-fio = (super.callPackage ./pkgs/libspdk { with-fio = true; multi-outputs = true; }).release;
