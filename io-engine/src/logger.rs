@@ -1,8 +1,10 @@
 use ansi_term::{Colour, Style};
 use once_cell::sync::OnceCell;
 use std::{
+    collections::HashMap,
     ffi::CStr,
-    fmt::Write,
+    fmt,
+    fmt::{Debug, Write},
     io::IsTerminal,
     os::raw::c_char,
     path::Path,
@@ -14,6 +16,7 @@ use crate::{
     core::spawn,
 };
 use event_publisher::event_handler::EventHandle;
+use tracing::field::{Field, Visit};
 use tracing_core::{event::Event, Level, Metadata};
 use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{
@@ -112,6 +115,17 @@ impl<'a> FormatLevel<'a> {
             Level::WARN => "W",
             Level::ERROR => "E",
         }
+    }
+
+    fn long(&self) -> String {
+        match *self.level {
+            Level::TRACE => "TRACE",
+            Level::DEBUG => "DEBUG",
+            Level::INFO => "INFO",
+            Level::WARN => "WARN",
+            Level::ERROR => "ERROR",
+        }
+        .to_string()
     }
 
     fn fmt_line(&self, mut f: Writer<'_>, line: &str) -> std::fmt::Result {
@@ -262,6 +276,7 @@ impl std::fmt::Display for Location<'_> {
 pub enum LogStyle {
     Default,
     Compact,
+    Json,
 }
 
 // Custom struct used to format trace events.
@@ -294,6 +309,7 @@ impl FromStr for LogFormat {
             match p {
                 "default" => r.style = LogStyle::Default,
                 "compact" => r.style = LogStyle::Compact,
+                "json" => r.style = LogStyle::Json,
                 "color" => r.ansi = true,
                 "nocolor" => r.ansi = false,
                 "date" => r.show_date = true,
@@ -323,6 +339,7 @@ where
         match self.style {
             LogStyle::Default => self.default_style(ctx, w, evt),
             LogStyle::Compact => self.compact_style(ctx, w, evt),
+            LogStyle::Json => self.json_style(ctx, w, evt),
         }
     }
 }
@@ -332,6 +349,34 @@ fn ellipsis(s: &str, w: usize) -> String {
         s.to_owned()
     } else {
         format!("{}...", &s[.. w - 3])
+    }
+}
+
+/// Input struct for json serializer.
+#[derive(Serialize)]
+struct JsonLogger {
+    hostname: String,
+    level: String,
+    timestamp: String,
+    fields: HashMap<String, String>,
+}
+
+/// Visitor struct for fetching Event fields.
+pub struct StringVisitor<'a> {
+    string: &'a mut String,
+}
+
+impl<'a> Visit for StringVisitor<'a> {
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        write!(self.string, "{} = {:?}; ", field.name(), value).unwrap();
+    }
+}
+
+impl<'a> StringVisitor<'a> {
+    pub fn new(string: &'a mut String) -> Self {
+        Self {
+            string,
+        }
     }
 }
 
@@ -413,6 +458,46 @@ impl LogFormat {
 
         context.format_fields(writer.by_ref(), event)?;
 
+        writeln!(writer)
+    }
+
+    /// Formats an event in json mode to stdout.
+    fn json_style<S, N>(
+        &self,
+        _context: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> std::fmt::Result
+    where
+        S: tracing_core::subscriber::Subscriber + for<'s> LookupSpan<'s>,
+        N: for<'w> FormatFields<'w> + 'static,
+    {
+        let normalized = event.normalized_metadata();
+        let meta = normalized.as_ref().unwrap_or_else(|| event.metadata());
+        let fmt = FormatLevel::new(meta.level(), self.ansi);
+        let now = chrono::Local::now();
+
+        let mut output_string = String::new();
+        let mut visitor = StringVisitor::new(&mut output_string);
+        event.record(&mut visitor);
+        let output = visitor.string;
+        let key = "message".to_string();
+        let output = output.trim_end_matches("; ");
+        let val = match output.strip_prefix("message = ") {
+            Some(stripped) => stripped,
+            None => output,
+        };
+        let mut msg = HashMap::new();
+        msg.insert(key, val.to_string());
+
+        let json_log = JsonLogger {
+            hostname: self.hostname().to_string(),
+            level: fmt.long(),
+            timestamp: now.to_rfc2822(),
+            fields: msg,
+        };
+        let json_str = serde_json::to_string(&json_log).unwrap_or_default();
+        fmt.fmt_line(writer.by_ref(), &json_str)?;
         writeln!(writer)
     }
 
