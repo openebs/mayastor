@@ -569,27 +569,24 @@ impl SnapshotRpc for SnapshotService {
                             Ok(None)
                         }
                     }?;
-                    let bdev = UntypedBdev::bdev_first()
-                        .expect("Failed to enumerate devices");
-
-                    let device = match bdev
-                        .into_iter()
-                        .find(|b| {
-                            b.driver() == "lvol"
-                                && b.uuid_as_string() == args.snapshot_uuid
-                        })
-                        .map(|b| Lvol::try_from(b).unwrap())
-                    {
-                        Some(lvol) => lvol,
-                        None => {
-                            return Err(LvsError::Invalid {
-                                source: BsError::LvolNotFound {},
-                                msg: format!(
-                                    "Snapshot {} not found",
-                                    args.snapshot_uuid
-                                ),
+                    let device = match UntypedBdev::bdev_first() {
+                        Some(bdev) => bdev
+                            .into_iter()
+                            .find(|b| {
+                                b.driver() == "lvol"
+                                    && b.uuid_as_string() == args.snapshot_uuid
                             })
-                        }
+                            .map(|b| Lvol::try_from(b).unwrap()),
+                        None => None,
+                    };
+                    let Some(device) = device else {
+                        return Err(LvsError::Invalid {
+                            source: BsError::LvolNotFound {},
+                            msg: format!(
+                                "Snapshot {} not found",
+                                args.snapshot_uuid
+                            ),
+                        });
                     };
                     if let Some(lvs) = lvs {
                         if lvs.name() != device.pool_name()

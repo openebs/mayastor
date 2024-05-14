@@ -493,10 +493,12 @@ async fn do_shutdown(arg: *mut c_void) {
     crate::rebuild::shutdown_snapshot_rebuilds().await;
     crate::lvs::Lvs::export_all().await;
 
-    runtime::spawn_await(async {
-        crate::lvm::VolumeGroup::export_all().await;
-    })
-    .await;
+    if MayastorFeatures::get_features().lvm() {
+        runtime::spawn_await(async {
+            crate::lvm::VolumeGroup::export_all().await;
+        })
+        .await;
+    }
 
     unsafe {
         spdk_rpc_finish();
