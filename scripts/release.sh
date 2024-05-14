@@ -91,6 +91,7 @@ RM="rm"
 SCRIPTDIR=$(dirname "$0")
 TAG=`get_tag`
 HASH=`get_hash`
+PRODUCT_PREFIX=${MAYASTOR_PRODUCT_PREFIX:-""}
 GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
 BRANCH=${GIT_BRANCH////-}
 IMAGES=
@@ -214,7 +215,7 @@ if [ -n "$OVERRIDE_COMMIT_HASH" ] && [ -n "$alias_tag" ]; then
 fi
 
 for name in $IMAGES; do
-  image_basename=$($NIX_EVAL -f . images.$name.imageName | xargs)
+  image_basename=$($NIX_EVAL -f . images.$name.imageName --argstr product_prefix "$PRODUCT_PREFIX" | xargs)
   image=$image_basename
     if [ -n "$REGISTRY" ]; then
     if [[ "${REGISTRY}" =~ '/' ]]; then
@@ -228,7 +229,7 @@ for name in $IMAGES; do
   if [ -z $SKIP_BUILD ]; then
     archive=${name}
     echo "Building $image:$TAG ..."
-    $NIX_BUILD --out-link $archive-image -A images.$archive
+    $NIX_BUILD --out-link $archive-image -A images.$archive --argstr product_prefix "$PRODUCT_PREFIX"
     $DOCKER load -i $archive-image
     $RM $archive-image
     if [ "$image" != "$image_basename" ]; then
