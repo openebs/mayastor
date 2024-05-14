@@ -46,10 +46,25 @@ pub(crate) use vg_pool::VolumeGroup;
 pub(crate) use lv_replica::{LogicalVolume, QueryArgs};
 
 use crate::{
-    core::{NvmfShareProps, Protocol, UpdateProps},
+    bdev::PtplFileOps,
+    core::{NvmfShareProps, Protocol, PtplProps, UpdateProps},
     lvm::property::Property,
-    pool_backend::{PoolOps, ReplicaArgs},
-    replica_backend::ReplicaOps,
+    pool_backend::{
+        FindPoolArgs,
+        IPoolProps,
+        ListPoolArgs,
+        PoolArgs,
+        PoolBackend,
+        PoolFactory,
+        PoolOps,
+        ReplicaArgs,
+    },
+    replica_backend::{
+        FindReplicaArgs,
+        ListReplicaArgs,
+        ReplicaFactory,
+        ReplicaOps,
+    },
 };
 use futures::channel::oneshot::Receiver;
 
@@ -66,42 +81,46 @@ pub(super) fn is_alphanumeric(name: &str, value: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// The LVM code currently uses an async executor which is not runnable within
-/// the spdk reactor, and as such we need a trampoline in order to use spdk
-/// functionality within the LVM code.
-/// This methods spawns a future on the primary reactor and collects its result
-/// with a oneshot channel.
-pub(crate) fn spdk_submit<F, R>(
-    future: F,
-) -> Result<Receiver<Result<R, Error>>, Error>
+pub(crate) fn tokio_submit<F, R>(future: F) -> Receiver<Result<R, Error>>
 where
-    F: std::future::Future<Output = Result<R, Error>> + 'static,
+    F: std::future::Future<Output = Result<R, Error>> + Send + 'static,
     R: Send + std::fmt::Debug + 'static,
 {
-    crate::core::Reactor::spawn_at_primary(future)
-        .map_err(|_| Error::ReactorSpawn {})
+    let (s, r) = futures::channel::oneshot::channel();
+
+    crate::core::runtime::spawn(async move {
+        let result = future.await;
+
+        if let Ok(r) = crate::core::Reactor::spawn_at_primary(async move {
+            s.send(result).ok();
+        }) {
+            r.await.ok();
+        }
+    });
+    r
 }
 
 #[macro_export]
 macro_rules! spdk_run {
     ($fut:expr) => {{
-        let r = $crate::lvm::spdk_submit($fut)?;
+        $fut.await
+    }};
+}
+
+#[macro_export]
+macro_rules! tokio_run {
+    ($fut:expr) => {{
+        let r = $crate::lvm::tokio_submit($fut);
         r.await.map_err(|_| Error::ReactorSpawnChannel {})?
     }};
 }
 
 #[async_trait::async_trait(?Send)]
 impl PoolOps for VolumeGroup {
-    type Replica = LogicalVolume;
-    type Error = Error;
-
-    async fn replicas(&self) -> Result<Vec<Self::Replica>, Self::Error> {
-        self.list_lvs().await
-    }
     async fn create_repl(
         &self,
         args: ReplicaArgs,
-    ) -> Result<Self::Replica, Self::Error> {
+    ) -> Result<Box<dyn ReplicaOps>, crate::pool_backend::Error> {
         let replica = LogicalVolume::create(
             self.uuid(),
             &args.name,
@@ -112,49 +131,237 @@ impl PoolOps for VolumeGroup {
             Protocol::Off,
         )
         .await?;
-        Ok(replica)
+        Ok(Box::new(replica))
     }
-    async fn destroy(self) -> Result<(), Self::Error> {
-        self.destroy().await
+    async fn destroy(
+        self: Box<Self>,
+    ) -> Result<(), crate::pool_backend::Error> {
+        (*self).destroy().await?;
+        Ok(())
     }
 
-    async fn export(mut self) -> Result<(), Self::Error> {
-        self.export().await
+    async fn export(
+        mut self: Box<Self>,
+    ) -> Result<(), crate::pool_backend::Error> {
+        VolumeGroup::export(&mut self).await?;
+        Ok(())
     }
 }
 
 #[async_trait::async_trait(?Send)]
 impl ReplicaOps for LogicalVolume {
-    type ReplError = Error;
-
     async fn share_nvmf(
         &mut self,
         props: NvmfShareProps,
-    ) -> Result<String, Self::ReplError> {
-        self.share_nvmf(Some(props)).await
+    ) -> Result<String, crate::pool_backend::Error> {
+        self.share_nvmf(Some(props)).await.map_err(Into::into)
     }
-    async fn unshare(&mut self) -> Result<(), Self::ReplError> {
-        self.unshare().await
+    async fn unshare(&mut self) -> Result<(), crate::pool_backend::Error> {
+        self.unshare().await.map_err(Into::into)
     }
-    async fn update_properties<P: Into<UpdateProps>>(
+    async fn update_properties(
         &mut self,
-        props: P,
-    ) -> Result<(), Self::ReplError> {
-        self.update_share_props(props.into()).await
+        props: UpdateProps,
+    ) -> Result<(), crate::pool_backend::Error> {
+        self.update_share_props(props).await?;
+        Ok(())
     }
 
     async fn set_entity_id(
         &mut self,
         id: String,
-    ) -> Result<(), Self::ReplError> {
-        self.set_property(Property::LvEntityId(id)).await
+    ) -> Result<(), crate::pool_backend::Error> {
+        self.set_property(Property::LvEntityId(id)).await?;
+        Ok(())
     }
 
-    async fn resize(&mut self, size: u64) -> Result<(), Self::ReplError> {
-        self.resize(size).await
+    async fn resize(
+        &mut self,
+        size: u64,
+    ) -> Result<(), crate::pool_backend::Error> {
+        self.resize(size).await.map_err(Into::into)
     }
 
-    async fn destroy(self) -> Result<(), Self::ReplError> {
-        self.destroy().await
+    async fn destroy(
+        self: Box<Self>,
+    ) -> Result<(), crate::pool_backend::Error> {
+        (*self).destroy().await.map_err(Into::into)
+    }
+
+    fn shared(&self) -> Option<Protocol> {
+        self.share_proto()
+    }
+
+    fn create_ptpl(
+        &self,
+    ) -> Result<Option<PtplProps>, crate::pool_backend::Error> {
+        self.ptpl()
+            .create()
+            .map_err(|source| crate::pool_backend::Error::Lvm {
+                source: Error::BdevShare {
+                    source: crate::core::CoreError::Ptpl {
+                        reason: source.to_string(),
+                    },
+                },
+            })
+    }
+}
+
+impl IPoolProps for VolumeGroup {
+    fn name(&self) -> &str {
+        self.name()
+    }
+
+    fn uuid(&self) -> String {
+        self.uuid().to_string()
+    }
+
+    fn disks(&self) -> Vec<String> {
+        self.disks().clone()
+    }
+
+    fn used(&self) -> u64 {
+        self.used()
+    }
+
+    fn committed(&self) -> u64 {
+        self.committed()
+    }
+
+    fn capacity(&self) -> u64 {
+        self.capacity()
+    }
+
+    fn pool_type(&self) -> PoolBackend {
+        PoolBackend::Lvm
+    }
+
+    fn cluster_size(&self) -> u32 {
+        self.cluster_size() as u32
+    }
+}
+
+/// A factory instance which implements LVM specific `PoolFactory`.
+#[derive(Default)]
+pub struct PoolLvmFactory {}
+#[async_trait::async_trait(?Send)]
+impl PoolFactory for PoolLvmFactory {
+    async fn create(
+        &self,
+        args: PoolArgs,
+    ) -> Result<Box<dyn PoolOps>, crate::pool_backend::Error> {
+        let pool = VolumeGroup::create(args).await?;
+        Ok(Box::new(pool))
+    }
+
+    async fn import(
+        &self,
+        args: PoolArgs,
+    ) -> Result<Box<dyn PoolOps>, crate::pool_backend::Error> {
+        let pool = VolumeGroup::import(args).await?;
+        Ok(Box::new(pool))
+    }
+
+    async fn find(
+        &self,
+        args: &FindPoolArgs,
+    ) -> Result<Option<Box<dyn PoolOps>>, crate::pool_backend::Error> {
+        if !crate::core::MayastorFeatures::get_features().lvm() {
+            return Ok(None);
+        }
+        use CmnQueryArgs;
+
+        let query = match args {
+            FindPoolArgs::Uuid(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            FindPoolArgs::UuidOrName(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            FindPoolArgs::NameUuid {
+                name,
+                uuid,
+            } => CmnQueryArgs::ours().named(name).uuid_opt(uuid),
+        };
+        match VolumeGroup::lookup(query).await {
+            Ok(vg) => Ok(Some(Box::new(vg))),
+            Err(Error::NotFound {
+                ..
+            }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+    async fn list(
+        &self,
+        args: &ListPoolArgs,
+    ) -> Result<Vec<Box<dyn PoolOps>>, crate::pool_backend::Error> {
+        if !crate::core::MayastorFeatures::get_features().lvm() {
+            return Ok(vec![]);
+        }
+        if matches!(args.backend, Some(p) if p != PoolBackend::Lvm) {
+            return Ok(vec![]);
+        }
+
+        let vgs = VolumeGroup::list(
+            &CmnQueryArgs::ours()
+                .named_opt(&args.name)
+                .uuid_opt(&args.uuid),
+        )
+        .await?;
+
+        Ok(vgs
+            .into_iter()
+            .map(|p| Box::new(p) as _)
+            .collect::<Vec<_>>())
+    }
+    fn backend(&self) -> PoolBackend {
+        PoolBackend::Lvm
+    }
+}
+
+/// A factory instance which implements LVM specific `ReplicaFactory`.
+#[derive(Default)]
+pub struct ReplLvmFactory {}
+#[async_trait::async_trait(?Send)]
+impl ReplicaFactory for ReplLvmFactory {
+    async fn find(
+        &self,
+        args: &FindReplicaArgs,
+    ) -> Result<Option<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
+        let lookup = LogicalVolume::lookup(
+            &QueryArgs::new().with_lv(CmnQueryArgs::ours().uuid(&args.uuid)),
+        )
+        .await;
+        match lookup {
+            Ok(repl) => Ok(Some(Box::new(repl) as _)),
+            Err(Error::NotFound {
+                ..
+            }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+    async fn list(
+        &self,
+        args: &ListReplicaArgs,
+    ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
+        if !crate::core::MayastorFeatures::get_features().lvm() {
+            return Ok(vec![]);
+        }
+        let replicas = LogicalVolume::list(
+            &QueryArgs::new()
+                .with_lv(
+                    CmnQueryArgs::ours()
+                        .named_opt(&args.name)
+                        .uuid_opt(&args.uuid),
+                )
+                .with_vg(
+                    CmnQueryArgs::ours()
+                        .named_opt(&args.pool_name)
+                        .uuid_opt(&args.pool_uuid),
+                ),
+        )
+        .await?;
+        let replicas = replicas.into_iter().map(|r| Box::new(r) as _);
+        Ok(replicas.collect::<Vec<_>>())
+    }
+
+    fn backend(&self) -> PoolBackend {
+        PoolBackend::Lvm
     }
 }

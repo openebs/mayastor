@@ -46,7 +46,6 @@ use crate::{
     core::{
         nic,
         reactor::{Reactor, ReactorState, Reactors},
-        runtime,
         Cores,
         MayastorFeatures,
         Mthread,
@@ -492,12 +491,8 @@ async fn do_shutdown(arg: *mut c_void) {
     nexus::shutdown_nexuses().await;
     crate::rebuild::shutdown_snapshot_rebuilds().await;
     crate::lvs::Lvs::export_all().await;
-
     if MayastorFeatures::get_features().lvm() {
-        runtime::spawn_await(async {
-            crate::lvm::VolumeGroup::export_all().await;
-        })
-        .await;
+        crate::lvm::VolumeGroup::export_all().await;
     }
 
     unsafe {

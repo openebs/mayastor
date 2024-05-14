@@ -85,6 +85,7 @@ pub mod v1 {
     pub mod host;
     pub mod json;
     pub mod lvm;
+    pub mod lvs;
     pub mod nexus;
     pub mod pool;
     pub mod replica;
@@ -92,10 +93,6 @@ pub mod v1 {
     pub mod snapshot_rebuild;
     pub mod stats;
     pub mod test;
-    pub mod lvs {
-        pub mod pool;
-        pub mod replica;
-    }
 }
 
 /// Default timeout for gRPC calls, in seconds. Should be enforced in case
@@ -147,6 +144,16 @@ pub(crate) trait RWSerializer<F, T> {
 #[async_trait::async_trait]
 pub(crate) trait RWLock {
     async fn rw_lock(&self) -> &RwLock<Option<GrpcClientContext>>;
+}
+
+#[macro_export]
+macro_rules! spdk_submit {
+    ($fut:expr) => {{
+        let r = $crate::grpc::rpc_submit_ext2($fut)?;
+        r.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map(Response::new)
+    }};
 }
 
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;

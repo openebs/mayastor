@@ -10,7 +10,7 @@ use io_engine::{
 pub mod common;
 use common::compose::MayastorTest;
 use io_engine::{
-    core::{LogicalVolume, ReadOptions, Share},
+    core::{LogicalVolume, ReadOptions},
     lvs::{Lvol, LvsLvol},
     rebuild::{RebuildJobOptions, SnapshotRebuildJob},
     sleep::mayastor_sleep,
@@ -142,7 +142,7 @@ async fn replica_to_rebuild_full() {
             .with_option(
                 RebuildJobOptions::default().with_read_opts(ReadOptions::None),
             )
-            .build(&replica_src.share_uri().unwrap(), &replica_dst.uuid())
+            .build(&replica_src.bdev_share_uri().unwrap(), &replica_dst.uuid())
             .await
             .unwrap()
             .store()
@@ -181,7 +181,7 @@ async fn replica_to_rebuild_partial() {
                 .unwrap();
 
         let job = SnapshotRebuildJob::builder()
-            .build(&replica_src.share_uri().unwrap(), &replica_dst.uuid())
+            .build(&replica_src.bdev_share_uri().unwrap(), &replica_dst.uuid())
             .await
             .unwrap()
             .store()

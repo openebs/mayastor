@@ -1,14 +1,28 @@
-pub mod pool;
-pub mod replica;
+use crate::lvm::Error as LvmError;
+use tonic::Status;
 
-#[macro_export]
-macro_rules! lvm_run {
-    ($fut:expr) => {{
-        $crate::core::runtime::spawn_blocking(|| {
-            tokio::runtime::Handle::current().block_on($fut)
-        })
-        .await
-        .map_err(|_| Status::cancelled("cancelled"))?
-        .map(Response::new)
-    }};
+impl From<LvmError> for Status {
+    fn from(e: LvmError) -> Self {
+        match e {
+            LvmError::InvalidPoolType {
+                ..
+            }
+            | LvmError::VgUuidSet {
+                ..
+            }
+            | LvmError::DisksMismatch {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            LvmError::NotFound {
+                ..
+            }
+            | LvmError::LvNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            LvmError::NoSpace {
+                ..
+            } => Status::resource_exhausted(e.to_string()),
+            _ => Status::internal(e.to_string()),
+        }
+    }
 }
