@@ -10,6 +10,7 @@ use common::compose::{
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
     bdev_api::bdev_destroy,
+    constants::NVME_NQN_PREFIX,
     core::{MayastorCliArgs, Share},
 };
 use once_cell::sync::OnceCell;
@@ -34,15 +35,15 @@ async fn nexus_3_way_create() {
                 None,
                 &[
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[0].endpoint.ip()
                     ),
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[1].endpoint.ip()
                     ),
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[2].endpoint.ip()
                     ),
                 ],
@@ -84,11 +85,11 @@ async fn nexus_create_2_way_add_one() {
                 None,
                 &[
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[0].endpoint.ip()
                     ),
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[1].endpoint.ip()
                     ),
                 ],
@@ -115,7 +116,7 @@ async fn nexus_create_2_way_add_one() {
             n.as_mut()
                 .add_child(
                     &format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[2].endpoint.ip()
                     ),
                     true,
@@ -147,11 +148,11 @@ async fn nexus_2_way_destroy_destroy_child() {
                 None,
                 &[
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[0].endpoint.ip()
                     ),
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[1].endpoint.ip()
                     ),
                 ],
@@ -174,7 +175,7 @@ async fn nexus_2_way_destroy_destroy_child() {
             n.as_mut()
                 .add_child(
                     &format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[2].endpoint.ip()
                     ),
                     true,
@@ -191,7 +192,7 @@ async fn nexus_2_way_destroy_destroy_child() {
         .unwrap()
         .spawn(async move {
             bdev_destroy(&format!(
-                "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                 hdls[0].endpoint.ip()
             ))
             .await

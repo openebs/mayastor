@@ -1,6 +1,7 @@
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut, NexusStatus},
     bdev_api::bdev_get_name,
+    constants::NVME_NQN_PREFIX,
     core::{MayastorCliArgs, Protocol, UntypedBdev},
     subsys::{Config, NvmeBdevOpts},
 };
@@ -76,7 +77,7 @@ async fn replica_stop_cont() {
 
     // create a nexus with the remote replica as its child
     let child_uri = format!(
-        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
         hdls[0].endpoint.ip()
     );
     let c = child_uri.clone();
@@ -106,8 +107,7 @@ async fn replica_stop_cont() {
     }
 
     // initiate the read and leave it in the background to time out
-    let nxuri =
-        format!("nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:{NXNAME}");
+    let nxuri = format!("nvmf://127.0.0.1:8420/{NVME_NQN_PREFIX}:{NXNAME}");
     Command::new("../target/debug/initiator")
         .args([&nxuri, "read", "/tmp/tmpread"])
         .stdout(Stdio::piped())

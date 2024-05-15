@@ -10,6 +10,8 @@ from common.volume import Volume
 import grpc
 import mayastor_pb2 as pb
 
+from common.constants import nvme_nqn_prefix
+
 BaseBdev = namedtuple("BaseBdev", "name uri")
 
 LocalFile = namedtuple("LocalFile", "path uri")
@@ -317,7 +319,7 @@ def attempt_to_create_nexus_with_child_uri_that_does_not_exist(
         create_nexus(
             nexus_uuid,
             megabytes(64),
-            nexus_children + ["nvmf://10.0.0.2:8420/nqn.2019-05.io.openebs:missing"],
+            nexus_children + [f"nvmf://10.0.0.2:8420/{nvme_nqn_prefix}:missing"],
         )
     assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 

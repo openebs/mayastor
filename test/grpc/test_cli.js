@@ -12,6 +12,7 @@ const exec = require('child_process').exec;
 const path = require('path');
 const util = require('util');
 const { createMockServer } = require('grpc-mock');
+const { NVME_NQN_PREFIX } = require('./test_common');
 
 const EGRESS_PORT = 50051;
 const POOL = 'tpool';
@@ -184,13 +185,13 @@ describe('io-engine-client', function () {
           output: {
             controllers: [
               {
-                name: '10.0.0.4:8420/nqn.2019-05.io.openebs:null1n1',
+                name: `10.0.0.4:8420/${NVME_NQN_PREFIX}:null1n1`,
                 state: 2,
                 size: 100 * (1024 * 1024),
                 blkSize: 4096
               },
               {
-                name: '10.0.0.5:8420/nqn.2019-05.io.openebs:null1n1',
+                name: `10.0.0.5:8420/${NVME_NQN_PREFIX}:null1n1`,
                 state: 3,
                 size: 100 * (1024 * 1024),
                 blkSize: 4096
@@ -520,12 +521,12 @@ describe('io-engine-client', function () {
 
         assert.lengthOf(controllers, 2);
 
-        assert.equal(controllers[0].name, '10.0.0.4:8420/nqn.2019-05.io.openebs:null1n1');
+        assert.equal(controllers[0].name, `10.0.0.4:8420/${NVME_NQN_PREFIX}:null1n1`);
         assert.equal(controllers[0].size, '104857600');
         assert.equal(controllers[0].state, 'running');
         assert.equal(controllers[0].blk_size, '4096');
 
-        assert.equal(controllers[1].name, '10.0.0.5:8420/nqn.2019-05.io.openebs:null1n1');
+        assert.equal(controllers[1].name, `10.0.0.5:8420/${NVME_NQN_PREFIX}:null1n1`);
         assert.equal(controllers[1].size, '104857600');
         assert.equal(controllers[1].state, 'faulted');
         assert.equal(controllers[1].blk_size, '4096');

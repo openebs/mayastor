@@ -1,5 +1,6 @@
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
+    constants::NVME_NQN_PREFIX,
     core::MayastorCliArgs,
 };
 
@@ -68,7 +69,7 @@ async fn child_location() {
                 &[
                     "malloc:///malloc0?blk_size=512&size_mb=100".into(),
                     format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                         hdls[0].endpoint.ip()
                     ),
                 ],

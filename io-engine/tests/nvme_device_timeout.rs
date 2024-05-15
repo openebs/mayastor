@@ -14,6 +14,7 @@ use common::compose::{
 };
 use io_engine::{
     bdev::{device_create, device_destroy, device_open},
+    constants::NVME_NQN_PREFIX,
     core::{
         BlockDevice,
         BlockDeviceHandle,
@@ -96,7 +97,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     }
 
     let bdev_url = format!(
-        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
         hdls[0].endpoint.ip()
     );
 
@@ -281,7 +282,7 @@ async fn io_timeout_ignore() {
     }
 
     let bdev_url = format!(
-        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
         hdls[0].endpoint.ip()
     );
 

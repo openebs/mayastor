@@ -1,5 +1,7 @@
 pub mod common;
 
+use io_engine::constants::NVME_NQN_PREFIX;
+
 use common::compose::{
     rpc::v1::{
         bdev::{DestroyBdevRequest, ListBdevOptions},
@@ -136,7 +138,7 @@ async fn nexus_with_local() {
 
     let child0 = format!("bdev:///{}", repl_name());
     let child1 = format!(
-        "nvmf://{}/nqn.2019-05.io.openebs:{}",
+        "nvmf://{}/{NVME_NQN_PREFIX}:{}",
         ms2.endpoint.ip(),
         repl_name()
     );
