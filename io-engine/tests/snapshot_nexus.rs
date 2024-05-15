@@ -178,7 +178,7 @@ async fn launch_instance(create_replicas: bool) -> (ComposeTest, Vec<String>) {
 
     for n in [replica1_name(), replica2_name()] {
         let bdev_url = format!(
-            "nvmf://{}:8420/nqn.2019-05.io.openebs:{}",
+            "nvmf://{}:8420/{NVME_NQN_PREFIX}:{}",
             ms1.endpoint.ip(),
             n,
         );

@@ -7,6 +7,8 @@ from common.nvme import nvme_remote_connect, nvme_remote_disconnect
 from common.command import run_cmd_async_at
 import json
 
+from common.constants import nvme_nqn_prefix
+
 
 @pytest.fixture
 def create_pool(mayastors):
@@ -33,9 +35,10 @@ def delete_volumes(mayastors):
 async def mkfs_on_target(target_vm, mayastors):
     host_ip = mayastors.get("ms0").ip_address()
     remote_devices = []
+
     for i in range(0, 15):
         dev = await nvme_remote_connect(
-            target_vm, f"nvmf://{host_ip}:8420/nqn.2019-05.io.openebs:replica-{i}"
+            target_vm, f"nvmf://{host_ip}:8420/{nvme_nqn_prefix}:replica-{i}"
         )
         remote_devices.append(dev)
 
@@ -46,7 +49,7 @@ async def mkfs_on_target(target_vm, mayastors):
 
     for i in range(0, 15):
         dev = await nvme_remote_disconnect(
-            target_vm, f"nvmf://{host_ip}:8420/nqn.2019-05.io.openebs:replica-{i}"
+            target_vm, f"nvmf://{host_ip}:8420/{nvme_nqn_prefix}:replica-{i}"
         )
 
 

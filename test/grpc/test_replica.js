@@ -21,7 +21,7 @@ const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 // uuid without the last digit for generating a set of uuids
 const BASE_UUID = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba7';
 // regexps for testing nvmf URIs
-const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
+const NVMF_URI = common.NVMF_URI;
 
 // tunables of the test suite
 //

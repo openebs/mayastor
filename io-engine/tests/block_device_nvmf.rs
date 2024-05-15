@@ -15,6 +15,7 @@ use common::compose::{
 
 use io_engine::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
+    constants::NVME_NQN_PREFIX,
     core::{
         BlockDevice,
         BlockDeviceHandle,
@@ -118,7 +119,7 @@ async fn launch_instance() -> (ComposeTest, String) {
     }
 
     let bdev_url = format!(
-        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+        "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
         hdls[0].endpoint.ip()
     );
 
@@ -1874,8 +1875,9 @@ async fn nvmf_device_hot_remove() {
         .jsonrpc
         .json_rpc_call(JsonRpcRequest {
             method: "nvmf_subsystem_remove_ns".to_string(),
-            params: "{\"nqn\": \"nqn.2019-05.io.openebs:disk0\", \"nsid\": 1}"
-                .to_string(),
+            params: format!(
+                "{{\"nqn\": \"{NVME_NQN_PREFIX}:disk0\", \"nsid\": 1}}"
+            ),
         })
         .await
         .unwrap();

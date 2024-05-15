@@ -16,6 +16,7 @@ const grpc = require('grpc');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
 const url = require('url');
+const { NVME_NQN_PREFIX, NVME_MODEL_ID } = require('./test_common');
 const NEXUSNAME = 'nexus0';
 const NEXUSUUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff20';
 // just some UUID used for nexus ID
@@ -135,7 +136,7 @@ function controlPlaneTest (thisProtocol) {
         if (err) done(err);
         assert(res.device_uri);
         if (thisProtocol === enums.NEXUS_NVMF) {
-          assert.equal(res.device_uri, `nvmf://${externIp}:8420/nqn.2019-05.io.openebs:crypto-nexus-${UUID}`);
+          assert.equal(res.device_uri, `nvmf://${externIp}:8420/${NVME_NQN_PREFIX}:crypto-nexus-${UUID}`);
         }
         done();
       }
@@ -227,7 +228,7 @@ describe('nexus', function () {
     uuid: UUID,
     size: 131072,
     children: [
-      `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`,
+      `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`,
       `aio://${aioFile}?blk_size=4096`
     ]
   };
@@ -338,7 +339,7 @@ describe('nexus', function () {
       children: [
         'bdev:///Malloc0',
         `aio://${aioFile}?blk_size=4096`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
       ]
     };
     if (doUring()) args.children.push(`uring://${uringFile}?blk_size=4096`);
@@ -360,7 +361,7 @@ describe('nexus', function () {
 
       assert.equal(
         nexus.children[2].uri,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
 
@@ -402,7 +403,7 @@ describe('nexus', function () {
 
       assert.equal(
         nexus.children[2].uri,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
 
@@ -420,7 +421,7 @@ describe('nexus', function () {
   it('should be able to remove one of its children', (done) => {
     const args = {
       uuid: UUID,
-      uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+      uri: `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
     };
 
     client.removeChildNexus(args, (err) => {
@@ -438,10 +439,10 @@ describe('nexus', function () {
   });
 
   it('should be able to add the child back', (done) => {
-    const uri = `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`;
+    const uri = `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`;
     const args = {
       uuid: UUID,
-      uri: uri,
+      uri,
       norebuild: false
     };
 
@@ -465,7 +466,7 @@ describe('nexus', function () {
     const args = {
       uuid: UUID2,
       size: 131072,
-      children: [`nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`]
+      children: [`nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`]
     };
 
     client.createNexus(args, (err) => {
@@ -480,7 +481,7 @@ describe('nexus', function () {
       uuid: UUID2,
       size: 131072,
       children: [
-        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk3'
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:disk3`
       ]
     };
 
@@ -592,7 +593,7 @@ describe('nexus', function () {
           done(err);
         } else {
           // The discovery reply text should contain our nexus
-          assert.include(stdout.toString(), 'nqn.2019-05.io.openebs:nexus-' + UUID);
+          assert.include(stdout.toString(), `${NVME_NQN_PREFIX}:nexus-` + UUID);
           done();
         }
       });
@@ -610,7 +611,7 @@ describe('nexus', function () {
             // nvme_id_ctrl or spdk_nvme_ctrlr_data
             assert.equal(data.length, 4096);
             // model number
-            assert.equal(data.slice(24, 32).toString(), 'Mayastor');
+            assert.equal(data.slice(24, 24 + NVME_MODEL_ID.length).toString(), NVME_MODEL_ID);
             // cmic, bit 3 ana_reporting
             assert.equal((data[76] & 0x8), 0x8, 'ANA reporting should be enabled');
             // cntlid
@@ -735,7 +736,7 @@ describe('nexus', function () {
         size: 2 * diskSize,
         children: [
         `aio://${aioFile}?blk_size=4096`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
         ]
       };
 
@@ -863,7 +864,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: diskSize,
         children: [
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
         ]
       };
       await createNexus(args);
@@ -871,7 +872,7 @@ describe('nexus', function () {
 
     it('should remove namespace from nvmf subsystem', (done) => {
       const args = {
-        nqn: `nqn.2019-05.io.openebs:${BASEDEV}`,
+        nqn: `${NVME_NQN_PREFIX}:${BASEDEV}`,
         nsid: 1
       };
       common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_remove_ns', args, done);
@@ -881,7 +882,7 @@ describe('nexus', function () {
       common.jsonrpcCommand(null, 'bdev_get_bdevs', (err, out) => {
         if (err) return done(err);
         const bdevs = JSON.parse(out);
-        const match = `127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}n1`;
+        const match = `127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}n1`;
         let i;
         for (i in bdevs) {
           if (bdevs[i].name === match) {
@@ -915,7 +916,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: diskSize,
         children: [
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
         ]
       };
 
@@ -928,7 +929,7 @@ describe('nexus', function () {
 
     it('should add namespace back to nvmf subsystem', (done) => {
       const args = {
-        nqn: `nqn.2019-05.io.openebs:${BASEDEV}`,
+        nqn: `${NVME_NQN_PREFIX}:${BASEDEV}`,
         namespace: {
           bdev_name: 'Malloc0'
         }
@@ -941,7 +942,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: diskSize,
         children: [
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
+        `nvmf://127.0.0.1:8420/${NVME_NQN_PREFIX}:${BASEDEV}`
         ]
       };
       await createNexus(args);

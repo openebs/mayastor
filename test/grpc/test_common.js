@@ -19,6 +19,9 @@ const GRPC_PORT = 10124;
 const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
 const LOCALHOST = '127.0.0.1';
+const NVME_MODEL_ID = 'Mayastor NVMe controller';
+const NVME_NQN_PREFIX = 'nqn.2019-05.io.openebs';
+const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
 
 const testPort = process.env.TEST_PORT || GRPC_PORT;
 const myIp = getMyIp() || LOCALHOST;
@@ -443,5 +446,8 @@ module.exports = {
   getCmdPath,
   createGrpcClient,
   callGrpcMethod,
-  createBdevs
+  createBdevs,
+  NVME_NQN_PREFIX,
+  NVME_MODEL_ID,
+  NVMF_URI
 };

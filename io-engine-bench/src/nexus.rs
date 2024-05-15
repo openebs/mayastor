@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use io_engine::{
     bdev::nexus::nexus_create,
+    constants::NVME_NQN_PREFIX,
     core::MayastorCliArgs,
     grpc::v1::nexus::nexus_destroy,
 };
@@ -90,7 +91,7 @@ async fn get_children(compose: Arc<ComposeTest>) -> &'static Vec<String> {
 
                 // create a nexus with the remote replica as its child
                 let child_uri = format!(
-                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk{}",
+                    "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk{}",
                     h.endpoint.ip(),
                     disk_index
                 );

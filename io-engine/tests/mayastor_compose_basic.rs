@@ -4,6 +4,7 @@ use io_engine::{
         nexus::{nexus_create, nexus_lookup_mut},
     },
     bdev_api::bdev_create,
+    constants::NVME_NQN_PREFIX,
     core::{MayastorCliArgs, UntypedBdev},
 };
 
@@ -70,11 +71,11 @@ async fn compose_up_down() {
         .spawn(async move {
             let children = [
                 format!(
-                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                    "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                     hdls[0].endpoint.ip()
                 ),
                 format!(
-                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                    "nvmf://{}:8420/{NVME_NQN_PREFIX}:disk0",
                     hdls[1].endpoint.ip()
                 ),
             ];

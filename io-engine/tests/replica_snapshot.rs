@@ -1,5 +1,6 @@
 use io_engine::{
     bdev::nexus::nexus_create,
+    constants::NVME_NQN_PREFIX,
     core::{CoreError, MayastorCliArgs, SnapshotParams, UntypedBdevHandle},
     lvs::{Lvol, Lvs},
     pool_backend::{PoolArgs, PoolBackend},
@@ -162,7 +163,7 @@ async fn replica_snapshot() {
 async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
     let mut children = vec![
         "loopback:///".to_string() + UUID1,
-        format!("nvmf://{}:8420/nqn.2019-05.io.openebs:{}", &ip, UUID1),
+        format!("nvmf://{}:8420/{NVME_NQN_PREFIX}:{}", &ip, UUID1),
     ];
     let mut nexus_name = NXNAME;
     if t > 0 {
