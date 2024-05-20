@@ -7,7 +7,7 @@ jobs:
   prepareReleaseBranch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check if the submodules are correct
         run: |
           branch="${{ github.ref_name }}"
@@ -25,7 +25,7 @@ jobs:
             automated-pr
           draft: false
           signoff: true
-          token: ${{ secrets.OPENEBS_CI }}
+          token: ${{ secrets.ORG_CI_GITHUB }}
       - name: Approve Pull Request by CI Bot
         if: ${{ steps.cpr.outputs.pull-request-number }}
         run: |
@@ -37,11 +37,11 @@ jobs:
         run: |
           gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
         env:
-          GH_TOKEN: ${{ secrets.OPENEBS_CI_2 }}
+          GH_TOKEN: ${{ secrets.ORG_CI_GITHUB_2 }}
       - name: Bors Merge Pull Request
         if: ${{ steps.cpr.outputs.pull-request-number }}
         run: |
           gh pr comment ${{ steps.cpr.outputs.pull-request-number }} --body "bors merge"
         env:
-          GH_TOKEN: ${{ secrets.OPENEBS_CI }}
+          GH_TOKEN: ${{ secrets.ORG_CI_GITHUB }}
 
