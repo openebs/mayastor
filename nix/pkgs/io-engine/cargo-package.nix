@@ -102,12 +102,12 @@ in
     cargoBuildFlags = "--bin io-engine --bin io-engine-client --bin casperf";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
-    SPDK_PATH = "${libspdk}";
+    SPDK_ROOT_DIR = "${libspdk}";
   });
   debug = rustPlatform.buildRustPackage (buildProps // {
     cargoBuildFlags = "--workspace --bins --exclude io-engine-bench";
     buildType = "debug";
     buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
-    SPDK_PATH = "${libspdk-dev}";
+    SPDK_ROOT_DIR = "${libspdk-dev}";
   });
 }

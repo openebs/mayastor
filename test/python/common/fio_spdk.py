@@ -25,7 +25,7 @@ class FioSpdk(object):
     def build(self) -> str:
         spdk_fio_path = os.environ.get("FIO_SPDK")
         if spdk_fio_path is None:
-            spdk_path = os.environ.get("SPDK_PATH")
+            spdk_path = os.environ.get("SPDK_ROOT_DIR")
             if spdk_path is None:
                 spdk_path = os.getcwd() + "/../../spdk-rs/spdk/build"
             spdk_fio_path = "{}/fio/spdk_nvme".format(spdk_path)
