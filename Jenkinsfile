@@ -271,7 +271,7 @@ pipeline {
               }
               post {
                 always {
-                  junit '*-xunit-report.xml'
+                  junit 'test/python/reports/**/*xunit-report.xml'
                   sh 'nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit" ci.nix'
                 }
               }

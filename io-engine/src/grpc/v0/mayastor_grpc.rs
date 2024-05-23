@@ -3,7 +3,7 @@
 //! The Mayastor gRPC methods serve as a higher abstraction for provisioning
 //! replicas and targets to be used with CSI.
 //
-//! We want to keep the code here to a minimal, for example grpc/pool.rs
+//! We want to keep the code here to a minimal, for example grpc/mod.rs
 //! contains all the conversions and mappings etc to whatever interface from a
 //! grpc perspective we provide. Also, by doing his, we can test the methods
 //! without the need for setting up a grpc client.
@@ -353,8 +353,8 @@ impl From<Lvol> for Replica {
             thin: l.is_thin(),
             size: l.size(),
             share: l.shared().unwrap().into(),
-            uri: l.share_uri().unwrap(),
-            allowed_hosts: l.allowed_hosts(),
+            uri: l.bdev_share_uri().unwrap(),
+            allowed_hosts: l.nvmf_allowed_hosts(),
         }
     }
 }
@@ -381,9 +381,9 @@ impl From<Lvol> for ReplicaV2 {
             thin: l.is_thin(),
             size: usage.capacity_bytes,
             share: l.shared().unwrap().into(),
-            uri: l.share_uri().unwrap(),
+            uri: l.bdev_share_uri().unwrap(),
             usage: Some(usage.into()),
-            allowed_hosts: l.allowed_hosts(),
+            allowed_hosts: l.nvmf_allowed_hosts(),
         }
     }
 }
@@ -1016,7 +1016,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                                     )
                                     .await?;
                                 return Ok(ShareReplicaReply {
-                                    uri: lvol.share_uri().unwrap(),
+                                    uri: lvol.bdev_share_uri().unwrap(),
                                 });
                             }
 
@@ -1041,7 +1041,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             }
 
                             Ok(ShareReplicaReply {
-                                uri: lvol.share_uri().unwrap(),
+                                uri: lvol.bdev_share_uri().unwrap(),
                             })
                         }
 

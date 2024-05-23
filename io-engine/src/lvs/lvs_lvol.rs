@@ -63,6 +63,7 @@ use crate::{
         FfiResult,
         IntoCString,
     },
+    pool_backend::PoolBackend,
 };
 
 // Wipe `WIPE_SUPER_LEN` bytes if unmap is not supported.
@@ -572,9 +573,6 @@ pub trait LvsLvol: LogicalVolume + Share {
     /// Returns the underlying bdev of the lvol.
     fn as_bdev(&self) -> UntypedBdev;
 
-    /// Returns a boolean indicating if the lvol is a snapshot.
-    fn is_snapshot(&self) -> bool;
-
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol>;
@@ -758,20 +756,6 @@ impl LogicalVolume for Lvol {
             }
         }
     }
-}
-
-/// LvsLvol Trait Implementation for Lvol for Volume Specific Interface.
-#[async_trait(?Send)]
-impl LvsLvol for Lvol {
-    /// Return lvs for the Logical Volume.
-    fn lvs(&self) -> Lvs {
-        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
-    }
-
-    /// Returns the underlying bdev of the lvol.
-    fn as_bdev(&self) -> UntypedBdev {
-        Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
-    }
 
     /// Returns a boolean indicating if the lvol is a snapshot.
     /// Currently in place of SPDK native API to judge lvol as snapshot, xattr
@@ -786,6 +770,47 @@ impl LvsLvol for Lvol {
             SnapshotXattrs::SnapshotCreateTime.name(),
         )
         .is_some()
+    }
+
+    fn is_clone(&self) -> bool {
+        self.is_snapshot_clone().is_some()
+    }
+
+    fn backend(&self) -> PoolBackend {
+        PoolBackend::Lvs
+    }
+
+    fn snapshot_uuid(&self) -> Option<String> {
+        Lvol::get_blob_xattr(
+            self.blob_checked(),
+            CloneXattrs::SourceUuid.name(),
+        )
+    }
+
+    fn share_protocol(&self) -> Protocol {
+        self.shared().unwrap_or_default()
+    }
+
+    fn bdev_share_uri(&self) -> Option<String> {
+        self.share_uri()
+    }
+
+    fn nvmf_allowed_hosts(&self) -> Vec<String> {
+        self.allowed_hosts()
+    }
+}
+
+/// LvsLvol Trait Implementation for Lvol for Volume Specific Interface.
+#[async_trait(?Send)]
+impl LvsLvol for Lvol {
+    /// Return lvs for the Logical Volume.
+    fn lvs(&self) -> Lvs {
+        Lvs::from_inner_ptr(self.as_inner_ref().lvol_store)
+    }
+
+    /// Returns the underlying bdev of the lvol.
+    fn as_bdev(&self) -> UntypedBdev {
+        Bdev::checked_from_ptr(self.as_inner_ref().bdev).unwrap()
     }
 
     /// Lvol is considered as clone if its sourceuuid attribute is a valid

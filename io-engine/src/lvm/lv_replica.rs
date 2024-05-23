@@ -14,6 +14,7 @@ use crate::{
         cli::LvmCmd,
         property::{Property, PropertyType},
     },
+    pool_backend::PoolBackend,
 };
 
 use std::{
@@ -630,10 +631,6 @@ impl LogicalVolume {
     pub(crate) fn uri(&self) -> Option<&String> {
         self.bdev.as_ref()?.share_uri.as_ref()
     }
-    /// Get the SPDK bdev share uri.
-    pub(crate) fn share(&self) -> Protocol {
-        self.share
-    }
     /// Get the SPDK bdev allowed hosts.
     pub(crate) fn allowed_hosts(&self) -> Option<&Vec<String>> {
         self.bdev.as_ref().map(|b| &b.allowed_hosts)
@@ -822,7 +819,7 @@ impl PtplFileOps for LvolPtpl {
 
 impl crate::core::LogicalVolume for LogicalVolume {
     fn name(&self) -> String {
-        self.name.clone().unwrap_or_default()
+        self.name().clone().unwrap_or_default()
     }
 
     fn uuid(&self) -> String {
@@ -830,15 +827,15 @@ impl crate::core::LogicalVolume for LogicalVolume {
     }
 
     fn pool_name(&self) -> String {
-        self.vg_name.clone()
+        self.vg_name().into()
     }
 
     fn pool_uuid(&self) -> String {
-        self.vg_uuid.clone()
+        self.vg_uuid().into()
     }
 
     fn entity_id(&self) -> Option<String> {
-        self.entity_id.clone()
+        self.entity_id().cloned()
     }
 
     fn is_thin(&self) -> bool {
@@ -868,6 +865,34 @@ impl crate::core::LogicalVolume for LogicalVolume {
             num_allocated_clusters_snapshots: 0,
             allocated_bytes_snapshot_from_clone: None,
         }
+    }
+
+    fn is_snapshot(&self) -> bool {
+        false
+    }
+
+    fn is_clone(&self) -> bool {
+        false
+    }
+
+    fn backend(&self) -> PoolBackend {
+        PoolBackend::Lvm
+    }
+
+    fn snapshot_uuid(&self) -> Option<String> {
+        None
+    }
+
+    fn share_protocol(&self) -> Protocol {
+        self.share
+    }
+
+    fn bdev_share_uri(&self) -> Option<String> {
+        self.uri().cloned()
+    }
+
+    fn nvmf_allowed_hosts(&self) -> Vec<String> {
+        self.allowed_hosts().cloned().unwrap_or_default()
     }
 }
 

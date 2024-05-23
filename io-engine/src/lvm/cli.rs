@@ -116,7 +116,7 @@ enum LvmSubCmd {
 /// LVM wrapper over `Command` with added qol such as error mapping and
 /// decoding of json output reports.
 pub(super) struct LvmCmd {
-    cmd: String,
+    cmd: &'static str,
     cmder: Command,
 }
 
@@ -138,9 +138,9 @@ struct LvReport<T> {
 
 impl LvmCmd {
     /// See `Command` Help.
-    pub(super) fn new(cmd: &str) -> Self {
+    pub(super) fn new(cmd: &'static str) -> Self {
         Self {
-            cmd: cmd.to_string(),
+            cmd,
             cmder: Command::new(cmd),
         }
     }
@@ -199,13 +199,14 @@ impl LvmCmd {
     /// `Error::JsonParsing` => StdOut output is not a valid json for `T`.
     /// `Error::ReportMissing` => Output does not contain a report for `T`.
     pub(super) async fn report<T: for<'a> Deserialize<'a>>(
-        &mut self,
+        self,
     ) -> Result<T, Error> {
+        let cmd = self.cmd;
         let json_output: LvReport<T> = self.output_json().await?;
 
         let report: T = json_output.report.into_iter().next().ok_or(
             Error::ReportMissing {
-                command: self.cmd.to_string(),
+                command: cmd.to_string(),
             },
         )?;
 
@@ -222,12 +223,13 @@ impl LvmCmd {
     /// `Error::LvmBinErr` => Completed with an exit code.
     /// `Error::JsonParsing` => StdOut output is not a valid json for `T`.
     pub(super) async fn output_json<T: for<'a> Deserialize<'a>>(
-        &mut self,
+        self,
     ) -> Result<T, Error> {
+        let cmd = self.cmd;
         let output = self.output().await?;
         let json_output: T = serde_json::from_slice(output.stdout.as_slice())
             .map_err(|error| Error::JsonParsing {
-            command: self.cmd.to_string(),
+            command: cmd.to_string(),
             error: error.to_string(),
         })?;
 
@@ -271,7 +273,7 @@ impl LvmCmd {
     ///
     /// `Error::LvmBinSpawnErr` => Failed to execute or await for completion.
     /// `Error::LvmBinErr` => Completed with an exit code.
-    pub(super) async fn run(&mut self) -> Result<(), Error> {
+    pub(super) async fn run(self) -> Result<(), Error> {
         self.output().await.map(|_| ())
     }
     /// Runs the LVM command with the provided `Command` arguments et all and
@@ -282,24 +284,25 @@ impl LvmCmd {
     /// `Error::LvmBinSpawnErr` => Failed to execute or await for completion.
     /// `Error::LvmBinErr` => Completed with an exit code.
     pub(super) async fn output(
-        &mut self,
+        mut self,
     ) -> Result<std::process::Output, Error> {
         tracing::trace!("{:?}", self.cmder);
-        let output =
-            self.cmder
-                .output()
-                .await
-                .context(error::LvmBinSpawnErrSnafu {
+
+        crate::tokio_run!(async move {
+            let output = self.cmder.output().await.context(
+                error::LvmBinSpawnErrSnafu {
                     command: self.cmd.to_string(),
-                })?;
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(Error::LvmBinErr {
-                command: self.cmd.to_string(),
-                error: error.trim_start().to_string(),
-            });
-        }
-        Ok(output)
+                },
+            )?;
+            if !output.status.success() {
+                let error = String::from_utf8_lossy(&output.stderr).to_string();
+                return Err(Error::LvmBinErr {
+                    command: self.cmd.to_string(),
+                    error: error.trim_start().to_string(),
+                });
+            }
+            Ok(output)
+        })
     }
 }
 

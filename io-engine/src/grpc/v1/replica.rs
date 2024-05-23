@@ -5,30 +5,29 @@ use crate::{
         ProtectedSubsystems,
         Protocol,
         ResourceLockManager,
-        Share,
         UpdateProps,
     },
     grpc::{
         acquire_subsystem_lock,
-        v1::pool::PoolIdProbe,
+        v1::pool::{GrpcPoolFactory, PoolGrpc, PoolIdProbe},
         GrpcClientContext,
         GrpcResult,
         RWLock,
         RWSerializer,
     },
-    pool_backend::PoolBackend,
-    replica_backend::ReplicaOps,
+    pool_backend::{FindPoolArgs, PoolBackend},
+    replica_backend::{
+        FindReplicaArgs,
+        ListReplicaArgs,
+        ReplicaFactory,
+        ReplicaOps,
+    },
 };
 use ::function_name::named;
 use futures::FutureExt;
 use io_engine_api::v1::{pool::PoolType, replica::*};
-use std::{convert::TryFrom, panic::AssertUnwindSafe};
+use std::{convert::TryFrom, ops::Deref, panic::AssertUnwindSafe};
 use tonic::{Request, Response, Status};
-
-use super::{
-    lvm::replica::ReplicaService as LvmSvc,
-    lvs::replica::ReplicaService as LvsSvc,
-};
 
 #[derive(Debug, Clone)]
 pub struct ReplicaService {
@@ -36,7 +35,6 @@ pub struct ReplicaService {
     name: String,
     client_context:
         std::sync::Arc<tokio::sync::RwLock<Option<GrpcClientContext>>>,
-    pool_svc: super::pool::PoolService,
 }
 
 #[async_trait::async_trait]
@@ -108,66 +106,15 @@ impl RWLock for ReplicaService {
     }
 }
 
-enum Probe<'a> {
-    Replica(&'a str),
-    Pool(PoolIdProbe),
-    ReplicaPool(&'a str, Option<PoolIdProbe>),
-}
-impl<'a> From<&'a String> for Probe<'a> {
-    fn from(value: &'a String) -> Self {
-        Self::Replica(value.as_str())
-    }
-}
-impl From<PoolIdProbe> for Probe<'_> {
-    fn from(value: PoolIdProbe) -> Self {
-        Self::Pool(value)
-    }
-}
-
-impl ReplicaService {
-    pub fn new(pool_svc: super::pool::PoolService) -> Self {
+impl Default for ReplicaService {
+    fn default() -> Self {
         Self {
             name: String::from("ReplicaSvc"),
             client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-            pool_svc,
-        }
-    }
-
-    /// Probe backends for the given replica uuid and return the right one.
-    async fn probe_backend<'a, P: Into<Probe<'a>>>(
-        &self,
-        probe: P,
-    ) -> Result<Box<dyn ReplicaRpc>, tonic::Status> {
-        let kind = match probe.into() {
-            Probe::Replica(replica_uuid)
-            | Probe::ReplicaPool(replica_uuid, None) => match (
-                LvsSvc::probe(replica_uuid).await,
-                LvmSvc::probe(replica_uuid).await,
-            ) {
-                (Ok(true), _) => Ok(PoolBackend::Lvs),
-                (_, Ok(true)) => Ok(PoolBackend::Lvm),
-                (Err(error), _) | (_, Err(error)) => Err(error),
-                _ => Err(Status::not_found(format!(
-                    "Replica {replica_uuid} not found"
-                ))),
-            }?,
-            Probe::Pool(probe) => self.pool_svc.probe(probe).await?.kind(),
-            Probe::ReplicaPool(_, Some(pool)) => {
-                match self.pool_svc.probe(pool).await {
-                    Err(status) if status.code() == tonic::Code::NotFound => {
-                        Err(Status::failed_precondition(status.to_string()))
-                    }
-                    _else => _else,
-                }?
-                .kind()
-            }
-        };
-        match kind {
-            PoolBackend::Lvs => Ok(Box::new(LvsSvc::new())),
-            PoolBackend::Lvm => Ok(Box::new(LvmSvc::new())),
         }
     }
 }
+
 impl From<destroy_replica_request::Pool> for PoolIdProbe {
     fn from(value: destroy_replica_request::Pool) -> Self {
         match value {
@@ -178,7 +125,46 @@ impl From<destroy_replica_request::Pool> for PoolIdProbe {
         }
     }
 }
-pub(crate) fn filter_replicas_by_replica_type(
+impl From<ListReplicaOptions> for ListReplicaArgs {
+    fn from(value: ListReplicaOptions) -> Self {
+        ListReplicaArgs {
+            name: value.name,
+            uuid: value.uuid,
+            pool_name: value.poolname,
+            pool_uuid: value.pooluuid,
+        }
+    }
+}
+
+impl From<Box<dyn ReplicaOps>> for Replica {
+    fn from(value: Box<dyn ReplicaOps>) -> Self {
+        let value = value.deref();
+        value.into()
+    }
+}
+impl From<&dyn ReplicaOps> for Replica {
+    fn from(l: &dyn ReplicaOps) -> Self {
+        Self {
+            name: l.name(),
+            uuid: l.uuid(),
+            size: l.size(),
+            thin: l.is_thin(),
+            share: l.share_protocol() as i32,
+            uri: l.bdev_share_uri().unwrap_or_default(),
+            poolname: l.pool_name(),
+            usage: Some(l.usage().into()),
+            allowed_hosts: l.nvmf_allowed_hosts(),
+            is_snapshot: l.is_snapshot(),
+            is_clone: l.is_clone(),
+            pooltype: PoolType::from(l.backend()) as i32,
+            pooluuid: l.pool_uuid(),
+            snapshot_uuid: l.snapshot_uuid(),
+            entity_id: l.entity_id(),
+        }
+    }
+}
+
+fn filter_replicas_by_replica_type(
     replica_list: Vec<Replica>,
     query: Option<list_replica_options::Query>,
 ) -> Vec<Replica> {
@@ -208,34 +194,89 @@ pub(crate) fn filter_replicas_by_replica_type(
         .collect()
 }
 
-pub(crate) struct ReplicaGrpc<R: ReplicaOps> {
-    replica: R,
+/// A replica factory with the various types of specific impls.
+pub(crate) struct GrpcReplicaFactory {
+    repl_factory: Box<dyn ReplicaFactory>,
 }
+impl GrpcReplicaFactory {
+    fn factories() -> Vec<Self> {
+        vec![Self::new(PoolBackend::Lvm), Self::new(PoolBackend::Lvs)]
+    }
+    fn new(backend: PoolBackend) -> Self {
+        let repl_factory = match backend {
+            PoolBackend::Lvs => Box::new(crate::lvs::ReplLvsFactory {}) as _,
+            PoolBackend::Lvm => Box::new(crate::lvm::ReplLvmFactory {}) as _,
+        };
+        Self {
+            repl_factory,
+        }
+    }
+    async fn finder(args: &FindReplicaArgs) -> Result<ReplicaGrpc, Status> {
+        let mut error = None;
 
-impl<R: ReplicaOps + Into<Replica>> From<ReplicaGrpc<R>> for Replica {
-    fn from(value: ReplicaGrpc<R>) -> Self {
-        value.replica.into()
+        for factory in Self::factories() {
+            match factory.find_replica(args).await {
+                Ok(Some(replica)) => {
+                    return Ok(ReplicaGrpc::new(replica));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    error = Some(err);
+                }
+            }
+        }
+        Err(error.unwrap_or_else(|| {
+            Status::not_found(format!("Replica {args:?} not found"))
+        }))
+    }
+    async fn pool_finder<I: Into<FindPoolArgs>>(
+        args: I,
+    ) -> Result<PoolGrpc, Status> {
+        GrpcPoolFactory::finder(args).await.map_err(|error| {
+            if error.code() == tonic::Code::NotFound {
+                Status::failed_precondition(error.to_string())
+            } else {
+                error
+            }
+        })
+    }
+    async fn find_replica(
+        &self,
+        args: &FindReplicaArgs,
+    ) -> Result<Option<Box<dyn ReplicaOps>>, tonic::Status> {
+        let replica = self.as_factory().find(args).await?;
+        Ok(replica)
+    }
+    async fn list(
+        &self,
+        args: &ListReplicaArgs,
+    ) -> Result<Vec<Replica>, Status> {
+        let replicas = self.as_factory().list(args).await?;
+        Ok(replicas.into_iter().map(Into::into).collect::<Vec<_>>())
+    }
+    fn backend(&self) -> PoolBackend {
+        self.as_factory().backend()
+    }
+    fn as_factory(&self) -> &dyn ReplicaFactory {
+        self.repl_factory.deref()
     }
 }
 
-impl<R: ReplicaOps> ReplicaGrpc<R>
-where
-    Status: From<<R as ReplicaOps>::ReplError> + From<<R as Share>::Error>,
-    Replica: From<R>,
-{
-    pub(crate) fn new(replica: R) -> Self {
+/// A wrapper over a `ReplicaOps`.
+pub(crate) struct ReplicaGrpc {
+    replica: Box<dyn ReplicaOps>,
+}
+impl ReplicaGrpc {
+    fn new(replica: Box<dyn ReplicaOps>) -> Self {
         Self {
             replica,
         }
     }
-    pub(crate) async fn destroy(self) -> Result<(), Status> {
+    async fn destroy(self) -> Result<(), Status> {
         self.replica.destroy().await?;
         Ok(())
     }
-    pub(crate) async fn share(
-        &mut self,
-        args: ShareReplicaRequest,
-    ) -> Result<(), Status> {
+    async fn share(&mut self, args: ShareReplicaRequest) -> Result<(), Status> {
         let pool_name = self.replica.pool_name();
         let pool_subsystem = ResourceLockManager::get_instance()
             .get_subsystem(ProtectedSubsystems::POOL);
@@ -265,7 +306,7 @@ where
         self.replica.share_nvmf(props).await?;
         Ok(())
     }
-    pub(crate) async fn unshare(&mut self) -> Result<(), Status> {
+    async fn unshare(&mut self) -> Result<(), Status> {
         let pool_name = self.replica.pool_name();
         let pool_subsystem = ResourceLockManager::get_instance()
             .get_subsystem(ProtectedSubsystems::POOL);
@@ -277,16 +318,33 @@ where
         }
         Ok(())
     }
-    pub(crate) async fn resize(&mut self, resize: u64) -> Result<(), Status> {
+    async fn resize(&mut self, resize: u64) -> Result<(), Status> {
+        // todo: shouldn't these also take the pool lock?
         self.replica.resize(resize).await?;
         Ok(())
     }
-    pub(crate) async fn set_entity_id(
-        &mut self,
-        id: String,
-    ) -> Result<(), Status> {
+    async fn set_entity_id(&mut self, id: String) -> Result<(), Status> {
         self.replica.set_entity_id(id).await?;
         Ok(())
+    }
+    fn verify_pool(&self, pool: &PoolGrpc) -> Result<(), Status> {
+        let pool = pool.as_ops();
+        let replica = &self.replica;
+        if pool.name() != replica.pool_name()
+            || pool.uuid() != replica.pool_uuid()
+        {
+            let msg = format!(
+                "Specified pool: {pool:?} does not match the target replica's pool: {replica:?}!"
+            );
+            tracing::error!("{msg}");
+            return Err(Status::invalid_argument(msg));
+        }
+        Ok(())
+    }
+}
+impl From<ReplicaGrpc> for Replica {
+    fn from(value: ReplicaGrpc) -> Self {
+        (*value.replica).into()
     }
 }
 
@@ -297,25 +355,30 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let probe =
-            PoolIdProbe::UuidOrName(request.get_ref().pooluuid.to_owned());
-        let backend = self.probe_backend(probe).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                info!("{:?}", request.get_ref());
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
 
-                if !matches!(
-                    Protocol::try_from(request.get_ref().share)?,
-                    Protocol::Off | Protocol::Nvmf
-                ) {
-                    return Err(Status::invalid_argument(format!(
-                        "invalid replica share protocol value: {}",
-                        request.get_ref().share
-                    )));
-                }
+                    if !matches!(
+                        Protocol::try_from(request.get_ref().share)?,
+                        Protocol::Off | Protocol::Nvmf
+                    ) {
+                        return Err(Status::invalid_argument(format!(
+                            "invalid replica share protocol value: {}",
+                            request.get_ref().share
+                        )));
+                    }
 
-                backend?.create_replica(request).await
+                    let args = request.into_inner();
+
+                    let pool = GrpcReplicaFactory::pool_finder(
+                        FindPoolArgs::uuid_or_name(&args.pooluuid),
+                    )
+                    .await?;
+                    pool.create_replica(args).await
+                })
             },
         )
         .await
@@ -326,17 +389,27 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<()> {
-        let probe = Probe::ReplicaPool(
-            &request.get_ref().uuid,
-            request.get_ref().pool.clone().map(Into::into),
-        );
-        let backend = self.probe_backend(probe).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                info!("{:?}", request.get_ref());
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
+                    let args = request.into_inner();
 
-                backend?.destroy_replica(request).await
+                    let pool = match &args.pool {
+                        Some(pool) => {
+                            Some(GrpcReplicaFactory::pool_finder(pool).await?)
+                        }
+                        None => None,
+                    };
+                    let probe = FindReplicaArgs::new(&args.uuid);
+                    let replica = GrpcReplicaFactory::finder(&probe).await?;
+                    if let Some(pool) = &pool {
+                        replica.verify_pool(pool)?;
+                    }
+                    replica.destroy().await?;
+                    Ok(())
+                })
             },
         )
         .await
@@ -348,34 +421,34 @@ impl ReplicaRpc for ReplicaService {
         request: Request<ListReplicaOptions>,
     ) -> GrpcResult<ListReplicasResponse> {
         self.shared(GrpcClientContext::new(&request, function_name!()), async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
+            crate::spdk_submit!(async move {
+                let args = request.into_inner();
+                trace!("{:?}", args);
 
-            let mut replicas = vec![];
+                let mut replicas = vec![];
 
-            if args.pooltypes.is_empty()
-                || args.pooltypes.iter().any(|t| *t == PoolType::Lvs as i32)
-            {
-                replicas.extend(LvsSvc::new().list_lvs_replicas().await?);
-            }
-            if args.pooltypes.iter().any(|t| *t == PoolType::Lvm as i32) {
-                replicas.extend(LvmSvc::new().list_lvm_replicas(&args).await?);
-            }
+                let backends = args
+                    .pooltypes
+                    .iter()
+                    .map(PoolBackend::try_from)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let query = args.query.clone();
+                let fargs = ListReplicaArgs::from(args);
 
-            let retain = |arg: Option<&String>, val: &String| -> bool {
-                arg.is_none() || arg == Some(val)
-            };
+                for factory in
+                    GrpcReplicaFactory::factories().into_iter().filter(|f| {
+                        backends.is_empty() || backends.contains(&f.backend())
+                    })
+                {
+                    if let Ok(freplicas) = factory.list(&fargs).await {
+                        replicas.extend(freplicas);
+                    }
+                }
 
-            replicas.retain(|replica| {
-                retain(args.poolname.as_ref(), &replica.poolname)
-                    && retain(args.pooluuid.as_ref(), &replica.pooluuid)
-                    && retain(args.name.as_ref(), &replica.name)
-                    && retain(args.uuid.as_ref(), &replica.uuid)
-            });
-
-            Ok(Response::new(ListReplicasResponse {
-                replicas: filter_replicas_by_replica_type(replicas, args.query),
-            }))
+                Ok(ListReplicasResponse {
+                    replicas: filter_replicas_by_replica_type(replicas, query),
+                })
+            })
         })
         .await
     }
@@ -385,13 +458,18 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ShareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                info!("{:?}", request.get_ref());
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
 
-                backend?.share_replica(request).await
+                    let probe = FindReplicaArgs::new(&request.get_ref().uuid);
+                    let mut replica =
+                        GrpcReplicaFactory::finder(&probe).await?;
+                    replica.share(request.into_inner()).await?;
+                    Ok(replica.into())
+                })
             },
         )
         .await
@@ -402,13 +480,18 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<UnshareReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                info!("{:?}", request.get_ref());
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
 
-                backend?.unshare_replica(request).await
+                    let probe = FindReplicaArgs::new(&request.get_ref().uuid);
+                    let mut replica =
+                        GrpcReplicaFactory::finder(&probe).await?;
+                    replica.unshare().await?;
+                    Ok(replica.into())
+                })
             },
         )
         .await
@@ -419,13 +502,18 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<ResizeReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                info!("{:?}", request.get_ref());
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
 
-                backend?.resize_replica(request).await
+                    let probe = FindReplicaArgs::new(&request.get_ref().uuid);
+                    let mut replica =
+                        GrpcReplicaFactory::finder(&probe).await?;
+                    replica.resize(request.into_inner().requested_size).await?;
+                    Ok(replica.into())
+                })
             },
         )
         .await
@@ -436,13 +524,20 @@ impl ReplicaRpc for ReplicaService {
         &self,
         request: Request<SetReplicaEntityIdRequest>,
     ) -> GrpcResult<Replica> {
-        let backend = self.probe_backend(&request.get_ref().uuid).await;
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                info!("{:?}", request.get_ref());
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
 
-                backend?.set_replica_entity_id(request).await
+                    let probe = FindReplicaArgs::new(&request.get_ref().uuid);
+                    let mut replica =
+                        GrpcReplicaFactory::finder(&probe).await?;
+                    replica
+                        .set_entity_id(request.into_inner().entity_id)
+                        .await?;
+                    Ok(replica.into())
+                })
             },
         )
         .await
