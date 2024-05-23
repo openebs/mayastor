@@ -3,7 +3,13 @@
 set -eu -o pipefail
 
 SCRIPTDIR="$(realpath "$(dirname "$0")")"
-ROOTDIR=$(readlink -f "$SCRIPTDIR/..")
+ROOTDIR="$(readlink -f "$SCRIPTDIR/..")"
+REPORTDIR="$ROOTDIR/test/python/reports"
+
+if [ -d "$REPORTDIR" ]; then
+  rm -rf "$REPORTDIR"
+fi
+mkdir "$REPORTDIR" 2>/dev/null || true
 
 function cleanup_handler()
 {
@@ -45,18 +51,23 @@ function run_tests()
     if [ -d "$name" ]
     then
     (
+      report=${name#$ROOTDIR/test/python}
+      report="$REPORTDIR/${report#/}/xunit-report.xml"
       set -x
-      report=$(echo "${name}-xunit-report.xml" | tr  '/' '-')
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$ROOTDIR/$report" $TEST_ARGS
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$report" $TEST_ARGS
+      set +x
     )
     elif [ -f "$name" ] || [ -f "${name%::*}" ]
     then
     (
-      set -x
       base=$(dirname "$name")
       ( cd "$base"; docker-compose down 2>/dev/null || true )
-      report=$(echo "$base/${name%.py}-xunit-report.xml" | tr  '/' '-')
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$ROOTDIR/$report" $TEST_ARGS
+      report=${base#$ROOTDIR/test/python}
+      base_name=$(basename "$name")
+      report="$REPORTDIR/${report#/}/${base_name%.py}-xunit-report.xml"
+      set -x
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$report" $TEST_ARGS
+      set +x
     )
     fi
   done

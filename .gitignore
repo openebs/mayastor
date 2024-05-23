@@ -42,4 +42,4 @@ ansible-hosts
 /test/python/venv/*
 /package.json
 /rust-toolchain.toml
-*.xml
+/test/python/reports
