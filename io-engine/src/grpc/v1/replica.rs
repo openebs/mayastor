@@ -200,16 +200,20 @@ pub(crate) struct GrpcReplicaFactory {
 }
 impl GrpcReplicaFactory {
     fn factories() -> Vec<Self> {
-        vec![Self::new(PoolBackend::Lvm), Self::new(PoolBackend::Lvs)]
+        vec![PoolBackend::Lvm, PoolBackend::Lvs]
+            .into_iter()
+            .filter_map(|b| Self::new(b).ok())
+            .collect()
     }
-    fn new(backend: PoolBackend) -> Self {
+    fn new(backend: PoolBackend) -> Result<Self, Status> {
+        backend.enabled()?;
         let repl_factory = match backend {
             PoolBackend::Lvs => Box::new(crate::lvs::ReplLvsFactory {}) as _,
             PoolBackend::Lvm => Box::new(crate::lvm::ReplLvmFactory {}) as _,
         };
-        Self {
+        Ok(Self {
             repl_factory,
-        }
+        })
     }
     async fn finder(args: &FindReplicaArgs) -> Result<ReplicaGrpc, Status> {
         let mut error = None;
@@ -337,7 +341,9 @@ impl ReplicaGrpc {
                 "Specified pool: {pool:?} does not match the target replica's pool: {replica:?}!"
             );
             tracing::error!("{msg}");
-            return Err(Status::invalid_argument(msg));
+            // todo: is this the right error code?
+            //  keeping for back compatibility
+            return Err(Status::aborted(msg));
         }
         Ok(())
     }
@@ -403,7 +409,19 @@ impl ReplicaRpc for ReplicaService {
                         None => None,
                     };
                     let probe = FindReplicaArgs::new(&args.uuid);
-                    let replica = GrpcReplicaFactory::finder(&probe).await?;
+                    let replica = match GrpcReplicaFactory::finder(&probe).await
+                    {
+                        Err(mut status)
+                            if status.code() == tonic::Code::NotFound =>
+                        {
+                            status.metadata_mut().insert(
+                                "gtm-602",
+                                tonic::metadata::MetadataValue::from(0),
+                            );
+                            Err(status)
+                        }
+                        _else => _else,
+                    }?;
                     if let Some(pool) = &pool {
                         replica.verify_pool(pool)?;
                     }

@@ -46,12 +46,16 @@ async fn replica_wipe() {
         .unwrap();
     let mut replica_builder = create_pool_replica(&test).await;
 
+    let gpt_backup_size = 33 * 512;
+
     let grpc = GrpcConnect::new(&test);
     let mut ms = grpc.grpc_handle("ms1").await.unwrap();
 
-    let replica = replica_builder.create().await.unwrap();
+    let mut replica = replica_builder.create().await.unwrap();
     let replica_size = 1024 * 1024 * 1024;
     assert_eq!(replica_size, replica.size);
+
+    replica.size -= gpt_backup_size;
     let tests = vec![
         TestWipeReplica {
             wipe_method: WipeMethod::None,
@@ -73,7 +77,7 @@ async fn replica_wipe() {
             wipe_method: WipeMethod::None,
             chunk_size: 512 * 1024 * 1024,
             expected_chunk_size: 512 * 1024 * 1024,
-            expected_last_chunk_size: 512 * 1024 * 1024,
+            expected_last_chunk_size: 512 * 1024 * 1024 - gpt_backup_size,
             expected_notifications: 3,
             expected_successes: 3,
         },
@@ -81,7 +85,7 @@ async fn replica_wipe() {
             wipe_method: WipeMethod::None,
             chunk_size: 500 * 1024 * 1024,
             expected_chunk_size: 500 * 1024 * 1024,
-            expected_last_chunk_size: 24 * 1024 * 1024,
+            expected_last_chunk_size: 24 * 1024 * 1024 - gpt_backup_size,
             expected_notifications: 4,
             expected_successes: 4,
         },
@@ -89,7 +93,9 @@ async fn replica_wipe() {
             wipe_method: WipeMethod::None,
             chunk_size: 500 * 1024 * 1024 + 512,
             expected_chunk_size: 500 * 1024 * 1024 + 512,
-            expected_last_chunk_size: 24 * 1024 * 1024 - 2 * 512,
+            expected_last_chunk_size: 24 * 1024 * 1024
+                - 2 * 512
+                - gpt_backup_size,
             expected_notifications: 4,
             expected_successes: 4,
         },
@@ -118,8 +124,9 @@ async fn replica_wipe() {
     let nvmf_location = replica_builder.nvmf_location();
 
     // Create a smaller replica to validate write_zero wiping!
+    let mb = 1024 * 1024;
     let replica = replica_builder
-        .with_size_mb(4)
+        .with_size_b(4 * mb + gpt_backup_size)
         .with_nvmf()
         .create()
         .await
@@ -129,7 +136,6 @@ async fn replica_wipe() {
         NmveConnectGuard::connect_addr(&nvmf_location.addr, &nvmf_location.nqn);
     let device = nvme_device();
 
-    let mb = 1024 * 1024;
     // already zeroed up to 8MiB after creation!
     io_engine_tests::compare_devices(&device, "/dev/zero", 4 * mb, true);
 

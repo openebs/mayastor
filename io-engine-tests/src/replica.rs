@@ -73,6 +73,11 @@ impl ReplicaBuilder {
         self
     }
 
+    pub fn with_size_b(mut self, size_b: u64) -> Self {
+        self.size = Some(size_b);
+        self
+    }
+
     pub fn with_size_mb(mut self, size_mb: u64) -> Self {
         self.size = Some(size_mb * 1024 * 1024);
         self
