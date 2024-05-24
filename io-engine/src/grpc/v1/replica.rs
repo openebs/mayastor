@@ -337,7 +337,9 @@ impl ReplicaGrpc {
                 "Specified pool: {pool:?} does not match the target replica's pool: {replica:?}!"
             );
             tracing::error!("{msg}");
-            return Err(Status::invalid_argument(msg));
+            // todo: is this the right error code?
+            //  keeping for back compatibility
+            return Err(Status::aborted(msg));
         }
         Ok(())
     }
@@ -403,7 +405,19 @@ impl ReplicaRpc for ReplicaService {
                         None => None,
                     };
                     let probe = FindReplicaArgs::new(&args.uuid);
-                    let replica = GrpcReplicaFactory::finder(&probe).await?;
+                    let replica = match GrpcReplicaFactory::finder(&probe).await
+                    {
+                        Err(mut status)
+                            if status.code() == tonic::Code::NotFound =>
+                        {
+                            status.metadata_mut().insert(
+                                "gtm-602",
+                                tonic::metadata::MetadataValue::from(0),
+                            );
+                            Err(status)
+                        }
+                        _else => _else,
+                    }?;
                     if let Some(pool) = &pool {
                         replica.verify_pool(pool)?;
                     }
