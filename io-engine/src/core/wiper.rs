@@ -397,6 +397,14 @@ impl WipeIterator {
     ) -> Result<Self, Error> {
         snafu::ensure!(total_bytes > 0, ZeroBdev {});
 
+        let size_blks = total_bytes / block_len;
+        // todo: add knobs for this within the Wipe Proto API.
+        let skip_gpt_backup_blocks = 33;
+        let size_blks = size_blks
+            .checked_sub(skip_gpt_backup_blocks)
+            .unwrap_or(size_blks);
+        let total_bytes = size_blks * block_len;
+
         let chunk_size_bytes = if chunk_size_bytes == 0 {
             total_bytes
         } else {
