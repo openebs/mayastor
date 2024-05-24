@@ -200,16 +200,20 @@ pub(crate) struct GrpcReplicaFactory {
 }
 impl GrpcReplicaFactory {
     fn factories() -> Vec<Self> {
-        vec![Self::new(PoolBackend::Lvm), Self::new(PoolBackend::Lvs)]
+        vec![PoolBackend::Lvm, PoolBackend::Lvs]
+            .into_iter()
+            .filter_map(|b| Self::new(b).ok())
+            .collect()
     }
-    fn new(backend: PoolBackend) -> Self {
+    fn new(backend: PoolBackend) -> Result<Self, Status> {
+        backend.enabled()?;
         let repl_factory = match backend {
             PoolBackend::Lvs => Box::new(crate::lvs::ReplLvsFactory {}) as _,
             PoolBackend::Lvm => Box::new(crate::lvm::ReplLvmFactory {}) as _,
         };
-        Self {
+        Ok(Self {
             repl_factory,
-        }
+        })
     }
     async fn finder(args: &FindReplicaArgs) -> Result<ReplicaGrpc, Status> {
         let mut error = None;

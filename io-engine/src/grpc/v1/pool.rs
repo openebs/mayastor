@@ -360,7 +360,8 @@ impl PoolService {
 }
 
 impl PoolBackend {
-    fn enabled(&self) -> Result<(), Status> {
+    /// Check if this backend type is enabled.
+    pub(crate) fn enabled(&self) -> Result<(), Status> {
         match self {
             PoolBackend::Lvs => Ok(()),
             PoolBackend::Lvm => crate::grpc::lvm_enabled(),
