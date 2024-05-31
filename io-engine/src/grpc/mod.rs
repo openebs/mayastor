@@ -151,8 +151,8 @@ macro_rules! spdk_submit {
     ($fut:expr) => {{
         let r = $crate::grpc::rpc_submit_ext2($fut)?;
         r.await
-            .map_err(|_| Status::cancelled("cancelled"))?
-            .map(Response::new)
+            .map_err(|_| tonic::Status::cancelled("cancelled"))?
+            .map(tonic::Response::new)
     }};
 }
 

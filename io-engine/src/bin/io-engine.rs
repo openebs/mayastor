@@ -90,11 +90,15 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         warn!("Nexus reset is disabled");
     }
     if args.lvm {
-        env::set_var("LVM", "1");
+        env::set_var("ENABLE_LVM", "true");
         if env::var("LVM_SUPPRESS_FD_WARNINGS").is_err() {
             env::set_var("LVM_SUPPRESS_FD_WARNINGS", "1");
         }
         warn!("Experimental LVM pool backend is enabled");
+    }
+    if args.snap_rebuild {
+        env::set_var("ENABLE_SNAPSHOT_REBUILD", "true");
+        warn!("Experimental Snapshot Rebuild is enabled");
     }
 
     if args.enable_nexus_channel_debug {

@@ -1,16 +1,15 @@
-use snafu::ResultExt;
 use std::{convert::TryFrom, ops::Deref, sync::Arc};
 
 use super::{rebuild_error::RebuildError, RebuildJob, RebuildJobOptions};
 
 use crate::{
     bdev::{device_create, device_destroy},
-    core::{Bdev, Reactors, ReadOptions, SegmentMap},
+    bdev_api::BdevError,
+    core::{Bdev, LogicalVolume, Reactors, ReadOptions, SegmentMap},
     gen_rebuild_instances,
-    lvs::Lvol,
     rebuild::{
         bdev_rebuild::BdevRebuildJobBuilder,
-        rebuild_error::{SnapshotRebuildError, SourceUriBdev},
+        rebuild_error::SnapshotRebuildError,
         BdevRebuildJob,
     },
 };
@@ -20,14 +19,17 @@ use crate::{
 /// start to end.
 pub struct SnapshotRebuildJob {
     inner: BdevRebuildJob,
-    destroy_src_uri: bool,
-    name: String,
+    uuid: String,
+    replica_uuid: String,
+    snapshot_uuid: String,
+    replica_uri: Uri,
+    snapshot_uri: Uri,
 }
 
 impl std::fmt::Debug for SnapshotRebuildJob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SnapshotRebuildJob")
-            .field("name", &self.name)
+            .field("uuid", &self.uuid)
             .field("inner", &self.inner)
             .finish()
     }
@@ -40,71 +42,201 @@ impl Deref for SnapshotRebuildJob {
     }
 }
 
-/// Builder for the `SnapshotRebuildJob`.
 #[derive(Default)]
-pub struct SnapshotRebuildJobBuilder(BdevRebuildJobBuilder);
-impl SnapshotRebuildJobBuilder {
-    /// Specify the rebuild options.
-    pub fn with_option(self, options: RebuildJobOptions) -> Self {
-        Self(self.0.with_option(options))
-    }
-    /// Specify a notification function.
-    pub fn with_notify_fn(self, notify_fn: fn(&str, &str) -> ()) -> Self {
-        Self(self.0.with_notify_fn(notify_fn))
-    }
-    /// Specify a rebuild map, turning it into a partial rebuild.
-    pub fn with_bitmap(self, rebuild_map: SegmentMap) -> Self {
-        Self(self.0.with_bitmap(rebuild_map))
-    }
-    /// Builds a `SnapshotRebuildJob` which differs from `Self::build` by
-    /// rebuilding into any target uri and not only replicas.
-    pub async fn build_uris(
-        self,
-        (src_uri, src_cr): (&str, bool),
-        dst_uri: &str,
-    ) -> Result<SnapshotRebuildJob, RebuildError> {
-        let url = super::parse_url(dst_uri)?;
-        let name = url.path().strip_prefix('/').unwrap_or(url.path());
-
-        if src_cr {
-            device_create(src_uri).await.context(SourceUriBdev)?;
+struct Uri {
+    create: bool,
+    delete: bool,
+    uri: String,
+}
+impl Uri {
+    /// Return a new `Self` with flag indicating if it needs to be created
+    /// before it can be opened.
+    pub fn new<I: Into<String>>(uri: I, create: bool) -> Self {
+        Self {
+            create,
+            delete: false,
+            uri: uri.into(),
         }
-
-        match self.0.build(src_uri, dst_uri).await {
-            Ok(job) => Ok(SnapshotRebuildJob::new(name, src_cr, job)),
-            Err(error) => {
-                if src_cr {
-                    device_destroy(src_uri).await.ok();
+    }
+    /// Opens or Creates the uri.
+    /// If created then the uri is also closed on drop.
+    async fn open_create(mut self) -> Result<Uri, SnapshotRebuildError> {
+        if self.create {
+            if let Err(source) = device_create(&self.uri).await {
+                if matches!(source, BdevError::BdevExists { .. }) {
+                    self.delete = false;
+                } else {
+                    return Err(SnapshotRebuildError::UriBdevOpen {
+                        uri: self.uri.clone(),
+                        source,
+                    });
                 }
-                Err(error)
+            } else {
+                self.delete = true;
             }
         }
+        Ok(self)
     }
-    /// Builds a `SnapshotRebuildJob` which can be started and which will then
-    /// rebuild from source uri to target local replica.
-    /// todo: probably target could still be a uri, example: lvol:///$uuid
-    ///  and then this would be handled the same way for non-replica targets.
-    pub async fn build(
-        self,
-        src_uri: &str,
-        replica_uuid: &str,
-    ) -> Result<SnapshotRebuildJob, RebuildError> {
-        // ensure that replica exists
-        // todo: when we have new backends, we can't just use `Lvol` directly.
-        let _lvol = Bdev::lookup_by_uuid_str(replica_uuid)
-            .ok_or(SnapshotRebuildError::ReplicaBdevNotFound {})
+    /// Closes the uri if it was created by this.
+    async fn close(mut self) -> Result<(), SnapshotRebuildError> {
+        if self.delete {
+            Self::destroy(&self.uri).await;
+            self.delete = false;
+        }
+        Ok(())
+    }
+    /// Destroys the uri device.
+    /// # Warning: destruction is a fallible process!
+    /// In case of failure not much we can do, other than logging it.
+    async fn destroy(uri: &str) {
+        if let Err(error) = device_destroy(uri).await {
+            // todo: how do we know it's safe to destroy?
+            //  we don't use refcounts for this, but maybe we should?
+            tracing::error!("Failed to destroy uri {uri}: {error}");
+        }
+    }
+}
+impl Drop for Uri {
+    fn drop(&mut self) {
+        if !self.delete {
+            return;
+        }
+        let uri = self.uri.clone();
+        // destruction is async so we cannot rely on its destruction by
+        // the time drop ends :(
+        Reactors::master().send_future(async move { Uri::destroy(&uri).await });
+    }
+}
+
+/// Builder for the `SnapshotRebuildJob`.
+#[derive(Default)]
+pub struct SnapshotRebuildJobBuilder {
+    bdev_builder: BdevRebuildJobBuilder,
+    uuid: Option<String>,
+    snapshot_uri: String,
+    replica_uri: String,
+    replica_uuid: String,
+    snapshot_uuid: String,
+}
+impl SnapshotRebuildJobBuilder {
+    fn builder() -> Self {
+        Default::default()
+    }
+    /// Specify the rebuild options.
+    pub fn with_option(mut self, options: RebuildJobOptions) -> Self {
+        self.bdev_builder = self.bdev_builder.with_option(options);
+        self
+    }
+    /// Specify a notification function.
+    pub fn with_notify_fn(mut self, notify_fn: fn(&str, &str) -> ()) -> Self {
+        self.bdev_builder = self.bdev_builder.with_notify_fn(notify_fn);
+        self
+    }
+    /// Specify a rebuild map, turning it into a partial rebuild.
+    pub fn with_bitmap(mut self, rebuild_map: SegmentMap) -> Self {
+        self.bdev_builder = self.bdev_builder.with_bitmap(rebuild_map);
+        self
+    }
+    /// Specify the snapshot uuid.
+    pub fn with_snapshot_uuid(mut self, uuid: &str) -> Self {
+        self.snapshot_uuid = uuid.to_string();
+        self
+    }
+    /// Specify the replica uuid.
+    pub fn with_replica_uuid(mut self, uuid: &str) -> Self {
+        self.replica_uuid = uuid.to_string();
+        if self.uuid.is_none() {
+            self.uuid = Some(uuid.to_string());
+        }
+        self
+    }
+    /// Specify the job's uuid.
+    pub fn with_uuid(mut self, uuid: &str) -> Self {
+        self.uuid = Some(uuid.to_string());
+        self
+    }
+    /// Specify the replica uri.
+    pub fn with_replica_uri<S: Into<String>>(mut self, uri: S) -> Self {
+        self.replica_uri = uri.into();
+        self
+    }
+    /// Specify the snapshot uri.
+    pub fn with_snapshot_uri<S: Into<String>>(mut self, uri: S) -> Self {
+        self.snapshot_uri = uri.into();
+        self
+    }
+    // todo: we have new backends, we shouldn't just use `Lvol` directly.
+    fn lookup_lvol(uri: &str) -> Result<crate::lvs::Lvol, RebuildError> {
+        let lvol = Bdev::lookup_by_uuid_str(uri)
+            .ok_or(SnapshotRebuildError::LocalBdevNotFound {})
             .and_then(|bdev| {
-                Lvol::try_from(bdev)
+                crate::lvs::Lvol::try_from(bdev)
                     .map_err(|_| SnapshotRebuildError::NotAReplica {})
             })?;
+        Ok(lvol)
+    }
+    fn snapshot_uri(&self) -> Result<Uri, RebuildError> {
+        if !self.snapshot_uri.is_empty() {
+            return Ok(Uri::new(&self.snapshot_uri, true));
+        }
+        let lvol = Self::lookup_lvol(&self.snapshot_uuid)?;
+        if !lvol.is_snapshot() {
+            // Not a snapshot, fail?
+        }
 
-        device_create(src_uri).await.context(SourceUriBdev)?;
+        Ok(Uri::new(format!("bdev:///{}", self.snapshot_uuid), false))
+    }
+    fn replica_uri(&self) -> Result<Uri, RebuildError> {
+        if !self.replica_uri.is_empty() {
+            return Ok(Uri::new(&self.replica_uri, true));
+        }
 
-        let dst_uri = format!("bdev:///{replica_uuid}");
-        match self.0.build(src_uri, &dst_uri).await {
-            Ok(job) => Ok(SnapshotRebuildJob::new(replica_uuid, true, job)),
+        let lvol = Self::lookup_lvol(&self.replica_uuid)?;
+        if lvol.is_snapshot() {
+            // Not a replica, fail?
+        }
+
+        Ok(Uri::new(format!("bdev:///{}", self.replica_uuid), false))
+    }
+    async fn build_uris(&self) -> Result<(Uri, Uri), RebuildError> {
+        let snapshot_uri = self.snapshot_uri()?;
+        let replica_uri = self.replica_uri()?;
+
+        let snapshot = snapshot_uri.open_create().await?;
+        let replica = match replica_uri.open_create().await {
+            Ok(uri) => uri,
             Err(error) => {
-                device_destroy(src_uri).await.ok();
+                snapshot.close().await.ok();
+                return Err(error.into());
+            }
+        };
+
+        Ok((snapshot, replica))
+    }
+
+    /// Builds a `SnapshotRebuildJob` which can be started and which will then
+    /// rebuild from snapshot uri to replica uri.
+    pub async fn build(self) -> Result<SnapshotRebuildJob, RebuildError> {
+        let (snapshot_uri, replica_uri) = self.build_uris().await?;
+
+        match self
+            .bdev_builder
+            .build(&snapshot_uri.uri, &replica_uri.uri)
+            .await
+        {
+            Ok(inner) => Ok(SnapshotRebuildJob {
+                inner,
+                uuid: self
+                    .uuid
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                replica_uuid: self.replica_uuid,
+                snapshot_uuid: self.snapshot_uuid,
+                snapshot_uri,
+                replica_uri,
+            }),
+            Err(error) => {
+                snapshot_uri.close().await.ok();
+                replica_uri.close().await.ok();
                 Err(error)
             }
         }
@@ -114,54 +246,42 @@ impl SnapshotRebuildJobBuilder {
 impl SnapshotRebuildJob {
     /// Helps create a `Self` using a builder: `SnapshotRebuildJobBuilder`.
     pub fn builder() -> SnapshotRebuildJobBuilder {
-        SnapshotRebuildJobBuilder::default().with_option(
+        SnapshotRebuildJobBuilder::builder().with_option(
             RebuildJobOptions::default()
                 .with_read_opts(ReadOptions::CurrentUnwrittenFail),
         )
     }
-    fn new(name: &str, destroy_src_uri: bool, job: BdevRebuildJob) -> Self {
-        Self {
-            name: name.to_owned(),
-            inner: job,
-            destroy_src_uri,
-        }
-    }
     /// Get a list of all snapshot rebuild jobs.
-    pub fn list() -> Vec<std::sync::Arc<SnapshotRebuildJob>> {
+    pub fn list() -> Vec<Arc<SnapshotRebuildJob>> {
         Self::get_instances().values().cloned().collect()
     }
     /// Get the name of this rebuild job.
     pub fn name(&self) -> &str {
-        &self.name
+        self.uuid()
+    }
+    /// Get the uuid of this rebuild job.
+    pub fn uuid(&self) -> &str {
+        &self.uuid
+    }
+    /// Get the replica uri.
+    pub fn replica_uri(&self) -> &str {
+        &self.replica_uri.uri
+    }
+    /// Get the snapshot uri.
+    pub fn snapshot_uri(&self) -> &str {
+        &self.snapshot_uri.uri
+    }
+    /// Get the replica uuid.
+    pub fn replica_uuid(&self) -> &str {
+        &self.replica_uuid
+    }
+    /// Get the snapshot uuid.
+    pub fn snapshot_uuid(&self) -> &str {
+        &self.snapshot_uuid
     }
     /// Destroy this snapshot rebuild job itself.
-    pub fn destroy(self: std::sync::Arc<Self>) {
-        let _ = Self::remove(self.name());
-    }
-    /// Lookup a rebuild job by its name or target uri and return it.
-    pub fn lookup_any(name_or_uri: &str) -> Result<Arc<Self>, RebuildError> {
-        if let Ok(job) = Self::lookup(name_or_uri) {
-            return Ok(job);
-        }
-        Self::lookup_dst_uri(name_or_uri)
-    }
-}
-
-impl Drop for SnapshotRebuildJob {
-    fn drop(&mut self) {
-        let src_uri = self.src_uri().to_owned();
-        if !self.destroy_src_uri {
-            return;
-        }
-        Reactors::master().send_future(async move {
-            if let Err(error) = device_destroy(&src_uri).await {
-                // todo: how do we know it's safe to destroy?
-                //  we don't use refcounts for this, but maybe we should?
-                tracing::error!(
-                    "Failed to close source of rebuild job: {error}"
-                );
-            }
-        });
+    pub fn destroy(self: Arc<Self>) {
+        let _ = Self::remove(self.uuid());
     }
 }
 

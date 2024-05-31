@@ -27,7 +27,7 @@ use ::function_name::named;
 use futures::FutureExt;
 use io_engine_api::v1::{pool::PoolType, replica::*};
 use std::{convert::TryFrom, ops::Deref, panic::AssertUnwindSafe};
-use tonic::{Request, Response, Status};
+use tonic::{Request, Status};
 
 #[derive(Debug, Clone)]
 pub struct ReplicaService {

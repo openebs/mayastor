@@ -527,6 +527,8 @@ pub struct MayastorFeatures {
     pub asymmetric_namespace_access: bool,
     /// When set to true, support for lvm pools and volumes is enabled.
     pub logical_volume_manager: bool,
+    /// When set to true, support for snapshot rebuild is enabled.
+    pub snapshot_rebuild: bool,
 }
 impl MayastorFeatures {
     pub fn lvm(&self) -> bool {
