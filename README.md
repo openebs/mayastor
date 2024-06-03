@@ -38,7 +38,7 @@ Some targeted use cases are:
 
 # User Documentation
 
-The official user documentation for the Mayastor Project is published here in GitBook format: [mayastor.gitbook.io](https://mayastor.gitbook.io/)
+The official user documentation for the Mayastor Project is published at: [OpenEBS Replicated Storage](https://openebs.io/docs/concepts/data-engines/replicated-storage)
 
 ## Overview
 
