@@ -249,11 +249,23 @@ pub struct MayastorCliArgs {
     /// LVM pools can then be created by specifying the LVM pool type.
     /// If LVM is enabled and LVM_SUPPRESS_FD_WARNINGS is not set then it will
     /// be set to 1.
-    #[clap(long = "enable-lvm", env = "ENABLE_LVM")]
+    #[clap(long = "enable-lvm", env = "ENABLE_LVM", value_parser = delay_compat)]
     pub lvm: bool,
     /// Enables experimental Snapshot Rebuild support.
-    #[clap(long = "enable-snapshot-rebuild", env = "ENABLE_SNAPSHOT_REBUILD")]
+    #[clap(long = "enable-snapshot-rebuild", env = "ENABLE_SNAPSHOT_REBUILD", value_parser = delay_compat)]
     pub snap_rebuild: bool,
+    /// Reactors sleep 1ms before each poll.
+    /// # Warning: Don't use this in production.
+    #[clap(long, env = "MAYASTOR_DELAY", hide = true, value_parser = delay_compat)]
+    pub developer_delay: bool,
+}
+
+fn delay_compat(s: &str) -> Result<bool, String> {
+    match s {
+        "1" | "true" => Ok(true),
+        "" | "0" | "false" => Ok(false),
+        _else => Err(format!("Must be one of: 1,true,0,false")),
+    }
 }
 
 /// Mayastor features.
@@ -312,6 +324,7 @@ impl Default for MayastorCliArgs {
             enable_nexus_channel_debug: false,
             lvm: false,
             snap_rebuild: false,
+            developer_delay: false,
         }
     }
 }
@@ -411,6 +424,7 @@ pub struct MayastorEnvironment {
     api_versions: Vec<ApiVersion>,
     skip_sig_handler: bool,
     enable_io_all_thrd_nexus_channels: bool,
+    developer_delay: bool,
 }
 
 impl Default for MayastorEnvironment {
@@ -458,6 +472,7 @@ impl Default for MayastorEnvironment {
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,
+            developer_delay: false,
         }
     }
 }
@@ -562,7 +577,8 @@ struct SubsystemCtx {
 
 static MAYASTOR_FEATURES: OnceCell<MayastorFeatures> = OnceCell::new();
 
-static MAYASTOR_DEFAULT_ENV: OnceCell<MayastorEnvironment> = OnceCell::new();
+static MAYASTOR_DEFAULT_ENV: OnceCell<parking_lot::Mutex<MayastorEnvironment>> =
+    OnceCell::new();
 
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
@@ -597,6 +613,7 @@ impl MayastorEnvironment {
             nvmf_tgt_crdt: args.nvmf_tgt_crdt,
             api_versions: args.api_versions,
             skip_sig_handler: args.skip_sig_handler,
+            developer_delay: args.developer_delay,
             enable_io_all_thrd_nexus_channels: args
                 .enable_io_all_thrd_nexus_channels,
             ..Default::default()
@@ -610,7 +627,15 @@ impl MayastorEnvironment {
     }
 
     fn setup_static(self) -> Self {
-        MAYASTOR_DEFAULT_ENV.get_or_init(|| self.clone());
+        match MAYASTOR_DEFAULT_ENV.get() {
+            None => {
+                MAYASTOR_DEFAULT_ENV
+                    .get_or_init(|| parking_lot::Mutex::new(self.clone()));
+            }
+            Some(some) => {
+                *some.lock() = self.clone();
+            }
+        }
         self
     }
 
@@ -618,7 +643,7 @@ impl MayastorEnvironment {
     /// or otherwise the default one (used by the tests)
     pub fn global_or_default() -> Self {
         match MAYASTOR_DEFAULT_ENV.get() {
-            Some(env) => env.clone(),
+            Some(env) => env.lock().clone(),
             None => MayastorEnvironment::default(),
         }
     }
@@ -913,9 +938,9 @@ impl MayastorEnvironment {
         }
     }
 
-    /// load the config and apply it before any subsystems have started.
+    /// Load the config and apply it before any subsystems have started.
     /// there is currently no run time check that enforces this.
-    fn load_yaml_config(&self) {
+    fn load_yaml_config(&mut self) {
         let cfg = if let Some(yaml) = &self.mayastor_config {
             info!("loading mayastor config YAML file {}", yaml);
             Config::get_or_init(|| {
@@ -930,6 +955,19 @@ impl MayastorEnvironment {
             Config::get_or_init(Config::default)
         };
         cfg.apply();
+        if let Some(mask) = cfg.eal_opts.reactor_mask.as_ref() {
+            self.reactor_mask = mask.clone();
+        }
+        if cfg.eal_opts.core_list.is_some() {
+            self.core_list = cfg.eal_opts.core_list.clone();
+        }
+        if let Some(delay) = cfg.eal_opts.developer_delay {
+            self.developer_delay = delay;
+        }
+        if let Some(interface) = &cfg.nvmf_tcp_tgt_conf.interface {
+            self.nvmf_tgt_interface = Some(interface.clone());
+        }
+        self.clone().setup_static();
     }
 
     /// load the pool config file.
@@ -991,7 +1029,7 @@ impl MayastorEnvironment {
         }
 
         // allocate a Reactor per core
-        Reactors::init();
+        Reactors::init(self.developer_delay);
 
         // launch the remote cores if any. note that during init these have to
         // be running as during setup cross call will take place.
