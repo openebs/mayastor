@@ -117,6 +117,9 @@ pub struct Reactor {
     incoming: crossbeam::queue::SegQueue<spdk_rs::Thread>,
     /// the logical core this reactor is created on
     lcore: u32,
+    /// Sleeps for 1ms before each poll.
+    /// # Warning: for development only.
+    developer_delay: bool,
     /// represents the state of the reactor
     flags: Cell<ReactorState>,
     /// Unique identifier of the thread on which reactor is running.
@@ -134,7 +137,7 @@ thread_local! {
 
 impl Reactors {
     /// initialize the reactor subsystem for each core assigned to us
-    pub fn init() {
+    pub fn init(developer_delay: bool) {
         REACTOR_LIST.get_or_init(|| {
             let rc = unsafe {
                 spdk_thread_lib_init_ext(
@@ -149,7 +152,7 @@ impl Reactors {
             Reactors(
                 Cores::count()
                     .into_iter()
-                    .map(Reactor::new)
+                    .map(|core| Reactor::new(core, developer_delay))
                     .collect::<Vec<_>>(),
             )
         });
@@ -282,7 +285,7 @@ impl<'a> IntoIterator for &'a Reactors {
 
 impl Reactor {
     /// create a new ['Reactor'] instance
-    fn new(core: u32) -> Self {
+    fn new(core: u32, developer_delay: bool) -> Self {
         // create a channel to receive futures on
         let (sx, rx) =
             unbounded::<Pin<Box<dyn Future<Output = ()> + 'static>>>();
@@ -291,6 +294,7 @@ impl Reactor {
             threads: RefCell::new(VecDeque::new()),
             incoming: crossbeam::queue::SegQueue::new(),
             lcore: core,
+            developer_delay,
             flags: Cell::new(ReactorState::Init),
             tid: Cell::new(0),
             sx,
@@ -308,11 +312,7 @@ impl Reactor {
             warn!("calling poll on a reactor who is not in the INIT state");
         }
 
-        if std::env::var("MAYASTOR_DELAY").is_ok() {
-            reactor.developer_delayed();
-        } else {
-            reactor.running();
-        }
+        reactor.init_running();
         // loops
         reactor.poll_reactor();
         0
@@ -417,9 +417,18 @@ impl Reactor {
         self.set_state(ReactorState::Running)
     }
 
+    /// Init the reactor to running or developer delayed state.
+    pub fn init_running(&self) {
+        if self.developer_delay {
+            self.developer_delayed();
+        } else {
+            self.running();
+        }
+    }
+
     /// set the reactor to sleep each iteration
     pub fn developer_delayed(&self) {
-        info!("core {} set to developer delayed poll mode", self.lcore);
+        warn!("core {} set to developer delayed poll mode", self.lcore);
         self.set_state(ReactorState::Delayed);
     }
 
@@ -667,11 +676,7 @@ impl Future for &'static Reactor {
                 Poll::Pending
             }
             ReactorState::Init => {
-                if std::env::var("MAYASTOR_DELAY").is_ok() {
-                    self.developer_delayed();
-                } else {
-                    self.running();
-                }
+                self.init_running();
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }

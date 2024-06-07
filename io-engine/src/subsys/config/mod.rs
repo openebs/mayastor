@@ -114,6 +114,19 @@ impl ConfigSubsystem {
     }
 }
 
+/// Various EAL (Environment Abstraction Layer) configuration options.
+#[derive(Default, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct EalOpts {
+    /// The reactor mask to be used for starting up the instance.
+    pub reactor_mask: Option<String>,
+    /// List of cores to run on instead of using the core mask. When specified
+    /// it supersedes the reactor mask.
+    pub core_list: Option<String>,
+    /// Delay core polling by 1ms.
+    pub developer_delay: Option<bool>,
+}
+
 /// Main config structure of Mayastor. This structure can be persisted to disk.
 #[derive(Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -133,6 +146,8 @@ pub struct Config {
     pub socket_opts: PosixSocketOpts,
     /// iobuf specific options
     pub iobuf_opts: IoBufOpts,
+    /// Environment Abstraction Layer options.
+    pub eal_opts: EalOpts,
 }
 
 impl Config {
@@ -196,6 +211,7 @@ impl Config {
             nexus_opts: self.nexus_opts.get(),
             socket_opts: self.socket_opts.get(),
             iobuf_opts: self.iobuf_opts.get(),
+            eal_opts: self.eal_opts.clone(),
         }
     }
 

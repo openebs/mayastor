@@ -92,6 +92,8 @@ pub struct NvmfTgtConfig {
     pub crdt: [u16; TARGET_CRDT_LEN],
     /// TCP transport options
     pub opts: NvmfTcpTransportOpts,
+    /// NVMF target interface (ip, mac, name or subnet).
+    pub interface: Option<String>,
 }
 
 impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
@@ -112,6 +114,7 @@ impl Default for NvmfTgtConfig {
             max_namespaces: 2048,
             crdt: args.nvmf_tgt_crdt,
             opts: NvmfTcpTransportOpts::default(),
+            interface: None,
         }
     }
 }

@@ -291,7 +291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ms = MayastorEnvironment::new(args.clone()).init();
     start_tokio_runtime(&args);
 
-    Reactors::current().running();
+    Reactors::current().init_running();
     Reactors::current().poll_reactor();
 
     ms.fini();
