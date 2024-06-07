@@ -1,14 +1,17 @@
 #![warn(missing_docs)]
 
+use crate::core::{MayastorBugFixes, MayastorFeatures};
 use futures::{select, FutureExt, StreamExt};
 use http::Uri;
 use io_engine_api::v1::registration::{
     registration_client,
+    ApiVersion as ApiVersionGrpc,
     DeregisterRequest,
     RegisterRequest,
 };
 use once_cell::sync::OnceCell;
 use std::{env, str::FromStr, time::Duration};
+use version_info::raw_version_string;
 
 /// Mayastor sends registration messages in this interval (kind of heart-beat)
 const HB_INTERVAL_SEC: Duration = Duration::from_secs(5);
@@ -19,7 +22,7 @@ const HTTP_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 /// The http2 keep alive TIMEOUT.
 const HTTP_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 /// ApiVersion to be supported
 pub enum ApiVersion {
     /// V0 Version of api
@@ -152,31 +155,23 @@ impl Registration {
 
     /// Register a new node over rpc
     pub async fn register(&mut self) -> Result<(), tonic::Status> {
-        let api_versions = self
-            .config
-            .api_versions
-            .clone()
-            .into_iter()
-            .map(|v| {
-                let api_version: io_engine_api::v1::registration::ApiVersion =
-                    v.into();
-                api_version as i32
-            })
-            .collect();
-        match self
-            .client
-            .register(tonic::Request::new(RegisterRequest {
-                id: self.config.node.to_string(),
-                grpc_endpoint: self.config.grpc_endpoint.clone(),
-                instance_uuid: Some(self.config.instance_uuid.to_string()),
-                api_version: api_versions,
-                hostnqn: self.config.node_nqn.clone(),
-            }))
+        let api_versions = self.config.api_versions.iter();
+        let api_versions =
+            api_versions.map(|v| ApiVersionGrpc::from(*v) as i32);
+        let register = RegisterRequest {
+            id: self.config.node.to_string(),
+            grpc_endpoint: self.config.grpc_endpoint.clone(),
+            instance_uuid: Some(self.config.instance_uuid.to_string()),
+            api_version: api_versions.collect(),
+            hostnqn: self.config.node_nqn.clone(),
+            features: Some(MayastorFeatures::get().into()),
+            bugfixes: Some(MayastorBugFixes::get().into()),
+            version: Some(raw_version_string()),
+        };
+        self.client
+            .register(tonic::Request::new(register))
             .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        }
+            .map(|_| ())
     }
 
     /// Deregister a node over rpc

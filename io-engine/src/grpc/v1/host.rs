@@ -1,6 +1,6 @@
 use crate::{
     bdev::{nexus, NvmeControllerState},
-    core::{BlockDeviceIoStats, CoreError, MayastorFeatures},
+    core::{BlockDeviceIoStats, CoreError, MayastorBugFixes, MayastorFeatures},
     grpc::{
         controller_grpc::{
             controller_stats,
@@ -17,7 +17,10 @@ use crate::{
 };
 use ::function_name::named;
 use futures::FutureExt;
-use io_engine_api::v1::{host as host_rpc, registration::RegisterRequest};
+use io_engine_api::{
+    v1,
+    v1::{host as host_rpc, registration::RegisterRequest},
+};
 use std::panic::AssertUnwindSafe;
 use tonic::{Request, Response, Status};
 use version_info::raw_version_string;
@@ -99,8 +102,23 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
-            logical_volume_manager: f.logical_volume_manager,
-            snapshot_rebuild: f.snapshot_rebuild,
+            logical_volume_manager: Some(f.logical_volume_manager),
+            snapshot_rebuild: Some(f.snapshot_rebuild),
+        }
+    }
+}
+impl From<MayastorFeatures> for host_rpc::BackCompatMayastorFeatures {
+    fn from(f: MayastorFeatures) -> Self {
+        Self {
+            asymmetric_namespace_access: f.asymmetric_namespace_access,
+        }
+    }
+}
+
+impl From<MayastorBugFixes> for host_rpc::MayastorBugFixes {
+    fn from(f: MayastorBugFixes) -> Self {
+        Self {
+            nexus_rebuild_replica_ancestry: f.nexus_rebuild_replica_ancestry,
         }
     }
 }
@@ -220,20 +238,15 @@ impl host_rpc::HostRpc for HostService {
         &self,
         _request: Request<()>,
     ) -> GrpcResult<host_rpc::MayastorInfoResponse> {
-        let features = MayastorFeatures::get_features().into();
         let api_versions = self
             .api_versions
             .iter()
-            .map(|v| {
-                let api_version: io_engine_api::v1::registration::ApiVersion =
-                    v.clone().into();
-                api_version as i32
-            })
+            .map(|v| v1::registration::ApiVersion::from(*v) as i32)
             .collect();
 
         let response = host_rpc::MayastorInfoResponse {
             version: raw_version_string(),
-            supported_features: Some(features),
+            previous_features: Some(MayastorFeatures::get().into()),
             registration_info: Some(RegisterRequest {
                 id: self.node_name.clone(),
                 grpc_endpoint: self.grpc_socket.to_string(),
@@ -241,6 +254,9 @@ impl host_rpc::HostRpc for HostService {
                     .map(|r| r.instance_uuid().to_string()),
                 api_version: api_versions,
                 hostnqn: self.node_nqn.clone(),
+                features: Some(MayastorFeatures::get().into()),
+                bugfixes: Some(MayastorBugFixes::get().into()),
+                version: Some(raw_version_string()),
             }),
         };
 

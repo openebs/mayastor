@@ -1836,7 +1836,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         _request: Request<Null>,
     ) -> GrpcResult<MayastorInfoRequest> {
-        let features = MayastorFeatures::get_features().into();
+        let features = MayastorFeatures::get().into();
 
         let reply = MayastorInfoRequest {
             version: raw_version_string(),

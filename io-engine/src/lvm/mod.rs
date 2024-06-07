@@ -266,7 +266,7 @@ impl PoolFactory for PoolLvmFactory {
         &self,
         args: &FindPoolArgs,
     ) -> Result<Option<Box<dyn PoolOps>>, crate::pool_backend::Error> {
-        if !crate::core::MayastorFeatures::get_features().lvm() {
+        if !crate::core::MayastorFeatures::get().lvm() {
             return Ok(None);
         }
         use CmnQueryArgs;
@@ -291,7 +291,7 @@ impl PoolFactory for PoolLvmFactory {
         &self,
         args: &ListPoolArgs,
     ) -> Result<Vec<Box<dyn PoolOps>>, crate::pool_backend::Error> {
-        if !crate::core::MayastorFeatures::get_features().lvm() {
+        if !crate::core::MayastorFeatures::get().lvm() {
             return Ok(vec![]);
         }
         if matches!(args.backend, Some(p) if p != PoolBackend::Lvm) {
@@ -340,7 +340,7 @@ impl ReplicaFactory for ReplLvmFactory {
         &self,
         args: &ListReplicaArgs,
     ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
-        if !crate::core::MayastorFeatures::get_features().lvm() {
+        if !crate::core::MayastorFeatures::get().lvm() {
             return Ok(vec![]);
         }
         let replicas = LogicalVolume::list(

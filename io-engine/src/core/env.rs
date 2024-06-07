@@ -282,8 +282,8 @@ impl MayastorFeatures {
             snapshot_rebuild,
         }
     }
-
-    pub fn get_features() -> Self {
+    /// Get all the supported and enabled features.
+    pub fn get() -> Self {
         MAYASTOR_FEATURES.get_or_init(Self::init_features).clone()
     }
 }
@@ -513,7 +513,7 @@ async fn do_shutdown(arg: *mut c_void) {
     nexus::shutdown_nexuses().await;
     crate::rebuild::shutdown_snapshot_rebuilds().await;
     crate::lvs::Lvs::export_all().await;
-    if MayastorFeatures::get_features().lvm() {
+    if MayastorFeatures::get().lvm() {
         crate::lvm::VolumeGroup::export_all().await;
     }
 
