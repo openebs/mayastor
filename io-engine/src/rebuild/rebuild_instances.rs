@@ -84,22 +84,6 @@ macro_rules! gen_rebuild_instances {
                     })
                     .collect()
             }
-
-            /// Lookup a rebuild job by its target uri and return it.
-            pub fn lookup_dst_uri(
-                dst_uri: &str,
-            ) -> Result<std::sync::Arc<Self>, super::RebuildError> {
-                let not_found = || RebuildError::JobNotFound {
-                    job: dst_uri.to_owned(),
-                };
-                let url = url::Url::parse(dst_uri).map_err(|_| not_found())?;
-                let name = url.path().strip_prefix('/').unwrap_or(url.path());
-                let job = Self::lookup(name)?;
-                if job.dst_uri != dst_uri {
-                    return Err(not_found());
-                }
-                Ok(job)
-            }
         }
     };
 }

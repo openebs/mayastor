@@ -59,18 +59,20 @@ async fn malloc_to_malloc() {
         device_create(&dst_uri).await.unwrap();
 
         let job = SnapshotRebuildJob::builder()
-            .build_uris((&src_uri, false), &dst_uri)
+            .with_snapshot_uri(&src_uri)
+            .with_replica_uri(&dst_uri)
+            .build()
             .await
             .unwrap()
             .store()
             .unwrap();
         println!("job: {job:?}");
 
+        let name = job.name();
         let chan = job.start().await.unwrap();
         {
-            assert!(SnapshotRebuildJob::lookup("d2").is_ok());
+            assert!(SnapshotRebuildJob::lookup(name).is_ok());
             assert!(SnapshotRebuildJob::lookup(&dst_uri).is_err());
-            assert!(SnapshotRebuildJob::lookup_any(&dst_uri).is_ok());
         }
 
         let state = chan.await.unwrap();
@@ -101,7 +103,9 @@ async fn malloc_to_replica() {
                 .unwrap();
 
         let job = SnapshotRebuildJob::builder()
-            .build(&src_uri, &replica.uuid())
+            .with_replica_uuid(&replica.uuid())
+            .with_snapshot_uri(src_uri)
+            .build()
             .await
             .unwrap()
             .store()
@@ -142,7 +146,9 @@ async fn replica_to_rebuild_full() {
             .with_option(
                 RebuildJobOptions::default().with_read_opts(ReadOptions::None),
             )
-            .build(&replica_src.bdev_share_uri().unwrap(), &replica_dst.uuid())
+            .with_replica_uuid(&replica_dst.uuid())
+            .with_snapshot_uri(replica_src.bdev_share_uri().unwrap())
+            .build()
             .await
             .unwrap()
             .store()
@@ -181,7 +187,9 @@ async fn replica_to_rebuild_partial() {
                 .unwrap();
 
         let job = SnapshotRebuildJob::builder()
-            .build(&replica_src.bdev_share_uri().unwrap(), &replica_dst.uuid())
+            .with_replica_uuid(&replica_dst.uuid())
+            .with_snapshot_uri(replica_src.bdev_share_uri().unwrap())
+            .build()
             .await
             .unwrap()
             .store()

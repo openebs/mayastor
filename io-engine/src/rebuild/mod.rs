@@ -63,7 +63,7 @@ pub(crate) async fn shutdown_snapshot_rebuilds() {
 }
 
 /// Parse the given url as string into a `url::Url`.
-pub(crate) fn parse_url(url: &str) -> Result<url::Url, RebuildError> {
+pub fn parse_url(url: &str) -> Result<url::Url, RebuildError> {
     match url::Url::parse(url) {
         Ok(url) => Ok(url),
         Err(source) => Err(RebuildError::BdevInvalidUri {

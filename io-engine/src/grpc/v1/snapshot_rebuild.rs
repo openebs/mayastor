@@ -1,5 +1,5 @@
 use crate::{
-    grpc::{rpc_submit_ext, GrpcResult},
+    grpc::GrpcResult,
     rebuild::{
         RebuildError,
         RebuildState,
@@ -47,7 +47,7 @@ impl SnapshotRebuildRpc for SnapshotRebuildService {
     ) -> GrpcResult<SnapshotRebuild> {
         let request = request.into_inner();
 
-        let rx = rpc_submit_ext(async move {
+        crate::spdk_submit!(async move {
             info!("{:?}", request);
 
             let None = request.bitmap else {
@@ -55,28 +55,29 @@ impl SnapshotRebuildRpc for SnapshotRebuildService {
                     "BitMap not supported",
                 ));
             };
-            if let Ok(job) = SnapshotRebuildJob::lookup(&request.replica_uuid) {
+            if let Ok(job) = SnapshotRebuildJob::lookup(&request.uuid) {
                 return Ok(SnapshotRebuild::from(SnapRebuild::from(job).await));
             }
             SnapshotRebuildJob::builder()
-                .build(&request.source_uri, &request.replica_uuid)
+                .with_uuid(&request.uuid)
+                .with_replica_uuid(&request.replica_uuid)
+                .with_snapshot_uuid(&request.snapshot_uuid)
+                .with_replica_uri(request.replica_uri)
+                .with_snapshot_uri(request.snapshot_uri)
+                .build()
                 .await?
                 .store()?;
 
-            let job = SnapRebuild::lookup(&request.replica_uuid).await?;
+            let job = SnapRebuild::lookup(&request.uuid).await?;
             job.start().await?;
             Ok(SnapshotRebuild::from(job))
-        })?;
-
-        rx.await
-            .map_err(|_| tonic::Status::cancelled("cancelled"))?
-            .map(tonic::Response::new)
+        })
     }
     async fn list_snapshot_rebuild(
         &self,
         request: Request<ListSnapshotRebuildRequest>,
     ) -> GrpcResult<ListSnapshotRebuildResponse> {
-        let rx = rpc_submit_ext(async move {
+        crate::spdk_submit!(async move {
             let args = request.into_inner();
             trace!("{:?}", args);
             match args.replica_uuid {
@@ -97,29 +98,23 @@ impl SnapshotRebuildRpc for SnapshotRebuildService {
                     })
                 }
             }
-        })?;
-        rx.await
-            .map_err(|_| tonic::Status::cancelled("cancelled"))?
-            .map(tonic::Response::new)
+        })
     }
     async fn destroy_snapshot_rebuild(
         &self,
         request: Request<DestroySnapshotRebuildRequest>,
     ) -> GrpcResult<()> {
-        let rx = rpc_submit_ext(async move {
+        crate::spdk_submit!(async move {
             let args = request.into_inner();
             info!("{:?}", args);
-            let Ok(job) = SnapshotRebuildJob::lookup(&args.replica_uuid) else {
+            let Ok(job) = SnapshotRebuildJob::lookup(&args.uuid) else {
                 return Err(tonic::Status::not_found(""));
             };
             let rx = job.force_stop().await.ok();
             info!("Snapshot Rebuild stopped: {rx:?}");
             job.destroy();
             Ok(())
-        })?;
-        rx.await
-            .map_err(|_| tonic::Status::cancelled("cancelled"))?
-            .map(tonic::Response::new)
+        })
     }
 }
 
@@ -150,8 +145,11 @@ impl From<SnapRebuild> for SnapshotRebuild {
         let stats = value.stats;
         let job = value.job;
         Self {
-            uuid: job.name().to_string(),
-            source_uri: job.src_uri().to_string(),
+            uuid: job.uuid().to_string(),
+            replica_uuid: job.replica_uuid().to_string(),
+            snapshot_uuid: job.snapshot_uuid().to_string(),
+            replica_uri: job.replica_uri().to_string(),
+            snapshot_uri: job.snapshot_uri().to_string(),
             status: snapshot_rebuild::RebuildStatus::from(job.state()) as i32,
             total: stats.blocks_total * stats.block_size,
             rebuilt: stats.blocks_transferred * stats.block_size,
@@ -159,6 +157,7 @@ impl From<SnapRebuild> for SnapshotRebuild {
             persisted_checkpoint: 0,
             start_timestamp: Some(stats.start_time.into()),
             end_timestamp: stats.end_time.map(Into::into),
+            target_remote: false,
         }
     }
 }
@@ -214,17 +213,17 @@ impl From<RebuildError> for tonic::Status {
             RebuildError::SnapshotRebuild {
                 source,
             } => match source {
-                SnapshotRebuildError::ReplicaBdevNotFound {
+                SnapshotRebuildError::LocalBdevNotFound {
                     ..
                 } => tonic::Status::not_found(message),
-                SnapshotRebuildError::ReplicaNoUri {
+                SnapshotRebuildError::RemoteNoUri {
                     ..
                 } => tonic::Status::internal(message),
                 SnapshotRebuildError::NotAReplica {
                     ..
                 } => tonic::Status::invalid_argument(message),
                 // todo better error check here, what if bdev uri is invalid?
-                SnapshotRebuildError::SourceUriBdev {
+                SnapshotRebuildError::UriBdevOpen {
                     ..
                 } => tonic::Status::not_found(message),
             },

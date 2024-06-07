@@ -93,14 +93,14 @@ pub enum RebuildError {
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
 #[allow(missing_docs)]
 pub enum SnapshotRebuildError {
-    #[snafu(display("Destination replica bdev not found"))]
-    ReplicaBdevNotFound {},
-    #[snafu(display("Destination replica bdev uri is missing"))]
-    ReplicaNoUri {},
-    #[snafu(display("Given destination uuid is not a replica"))]
+    #[snafu(display("Local bdev not found"))]
+    LocalBdevNotFound {},
+    #[snafu(display("Remote bdev uri is missing"))]
+    RemoteNoUri {},
+    #[snafu(display("Local bdev is not a replica"))]
     NotAReplica {},
-    #[snafu(display("Failed to open the source uri as a bdev: {source}"))]
-    SourceUriBdev { source: BdevError },
+    #[snafu(display("Failed to open {uri} as a bdev: {source}"))]
+    UriBdevOpen { uri: String, source: BdevError },
 }
 
 impl From<SnapshotRebuildError> for RebuildError {

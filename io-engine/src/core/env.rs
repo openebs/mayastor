@@ -251,17 +251,23 @@ pub struct MayastorCliArgs {
     /// be set to 1.
     #[clap(long = "enable-lvm", env = "ENABLE_LVM")]
     pub lvm: bool,
+    /// Enables experimental Snapshot Rebuild support.
+    #[clap(long = "enable-snapshot-rebuild", env = "ENABLE_SNAPSHOT_REBUILD")]
+    pub snap_rebuild: bool,
 }
 
 /// Mayastor features.
 impl MayastorFeatures {
     fn init_features() -> MayastorFeatures {
         let ana = env::var("NEXUS_NVMF_ANA_ENABLE").as_deref() == Ok("1");
-        let lvm = env::var("LVM").as_deref() == Ok("1");
+        let lvm = env::var("ENABLE_LVM").as_deref() == Ok("true");
+        let snapshot_rebuild =
+            env::var("ENABLE_SNAPSHOT_REBUILD").as_deref() == Ok("true");
 
         MayastorFeatures {
             asymmetric_namespace_access: ana,
             logical_volume_manager: lvm,
+            snapshot_rebuild,
         }
     }
 
@@ -305,6 +311,7 @@ impl Default for MayastorCliArgs {
             events_url: None,
             enable_nexus_channel_debug: false,
             lvm: false,
+            snap_rebuild: false,
         }
     }
 }

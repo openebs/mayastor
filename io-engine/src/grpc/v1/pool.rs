@@ -28,7 +28,7 @@ use ::function_name::named;
 use futures::FutureExt;
 use io_engine_api::v1::{pool::*, replica::destroy_replica_request};
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, panic::AssertUnwindSafe};
-use tonic::{Request, Response, Status};
+use tonic::{Request, Status};
 
 pub use crate::pool_backend::FindPoolArgs as PoolIdProbe;
 

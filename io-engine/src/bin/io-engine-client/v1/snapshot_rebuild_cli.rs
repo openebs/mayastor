@@ -86,10 +86,14 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .snapshot_rebuild
         .create_snapshot_rebuild(
             v1::snapshot_rebuild::CreateSnapshotRebuildRequest {
-                replica_uuid: uuid,
+                replica_uuid: uuid.to_string(),
+                uuid,
+                snapshot_uuid: "".to_string(),
+                replica_uri: "".to_string(),
+                snapshot_uri: uri,
                 resume: false,
-                source_uri: uri.clone(),
                 bitmap: None,
+                use_bitmap: false,
                 error_policy: None,
             },
         )
@@ -127,7 +131,7 @@ async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .snapshot_rebuild
         .destroy_snapshot_rebuild(
             v1::snapshot_rebuild::DestroySnapshotRebuildRequest {
-                replica_uuid: uuid.clone(),
+                uuid: uuid.to_string(),
             },
         )
         .await
@@ -145,7 +149,9 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .snapshot_rebuild
         .list_snapshot_rebuild(
             v1::snapshot_rebuild::ListSnapshotRebuildRequest {
-                replica_uuid,
+                uuid: replica_uuid,
+                replica_uuid: None,
+                snapshot_uuid: None,
             },
         )
         .await
@@ -172,7 +178,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     let status = r.status();
                     vec![
                         r.uuid,
-                        r.source_uri,
+                        r.snapshot_uri,
                         rebuild_status_to_str(status),
                         r.total.to_string(),
                         r.rebuilt.to_string(),
