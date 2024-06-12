@@ -346,7 +346,7 @@ pub fn get_request_timeout<T>(req: &Request<T>) -> Duration {
 }
 
 fn lvm_enabled() -> Result<(), Status> {
-    if !MayastorFeatures::get_features().lvm() {
+    if !MayastorFeatures::get().lvm() {
         return Err(Status::failed_precondition("lvm support not enabled"));
     }
     Ok(())

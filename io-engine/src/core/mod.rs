@@ -531,7 +531,24 @@ pub struct MayastorFeatures {
     pub snapshot_rebuild: bool,
 }
 impl MayastorFeatures {
+    /// Check if LVM feature is enabled.
     pub fn lvm(&self) -> bool {
         self.logical_volume_manager
+    }
+}
+
+/// Bugfix information to expose to the control-plane.
+#[derive(Debug, Clone)]
+pub(crate) struct MayastorBugFixes {
+    /// Nexus Rebuild rebuilds all the clusters allocated to the replica and
+    /// its ancestors.
+    pub nexus_rebuild_replica_ancestry: bool,
+}
+impl MayastorBugFixes {
+    /// Get all the bug fixes.
+    pub fn get() -> Self {
+        Self {
+            nexus_rebuild_replica_ancestry: true,
+        }
     }
 }

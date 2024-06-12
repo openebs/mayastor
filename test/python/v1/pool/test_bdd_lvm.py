@@ -116,7 +116,7 @@ def find_pool(get_mayastor_instance):
 
 @when("the user calls the gRPC mayastor info request", target_fixture="get_lvm_feature")
 def get_lvm_feature(get_mayastor_instance, get_mayastor_info):
-    return get_mayastor_info.supportedFeatures.logicalVolumeManager
+    return get_mayastor_info.registration_info.features.logicalVolumeManager
 
 
 @then("the instance shall report if it supports the LVM feature")
