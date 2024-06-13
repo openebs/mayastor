@@ -130,6 +130,11 @@ impl NexusBuilder {
         self.with_bdev(&bdev)
     }
 
+    pub fn with_replicas(self, replicas: &[ReplicaBuilder]) -> Self {
+        let cc = replicas.iter().map(|r| self.replica_uri(r)).collect();
+        self.with_children(cc)
+    }
+
     pub fn with_local_replica(self, r: &ReplicaBuilder) -> Self {
         if r.rpc() != self.rpc() {
             panic!("Replica is not local");
@@ -152,7 +157,7 @@ impl NexusBuilder {
         self
     }
 
-    fn replica_uri(&self, r: &ReplicaBuilder) -> String {
+    pub fn replica_uri(&self, r: &ReplicaBuilder) -> String {
         if r.rpc() == self.rpc() {
             r.bdev()
         } else {
