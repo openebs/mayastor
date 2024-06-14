@@ -87,15 +87,11 @@ impl<'n> Nexus<'n> {
         info!("{self:?}: start rebuild request for {child_uri}");
 
         // Find a healthy child to rebuild from.
-        let src_child_uri = match self
-            .children_iter()
-            .find(|c| c.is_healthy() && c.uri() != child_uri)
-        {
-            Some(child) => Ok(child.uri().to_owned()),
-            None => Err(Error::NoRebuildSource {
+        let Some(src_child_uri) = self.find_src_replica(child_uri) else {
+            return Err(Error::NoRebuildSource {
                 name: name.clone(),
-            }),
-        }?;
+            });
+        };
 
         let dst_child_uri = match self.lookup_child(child_uri) {
             Some(c) if c.is_opened_unsync() => {
@@ -155,6 +151,20 @@ impl<'n> Nexus<'n> {
                 job: child_uri.to_owned(),
                 name: name.clone(),
             })
+    }
+
+    /// Finds the best suited source replica for the given destination.
+    fn find_src_replica(&self, dst_uri: &str) -> Option<String> {
+        let candidates: Vec<_> = self
+            .children_iter()
+            .filter(|c| c.is_healthy() && c.uri() != dst_uri)
+            .collect();
+
+        candidates
+            .iter()
+            .find(|c| c.is_local().unwrap_or(false))
+            .or_else(|| candidates.first())
+            .map(|c| c.uri().to_owned())
     }
 
     /// TODO
