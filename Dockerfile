@@ -1,6 +1,6 @@
 # This dockerfile creates a nix build environment for developing mayastor.
 # It is also used in CI/CD pipeline because it comes with all mayastor
-# dependencies downloaded and prebuilt. All what is needed is to checkout
+# dependencies downloaded and prebuilt. All that is needed is to checkout
 # the sources and enter the nix shell.
 
 FROM nixos/nix
