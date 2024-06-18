@@ -3,9 +3,9 @@
 
 == Intro
 
-To deploy an openEBS storage platoform in a K8s infra environment, you probably want to create and destroy k8s clusters ```very quickly```, without any ```pain```... regardless of where you deploy it.
+To deploy an openEBS storage platform in a K8s infra environment, you probably want to create and destroy k8s clusters ```very quickly```, without any ```pain```... regardless of where you deploy it.
 
-In General, you probably want to deploy it into the following K8s architetcures:
+In General, you probably want to deploy it into the following K8s architectures:
 
 > 1. KVM (locally)
 > 2. LXD (locally)
