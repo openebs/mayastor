@@ -88,7 +88,7 @@ and operational matters. We curate the daily operations of the project, product,
 > When creating an ISSUE or a PR. Please TAG one (or more) of the Maintainers.
 
 Our Special Interest Groups (SIGs) are:
-| Functional area | Name | @GitHub | Are of Expertese | Product specialization |
+| Functional area | Name | @GitHub | Area of Expertise | Product specialization |
 | :--- | :--- | :--- | :--- | :--- |
 | ``` Entire Product ``` | Tiago Castro | @tiagolobocastro | Architect / Eng | Mayastor |
 | ``` Data Plane ``` | Dimitry Savitskiy | @dsavitskiy | Architect / Eng | Mayastor |
