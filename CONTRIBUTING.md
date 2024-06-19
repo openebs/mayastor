@@ -91,7 +91,7 @@ Our Special Interest Groups (SIGs) are:
 | Functional area | Name | @GitHub | Area of Expertise | Product specialization |
 | :--- | :--- | :--- | :--- | :--- |
 | ``` Entire Product ``` | Tiago Castro | @tiagolobocastro | Architect / Eng | Mayastor |
-| ``` Data Plane ``` | Dimitry Savitskiy | @dsavitskiy | Architect / Eng | Mayastor |
+| ``` Data Plane ``` | Dmitry Savitskiy | @dsavitskiy | Architect / Eng | Mayastor |
 | ``` Data Plane ``` | Jonathan Teh | @jonathan-teh | Eng | Mayastor |
 | ``` Data Plane ``` | Mikhail Tcymbaliuk | @mtzaurus | Archietct / Eng | Mayastor |
 | ``` Control Plane ``` | Paul Yoong | @paulyoong | Archietct / Eng | Mayastor |
