@@ -96,7 +96,7 @@ Our Special Interest Groups (SIGs) are:
 | ``` Data Plane ``` | Mikhail Tcymbaliuk | @mtzaurus | Archietct / Eng | Mayastor |
 | ``` Control Plane ``` | Paul Yoong | @paulyoong | Archietct / Eng | Mayastor |
 | ``` 2e2 Testing ``` | Blaise Dias | @blaisedias | Eng / Test / QA | All products | 
-| ``` 2e2 Testing ``` | Chris Denyer | @chriswldenyer | Eng / QA | Mayastor |
+| ``` e2e Testing ``` | Chris Denyer | @chriswldenyer | Eng / QA | Mayastor |
  
 ---
 
