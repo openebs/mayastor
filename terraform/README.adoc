@@ -1,6 +1,34 @@
 :source-highlighter: highlightjs
 :toc:
 
+== Intro
+
+To deploy an openEBS storage platform in a K8s infra environment, you probably want to create and destroy k8s clusters ```very quickly```, without any ```pain```... regardless of where you deploy it.
+
+In General, you probably want to deploy it into the following K8s architectures:
+
+> 1. KVM (locally)
+> 2. LXD (locally)
+> 3. Amazon AWS
+> 4. Google GCE
+> 5. Microsoft Azure
+> 6. Suse Rancher
+> 7. RedHat OpenShift
+> 8. Oracle OCI
+> 9. ...
+
+
+We do not ```just``` want to deploy k8s, but also want to be able to interact with the actual ```hosts```.
+
+For example: verify that we indeed have a new nvmf target etc.
+
+- So we need a form of infra management and configuration management.
+- These scripts are intended to do just that.
+
+### Support level
+Currently the scripts only support KVM and LXD deployments.
+
+---
 == Quick start
 
 . Ensure you have libvirtd or lxd running and configured **correctly** (do not use btrfs or ZFS as a storage pool for LXD).
@@ -17,30 +45,8 @@ from ksnode-1 to `~/.kube/config` on your host.
 
 And you are all set to deploy mayastor.
 
-== Problem statement
+---
 
-When we want to deploy our "k8s storage" system, we want to create and destroy
-k8s clusters very quickly and without any pain regardless of where you deploy
-it.
-
-So this means we want to deploy it to:
-
-1. KVM (locally)
-2. LXD (locally)
-3. AWS
-4. GCE
-5. Azure
-6. Rancher
-7. ...
-
-We, however, do not "just" want to deploy k8s, but also want to be able to
-interact with the hosts themsleves. For example; verify that we indeed have a
-new nvmf target or what have you.
-
-So we need a form of infra management but also - configuration management.
-These scripts are intended to do just that.
-
-Currently the scripts only support KVM and LXD deployments.
 
 == Terraform
 
