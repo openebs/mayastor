@@ -16,7 +16,6 @@ OpenEBS is an umbrella project :open_umbrella:, where every project, repository 
 
 <BR>
 
-
 > [!IMPORTANT]
 > ## ```Contributing to MayaStor```
 > We're excited that you are interested in contributing to the <kbd>Replicated PV</kbd> ```MayaStor``` Storage Engine. <BR>
@@ -59,7 +58,8 @@ You are invited to propose _complete, well described_ new features via...
 <BR>
 
 ### Coding language & style
-While the <kbd>Replicated PV</kbd> ```MayaStor``` Storage Engine has no formal RFC process, the [Rust RFC template][rust-rfc-template] is an excellent place to derive your issue description from.
+> [<img src="https://github.com/openebs/community/blob/develop/images/rust-lang-logo_rust.png" width="100">](https://www.rust-lang.org/learn) <BR>
+> While the <kbd>Replicated PV</kbd> ```MayaStor``` Storage Engine has no formal RFC process, the [Rust RFC template][rust-rfc-template] is an excellent place to derive your issue description from.
 
 | [<img src="https://github.com/openebs/community/blob/develop/images/rustacean-flat-happy.png" width="200">](https://www.rust-lang.org/)  | :crab: The <kbd>Replicated PV</kbd> ```MayaStor``` Storage Engine is ``` 100% ``` developed in the [RUST programming language](https://www.rust-lang.org/)<BR>:crab: We leverage guidance from the RUST community.<BR>:crab: We love Ferris.<BR>:crab: We are #rustaceans |
 | :---         | :---      |
