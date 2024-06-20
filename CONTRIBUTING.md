@@ -1,5 +1,11 @@
 ## Contributing Guidelines
-<BR>
+
+<p align="center">
+  <img src="https://github.com/openebs/community/blob/develop/images/replicated-pv_mayastor_183x183_t.png">
+</p>
+<h3 align="center">
+  Replicated PV Mayastor<BR>
+</h3>
 
 ## Umbrella Project
 OpenEBS is an umbrella project :open_umbrella:, where every project, repository and file in the OpenEBS organization adopts and follows the policies and principles of the umbrella project files located in our [``` Community repo cafe```](https://github.com/openebs/community?tab=readme-ov-file#community-repo-cafe).
