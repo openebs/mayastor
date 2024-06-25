@@ -34,7 +34,7 @@ static TCP_TRANSPORT: Lazy<CString> =
 
 pub async fn add_tcp_transport() -> Result<(), Error> {
     let cfg = Config::get();
-    let mut opts = cfg.nvmf_tcp_tgt_conf.opts.into();
+    let mut opts = cfg.nvmf_tgt_conf.opts.into();
     let transport = unsafe {
         spdk_nvmf_transport_create(TCP_TRANSPORT.as_ptr(), &mut opts)
     };

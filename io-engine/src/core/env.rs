@@ -269,6 +269,9 @@ pub struct MayastorCliArgs {
     /// # Warning: Don't use this in production.
     #[clap(long, env = "MAYASTOR_DELAY", hide = true, value_parser = delay_compat)]
     pub developer_delay: bool,
+    /// Enables RDMA between initiator and Mayastor Nvmf target.
+    #[clap(long = "enable-rdma", env = "ENABLE_RDMA", value_parser = delay_compat)]
+    pub rdma: bool,
 }
 
 fn delay_compat(s: &str) -> Result<bool, String> {
@@ -336,6 +339,7 @@ impl Default for MayastorCliArgs {
             lvm: false,
             snap_rebuild: false,
             developer_delay: false,
+            rdma: false,
         }
     }
 }
@@ -416,6 +420,7 @@ pub struct MayastorEnvironment {
     skip_sig_handler: bool,
     enable_io_all_thrd_nexus_channels: bool,
     developer_delay: bool,
+    rdma: bool,
 }
 
 impl Default for MayastorEnvironment {
@@ -464,6 +469,7 @@ impl Default for MayastorEnvironment {
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,
             developer_delay: false,
+            rdma: false,
         }
     }
 }
@@ -605,6 +611,7 @@ impl MayastorEnvironment {
             api_versions: args.api_versions,
             skip_sig_handler: args.skip_sig_handler,
             developer_delay: args.developer_delay,
+            rdma: args.rdma,
             enable_io_all_thrd_nexus_channels: args
                 .enable_io_all_thrd_nexus_channels,
             ..Default::default()
@@ -958,7 +965,7 @@ impl MayastorEnvironment {
         if let Some(delay) = cfg.eal_opts.developer_delay {
             self.developer_delay = delay;
         }
-        if let Some(interface) = &cfg.nvmf_tcp_tgt_conf.interface {
+        if let Some(interface) = &cfg.nvmf_tgt_conf.interface {
             self.nvmf_tgt_interface = Some(interface.clone());
         }
         self.clone().setup_static();

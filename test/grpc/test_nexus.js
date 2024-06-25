@@ -40,7 +40,7 @@ const configNvmfTarget = `
 nexus_opts:
   nvmf_nexus_port: 4422
   nvmf_replica_port: 8420
-nvmf_tcp_tgt_conf:
+nvmf_tgt_conf:
   max_namespaces: 2
 `;
 

@@ -97,6 +97,8 @@ pub struct NvmfTgtConfig {
     pub opts: NvmfTcpTransportOpts,
     /// NVMF target interface (ip, mac, name or subnet).
     pub interface: Option<String>,
+    /// Enable RDMA for NVMF target or not
+    pub rdma: Option<bool>,
 }
 
 impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
@@ -121,6 +123,7 @@ impl Default for NvmfTgtConfig {
             crdt: args.nvmf_tgt_crdt,
             opts: NvmfTcpTransportOpts::default(),
             interface: None,
+            rdma: None,
         }
     }
 }
