@@ -41,7 +41,7 @@ fn nvmf_target() {
                 let bdev = UntypedBdev::lookup_by_name(&b).unwrap();
 
                 let ss = NvmfSubsystem::try_from(&bdev).unwrap();
-                ss.start().await.unwrap();
+                ss.start(false).await.unwrap();
             });
 
             // test we can not create the same one again

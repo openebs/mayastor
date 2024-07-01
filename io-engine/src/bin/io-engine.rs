@@ -108,7 +108,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     if args.rdma {
         env::set_var("ENABLE_RDMA", "true");
-        warn!("RDMA is enabled for Mayastor NVMEoF target");
+        warn!("RDMA is requested to be enabled for Mayastor NVMEoF target");
     }
 
     unsafe {

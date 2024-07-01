@@ -48,6 +48,7 @@ use spdk_rs::{
         spdk_nvmf_subsystem_state_change_done,
         spdk_nvmf_subsystem_stop,
         spdk_nvmf_tgt,
+        spdk_nvmf_tgt_get_transport,
         SPDK_NVME_SCT_GENERIC,
         SPDK_NVME_SC_CAPACITY_EXCEEDED,
         SPDK_NVME_SC_RESERVATION_CONFLICT,
@@ -68,8 +69,13 @@ use crate::{
     ffihelper::{cb_arg, done_cb, AsStr, FfiResult, IntoCString},
     lvs::Lvol,
     subsys::{
+        config::opts::NvmfTgtTransport,
         make_subsystem_serial,
-        nvmf::{transport::TransportId, Error, NVMF_TGT},
+        nvmf::{
+            transport::{TransportId, RDMA_TRANSPORT},
+            Error,
+            NVMF_TGT,
+        },
         Config,
     },
 };
@@ -798,7 +804,10 @@ impl NvmfSubsystem {
     }
 
     // we currently allow all listeners to the subsystem
-    async fn add_listener(&self) -> Result<(), Error> {
+    async fn add_listener(
+        &self,
+        transport: NvmfTgtTransport,
+    ) -> Result<(), Error> {
         extern "C" fn listen_cb(arg: *mut c_void, status: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
             s.send(status).unwrap();
@@ -807,8 +816,8 @@ impl NvmfSubsystem {
         let cfg = Config::get();
 
         // dont yet enable both ports, IOW just add one transportID now
-
-        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_replica =
+            TransportId::new(cfg.nexus_opts.nvmf_replica_port, transport);
 
         let (s, r) = oneshot::channel::<i32>();
         unsafe {
@@ -907,8 +916,23 @@ impl NvmfSubsystem {
     /// start the subsystem previously created -- note that we destroy it on
     /// failure to ensure the state is not in limbo and to avoid leaking
     /// resources
-    pub async fn start(self) -> Result<String, Error> {
-        self.add_listener().await?;
+    pub async fn start(self, need_rdma: bool) -> Result<String, Error> {
+        self.add_listener(NvmfTgtTransport::Tcp).await?;
+        // Only attempt rdma listener addition for this subsystem after making
+        // sure the Mayastor nvmf tgt has rdma transport created.
+        if need_rdma && self.nvmf_tgt_has_rdma_xprt() {
+            let _ =
+                self.add_listener(NvmfTgtTransport::Rdma)
+                    .await
+                    .map_err(|e| {
+                        warn!(
+                            "NvmfSubsystem RDMA listener add failed {}. \
+                        Subsystem will be accessible over TCP only.\
+                        {:?}",
+                            e, self
+                        );
+                    });
+        }
 
         if let Err(e) = self
             .change_state("start", |ss, cb, arg| unsafe {
@@ -958,9 +982,15 @@ impl NvmfSubsystem {
     }
 
     /// get ANA state
+    /// XXX: The SPDK NVME multipath is transport protocol independent. Should
+    /// we keep returning the ana state here by default using TCP transport
+    /// as today?
     pub async fn get_ana_state(&self) -> Result<u32, Error> {
         let cfg = Config::get();
-        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_replica = TransportId::new(
+            cfg.nexus_opts.nvmf_replica_port,
+            NvmfTgtTransport::Tcp,
+        );
         let listener = unsafe {
             nvmf_subsystem_find_listener(self.0.as_ptr(), trid_replica.as_ptr())
         };
@@ -981,29 +1011,35 @@ impl NvmfSubsystem {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
             s.send(status).unwrap();
         }
-        let cfg = Config::get();
-        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
 
-        let (s, r) = oneshot::channel::<i32>();
+        // setting ANA state can only be done when subsystem is shared, meaning
+        // it'll have listeners configured. So let's fetch transport ids
+        // based on active listeners instead of reading static Config.
+        let trids = self.listeners_to_vec().unwrap_or_default();
 
-        unsafe {
-            spdk_nvmf_subsystem_set_ana_state(
-                self.0.as_ptr(),
-                trid_replica.as_ptr(),
-                ana_state,
-                0,
-                Some(set_ana_state_cb),
-                cb_arg(s),
-            );
+        for trid in trids {
+            debug!("set_ana_state {ana_state}, {trid:?}");
+            let (s, r) = oneshot::channel::<i32>();
+            unsafe {
+                spdk_nvmf_subsystem_set_ana_state(
+                    self.0.as_ptr(),
+                    trid.as_ptr(),
+                    ana_state,
+                    0,
+                    Some(set_ana_state_cb),
+                    cb_arg(s),
+                );
+            }
+            r.await
+                .expect("Cancellation is not supported")
+                .to_result(|e| Error::Subsystem {
+                    source: Errno::from_i32(-e),
+                    nqn: self.get_nqn(),
+                    msg: "failed to set_ana_state of the subsystem".to_string(),
+                })?;
         }
 
-        r.await
-            .expect("Cancellation is not supported")
-            .to_result(|e| Error::Subsystem {
-                source: Errno::from_i32(-e),
-                nqn: self.get_nqn(),
-                msg: "failed to set_ana_state of the subsystem".to_string(),
-            })
+        Ok(())
     }
 
     /// destroy all subsystems associated with our target, subsystems must be in
@@ -1071,6 +1107,18 @@ impl NvmfSubsystem {
         }
 
         Bdev::checked_from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
+    }
+
+    fn nvmf_tgt_has_rdma_xprt(&self) -> bool {
+        NVMF_TGT.with(|t| {
+            let transport = unsafe {
+                spdk_nvmf_tgt_get_transport(
+                    t.borrow().tgt.as_ptr(),
+                    RDMA_TRANSPORT.as_ptr(),
+                )
+            };
+            !transport.is_null()
+        })
     }
 
     fn listeners_to_vec(&self) -> Option<Vec<TransportId>> {

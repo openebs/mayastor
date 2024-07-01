@@ -11,7 +11,7 @@ use snafu::ResultExt;
 use spdk_rs::libspdk::{spdk_bdev, spdk_get_ticks_hz};
 
 use crate::{
-    bdev::bdev_event_callback,
+    bdev::{bdev_event_callback, nexus::NEXUS_MODULE_NAME},
     bdev_api::bdev_uri_eq,
     core::{
         share::{NvmfShareProps, Protocol, Share, UpdateProps},
@@ -210,6 +210,7 @@ where
     ) -> Result<Self::Output, Self::Error> {
         let me = unsafe { self.get_unchecked_mut() };
         let props = NvmfShareProps::from(props);
+        let is_nexus_bdev = me.driver() == NEXUS_MODULE_NAME;
 
         let ptpl = props.ptpl().as_ref().map(|ptpl| ptpl.path());
 
@@ -232,7 +233,7 @@ where
             .await
             .context(ShareNvmf {})?;
 
-        subsystem.start().await.context(ShareNvmf {})
+        subsystem.start(is_nexus_bdev).await.context(ShareNvmf {})
     }
 
     fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {

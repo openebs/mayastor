@@ -35,6 +35,7 @@ use std::{
 };
 
 use crate::core::MayastorEnvironment;
+use strum_macros::{AsRefStr, EnumString, EnumVariantNames};
 
 pub trait GetOpts {
     fn get(&self) -> Self;
@@ -84,6 +85,30 @@ impl GetOpts for NexusOpts {
 /// Must be equal to the size of `spdk_nvmf_target_opts.crdt`.
 pub const TARGET_CRDT_LEN: usize = 3;
 
+#[derive(Clone, Default, EnumString, EnumVariantNames, AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum NvmfTgtTransport {
+    Rdma,
+    #[default]
+    Tcp,
+}
+
+impl NvmfTransportOpts {
+    /// Tweak a few opts more suited for rdma.
+    fn for_rdma(mut self) -> Self {
+        self.in_capsule_data_size = try_from_env(
+            "NVMF_RDMA_IN_CAPSULE_DATA_SIZE",
+            self.in_capsule_data_size,
+        );
+        self.io_unit_size = try_from_env("NVMF_RDMA_IO_UNIT_SIZE", 8192); // SPDK_NVMF_RDMA_MIN_IO_BUFFER_SIZE
+        self.data_wr_pool_size =
+            try_from_env("NVMF_RDMA_DATA_WR_POOL_SIZE", 4095); // SPDK_NVMF_RDMA_DEFAULT_DATA_WR_POOL_SIZE
+        self.num_shared_buf =
+            try_from_env("NVMF_RDMA_NUM_SHARED_BUF", self.num_shared_buf);
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NvmfTgtConfig {
@@ -94,11 +119,13 @@ pub struct NvmfTgtConfig {
     /// NVMF target Command Retry Delay in x100 ms.
     pub crdt: [u16; TARGET_CRDT_LEN],
     /// TCP transport options
-    pub opts: NvmfTcpTransportOpts,
+    pub opts_tcp: NvmfTransportOpts,
     /// NVMF target interface (ip, mac, name or subnet).
     pub interface: Option<String>,
     /// Enable RDMA for NVMF target or not
     pub rdma: Option<bool>,
+    /// RDMA transport options.
+    pub opts_rdma: NvmfTransportOpts,
 }
 
 impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
@@ -126,9 +153,10 @@ impl Default for NvmfTgtConfig {
             name: "mayastor_target".to_string(),
             max_namespaces: 2048,
             crdt: args.nvmf_tgt_crdt,
-            opts: NvmfTcpTransportOpts::default(),
+            opts_tcp: NvmfTransportOpts::default(),
             interface: None,
             rdma: None,
+            opts_rdma: NvmfTransportOpts::default().for_rdma(),
         }
     }
 }
@@ -139,10 +167,10 @@ impl GetOpts for NvmfTgtConfig {
     }
 }
 
-/// Settings for the TCP transport
+/// Nvmf settings for the transports
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct NvmfTcpTransportOpts {
+pub struct NvmfTransportOpts {
     /// max queue depth
     max_queue_depth: u16,
     /// max qpairs per controller
@@ -264,7 +292,7 @@ where
     }
 }
 
-impl Default for NvmfTcpTransportOpts {
+impl Default for NvmfTransportOpts {
     fn default() -> Self {
         Self {
             max_queue_depth: try_from_env("NVMF_TCP_MAX_QUEUE_DEPTH", 32),
@@ -283,7 +311,7 @@ impl Default for NvmfTcpTransportOpts {
             acceptor_poll_rate: try_from_env("NVMF_ACCEPTOR_POLL_RATE", 10_000),
             zcopy: try_from_env("NVMF_ZCOPY", 1) == 1,
             ack_timeout: try_from_env("NVMF_ACK_TIMEOUT", 0),
-            data_wr_pool_size: try_from_env("NVMF_DATA_WR_POOL_SIZE", 0),
+            data_wr_pool_size: 0,
         }
     }
 }
@@ -291,8 +319,8 @@ impl Default for NvmfTcpTransportOpts {
 /// we cannot add derives for YAML to these structs directly, so we need to
 /// copy them. The upside though, is that if the FFI structures change, we will
 /// know about it during compile time.
-impl From<NvmfTcpTransportOpts> for spdk_nvmf_transport_opts {
-    fn from(o: NvmfTcpTransportOpts) -> Self {
+impl From<NvmfTransportOpts> for spdk_nvmf_transport_opts {
+    fn from(o: NvmfTransportOpts) -> Self {
         struct_size_init!(
             Self {
                 max_queue_depth: o.max_queue_depth,

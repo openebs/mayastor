@@ -28,14 +28,14 @@ use spdk_rs::libspdk::{
 
 use crate::{
     constants::NVME_CONTROLLER_MODEL_ID,
-    core::{Cores, Mthread, Reactors},
+    core::{Cores, MayastorEnvironment, Mthread, Reactors},
     ffihelper::{AsStr, FfiResult},
     subsys::{
+        config::opts::NvmfTgtTransport,
         nvmf::{
             poll_groups::PollGroup,
             subsystem::NvmfSubsystem,
-            transport,
-            transport::{get_ipv4_address, TransportId},
+            transport::{self, get_ipv4_address, TransportId},
             Error,
             NVMF_PGS,
         },
@@ -57,6 +57,8 @@ pub struct Target {
     poll_group_count: u16,
     /// The current state of the target
     next_state: TargetState,
+    /// Whether the target supports RDMA transport.
+    rdma: bool,
 }
 
 impl Default for Target {
@@ -102,6 +104,7 @@ impl Target {
             tgt: NonNull::dangling(),
             poll_group_count: 0,
             next_state: TargetState::Init,
+            rdma: MayastorEnvironment::global_or_default().rdma(),
         }
     }
 
@@ -174,10 +177,11 @@ impl Target {
 
     /// add the transport to the target
     fn add_transport(&self) {
-        Reactors::master().send_future(async {
-            let result = transport::add_tcp_transport().await;
+        Reactors::master().send_future(async move {
+            let rdma = MayastorEnvironment::global_or_default().rdma();
+            let ret = transport::create_and_add_transports(rdma).await;
             NVMF_TGT.with(|t| {
-                if result.is_err() {
+                if ret.is_err() {
                     t.borrow_mut().next_state = TargetState::Invalid;
                 }
                 t.borrow_mut().next_state();
@@ -221,11 +225,14 @@ impl Target {
         });
     }
 
-    /// Listen for incoming connections by default we only listen on the replica
-    /// port
+    /// Listen for incoming connections, by default we only listen on the
+    /// replica port i.e. NVMF_PORT_REPLICA.
     fn listen(&mut self) -> Result<()> {
         let cfg = Config::get();
-        let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
+        let trid_nexus = TransportId::new(
+            cfg.nexus_opts.nvmf_nexus_port,
+            NvmfTgtTransport::Tcp,
+        );
         let mut opts = spdk_nvmf_listen_opts {
             opts_size: 0,
             transport_specific: null(),
@@ -253,7 +260,10 @@ impl Target {
             });
         }
 
-        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_replica = TransportId::new(
+            cfg.nexus_opts.nvmf_replica_port,
+            NvmfTgtTransport::Tcp,
+        );
         let rc = unsafe {
             spdk_nvmf_tgt_listen_ext(
                 self.tgt.as_ptr(),
@@ -268,19 +278,91 @@ impl Target {
             });
         }
         info!(
-            "nvmf target listening on {}:({},{})",
+            "nvmf target listening(tcp) on {}:({},{})",
             get_ipv4_address().unwrap(),
             trid_nexus.trsvcid.as_str(),
             trid_replica.trsvcid.as_str(),
         );
+
+        if self.rdma {
+            // listen RDMA also.
+            let _ = self.listen_rdma().map_err(|e| {
+                warn!(
+                        "failed to listen rdma on address. err: {e}:\
+                        The target will however keep running with \
+                        only tcp listener, with performance expectations of tcp"
+                    );
+            });
+        }
         self.next_state();
+        Ok(())
+    }
+
+    /// Listen for incoming connections, by default we only listen on the
+    /// replica port i.e. NVMF_PORT_REPLICA.
+    fn listen_rdma(&mut self) -> Result<()> {
+        let cfg = Config::get();
+        let trid_nexus = TransportId::new(
+            cfg.nexus_opts.nvmf_nexus_port,
+            NvmfTgtTransport::Rdma,
+        );
+        let mut opts = spdk_nvmf_listen_opts {
+            opts_size: 0,
+            transport_specific: null(),
+            secure_channel: false,
+            reserved1: unsafe { zeroed() },
+            ana_state: 0,
+        };
+        unsafe {
+            spdk_nvmf_listen_opts_init(
+                &mut opts,
+                std::mem::size_of::<spdk_nvmf_listen_opts>() as u64,
+            );
+        }
+        let rc = unsafe {
+            spdk_nvmf_tgt_listen_ext(
+                self.tgt.as_ptr(),
+                trid_nexus.as_ptr(),
+                &mut opts,
+            )
+        };
+
+        if rc != 0 {
+            return Err(Error::CreateTarget {
+                msg: "failed to back target".into(),
+            });
+        }
+
+        let trid_replica = TransportId::new(
+            cfg.nexus_opts.nvmf_replica_port,
+            NvmfTgtTransport::Rdma,
+        );
+        let rc = unsafe {
+            spdk_nvmf_tgt_listen_ext(
+                self.tgt.as_ptr(),
+                trid_replica.as_ptr(),
+                &mut opts,
+            )
+        };
+
+        if rc != 0 {
+            return Err(Error::CreateTarget {
+                msg: "failed to front target".into(),
+            });
+        }
+        info!(
+            "nvmf target listening(rdma) on {}:({},{})",
+            get_ipv4_address().unwrap(),
+            trid_nexus.trsvcid.as_str(),
+            trid_replica.trsvcid.as_str(),
+        );
         Ok(())
     }
 
     /// Create the discovery for the target -- note that the discovery system is
     /// not started.
     fn create_discovery_subsystem(&self) -> NvmfSubsystem {
-        debug!("enabling discovery for target");
+        debug!("creating discovery subsystem for target");
         let discovery = unsafe {
             NvmfSubsystem::from(spdk_nvmf_subsystem_create(
                 self.tgt.as_ptr(),
@@ -302,7 +384,6 @@ impl Target {
         .unwrap();
 
         discovery.allow_any(true);
-
         discovery
     }
 
@@ -361,7 +442,7 @@ impl Target {
 
         Reactors::master().send_future(async move {
             let nqn = discovery.get_nqn();
-            if let Err(error) = discovery.start().await {
+            if let Err(error) = discovery.start(false).await {
                 error!("Error starting subsystem '{nqn}': {error}");
             }
 
@@ -391,23 +472,34 @@ impl Target {
             );
         } else {
             let cfg = Config::get();
-            let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
-            let trid_replica =
-                TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+            let trid_nexus = TransportId::new(
+                cfg.nexus_opts.nvmf_nexus_port,
+                NvmfTgtTransport::Tcp,
+            );
+            let trid_replica = TransportId::new(
+                cfg.nexus_opts.nvmf_replica_port,
+                NvmfTgtTransport::Tcp,
+            );
+            let mut trid_vec = vec![trid_nexus, trid_replica];
+            // todo: handle by fetching current listeners dynamically here.
+            // Since this is shutdown path we're good this way for
+            // now.
+            if self.rdma {
+                trid_vec.push(TransportId::new(
+                    cfg.nexus_opts.nvmf_nexus_port,
+                    NvmfTgtTransport::Rdma,
+                ));
+                trid_vec.push(TransportId::new(
+                    cfg.nexus_opts.nvmf_replica_port,
+                    NvmfTgtTransport::Rdma,
+                ));
+            }
 
-            unsafe {
-                spdk_nvmf_tgt_stop_listen(
-                    self.tgt.as_ptr(),
-                    trid_replica.as_ptr(),
-                )
-            };
-
-            unsafe {
-                spdk_nvmf_tgt_stop_listen(
-                    self.tgt.as_ptr(),
-                    trid_nexus.as_ptr(),
-                )
-            };
+            for trid in trid_vec {
+                unsafe {
+                    spdk_nvmf_tgt_stop_listen(self.tgt.as_ptr(), trid.as_ptr())
+                };
+            }
         }
 
         unsafe {

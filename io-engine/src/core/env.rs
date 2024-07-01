@@ -834,6 +834,11 @@ impl MayastorEnvironment {
             .map(|s| s.clone())
     }
 
+    /// Check if RDMA needs to be enabled for Mayastor nvmf target.
+    pub fn rdma(&self) -> bool {
+        self.rdma
+    }
+
     /// Detects IP address for NVMF target by the interface specified in CLI
     /// arguments.
     fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<String, String> {
