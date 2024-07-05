@@ -111,6 +111,16 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         warn!("RDMA is enabled for Mayastor NVMEoF target");
     }
 
+    unsafe {
+        spdk_rs::libspdk::spdk_blob_enable_cluster_unmap(args.bs_cluster_unmap);
+    }
+
+    if args.bs_cluster_unmap {
+        warn!("Blob store cluster release on UNMAP is enabled");
+    } else {
+        debug!("Blob store cluster release on UNMAP is disabled");
+    }
+
     print_feature!("Async QPair connection", "spdk-async-qpair-connect");
     print_feature!("Fault injection", "fault-injection");
 

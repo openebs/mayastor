@@ -116,6 +116,7 @@ impl CreateDestroy for Aio {
                 cname.as_ptr(),
                 self.blk_size,
                 false,
+                false,
             )
         };
 
