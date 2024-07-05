@@ -26,7 +26,11 @@ use crate::{
 };
 use ::function_name::named;
 use futures::FutureExt;
-use io_engine_api::v1::{pool::*, replica::destroy_replica_request};
+use io_engine_api::v1::{
+    pool::*,
+    replica::destroy_replica_request,
+    snapshot::destroy_snapshot_request,
+};
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, panic::AssertUnwindSafe};
 use tonic::{Request, Status};
 
@@ -48,6 +52,17 @@ impl From<&destroy_replica_request::Pool> for FindPoolArgs {
                 uuid: None,
             },
             destroy_replica_request::Pool::PoolUuid(uuid) => Self::Uuid(uuid),
+        }
+    }
+}
+impl From<&destroy_snapshot_request::Pool> for FindPoolArgs {
+    fn from(value: &destroy_snapshot_request::Pool) -> Self {
+        match value.clone() {
+            destroy_snapshot_request::Pool::PoolName(name) => Self::NameUuid {
+                name,
+                uuid: None,
+            },
+            destroy_snapshot_request::Pool::PoolUuid(uuid) => Self::Uuid(uuid),
         }
     }
 }

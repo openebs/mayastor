@@ -1,3 +1,5 @@
+use crate::core::ToErrno;
+use nix::errno::Errno;
 use snafu::Snafu;
 
 /// Errors which can be encountered whilst using the LVM backend module.
@@ -54,4 +56,79 @@ pub enum Error {
     },
     #[snafu(display("{error}"))]
     NoSpace { error: String },
+    #[snafu(display("Snapshots are not currently supported for LVM volumes"))]
+    SnapshotNotSup {},
+}
+
+impl ToErrno for Error {
+    fn to_errno(self) -> Errno {
+        match self {
+            Error::ReportMissing {
+                ..
+            } => Errno::EIO,
+            Error::JsonParsing {
+                ..
+            } => Errno::EIO,
+            Error::LvmBinErr {
+                ..
+            } => Errno::EIO,
+            Error::LvmBinSpawnErr {
+                ..
+            } => Errno::EIO,
+            Error::DisksMismatch {
+                ..
+            } => Errno::EINVAL,
+            Error::InvalidPoolType {
+                ..
+            } => Errno::EINVAL,
+            Error::NotFound {
+                ..
+            } => Errno::ENOENT,
+            Error::VgUuidSet {
+                ..
+            } => Errno::EINVAL,
+            Error::LvNotFound {
+                ..
+            } => Errno::ENOENT,
+            Error::ThinProv {
+                ..
+            } => Errno::ENOTSUP,
+            Error::ReactorSpawn {
+                ..
+            } => Errno::EXFULL,
+            Error::ReactorSpawnChannel {
+                ..
+            } => Errno::EPIPE,
+            Error::BdevImport {
+                ..
+            } => Errno::EIO,
+            Error::BdevExport {
+                ..
+            } => Errno::EIO,
+            Error::BdevOpen {
+                ..
+            } => Errno::EIO,
+            Error::BdevShare {
+                ..
+            } => Errno::EFAULT,
+            Error::BdevShareUri {
+                ..
+            } => Errno::EFAULT,
+            Error::BdevUnshare {
+                ..
+            } => Errno::EFAULT,
+            Error::BdevMissing {
+                ..
+            } => Errno::ENODEV,
+            Error::UpdateProps {
+                ..
+            } => Errno::EIO,
+            Error::NoSpace {
+                ..
+            } => Errno::ENOSPC,
+            Error::SnapshotNotSup {
+                ..
+            } => Errno::ENOTSUP,
+        }
+    }
 }

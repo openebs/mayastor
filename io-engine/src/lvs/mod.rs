@@ -1,6 +1,15 @@
 use crate::{
     bdev::PtplFileOps,
-    core::{LogicalVolume, Protocol, PtplProps, Share, UpdateProps},
+    core::{
+        snapshot::SnapshotDescriptor,
+        CloneParams,
+        LogicalVolume,
+        Protocol,
+        PtplProps,
+        Share,
+        SnapshotParams,
+        UpdateProps,
+    },
     pool_backend::{
         Error,
         FindPoolArgs,
@@ -14,9 +23,12 @@ use crate::{
     },
     replica_backend::{
         FindReplicaArgs,
+        ListCloneArgs,
         ListReplicaArgs,
+        ListSnapshotArgs,
         ReplicaFactory,
         ReplicaOps,
+        SnapshotOps,
     },
 };
 pub use lvol_snapshot::LvolSnapshotIter;
@@ -33,6 +45,9 @@ mod lvs_error;
 mod lvs_iter;
 pub mod lvs_lvol;
 mod lvs_store;
+
+use crate::replica_backend::FindSnapshotArgs;
+pub use lvol_snapshot::{LvolResult, LvolSnapshotDescriptor, LvolSnapshotOps};
 
 #[async_trait::async_trait(?Send)]
 impl ReplicaOps for Lvol {
@@ -93,6 +108,37 @@ impl ReplicaOps for Lvol {
     ) -> Result<(), crate::pool_backend::Error> {
         self.destroy_replica().await?;
         Ok(())
+    }
+
+    async fn create_snapshot(
+        &mut self,
+        params: SnapshotParams,
+    ) -> Result<Box<dyn SnapshotOps>, Error> {
+        let snapshot = LvolSnapshotOps::create_snapshot(self, params).await?;
+        Ok(Box::new(snapshot))
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl SnapshotOps for Lvol {
+    async fn destroy_snapshot(self: Box<Self>) -> Result<(), Error> {
+        LvolSnapshotOps::destroy_snapshot(*self).await?;
+        Ok(())
+    }
+
+    async fn create_clone(
+        &self,
+        params: CloneParams,
+    ) -> Result<Box<dyn ReplicaOps>, Error> {
+        let clone = LvolSnapshotOps::create_clone(self, params).await?;
+        Ok(Box::new(clone))
+    }
+
+    fn descriptor(&self) -> Option<SnapshotDescriptor> {
+        self.snapshot_descriptor(None)
+    }
+    fn discarded(&self) -> bool {
+        self.is_discarded_snapshot()
     }
 }
 
@@ -237,6 +283,18 @@ impl PoolFactory for PoolLvsFactory {
 pub struct ReplLvsFactory {}
 #[async_trait::async_trait(?Send)]
 impl ReplicaFactory for ReplLvsFactory {
+    fn bdev_as_replica(
+        &self,
+        bdev: crate::core::UntypedBdev,
+    ) -> Option<Box<dyn ReplicaOps>> {
+        let Some(lvol) = Lvol::ok_from(bdev) else {
+            return None;
+        };
+        if lvol.is_snapshot() {
+            return None;
+        }
+        Some(Box::new(lvol))
+    }
     async fn find(
         &self,
         args: &FindReplicaArgs,
@@ -244,6 +302,21 @@ impl ReplicaFactory for ReplLvsFactory {
         let lvol = crate::core::Bdev::lookup_by_uuid_str(&args.uuid)
             .map(Lvol::try_from)
             .transpose()?;
+        Ok(lvol.map(|l| Box::new(l) as _))
+    }
+    async fn find_snap(
+        &self,
+        args: &FindSnapshotArgs,
+    ) -> Result<Option<Box<dyn SnapshotOps>>, crate::pool_backend::Error> {
+        let lvol = crate::core::Bdev::lookup_by_uuid_str(&args.uuid)
+            .map(Lvol::try_from)
+            .transpose()?;
+        if let Some(lvol) = &lvol {
+            // should this be an error?
+            if !lvol.is_snapshot() {
+                return Ok(None);
+            }
+        }
         Ok(lvol.map(|l| Box::new(l) as _))
     }
     async fn list(
@@ -266,6 +339,68 @@ impl ReplicaFactory for ReplLvsFactory {
         });
 
         Ok(lvols.map(|lvol| Box::new(lvol) as _).collect::<Vec<_>>())
+    }
+
+    async fn list_snaps(
+        &self,
+        args: &ListSnapshotArgs,
+    ) -> Result<Vec<SnapshotDescriptor>, crate::pool_backend::Error> {
+        // if snapshot_uuid is input, get specific snapshot result
+        Ok(if let Some(ref snapshot_uuid) = args.uuid {
+            let lvol = match crate::core::UntypedBdev::lookup_by_uuid_str(
+                snapshot_uuid,
+            ) {
+                Some(bdev) => Lvol::try_from(bdev)?,
+                None => {
+                    return Err(LvsError::Invalid {
+                        source: BsError::LvolNotFound {},
+                        msg: format!("Snapshot {snapshot_uuid} not found"),
+                    }
+                    .into())
+                }
+            };
+            lvol.list_snapshot_by_snapshot_uuid()
+        } else if let Some(ref replica_uuid) = args.source_uuid {
+            let lvol = match crate::core::UntypedBdev::lookup_by_uuid_str(
+                replica_uuid,
+            ) {
+                Some(bdev) => Lvol::try_from(bdev)?,
+                None => {
+                    return Err(LvsError::Invalid {
+                        source: BsError::LvolNotFound {},
+                        msg: format!("Replica {replica_uuid} not found",),
+                    }
+                    .into());
+                }
+            };
+            lvol.list_snapshot_by_source_uuid()
+        } else {
+            Lvol::list_all_snapshots(None)
+        })
+    }
+
+    async fn list_clones(
+        &self,
+        args: &ListCloneArgs,
+    ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
+        let clones = if let Some(snapshot_uuid) = &args.snapshot_uuid {
+            let snap_lvol = match crate::core::UntypedBdev::lookup_by_uuid_str(
+                snapshot_uuid,
+            ) {
+                Some(bdev) => Lvol::try_from(bdev),
+                None => Err(LvsError::Invalid {
+                    source: BsError::LvolNotFound {},
+                    msg: format!("Snapshot {snapshot_uuid} not found"),
+                }),
+            }?;
+            snap_lvol.list_clones_by_snapshot_uuid()
+        } else {
+            Lvol::list_all_clones()
+        };
+        Ok(clones
+            .into_iter()
+            .map(|lvol| Box::new(lvol) as _)
+            .collect::<Vec<_>>())
     }
 
     fn backend(&self) -> PoolBackend {

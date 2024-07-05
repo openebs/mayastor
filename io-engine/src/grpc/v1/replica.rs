@@ -18,7 +18,9 @@ use crate::{
     pool_backend::{FindPoolArgs, PoolBackend},
     replica_backend::{
         FindReplicaArgs,
+        ListCloneArgs,
         ListReplicaArgs,
+        ListSnapshotArgs,
         ReplicaFactory,
         ReplicaOps,
     },
@@ -199,29 +201,23 @@ pub(crate) struct GrpcReplicaFactory {
     repl_factory: Box<dyn ReplicaFactory>,
 }
 impl GrpcReplicaFactory {
-    fn factories() -> Vec<Self> {
-        vec![PoolBackend::Lvm, PoolBackend::Lvs]
+    pub(crate) fn factories() -> Vec<Self> {
+        crate::replica_backend::factories()
             .into_iter()
-            .filter_map(|b| Self::new(b).ok())
-            .collect()
+            .map(|repl_factory| Self {
+                repl_factory,
+            })
+            .collect::<Vec<_>>()
     }
-    fn new(backend: PoolBackend) -> Result<Self, Status> {
-        backend.enabled()?;
-        let repl_factory = match backend {
-            PoolBackend::Lvs => Box::new(crate::lvs::ReplLvsFactory {}) as _,
-            PoolBackend::Lvm => Box::new(crate::lvm::ReplLvmFactory {}) as _,
-        };
-        Ok(Self {
-            repl_factory,
-        })
-    }
-    async fn finder(args: &FindReplicaArgs) -> Result<ReplicaGrpc, Status> {
+    async fn find_ops(
+        args: &FindReplicaArgs,
+    ) -> Result<Box<dyn ReplicaOps>, Status> {
         let mut error = None;
 
         for factory in Self::factories() {
             match factory.find_replica(args).await {
                 Ok(Some(replica)) => {
-                    return Ok(ReplicaGrpc::new(replica));
+                    return Ok(replica);
                 }
                 Ok(None) => {}
                 Err(err) => {
@@ -233,7 +229,13 @@ impl GrpcReplicaFactory {
             Status::not_found(format!("Replica {args:?} not found"))
         }))
     }
-    async fn pool_finder<I: Into<FindPoolArgs>>(
+    pub(crate) async fn finder(
+        args: &FindReplicaArgs,
+    ) -> Result<ReplicaGrpc, Status> {
+        let replica = Self::find_ops(args).await?;
+        Ok(ReplicaGrpc::new(replica))
+    }
+    pub(crate) async fn pool_finder<I: Into<FindPoolArgs>>(
         args: I,
     ) -> Result<PoolGrpc, Status> {
         GrpcPoolFactory::finder(args).await.map_err(|error| {
@@ -249,6 +251,12 @@ impl GrpcReplicaFactory {
         args: &FindReplicaArgs,
     ) -> Result<Option<Box<dyn ReplicaOps>>, tonic::Status> {
         let replica = self.as_factory().find(args).await?;
+        if let Some(replica) = &replica {
+            // should this be an error?
+            if replica.is_snapshot() {
+                return Ok(None);
+            }
+        }
         Ok(replica)
     }
     async fn list(
@@ -258,7 +266,21 @@ impl GrpcReplicaFactory {
         let replicas = self.as_factory().list(args).await?;
         Ok(replicas.into_iter().map(Into::into).collect::<Vec<_>>())
     }
-    fn backend(&self) -> PoolBackend {
+    pub(crate) async fn list_snaps(
+        &self,
+        args: &ListSnapshotArgs,
+    ) -> Result<Vec<SnapshotInfo>, Status> {
+        let snapshots = self.as_factory().list_snaps(args).await?;
+        Ok(snapshots.into_iter().map(Into::into).collect::<Vec<_>>())
+    }
+    pub(crate) async fn list_clones(
+        &self,
+        args: &ListCloneArgs,
+    ) -> Result<Vec<Replica>, Status> {
+        let clones = self.as_factory().list_clones(args).await?;
+        Ok(clones.into_iter().map(Into::into).collect::<Vec<_>>())
+    }
+    pub(crate) fn backend(&self) -> PoolBackend {
         self.as_factory().backend()
     }
     fn as_factory(&self) -> &dyn ReplicaFactory {
@@ -268,7 +290,7 @@ impl GrpcReplicaFactory {
 
 /// A wrapper over a `ReplicaOps`.
 pub(crate) struct ReplicaGrpc {
-    replica: Box<dyn ReplicaOps>,
+    pub(crate) replica: Box<dyn ReplicaOps>,
 }
 impl ReplicaGrpc {
     fn new(replica: Box<dyn ReplicaOps>) -> Self {

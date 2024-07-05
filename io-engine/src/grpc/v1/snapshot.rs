@@ -5,35 +5,24 @@ use crate::{
     },
     core::{
         lock::ProtectedSubsystems,
-        logical_volume::LogicalVolume,
-        snapshot::{
-            SnapshotDescriptor,
-            SnapshotOps,
-            SnapshotParams,
-            SnapshotXattrs,
-            VolumeSnapshotDescriptor,
-        },
+        snapshot::{SnapshotDescriptor, SnapshotParams},
         ResourceLockManager,
         UntypedBdev,
     },
     grpc::{
         rpc_submit,
-        v1::nexus::nexus_lookup,
+        v1::{nexus::nexus_lookup, replica::ReplicaGrpc},
         GrpcClientContext,
         GrpcResult,
         RWSerializer,
     },
-    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol},
-    spdk_rs::ffihelper::IntoCString,
+    replica_backend,
 };
 use ::function_name::named;
 use chrono::{DateTime, Utc};
-use core::ffi::{c_char, c_void};
 use futures::FutureExt;
 use io_engine_api::v1::snapshot::*;
-use spdk_rs::libspdk::spdk_blob_get_xattr_value;
-use std::{convert::TryFrom, panic::AssertUnwindSafe};
-use strum::IntoEnumIterator;
+use std::panic::AssertUnwindSafe;
 use tonic::{Request, Response, Status};
 
 /// Support for the snapshot's consumption as source, should be marked as true
@@ -45,26 +34,6 @@ const SNAPSHOT_READY_AS_SOURCE: bool = false;
 pub struct SnapshotService {
     name: String,
     replica_svc: super::replica::ReplicaService,
-}
-
-#[derive(Debug)]
-pub struct ReplicaSnapshotDescriptor {
-    pub snapshot_lvol: Lvol,
-    pub replica_uuid: String,
-    pub replica_size: u64,
-}
-impl ReplicaSnapshotDescriptor {
-    fn new(
-        snapshot_lvol: Lvol,
-        replica_uuid: String,
-        replica_size: u64,
-    ) -> Self {
-        Self {
-            snapshot_lvol,
-            replica_uuid,
-            replica_size,
-        }
-    }
 }
 
 impl From<NexusCreateSnapshotReplicaDescriptor>
@@ -87,118 +56,54 @@ impl From<NexusReplicaSnapshotStatus> for NexusCreateSnapshotReplicaStatus {
     }
 }
 
-/// Generate SnapshotInfo for the CreateSnapshot Response.
-impl From<ReplicaSnapshotDescriptor> for SnapshotInfo {
-    fn from(r: ReplicaSnapshotDescriptor) -> Self {
-        let snap_lvol = r.snapshot_lvol;
-        let blob = snap_lvol.bs_iter_first();
-        let mut snapshot_param: SnapshotParams = Default::default();
-        for attr in SnapshotXattrs::iter() {
-            let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
-            let mut size: u64 = 0;
-            let attr_id = attr.name().to_string().into_cstring();
-            let curr_attr_val = unsafe {
-                let _r = spdk_blob_get_xattr_value(
-                    blob,
-                    attr_id.as_ptr(),
-                    &mut val as *mut *const c_char as *mut *const c_void,
-                    &mut size as *mut u64,
-                );
-
-                let sl =
-                    std::slice::from_raw_parts(val as *const u8, size as usize);
-                std::str::from_utf8(sl).map_or_else(|error| {
-                    warn!(
-                        snapshot=snap_lvol.name(),
-                        attribute=attr.name(),
-                        ?error,
-                        "Failed to parse snapshot attribute, default to empty string"
-                    );
-                    String::default()
-                },
-                |v| v.to_string())
-            };
-            match attr {
-                SnapshotXattrs::ParentId => {
-                    snapshot_param.set_parent_id(curr_attr_val);
-                }
-                SnapshotXattrs::EntityId => {
-                    snapshot_param.set_entity_id(curr_attr_val);
-                }
-                SnapshotXattrs::TxId => {
-                    snapshot_param.set_txn_id(curr_attr_val);
-                }
-                SnapshotXattrs::SnapshotUuid => {
-                    snapshot_param.set_snapshot_uuid(curr_attr_val);
-                }
-                SnapshotXattrs::SnapshotCreateTime => {
-                    snapshot_param.set_create_time(curr_attr_val);
-                }
-                SnapshotXattrs::DiscardedSnapshot => {
-                    snapshot_param.set_discarded_snapshot(
-                        curr_attr_val.parse().unwrap_or_default(),
-                    );
-                }
-            }
-        }
-
-        let usage = snap_lvol.usage();
-
-        Self {
-            snapshot_uuid: snap_lvol.uuid(),
-            snapshot_name: snap_lvol.name(),
-            snapshot_size: usage.allocated_bytes,
-            num_clones: 0, //TODO: Need to implement along with clone
-            timestamp: snapshot_param
-                .create_time()
-                .map(|s| s.parse::<DateTime<Utc>>().unwrap_or_default().into()),
-            source_uuid: r.replica_uuid,
-            source_size: r.replica_size,
-            pool_uuid: snap_lvol.pool_uuid(),
-            pool_name: snap_lvol.pool_name(),
-            entity_id: snapshot_param.entity_id().unwrap_or_default(),
-            txn_id: snapshot_param.txn_id().unwrap_or_default(),
-            valid_snapshot: true,
-            ready_as_source: SNAPSHOT_READY_AS_SOURCE,
-            referenced_bytes: match usage.allocated_bytes_snapshot_from_clone {
-                Some(size) => size,
-                _ => usage.allocated_bytes_snapshots,
-            },
-            discarded_snapshot: snapshot_param.discarded_snapshot(),
-        }
-    }
-}
-
 /// Generate SnapshotInfo for the ListSnapshot Response.
-impl From<VolumeSnapshotDescriptor> for SnapshotInfo {
-    fn from(s: VolumeSnapshotDescriptor) -> Self {
-        let usage = s.snapshot_lvol().usage();
+impl From<SnapshotDescriptor> for SnapshotInfo {
+    fn from(s: SnapshotDescriptor) -> Self {
+        let usage = s.snapshot().usage();
+        let info = s.info();
+        let params = info.snapshot_params();
 
         Self {
-            snapshot_uuid: s.snapshot_lvol().uuid(),
-            snapshot_name: s.snapshot_params().name().unwrap_or_default(),
+            snapshot_uuid: s.snapshot().uuid(),
+            snapshot_name: info.snapshot_params().name().unwrap_or_default(),
             snapshot_size: usage.allocated_bytes,
-            num_clones: s.num_clones(),
-            timestamp: s
-                .snapshot_params()
+            num_clones: info.num_clones(),
+            timestamp: params
                 .create_time()
                 .map(|s| s.parse::<DateTime<Utc>>().unwrap_or_default().into()),
-            source_uuid: s.source_uuid(),
-            source_size: s.snapshot_lvol().size(),
-            pool_uuid: s.snapshot_lvol().pool_uuid(),
-            pool_name: s.snapshot_lvol().pool_name(),
-            entity_id: s.snapshot_params().entity_id().unwrap_or_default(),
-            txn_id: s.snapshot_params().txn_id().unwrap_or_default(),
-            valid_snapshot: s.valid_snapshot(),
+            source_uuid: info.source_uuid(),
+            source_size: s.snapshot().size(),
+            pool_uuid: s.snapshot().pool_uuid(),
+            pool_name: s.snapshot().pool_name(),
+            entity_id: params.entity_id().unwrap_or_default(),
+            txn_id: params.txn_id().unwrap_or_default(),
+            valid_snapshot: info.valid_snapshot(),
             ready_as_source: SNAPSHOT_READY_AS_SOURCE,
             referenced_bytes: match usage.allocated_bytes_snapshot_from_clone {
                 Some(size) => size,
                 _ => usage.allocated_bytes_snapshots,
             },
-            discarded_snapshot: s.snapshot_params().discarded_snapshot(),
+            discarded_snapshot: params.discarded_snapshot(),
         }
     }
 }
+
+impl From<ListSnapshotsRequest> for ListSnapshotArgs {
+    fn from(value: ListSnapshotsRequest) -> Self {
+        Self {
+            uuid: value.snapshot_uuid,
+            source_uuid: value.source_uuid,
+        }
+    }
+}
+impl From<ListSnapshotCloneRequest> for ListCloneArgs {
+    fn from(value: ListSnapshotCloneRequest) -> Self {
+        Self {
+            snapshot_uuid: value.snapshot_uuid,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl<F, T> RWSerializer<F, T> for SnapshotService
 where
@@ -314,6 +219,111 @@ fn filter_snapshots_by_snapshot_query_type(
         .collect()
 }
 
+use crate::{
+    core::snapshot::ISnapshotDescriptor,
+    grpc::v1::{pool::PoolGrpc, replica::GrpcReplicaFactory},
+    replica_backend::{
+        FindReplicaArgs,
+        FindSnapshotArgs,
+        ListCloneArgs,
+        ListSnapshotArgs,
+        SnapshotOps,
+    },
+};
+
+impl ReplicaGrpc {
+    async fn create_snapshot(
+        &mut self,
+        args: CreateReplicaSnapshotRequest,
+    ) -> Result<CreateReplicaSnapshotResponse, tonic::Status> {
+        let replica = &mut self.replica;
+        // prepare snap config before taking snapshot.
+        let snap_config = match replica.prepare_snap_config(
+            &args.snapshot_name,
+            &args.entity_id,
+            &args.txn_id,
+            &args.snapshot_uuid,
+        ) {
+            Some(snap_config) => snap_config,
+            // if any of the prepare parameters not passed
+            // return failure as invalid argument.
+            None => {
+                return Err(tonic::Status::invalid_argument(format!(
+                    "Snapshot {} some parameters not provided",
+                    args.snapshot_uuid
+                )));
+            }
+        };
+
+        // todo: shouldn't these be in the interfaces themselves? Or perhaps
+        //  some validation function.
+        if UntypedBdev::lookup_by_uuid_str(&args.snapshot_uuid).is_some() {
+            // todo: double check this error, may not be a snapshot, could be
+            //  another bdev!!
+            return Err(tonic::Status::already_exists(format!(
+                "Snapshot {} already exist in the system",
+                args.snapshot_uuid
+            )));
+        }
+
+        match replica.create_snapshot(snap_config).await {
+            Ok(snap_lvol) => {
+                info!("Create Snapshot Success for {replica:?}, {snap_lvol:?}");
+
+                Ok(CreateReplicaSnapshotResponse {
+                    replica_uuid: replica.uuid(),
+                    snapshot: snap_lvol.descriptor().map(SnapshotInfo::from),
+                })
+            }
+            Err(error) => {
+                error!(
+                    "Create Snapshot Failed for lvol: {replica:?} with Error: {error:?}"
+                );
+                Err(error.into())
+            }
+        }
+    }
+}
+
+/// A wrapper over a `SnapshotOps`.
+struct SnapshotGrpc(Box<dyn SnapshotOps>);
+impl SnapshotGrpc {
+    async fn finder(args: &FindSnapshotArgs) -> Result<Self, Status> {
+        let mut error = None;
+
+        for factory in replica_backend::factories() {
+            match factory.find_snap(args).await {
+                Ok(Some(snapshot)) => {
+                    return Ok(Self(snapshot));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    error = Some(Status::from(err));
+                }
+            }
+        }
+        Err(error.unwrap_or_else(|| {
+            Status::not_found(format!("Snapshot {args:?} not found"))
+        }))
+    }
+    fn verify_pool(&self, pool: &PoolGrpc) -> Result<(), Status> {
+        let snapshot = &self.0;
+        let pool = pool.as_ops();
+        if pool.name() != snapshot.pool_name()
+            || pool.uuid() != snapshot.pool_uuid()
+        {
+            let msg = format!(
+                "Specified pool: {pool:?} does not match the target snapshot's pool: {snapshot:?}!"
+            );
+            tracing::error!("{msg}");
+            // todo: is this the right error code?
+            //  keeping for back compatibility
+            return Err(Status::aborted(msg));
+        }
+        Ok(())
+    }
+}
+
 #[tonic::async_trait]
 impl SnapshotRpc for SnapshotService {
     #[named]
@@ -379,76 +389,15 @@ impl SnapshotRpc for SnapshotService {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let args = request.into_inner();
-                info!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let lvol = match UntypedBdev::lookup_by_uuid_str(
-                        &args.replica_uuid,
-                    ) {
-                        Some(bdev) => Lvol::try_from(bdev)?,
-                        None => {
-                            return Err(LvsError::Invalid {
-                                source: BsError::LvolNotFound {},
-                                msg: format!(
-                                    "Replica {} not found",
-                                    args.replica_uuid
-                                ),
-                            })
-                        }
-                    };
-                    if UntypedBdev::lookup_by_uuid_str(&args.snapshot_uuid).is_some() {
-                        return Err(LvsError::Invalid {
-                            source: BsError::VolAlreadyExists {},
-                            msg: format!(
-                                "Snapshot {} already exist in the system",
-                                args.snapshot_uuid
-                            ),
-                        })
-                    }
-                    // prepare snap config before taking snapshot.
-                    let snap_config =
-                        match lvol.prepare_snap_config(
-                            &args.snapshot_name,
-                            &args.entity_id,
-                            &args.txn_id,
-                            &args.snapshot_uuid
-                        ) {
-                            Some(snap_config) => snap_config,
-                            // if any of the prepare parameters not passed,
-                            // return failure as invalid argument.
-                            None => return Err(LvsError::Invalid {
-                                source: BsError::InvalidArgument {},
-                                msg: format!(
-                                    "Snapshot {} some parameters not provided",
-                                    args.snapshot_uuid
-                                ),
-                            })
-                        };
-                    let replica_uuid = lvol.uuid();
-                    let replica_size = lvol.size();
-                    // create snapshot
-                    match lvol.create_snapshot(snap_config).await {
-                        Ok(snap_lvol) => {
-                            info!("Create Snapshot Success for {lvol:?}, {snap_lvol:?}");
-                            let snapshot_descriptor =
-                                ReplicaSnapshotDescriptor::new(snap_lvol, replica_uuid, replica_size);
-                            Ok(CreateReplicaSnapshotResponse {
-                                replica_uuid: lvol.uuid(),
-                                snapshot: Some(SnapshotInfo::from(snapshot_descriptor)),
-                            })
-                        }
-                        Err(e) => {
-                            error!(
-                                "Create Snapshot Failed for lvol: {lvol:?} with Error: {e:?}",
-                            );
-                            Err(e)
-                        }
-                    }
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                crate::spdk_submit!(async move {
+                    let args = request.into_inner();
+                    info!("{:?}", args);
+
+                    let probe = FindReplicaArgs::new(&args.replica_uuid);
+                    let mut replica =
+                        GrpcReplicaFactory::finder(&probe).await?;
+                    replica.create_snapshot(args).await
+                })
             },
         )
         .await
@@ -461,70 +410,25 @@ impl SnapshotRpc for SnapshotService {
         self.shared(
             GrpcClientContext::new(&request, function_name!()),
             async move {
-                let args = request.into_inner();
-                trace!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let snapshots: Vec<SnapshotInfo>;
-                    // if snapshot_uuid is input, get specific snapshot result
-                    if let Some(ref snapshot_uuid) = args.snapshot_uuid {
-                        let lvol = match UntypedBdev::lookup_by_uuid_str(
-                            snapshot_uuid,
-                        ) {
-                            Some(bdev) => Lvol::try_from(bdev)?,
-                            None => {
-                                return Err(LvsError::Invalid {
-                                    source: BsError::LvolNotFound {},
-                                    msg: format!(
-                                        "Replica {snapshot_uuid} not found",
-                                    ),
-                                })
-                            }
-                        };
-                        snapshots = lvol
-                            .list_snapshot_by_snapshot_uuid()
-                            .into_iter()
-                            .map(SnapshotInfo::from)
-                            .collect();
-                    } else if let Some(ref replica_uuid) = args.source_uuid {
-                        // if replica_uuid is valid, filter snapshot based
-                        // on source_uuid
-                        let lvol =
-                            match UntypedBdev::lookup_by_uuid_str(replica_uuid)
-                            {
-                                Some(bdev) => Lvol::try_from(bdev)?,
-                                None => {
-                                    return Err(LvsError::Invalid {
-                                        source: BsError::LvolNotFound {},
-                                        msg: format!(
-                                            "Replica {replica_uuid} not found",
-                                        ),
-                                    })
-                                }
-                            };
-                        snapshots = lvol
-                            .list_snapshot_by_source_uuid()
-                            .into_iter()
-                            .map(SnapshotInfo::from)
-                            .collect();
-                    } else {
-                        // if source_uuid is not input, list all snapshot
-                        // present in system
-                        snapshots = Lvol::list_all_snapshots(None)
-                            .into_iter()
-                            .map(SnapshotInfo::from)
-                            .collect();
+                crate::spdk_submit!(async move {
+                    let args = request.into_inner();
+                    trace!("{:?}", args);
+
+                    let fargs = ListSnapshotArgs::from(args.clone());
+                    let mut snapshots = vec![];
+                    for factory in GrpcReplicaFactory::factories() {
+                        if let Ok(fsnapshots) = factory.list_snaps(&fargs).await
+                        {
+                            snapshots.extend(fsnapshots);
+                        }
                     }
-                    let snapshots = filter_snapshots_by_snapshot_query_type(
-                        snapshots, args.query,
-                    );
+
                     Ok(ListSnapshotsResponse {
-                        snapshots,
+                        snapshots: filter_snapshots_by_snapshot_query_type(
+                            snapshots, args.query,
+                        ),
                     })
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                })
             },
         )
         .await
@@ -540,76 +444,22 @@ impl SnapshotRpc for SnapshotService {
             async move {
                 let args = request.into_inner();
                 info!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let lvs = match &args.pool {
-                        Some(destroy_snapshot_request::Pool::PoolUuid(uuid)) => {
-                            Lvs::lookup_by_uuid(uuid)
-                                .ok_or(LvsError::RepDestroy {
-                                    source: BsError::LvsNotFound {},
-                                    name: args.snapshot_uuid.to_owned(),
-                                    msg: format!(
-                                        "Pool uuid={uuid} is not loaded"
-                                    ),
-                                })
-                                .map(Some)
+                crate::spdk_submit!(async move {
+                    let pool = match &args.pool {
+                        Some(pool) => {
+                            Some(GrpcReplicaFactory::pool_finder(pool).await?)
                         }
-                        Some(destroy_snapshot_request::Pool::PoolName(name)) => {
-                            Lvs::lookup(name)
-                                .ok_or(LvsError::RepDestroy {
-                                    source: BsError::LvsNotFound {},
-                                    name: args.snapshot_uuid.to_owned(),
-                                    msg: format!(
-                                        "Pool name={name} is not loaded"
-                                    ),
-                                })
-                                .map(Some)
-                        }
-                        None => {
-                            // back-compat, we keep existing behaviour.
-                            Ok(None)
-                        }
-                    }?;
-                    let device = match UntypedBdev::bdev_first() {
-                        Some(bdev) => bdev
-                            .into_iter()
-                            .find(|b| {
-                                b.driver() == "lvol"
-                                    && b.uuid_as_string() == args.snapshot_uuid
-                            })
-                            .map(|b| Lvol::try_from(b).unwrap()),
                         None => None,
                     };
-                    let Some(device) = device else {
-                        return Err(LvsError::Invalid {
-                            source: BsError::LvolNotFound {},
-                            msg: format!(
-                                "Snapshot {} not found",
-                                args.snapshot_uuid
-                            ),
-                        });
-                    };
-                    if let Some(lvs) = lvs {
-                        if lvs.name() != device.pool_name()
-                            || lvs.uuid() != device.pool_uuid()
-                        {
-                            let msg = format!(
-                                "Specified {lvs:?} does not match the target {device:?}!"
-                            );
-                            tracing::error!("{msg}");
-                            return Err(LvsError::RepDestroy {
-                                source: BsError::LvsIdMismatch {},
-                                name: args.snapshot_uuid,
-                                msg,
-                            });
-                        }
+                    let probe = FindSnapshotArgs::new(args.snapshot_uuid);
+                    let snapshot = SnapshotGrpc::finder(&probe).await?;
+                    if let Some(pool) = &pool {
+                        SnapshotGrpc::verify_pool(&snapshot, pool)?;
                     }
-                    device.destroy_snapshot().await?;
+
+                    snapshot.0.destroy_snapshot().await?;
                     Ok(())
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                })
             },
         )
         .await
@@ -625,75 +475,49 @@ impl SnapshotRpc for SnapshotService {
             async move {
                 let args = request.into_inner();
                 info!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    let snap_lvol = match UntypedBdev::lookup_by_uuid_str(
-                        &args.snapshot_uuid,
-                    ) {
-                        Some(bdev) => Lvol::try_from(bdev)?,
-                        None => {
-                            return Err(LvsError::Invalid {
-                                source: BsError::LvolNotFound {},
-                                msg: format!(
-                                    "Snapshot {} not found",
-                                    args.snapshot_uuid
-                                ),
-                            })
-                        }
-                    };
+                crate::spdk_submit!(async move {
                     if UntypedBdev::lookup_by_uuid_str(&args.clone_uuid).is_some() {
-                        return Err(LvsError::Invalid {
-                            source: BsError::VolAlreadyExists {},
-                            msg: format!(
-                                "clone uuid {} already exist",
-                                args.clone_uuid
-                            ),
-                        })
-                    };
-                    // reject clone creation if "discardedSnapshot" xattr is marked as true.
-                    if snap_lvol.is_discarded_snapshot() {
-                        return Err(LvsError::Invalid {
-                            source: BsError::LvolNotFound {},
-                            msg: format!(
-                                "Snapshot {} is marked to be deleted",
-                                args.snapshot_uuid
-                            ),
-                        })
+                        return Err(tonic::Status::already_exists(format!("clone uuid {} already exist", args.clone_uuid)));
                     }
-                    // prepare clone config.
+                    let probe = FindSnapshotArgs::new(args.snapshot_uuid.clone());
+                    let snapshot =
+                        SnapshotGrpc::finder(&probe).await?.0;
+
+                    // reject clone creation if "discardedSnapshot" xattr is marked as true.
+                    // todo: should be part of create_clone?
+                    if snapshot.discarded() {
+                        return Err(tonic::Status::not_found(format!(
+                            "Snapshot {} is marked to be deleted",
+                            args.snapshot_uuid
+                        )));
+                    }
+
                     let clone_config =
-                        match snap_lvol.prepare_clone_config(
+                        match snapshot.prepare_clone_config(
                             &args.clone_name,
                             &args.clone_uuid,
                             &args.snapshot_uuid
                         ) {
-                            Some(clone_config) => clone_config,
-                            None => return Err(LvsError::Invalid {
-                                source: BsError::InvalidArgument {},
-                                msg: format!(
-                                    "Invalid parameters clone_uuid: {}, clone_name: {}",
-                                    args.clone_uuid,
-                                    args.clone_name
-                                ),
-                            })
-                        };
-                    // create clone.
-                    match snap_lvol.create_clone(clone_config).await {
+                            Some(clone_config) => Ok(clone_config),
+                            None => Err(tonic::Status::invalid_argument(format!(
+                                "Invalid parameters clone_uuid: {}, clone_name: {}",
+                                args.clone_uuid,
+                                args.clone_name
+                            )))
+                        }?;
+                    match snapshot.create_clone(clone_config).await {
                         Ok(clone_lvol) => {
-                            info!("Create Clone Success for {snap_lvol:?}, {clone_lvol:?}");
+                            info!("Create Clone Success for {snapshot:?}, {clone_lvol:?}");
                             Ok(Replica::from(clone_lvol))
                         }
                         Err(e) => {
                             error!(
-                                "Create clone Failed for snapshot: {snap_lvol:?} with Error: {e:?}",
+                                "Create clone Failed for snapshot: {snapshot:?} with Error: {e:?}"
                             );
-                            Err(e)
+                            Err(e.into())
                         }
                     }
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                })
             },
         )
         .await
@@ -709,47 +533,18 @@ impl SnapshotRpc for SnapshotService {
             async move {
                 let args = request.into_inner();
                 trace!("{:?}", args);
-                let rx = rpc_submit(async move {
-                    // if snapshot_uuid is present, list clones for specific
-                    // snapshot_uuid
-                    if let Some(snapshot_uuid) = args.snapshot_uuid {
-                        let snap_lvol = match UntypedBdev::lookup_by_uuid_str(
-                            &snapshot_uuid,
-                        ) {
-                            Some(bdev) => Lvol::try_from(bdev)?,
-                            None => {
-                                return Err(LvsError::Invalid {
-                                    source: BsError::LvolNotFound {},
-                                    msg: format!(
-                                        "Snapshot {snapshot_uuid} not found",
-                                    ),
-                                })
-                            }
-                        };
-                        let replicas = snap_lvol
-                            .list_clones_by_snapshot_uuid()
-                            .into_iter()
-                            .map(Replica::from)
-                            .collect();
-                        Ok(ListSnapshotCloneResponse {
-                            replicas,
-                        })
-                    } else {
-                        // if source_uuid is not input, list all clones
-                        // present in system
-                        let replicas = Lvol::list_all_clones()
-                            .into_iter()
-                            .map(Replica::from)
-                            .collect();
-                        Ok(ListSnapshotCloneResponse {
-                            replicas,
-                        })
+                crate::spdk_submit!(async move {
+                    let args = ListCloneArgs::from(args);
+                    let mut replicas = vec![];
+                    for factory in GrpcReplicaFactory::factories() {
+                        if let Ok(clones) = factory.list_clones(&args).await {
+                            replicas.extend(clones);
+                        }
                     }
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                    Ok(ListSnapshotCloneResponse {
+                        replicas,
+                    })
+                })
             },
         )
         .await

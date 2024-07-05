@@ -7,7 +7,11 @@ use events_api::event::{
 };
 
 use crate::{
-    core::{MayastorEnvironment, SnapshotDescriptor, SnapshotParams},
+    core::{
+        snapshot::ISnapshotDescriptor,
+        MayastorEnvironment,
+        SnapshotParams,
+    },
     eventing::Event,
 };
 

@@ -43,11 +43,11 @@ use crate::{
         wiper::{WipeMethod, Wiper},
         Bdev,
         CloneXattrs,
+        LvolSnapshotOps,
         NvmfShareProps,
         Protocol,
         PtplProps,
         Share,
-        SnapshotOps,
         SnapshotXattrs,
         ToErrno,
         UntypedBdev,
@@ -700,13 +700,21 @@ impl LogicalVolume for Lvol {
     fn size(&self) -> u64 {
         self.as_bdev().size_in_bytes()
     }
-
     /// Return the committed size of the Logical Volume in bytes.
     fn committed(&self) -> u64 {
         match self.is_snapshot() {
-            true => self.usage().allocated_bytes,
+            true => self.allocated(),
             false => self.size(),
         }
+    }
+    /// Return the allocated size of the Logical Volume in bytes.
+    fn allocated(&self) -> u64 {
+        let bs = self.lvs().blob_store();
+        let blob = self.blob_checked();
+        let cluster_size = unsafe { spdk_bs_get_cluster_size(bs) };
+        let num_allocated_clusters =
+            unsafe { spdk_blob_calc_used_clusters(blob) };
+        cluster_size * num_allocated_clusters
     }
     /// Returns Lvol disk space usage.
     fn usage(&self) -> LvolSpaceUsage {

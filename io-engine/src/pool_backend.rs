@@ -1,4 +1,5 @@
-use crate::replica_backend::ReplicaOps;
+use crate::{core::ToErrno, replica_backend::ReplicaOps};
+use nix::errno::Errno;
 
 /// PoolArgs is used to translate the input for the grpc
 /// Create/Import requests which contains name, uuid & disks.
@@ -60,6 +61,18 @@ impl From<Error> for tonic::Status {
             Error::Lvm {
                 source,
             } => source.into(),
+        }
+    }
+}
+impl ToErrno for Error {
+    fn to_errno(self) -> Errno {
+        match self {
+            Error::Lvs {
+                source,
+            } => source.to_errno(),
+            Error::Lvm {
+                source,
+            } => source.to_errno(),
         }
     }
 }

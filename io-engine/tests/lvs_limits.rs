@@ -1,9 +1,10 @@
 pub mod common;
 
 use io_engine::{
-    core::{MayastorCliArgs, SnapshotOps},
+    core::{LvolSnapshotOps, MayastorCliArgs},
     lvs::{BsError, Lvs, LvsError},
     pool_backend::PoolArgs,
+    replica_backend::ReplicaOps,
 };
 
 use io_engine_tests::MayastorTest;

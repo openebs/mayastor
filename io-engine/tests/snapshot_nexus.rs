@@ -1,7 +1,7 @@
 pub mod common;
 
 use futures::channel::oneshot;
-use io_engine::{bdev::nexus::NexusSnapshotStatus, core::SnapshotDescriptor};
+use io_engine::{bdev::nexus::NexusSnapshotStatus, core::ISnapshotDescriptor};
 use once_cell::sync::OnceCell;
 
 use chrono::{DateTime, Utc};

@@ -35,33 +35,29 @@ use spdk_rs::{
     IoVec,
 };
 
-use crate::{
-    core::{
-        mempool::MemoryPool,
-        snapshot::SnapshotOps,
-        Bdev,
-        BdevHandle,
-        BlockDevice,
-        BlockDeviceDescriptor,
-        BlockDeviceHandle,
-        BlockDeviceIoStats,
-        CoreError,
-        DeviceEventDispatcher,
-        DeviceEventSink,
-        DeviceEventType,
-        DeviceIoController,
-        IoCompletionCallback,
-        IoCompletionCallbackArg,
-        IoCompletionStatus,
-        NvmeStatus,
-        ReadOptions,
-        SnapshotParams,
-        ToErrno,
-        UntypedBdev,
-        UntypedBdevHandle,
-        UntypedDescriptorGuard,
-    },
-    lvs::Lvol,
+use crate::core::{
+    mempool::MemoryPool,
+    Bdev,
+    BdevHandle,
+    BlockDevice,
+    BlockDeviceDescriptor,
+    BlockDeviceHandle,
+    BlockDeviceIoStats,
+    CoreError,
+    DeviceEventDispatcher,
+    DeviceEventSink,
+    DeviceEventType,
+    DeviceIoController,
+    IoCompletionCallback,
+    IoCompletionCallbackArg,
+    IoCompletionStatus,
+    NvmeStatus,
+    ReadOptions,
+    SnapshotParams,
+    ToErrno,
+    UntypedBdev,
+    UntypedBdevHandle,
+    UntypedDescriptorGuard,
 };
 
 #[cfg(feature = "fault-injection")]
@@ -71,6 +67,7 @@ use crate::core::fault_injection::{
     FaultDomain,
     InjectIoCtx,
 };
+use crate::replica_backend::bdev_as_replica;
 
 /// TODO
 type EventDispatcherMap = HashMap<String, DeviceEventDispatcher>;
@@ -594,19 +591,13 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
     ) -> Result<u64, CoreError> {
         let bdev = self.handle.get_bdev();
 
-        // Snapshots are supported only for LVOLs.
-        if bdev.driver() != "lvol" {
+        let Some(mut replica) = bdev_as_replica(bdev) else {
             return Err(CoreError::NotSupported {
                 source: Errno::ENXIO,
             });
-        }
+        };
 
-        let lvol =
-            Lvol::try_from(bdev).map_err(|_e| CoreError::BdevNotFound {
-                name: bdev.name().to_string(),
-            })?;
-
-        lvol.create_snapshot(snapshot).await.map_err(|e| {
+        replica.create_snapshot(snapshot).await.map_err(|e| {
             CoreError::SnapshotCreate {
                 reason: e.to_string(),
                 source: e.to_errno(),

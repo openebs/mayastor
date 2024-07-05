@@ -26,9 +26,10 @@ pub trait LogicalVolume: std::fmt::Debug {
 
     /// Return the size of the Logical Volume in bytes.
     fn size(&self) -> u64;
-
     /// Return the committed size of the Logical Volume in bytes.
     fn committed(&self) -> u64;
+    /// Return the allocated size of the Logical Volume in bytes.
+    fn allocated(&self) -> u64;
 
     /// Returns Lvol disk space usage.
     fn usage(&self) -> LvolSpaceUsage;

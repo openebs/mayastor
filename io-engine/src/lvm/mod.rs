@@ -47,7 +47,15 @@ pub(crate) use lv_replica::{LogicalVolume, QueryArgs};
 
 use crate::{
     bdev::PtplFileOps,
-    core::{NvmfShareProps, Protocol, PtplProps, UpdateProps},
+    core::{
+        snapshot::SnapshotDescriptor,
+        CloneParams,
+        NvmfShareProps,
+        Protocol,
+        PtplProps,
+        SnapshotParams,
+        UpdateProps,
+    },
     lvm::property::Property,
     pool_backend::{
         FindPoolArgs,
@@ -61,9 +69,13 @@ use crate::{
     },
     replica_backend::{
         FindReplicaArgs,
+        FindSnapshotArgs,
+        ListCloneArgs,
         ListReplicaArgs,
+        ListSnapshotArgs,
         ReplicaFactory,
         ReplicaOps,
+        SnapshotOps,
     },
 };
 use futures::channel::oneshot::Receiver;
@@ -205,6 +217,53 @@ impl ReplicaOps for LogicalVolume {
                 },
             })
     }
+
+    fn prepare_snap_config(
+        &self,
+        _snap_name: &str,
+        _entity_id: &str,
+        _txn_id: &str,
+        _snap_uuid: &str,
+    ) -> Option<SnapshotParams> {
+        None
+    }
+
+    async fn create_snapshot(
+        &mut self,
+        _params: SnapshotParams,
+    ) -> Result<Box<dyn SnapshotOps>, crate::pool_backend::Error> {
+        Err(Error::SnapshotNotSup {}.into())
+    }
+}
+#[async_trait::async_trait(?Send)]
+impl SnapshotOps for LogicalVolume {
+    async fn destroy_snapshot(
+        self: Box<Self>,
+    ) -> Result<(), crate::pool_backend::Error> {
+        Err(Error::SnapshotNotSup {}.into())
+    }
+
+    fn prepare_clone_config(
+        &self,
+        _clone_name: &str,
+        _clone_uuid: &str,
+        _source_uuid: &str,
+    ) -> Option<CloneParams> {
+        None
+    }
+    async fn create_clone(
+        &self,
+        _params: CloneParams,
+    ) -> Result<Box<dyn ReplicaOps>, crate::pool_backend::Error> {
+        Err(Error::SnapshotNotSup {}.into())
+    }
+
+    fn descriptor(&self) -> Option<SnapshotDescriptor> {
+        None
+    }
+    fn discarded(&self) -> bool {
+        false
+    }
 }
 
 impl IPoolProps for VolumeGroup {
@@ -320,6 +379,12 @@ impl PoolFactory for PoolLvmFactory {
 pub struct ReplLvmFactory {}
 #[async_trait::async_trait(?Send)]
 impl ReplicaFactory for ReplLvmFactory {
+    fn bdev_as_replica(
+        &self,
+        _bdev: crate::core::UntypedBdev,
+    ) -> Option<Box<dyn ReplicaOps>> {
+        None
+    }
     async fn find(
         &self,
         args: &FindReplicaArgs,
@@ -336,6 +401,13 @@ impl ReplicaFactory for ReplLvmFactory {
             Err(error) => Err(error.into()),
         }
     }
+    async fn find_snap(
+        &self,
+        _args: &FindSnapshotArgs,
+    ) -> Result<Option<Box<dyn SnapshotOps>>, crate::pool_backend::Error> {
+        Ok(None)
+    }
+
     async fn list(
         &self,
         args: &ListReplicaArgs,
@@ -359,6 +431,18 @@ impl ReplicaFactory for ReplLvmFactory {
         .await?;
         let replicas = replicas.into_iter().map(|r| Box::new(r) as _);
         Ok(replicas.collect::<Vec<_>>())
+    }
+    async fn list_snaps(
+        &self,
+        _args: &ListSnapshotArgs,
+    ) -> Result<Vec<SnapshotDescriptor>, crate::pool_backend::Error> {
+        Ok(vec![])
+    }
+    async fn list_clones(
+        &self,
+        _args: &ListCloneArgs,
+    ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
+        Ok(vec![])
     }
 
     fn backend(&self) -> PoolBackend {

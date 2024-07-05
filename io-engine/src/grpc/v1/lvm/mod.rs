@@ -1,7 +1,7 @@
 use crate::lvm::Error as LvmError;
 use tonic::Status;
 
-impl From<LvmError> for Status {
+impl From<LvmError> for tonic::Status {
     fn from(e: LvmError) -> Self {
         match e {
             LvmError::InvalidPoolType {
@@ -22,6 +22,9 @@ impl From<LvmError> for Status {
             LvmError::NoSpace {
                 ..
             } => Status::resource_exhausted(e.to_string()),
+            LvmError::SnapshotNotSup {
+                ..
+            } => Status::failed_precondition(e.to_string()),
             _ => Status::internal(e.to_string()),
         }
     }
