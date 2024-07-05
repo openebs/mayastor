@@ -11,10 +11,10 @@ use snafu::ResultExt;
 use url::Url;
 
 use spdk_rs::{
+    bdevs::bdev_nvme_delete_async,
     ffihelper::copy_str_with_null,
     libspdk::{
         bdev_nvme_create,
-        bdev_nvme_delete,
         spdk_nvme_transport_id,
         SPDK_NVME_IO_FLAGS_PRCHK_GUARD,
         SPDK_NVME_IO_FLAGS_PRCHK_REFTAG,
@@ -195,31 +195,46 @@ impl CreateDestroy for Nvmf {
                 name: self.name.clone(),
             })?;
 
+        // Remove partially created nvme bdev which doesn't show up in
+        // the list of bdevs
         if bdev_count == 0 {
-            error!("No nvme bdev created, no namespaces?");
-            // Remove partially created nvme bdev which doesn't show up in
-            // the list of bdevs
-            let errno =
-                unsafe { bdev_nvme_delete(cname.as_ptr(), std::ptr::null()) };
-            info!(
-                "removed partially created bdev {}, returned {}",
-                self.name, errno
+            error!(
+                "No nvme bdev created after creating {n}, no namespaces?",
+                n = self.name
             );
+
+            match bdev_nvme_delete_async(&self.name, None).await {
+                Ok(_) => {
+                    info!("Removed partially created bdev {n}", n = self.name)
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to remove partially created bdev {n}: {e:?}",
+                        n = self.name
+                    )
+                }
+            }
+
             return Err(BdevError::BdevNotFound {
                 name: self.name.clone(),
             });
         }
+
         if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
             if let Some(u) = self.uuid {
                 if bdev.uuid_as_string() != u.hyphenated().to_string() {
-                    error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.hyphenated().to_string());
+                    error!(
+                        "Connected to device {dev} but expect to connect to {s} instead",
+                        dev = bdev.uuid_as_string(),
+                        s = u.hyphenated().to_string(),
+                    );
                 }
             };
             if !bdev.add_alias(&self.alias) {
                 error!(
-                    "Failed to add alias {} to device {}",
-                    self.alias,
-                    self.get_name()
+                    "Failed to add alias {alias} to device {name}",
+                    alias = self.alias,
+                    name = self.get_name()
                 );
             }
         };
@@ -235,20 +250,15 @@ impl CreateDestroy for Nvmf {
         match UntypedBdev::lookup_by_name(&self.get_name()) {
             Some(mut bdev) => {
                 bdev.remove_alias(&self.alias);
-                let cname = CString::new(self.name.clone()).unwrap();
 
-                let errno = unsafe {
-                    bdev_nvme_delete(cname.as_ptr(), std::ptr::null())
-                };
-
-                async {
-                    errno_result_from_i32((), errno).context(
-                        bdev_api::DestroyBdevFailed {
-                            name: self.name.clone(),
-                        },
-                    )
-                }
-                .await
+                bdev_nvme_delete_async(&self.name, None)
+                    .await
+                    .context(bdev_api::BdevCommandCanceled {
+                        name: self.name.clone(),
+                    })?
+                    .context(bdev_api::DestroyBdevFailed {
+                        name: self.name.clone(),
+                    })
             }
             None => Err(BdevError::BdevNotFound {
                 name: self.get_name(),

@@ -2,7 +2,7 @@ use std::{
     convert::TryFrom,
     ffi::{c_void, CString},
     fmt::{self, Debug, Display, Formatter},
-    mem::size_of,
+    mem::zeroed,
     ptr::{self, NonNull},
 };
 
@@ -12,9 +12,7 @@ use nix::errno::Errno;
 use spdk_rs::{
     libspdk::{
         nvmf_subsystem_find_listener,
-        nvmf_subsystem_set_ana_state,
         nvmf_subsystem_set_cntlid_range,
-        spdk_bdev_nvme_opts,
         spdk_nvmf_ctrlr_set_cpl_error_cb,
         spdk_nvmf_ns_get_bdev,
         spdk_nvmf_ns_opts,
@@ -42,6 +40,7 @@ use spdk_rs::{
         spdk_nvmf_subsystem_resume,
         spdk_nvmf_subsystem_set_allow_any_host,
         spdk_nvmf_subsystem_set_ana_reporting,
+        spdk_nvmf_subsystem_set_ana_state,
         spdk_nvmf_subsystem_set_event_cb,
         spdk_nvmf_subsystem_set_mn,
         spdk_nvmf_subsystem_set_sn,
@@ -55,6 +54,7 @@ use spdk_rs::{
         SPDK_NVMF_SUBTYPE_DISCOVERY,
         SPDK_NVMF_SUBTYPE_NVME,
     },
+    struct_size_init,
     NvmeStatus,
     NvmfController,
     NvmfSubsystemEvent,
@@ -519,10 +519,19 @@ impl NvmfSubsystem {
     where
         T: spdk_rs::BdevOps,
     {
-        let opts = spdk_nvmf_ns_opts {
-            nguid: *bdev.uuid().as_bytes(),
-            ..Default::default()
-        };
+        let opts = struct_size_init!(
+            spdk_nvmf_ns_opts {
+                nsid: 0,
+                nguid: *bdev.uuid().as_bytes(),
+                eui64: unsafe { zeroed() },
+                uuid: Default::default(),
+                reserved44: unsafe { zeroed() },
+                anagrpid: 0,
+                reserved60: unsafe { zeroed() },
+            },
+            opts_size
+        );
+
         let bdev_cname = CString::new(bdev.name()).unwrap();
         let ptpl = ptpl.map(|ptpl| {
             CString::new(ptpl.to_string_lossy().to_string()).unwrap()
@@ -536,7 +545,7 @@ impl NvmfSubsystem {
                 self.0.as_ptr(),
                 bdev_cname.as_ptr(),
                 &opts as *const _,
-                size_of::<spdk_bdev_nvme_opts>() as u64,
+                opts.opts_size,
                 ptpl_ptr,
             )
         };
@@ -979,7 +988,7 @@ impl NvmfSubsystem {
         let (s, r) = oneshot::channel::<i32>();
 
         unsafe {
-            nvmf_subsystem_set_ana_state(
+            spdk_nvmf_subsystem_set_ana_state(
                 self.0.as_ptr(),
                 trid_replica.as_ptr(),
                 ana_state,

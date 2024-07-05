@@ -24,6 +24,7 @@ use spdk_rs::libspdk::{
 
 #[cfg(feature = "spdk-async-qpair-connect")]
 use std::{os::raw::c_void, time::Duration};
+use std::mem::zeroed;
 
 #[cfg(feature = "spdk-async-qpair-connect")]
 use spdk_rs::{
@@ -110,7 +111,7 @@ impl Drop for QPair {
 fn get_default_options(
     ctrlr_handle: SpdkNvmeController,
 ) -> spdk_nvme_io_qpair_opts {
-    let mut opts = spdk_nvme_io_qpair_opts::default();
+    let mut opts: spdk_nvme_io_qpair_opts = unsafe { zeroed() };
     let default_opts = nvme_bdev_running_config();
 
     unsafe {

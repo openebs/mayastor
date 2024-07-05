@@ -8,7 +8,7 @@
 //!
 //! As connections come on, we randomly schedule them across cores by putting
 //! the qpair in a poll group that is allocated during reactor start.
-use std::cell::RefCell;
+use std::{cell::RefCell, mem::zeroed};
 
 use nix::errno::Errno;
 use snafu::Snafu;
@@ -124,11 +124,13 @@ impl Nvmf {
     pub fn new() -> Self {
         debug!("Creating NVMF subsystem...");
 
-        let mut ss = Box::<spdk_subsystem>::default();
-        ss.name = b"mayastor_nvmf_tgt\x00" as *const u8 as *const libc::c_char;
-        ss.init = Some(Self::init);
-        ss.fini = Some(Self::fini);
-        ss.write_config_json = None;
-        Self(Box::into_raw(ss))
+        let ss = spdk_subsystem {
+            name: b"mayastor_nvmf_tgt\x00" as *const u8 as *const libc::c_char,
+            init: Some(Self::init),
+            fini: Some(Self::fini),
+            write_config_json: None,
+            tailq: unsafe { zeroed() },
+        };
+        Self(Box::into_raw(Box::new(ss)))
     }
 }

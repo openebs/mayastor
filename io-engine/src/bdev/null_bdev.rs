@@ -134,10 +134,12 @@ impl CreateDestroy for Null {
             });
         }
 
+        let uuid = spdk_rs::Uuid::generate().into_raw();
+
         let cname = self.name.clone().into_cstring();
         let opts = spdk_rs::libspdk::spdk_null_bdev_opts {
             name: cname.as_ptr(),
-            uuid: std::ptr::null(),
+            uuid: &uuid,
             num_blocks: self.num_blocks,
             block_size: self.blk_size,
             physical_block_size: 0,

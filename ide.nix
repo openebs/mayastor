@@ -1,4 +1,4 @@
-{ rust ? "stable"
+{ rust ? "none"
 , spdk ? "develop"
 , spdk-path ? null
 } @ args:

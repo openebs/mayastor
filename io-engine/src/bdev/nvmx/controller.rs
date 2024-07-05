@@ -4,6 +4,7 @@
 use std::{
     convert::From,
     fmt,
+    mem::zeroed,
     os::raw::c_void,
     ptr::NonNull,
     sync::{Arc, Mutex},
@@ -777,7 +778,7 @@ impl<'a> Drop for NvmeController<'a> {
 }
 
 extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
-    let mut event = spdk_nvme_async_event_completion::default();
+    let mut event: spdk_nvme_async_event_completion = unsafe { zeroed() };
 
     if !nvme_cpl_succeeded(cpl) {
         warn!("AER request execute failed");
@@ -1017,7 +1018,7 @@ pub(crate) fn connected_attached_cb(
 
 pub(crate) mod options {
     use spdk_rs::ffihelper::copy_str_with_null;
-    use std::mem::size_of;
+    use std::mem::{size_of, zeroed};
 
     use spdk_rs::libspdk::{
         spdk_nvme_ctrlr_get_default_ctrlr_opts,
@@ -1037,7 +1038,7 @@ pub(crate) mod options {
 
     impl Default for NvmeControllerOpts {
         fn default() -> Self {
-            let mut default = spdk_nvme_ctrlr_opts::default();
+            let mut default: spdk_nvme_ctrlr_opts = unsafe { zeroed() };
 
             unsafe {
                 spdk_nvme_ctrlr_get_default_ctrlr_opts(

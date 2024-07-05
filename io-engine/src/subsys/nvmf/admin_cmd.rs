@@ -37,9 +37,9 @@ use spdk_rs::{
         spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
         spdk_nvmf_request,
         spdk_nvmf_request_complete,
+        spdk_nvmf_request_copy_to_buf,
         spdk_nvmf_request_get_bdev,
         spdk_nvmf_request_get_cmd,
-        spdk_nvmf_request_get_data,
         spdk_nvmf_request_get_response,
         spdk_nvmf_request_get_subsystem,
         spdk_nvmf_set_custom_admin_cmd_hdlr,
@@ -131,38 +131,37 @@ pub fn set_snapshot_time(cmd: &mut spdk_nvme_cmd) -> u64 {
 fn decode_snapshot_params(
     req: *mut spdk_nvmf_request,
 ) -> Option<SnapshotParams> {
-    let encoded_msg = unsafe {
-        let mut val = std::ptr::null_mut();
-        let mut size: u32 = 0;
+    const ITEM_SZ: usize = std::mem::size_of::<NvmeSnapshotMessage>();
 
-        spdk_nvmf_request_get_data(
+    let mut val: Vec<u8> = Vec::with_capacity(ITEM_SZ * 2);
+
+    let encoded_msg = unsafe {
+        let bytes_copied = spdk_nvmf_request_copy_to_buf(
             req,
-            &mut val as *mut *mut c_void,
-            &mut size as *mut u32,
-        );
+            val.as_mut_ptr() as _,
+            val.capacity() as u64,
+        ) as usize;
 
         info!(
             "## length = {}, iov_cnt = {}, size = {}",
             (*req).length,
             (*req).iovcnt,
-            size,
+            bytes_copied,
         );
 
-        std::slice::from_raw_parts(val as *const u8, size as usize)
+        std::slice::from_raw_parts(val.as_ptr(), bytes_copied)
     };
 
+    let decoded_msg = bincode::deserialize::<NvmeSnapshotMessage>(encoded_msg);
+
     // Decode versioned snapshot creation request.
-    let decoded_msg =
-        match bincode::deserialize::<NvmeSnapshotMessage>(encoded_msg) {
-            Err(e) => {
-                error!(
-                    "Failed to deserialize snapshot creation message: {}",
-                    e
-                );
-                return None;
-            }
-            Ok(msg) => msg,
-        };
+    let decoded_msg = match decoded_msg {
+        Err(e) => {
+            error!("Failed to deserialize snapshot creation message: {:?}", e);
+            return None;
+        }
+        Ok(msg) => msg,
+    };
 
     let snapshot_params = match decoded_msg {
         NvmeSnapshotMessage::V1(v1) => v1.params().clone(),
