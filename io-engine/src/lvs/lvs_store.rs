@@ -128,6 +128,8 @@ impl Lvs {
                 .send(Ok(Lvs::from_inner_ptr(lvs)))
                 .expect("receiver gone");
         } else {
+            let e = Errno::from_i32(errno.abs());
+            tracing::error!("Got errno {e}, value: {errno}");
             sender
                 .send(Err(Errno::from_i32(errno.abs())))
                 .expect("receiver gone");

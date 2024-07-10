@@ -145,8 +145,8 @@ in
     copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
   });
 
-  mayastor-spdk = dockerTools.buildImage (clientImageProps // {
-    name = "${repo-org}/${img_prefix}-spdk";
+  mayastor-spdk-blobcli = dockerTools.buildImage (clientImageProps // {
+    name = "${repo-org}/${img_prefix}-spdk-blobcli";
     copyToRoot = clientImageProps.copyToRoot ++ [ spdk-bins ];
     config = { Entrypoint = [ "/bin/blobcli" ]; };
     extraCommands = ''
