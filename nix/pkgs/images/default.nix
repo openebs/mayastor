@@ -100,15 +100,15 @@ let
             "config": [
               {
                 "params": {
-                  "name": "sda",
-                  "filename": "/dev/sda"
+                  "name": "phx-01-compute-01-nvme1n1",
+                  "filename": "/dev/disk/by-id/nvme-eui.00000000000000008ce38ee212846a01"
                 },
                 "method": "bdev_aio_create"
               },
               {
                 "params": {
-                  "name": "nvme",
-                  "filename": "/dev/nvme0n1"
+                  "name": "phx-01-compute-07-nvme1n1",
+                  "filename": "/dev/disk/by-id/nvme-eui.000000000000000100a07522362bfa04"
                 },
                 "method": "bdev_aio_create"
               }
@@ -145,8 +145,8 @@ in
     copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
   });
 
-  mayastor-spdk = dockerTools.buildImage (clientImageProps // {
-    name = "${repo-org}/${img_prefix}-spdk";
+  mayastor-spdk-blobcli = dockerTools.buildImage (clientImageProps // {
+    name = "${repo-org}/${img_prefix}-spdk-blobcli";
     copyToRoot = clientImageProps.copyToRoot ++ [ spdk-bins ];
     config = { Entrypoint = [ "/bin/blobcli" ]; };
     extraCommands = ''
