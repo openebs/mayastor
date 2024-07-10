@@ -160,6 +160,7 @@ let
       popd
 
       find . -executable -type f -name 'bdevperf' -exec install -vD "{}" $out/bin \;
+      find . -executable -type f -name 'blobcli' -exec install -vD "{}" $out/bin \;
 
       # copy libraries
       install -v build/lib/*.a                   $out/lib/

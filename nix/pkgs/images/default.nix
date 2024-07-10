@@ -89,6 +89,35 @@ let
     cp ${io-engine.out}/bin/io-engine $out/bin/io-engine
     cp ${io-engine.out}/bin/io-engine-client $out/bin/io-engine-client
   '';
+  spdk-bins = runCommand "spdk-bins" { } ''
+      mkdir -p $out/bin
+      cp ${pkgs.libspdk-fio.out}/bin/blobcli $out/bin
+      cat <<EOF >$out/bin/blobcli.json
+      {
+        "subsystems": [
+          {
+            "subsystem": "bdev",
+            "config": [
+              {
+                "params": {
+                  "name": "nvme",
+                  "filename": "/dev/nvme0n1"
+                },
+                "method": "bdev_aio_create"
+              },
+              {
+                "params": {
+                  "name": "nvme0n1",
+                  "filename": "/dev/nvme0n1"
+                },
+                "method": "bdev_aio_create"
+              }
+            ]
+          }
+        ]
+      }
+    EOF
+  '';
 
   mctl = writeScriptBin "mctl" ''
     /bin/io-engine-client "$@"
@@ -114,6 +143,17 @@ in
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
     name = "${repo-org}/${img_prefix}-fio-spdk";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
+  });
+
+  mayastor-spdk = dockerTools.buildImage (clientImageProps // {
+    name = "${repo-org}/${img_prefix}-spdk";
+    copyToRoot = clientImageProps.copyToRoot ++ [ spdk-bins ];
+    config = { Entrypoint = [ "/bin/blobcli" ]; };
+    extraCommands = ''
+      cp ${spdk-bins}/bin/blobcli.json .
+      mkdir tmp
+      mkdir -p var/tmp
+    '';
   });
 
   mayastor-casperf = dockerTools.buildImage (clientImageProps // {
