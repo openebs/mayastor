@@ -27,6 +27,7 @@
 , targetPlatform
 , versions
 , systemdMinimal
+, rdma-core
 , cargoBuildFlags ? [ ]
 }:
 let
@@ -87,6 +88,7 @@ let
       protobuf
       systemdMinimal.dev
       utillinux.dev
+      rdma-core
     ];
     cargoLock = {
       lockFile = ../../../Cargo.lock;

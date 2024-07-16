@@ -37,7 +37,10 @@ let
         numactl
         pytest_inputs
         udev
+        libnvme
+        nvme-cli
         xfsprogs
+        nixpkgs-fmt
       ];
 
       shellEnv = with pkgs; {
@@ -67,6 +70,6 @@ let
     };
   };
 in
-  pkgs.mkShell shellAttrs // {
-    name = "io-engine-dev-shell";
-  }
+pkgs.mkShell shellAttrs // {
+  name = "io-engine-dev-shell";
+}

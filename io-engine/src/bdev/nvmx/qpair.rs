@@ -22,9 +22,9 @@ use spdk_rs::libspdk::{
     spdk_nvme_qpair_set_abort_dnr,
 };
 
+use std::mem::zeroed;
 #[cfg(feature = "spdk-async-qpair-connect")]
 use std::{os::raw::c_void, time::Duration};
-use std::mem::zeroed;
 
 #[cfg(feature = "spdk-async-qpair-connect")]
 use spdk_rs::{
