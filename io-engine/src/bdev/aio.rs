@@ -3,6 +3,7 @@ use std::{
     convert::TryFrom,
     ffi::CString,
     fmt::{Debug, Formatter},
+    os::unix::fs::FileTypeExt,
 };
 
 use async_trait::async_trait;
@@ -29,7 +30,7 @@ pub(super) struct Aio {
 
 impl Debug for Aio {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Aio '{}'", self.name)
+        write!(f, "Aio '{}', 'blk_size: {}'", self.name, self.blk_size)
     }
 }
 
@@ -47,6 +48,10 @@ impl TryFrom<&Url> for Aio {
             });
         }
 
+        let path_is_blockdev = std::fs::metadata(url.path())
+            .ok()
+            .map_or(false, |meta| meta.file_type().is_block_device());
+
         let mut parameters: HashMap<String, String> =
             url.query_pairs().into_owned().collect();
 
@@ -58,9 +63,14 @@ impl TryFrom<&Url> for Aio {
                     value: value.clone(),
                 })?
             }
-            None => 512,
+            None => {
+                if path_is_blockdev {
+                    0
+                } else {
+                    512
+                }
+            }
         };
-
         let uuid = uri::uuid(parameters.remove("uuid")).context(
             bdev_api::UuidParamParseFailed {
                 uri: url.to_string(),

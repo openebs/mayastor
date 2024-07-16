@@ -16,14 +16,33 @@ use std::pin::Pin;
 
 pub mod common;
 
-static DISKNAME1: &str = "/tmp/disk1.img";
-static DISKNAME2: &str = "/tmp/disk2.img";
+static TESTDIR: &str = "/tmp/io-engine-tests";
+static DISKNAME1: &str = "/tmp/io-engine-tests/disk1.img";
+static DISKNAME2: &str = "/tmp/io-engine-tests/disk2.img";
+static DISKNAME3: &str = "/tmp/io-engine-tests/disk3.img";
 
 #[tokio::test]
 async fn lvs_pool_test() {
-    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
+    // Create directory for placing test disk files
+    // todo: Create this from some common place and use for all other tests too.
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    common::delete_file(&[
+        DISKNAME1.into(),
+        DISKNAME2.into(),
+        DISKNAME3.into(),
+    ]);
     common::truncate_file(DISKNAME1, 128 * 1024);
     common::truncate_file(DISKNAME2, 128 * 1024);
+    common::truncate_file(DISKNAME3, 128 * 1024);
+
+    //setup disk3 via loop device using a sector size of 4096.
+    let ldev = common::setup_loopdev_file(DISKNAME3, Some(4096));
+
     let args = MayastorCliArgs {
         reactor_mask: "0x3".into(),
         ..Default::default()
@@ -32,7 +51,9 @@ async fn lvs_pool_test() {
 
     // should fail to import a pool that does not exist on disk
     ms.spawn(async {
-        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err())
+        assert!(Lvs::import("tpool", format!("aio://{DISKNAME1}").as_str())
+            .await
+            .is_err())
     })
     .await;
 
@@ -40,7 +61,7 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
-            disks: vec!["aio:///tmp/disk1.img".into()],
+            disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
             backend: PoolBackend::Lvs,
@@ -55,16 +76,23 @@ async fn lvs_pool_test() {
     // have an idempotent snafu, we dont crash and
     // burn
     ms.spawn(async {
-        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img", None, None)
-            .await
-            .is_err())
+        assert!(Lvs::create(
+            "tpool",
+            format!("aio://{DISKNAME1}").as_str(),
+            None,
+            None
+        )
+        .await
+        .is_err())
     })
     .await;
 
     // should fail to import the pool that is already imported
     // similar to above, we use the import directly
     ms.spawn(async {
-        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err())
+        assert!(Lvs::import("tpool", format!("aio://{DISKNAME1}").as_str())
+            .await
+            .is_err())
     })
     .await;
 
@@ -75,7 +103,7 @@ async fn lvs_pool_test() {
         assert_eq!(pool.name(), "tpool");
         assert_eq!(pool.used(), 0);
         dbg!(pool.uuid());
-        assert_eq!(pool.base_bdev().name(), "/tmp/disk1.img");
+        assert_eq!(pool.base_bdev().name(), DISKNAME1);
     })
     .await;
 
@@ -90,9 +118,13 @@ async fn lvs_pool_test() {
         // import and export implicitly destroy the base_bdev, for
         // testing import and create we
         // sometimes create the base_bdev manually
-        bdev_create("aio:///tmp/disk1.img").await.unwrap();
+        bdev_create(format!("aio://{DISKNAME1}").as_str())
+            .await
+            .unwrap();
 
-        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_ok());
+        assert!(Lvs::import("tpool", format!("aio://{DISKNAME1}").as_str())
+            .await
+            .is_ok());
 
         let pool = Lvs::lookup("tpool").unwrap();
         assert_eq!(pool.uuid(), uuid);
@@ -107,13 +139,22 @@ async fn lvs_pool_test() {
         let uuid = pool.uuid();
         pool.destroy().await.unwrap();
 
-        bdev_create("aio:///tmp/disk1.img").await.unwrap();
-        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err());
+        bdev_create(format!("aio://{DISKNAME1}").as_str())
+            .await
+            .unwrap();
+        assert!(Lvs::import("tpool", format!("aio://{DISKNAME1}").as_str())
+            .await
+            .is_err());
 
         assert_eq!(Lvs::iter().count(), 0);
-        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img", None, None)
-            .await
-            .is_ok());
+        assert!(Lvs::create(
+            "tpool",
+            format!("aio://{DISKNAME1}").as_str(),
+            None,
+            None
+        )
+        .await
+        .is_ok());
 
         let pool = Lvs::lookup("tpool").unwrap();
         assert_ne!(uuid, pool.uuid());
@@ -181,7 +222,7 @@ async fn lvs_pool_test() {
         pool.export().await.unwrap();
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".to_string(),
-            disks: vec!["aio:///tmp/disk1.img".to_string()],
+            disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
             backend: PoolBackend::Lvs,
@@ -297,8 +338,12 @@ async fn lvs_pool_test() {
     // import the pool all shares should be there, but also validate
     // the share that not shared to be -- not shared
     ms.spawn(async {
-        bdev_create("aio:///tmp/disk1.img").await.unwrap();
-        let pool = Lvs::import("tpool", "aio:///tmp/disk1.img").await.unwrap();
+        bdev_create(format!("aio://{DISKNAME1}").as_str())
+            .await
+            .unwrap();
+        let pool = Lvs::import("tpool", format!("aio://{DISKNAME1}").as_str())
+            .await
+            .unwrap();
 
         for l in pool.lvols().unwrap() {
             if l.name() == "notshared" {
@@ -321,7 +366,7 @@ async fn lvs_pool_test() {
 
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
-            disks: vec!["aio:///tmp/disk1.img".into()],
+            disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
             backend: PoolBackend::Lvs,
@@ -333,6 +378,60 @@ async fn lvs_pool_test() {
 
         assert_eq!(pool.lvols().unwrap().count(), 0);
         pool.export().await.unwrap();
+    })
+    .await;
+
+    let pool_dev_aio = ldev.clone();
+    // should succeed to create an aio bdev pool on a loop blockdev of 4096
+    // bytes sector size.
+    ms.spawn(async move {
+        Lvs::create_or_import(PoolArgs {
+            name: "tpool_4k_aio".into(),
+            disks: vec![format!("aio://{pool_dev_aio}")],
+            uuid: None,
+            cluster_size: None,
+            backend: PoolBackend::Lvs,
+        })
+        .await
+        .unwrap();
+    })
+    .await;
+
+    // should be able to find our new LVS created on loopdev, and subsequently
+    // destroy it.
+    ms.spawn(async {
+        let pool = Lvs::lookup("tpool_4k_aio").unwrap();
+        assert_eq!(pool.name(), "tpool_4k_aio");
+        assert_eq!(pool.used(), 0);
+        dbg!(pool.uuid());
+        pool.destroy().await.unwrap();
+    })
+    .await;
+
+    let pool_dev_uring = ldev.clone();
+    // should succeed to create an uring pool on a loop blockdev of 4096 bytes
+    // sector size.
+    ms.spawn(async move {
+        Lvs::create_or_import(PoolArgs {
+            name: "tpool_4k_uring".into(),
+            disks: vec![format!("uring://{pool_dev_uring}")],
+            uuid: None,
+            cluster_size: None,
+            backend: PoolBackend::Lvs,
+        })
+        .await
+        .unwrap();
+    })
+    .await;
+
+    // should be able to find our new LVS created on loopdev, and subsequently
+    // destroy it.
+    ms.spawn(async {
+        let pool = Lvs::lookup("tpool_4k_uring").unwrap();
+        assert_eq!(pool.name(), "tpool_4k_uring");
+        assert_eq!(pool.used(), 0);
+        dbg!(pool.uuid());
+        pool.destroy().await.unwrap();
     })
     .await;
 
@@ -352,7 +451,7 @@ async fn lvs_pool_test() {
         // importing a pool with the wrong name should fail
         Lvs::create_or_import(PoolArgs {
             name: "jpool".into(),
-            disks: vec!["aio:///tmp/disk1.img".into()],
+            disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
             backend: PoolBackend::Lvs,
@@ -369,7 +468,7 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool2".into(),
-            disks: vec!["/tmp/disk2.img".into()],
+            disks: vec![format!("aio://{DISKNAME2}")],
             uuid: None,
             cluster_size: None,
             backend: PoolBackend::Lvs,
@@ -381,4 +480,6 @@ async fn lvs_pool_test() {
     .await;
 
     common::delete_file(&[DISKNAME2.into()]);
+    common::detach_loopdev(ldev.as_str());
+    common::delete_file(&[DISKNAME3.into()]);
 }

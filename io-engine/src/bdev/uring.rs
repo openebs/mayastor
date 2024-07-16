@@ -1,4 +1,9 @@
-use std::{collections::HashMap, convert::TryFrom, ffi::CString};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    ffi::CString,
+    os::unix::fs::FileTypeExt,
+};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -36,6 +41,10 @@ impl TryFrom<&Url> for Uring {
             });
         }
 
+        let path_is_blockdev = std::fs::metadata(url.path())
+            .ok()
+            .map_or(false, |meta| meta.file_type().is_block_device());
+
         let mut parameters: HashMap<String, String> =
             url.query_pairs().into_owned().collect();
 
@@ -47,7 +56,13 @@ impl TryFrom<&Url> for Uring {
                     value: value.clone(),
                 })?
             }
-            None => 512,
+            None => {
+                if path_is_blockdev {
+                    0
+                } else {
+                    512
+                }
+            }
         };
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(

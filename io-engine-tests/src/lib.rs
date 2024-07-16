@@ -188,6 +188,28 @@ pub fn truncate_file_bytes(path: &str, size: u64) {
     assert!(output.status.success());
 }
 
+/// Automatically assign a loopdev to path
+pub fn setup_loopdev_file(path: &str, sector_size: Option<u64>) -> String {
+    let log_sec = sector_size.unwrap_or(512);
+
+    let output = Command::new("losetup")
+        .args(["-f", "--show", "-b", &format!("{log_sec}"), path])
+        .output()
+        .expect("failed exec losetup");
+    assert!(output.status.success());
+    // return the assigned loop device
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+/// Detach the provided loop device.
+pub fn detach_loopdev(dev: &str) {
+    let output = Command::new("losetup")
+        .args(["-d", dev])
+        .output()
+        .expect("failed exec losetup");
+    assert!(output.status.success());
+}
+
 pub fn fscheck(device: &str) {
     let output = Command::new("fsck")
         .args([device, "-n"])
