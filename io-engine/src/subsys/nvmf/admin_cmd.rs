@@ -1,7 +1,6 @@
 //! Handlers for custom NVMe Admin commands
 
 use std::{
-    convert::TryFrom,
     ffi::c_void,
     ptr::NonNull,
     time::{SystemTime, UNIX_EPOCH},
@@ -11,7 +10,7 @@ use crate::{
     bdev::{nexus, nvmx::NvmeSnapshotMessage},
     core::{
         logical_volume::LogicalVolume,
-        snapshot::SnapshotOps,
+        snapshot::LvolSnapshotOps,
         Bdev,
         Reactors,
         SnapshotParams,
@@ -19,6 +18,10 @@ use crate::{
     lvs::Lvol,
 };
 
+use crate::{
+    core::{ToErrno, UntypedBdev},
+    replica_backend::bdev_as_replica,
+};
 use chrono::Utc;
 use spdk_rs::{
     libspdk::{
@@ -48,6 +51,7 @@ use spdk_rs::{
     nvme_admin_opc,
     Uuid,
 };
+
 #[warn(unused_variables)]
 #[derive(Clone)]
 pub struct NvmeCpl(pub(crate) NonNull<spdk_nvme_cpl>);
@@ -212,22 +216,47 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         unsafe {
             spdk_nvmf_bdev_ctrlr_nvme_passthru_admin(bdev, desc, ch, req, None)
         }
-    } else if let Ok(lvol) = Lvol::try_from(bd) {
+    } else {
         // Received command on a shared replica (lvol)
         let nvmf_req = NvmfReq(NonNull::new(req).unwrap());
-
         // Blobfs operations must be on md_thread
         Reactors::master().send_future(async move {
-            lvol.create_snapshot_remote(&nvmf_req, snapshot_params)
-                .await;
+            create_remote_snapshot(bd, snapshot_params, nvmf_req).await;
         });
         1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
-    } else {
-        debug!("unsupported bdev driver");
-        -1
     }
 }
 
+async fn create_remote_snapshot(
+    bdev: UntypedBdev,
+    params: SnapshotParams,
+    nvmf_req: NvmfReq,
+) {
+    let Some(mut replica_ops) = bdev_as_replica(bdev) else {
+        debug!("unsupported bdev driver");
+        nvmf_req.complete_error(nix::errno::Errno::ENOTSUP as i32);
+        return;
+    };
+    let owner = replica_ops.entity_id().unwrap_or("unknown".to_string());
+    let replica = replica_ops.uuid();
+    info!(owner, replica, ?params, "Creating a remote snapshot");
+    match replica_ops.create_snapshot(params).await {
+        Ok(_) => {
+            info!(
+                owner,
+                replica, "Successfully created remote-requested snapshot"
+            );
+            nvmf_req.complete()
+        }
+        Err(error) => {
+            error!(
+                ?error,
+                owner, replica, "Error creating remote-requested snapshot"
+            );
+            nvmf_req.complete_error(error.to_errno() as i32)
+        }
+    }
+}
 pub fn create_snapshot(
     lvol: Lvol,
     cmd: &spdk_nvme_cmd,

@@ -79,8 +79,9 @@ use crate::subsys::NvmfError;
 pub use snapshot::{
     CloneParams,
     CloneXattrs,
+    ISnapshotDescriptor,
+    LvolSnapshotOps,
     SnapshotDescriptor,
-    SnapshotOps,
     SnapshotParams,
     SnapshotXattrs,
 };

@@ -1,9 +1,10 @@
 pub mod common;
 
 use io_engine::{
-    core::{logical_volume::LogicalVolume, MayastorCliArgs, SnapshotOps},
+    core::{logical_volume::LogicalVolume, LvolSnapshotOps, MayastorCliArgs},
     lvs::Lvs,
     pool_backend::PoolArgs,
+    replica_backend::ReplicaOps,
 };
 
 use io_engine_tests::MayastorTest;

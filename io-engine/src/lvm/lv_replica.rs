@@ -854,11 +854,16 @@ impl crate::core::LogicalVolume for LogicalVolume {
         self.size
     }
 
+    fn allocated(&self) -> u64 {
+        self.size()
+    }
+
     fn usage(&self) -> crate::core::logical_volume::LvolSpaceUsage {
         crate::core::logical_volume::LvolSpaceUsage {
             capacity_bytes: self.size(),
-            allocated_bytes: self.size(),
+            allocated_bytes: self.allocated(),
             cluster_size: self.extent_size(),
+            // todo: missing this information
             num_clusters: 0,
             num_allocated_clusters: 0,
             allocated_bytes_snapshots: 0,

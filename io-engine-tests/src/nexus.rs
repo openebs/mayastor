@@ -37,7 +37,7 @@ use super::{
 };
 use io_engine::{
     constants::NVME_NQN_PREFIX,
-    core::{SnapshotDescriptor, SnapshotParams},
+    core::{ISnapshotDescriptor, SnapshotParams},
     subsys::make_subsystem_serial,
 };
 use std::time::{Duration, Instant};

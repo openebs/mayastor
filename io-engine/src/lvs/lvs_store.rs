@@ -49,7 +49,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume,
-        snapshot::{SnapshotOps, VolumeSnapshotDescriptor},
+        snapshot::LvolSnapshotOps,
         Bdev,
         IoType,
         NvmfShareProps,
@@ -58,7 +58,10 @@ use crate::{
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
-    lvs::lvs_lvol::{LvsLvol, WIPE_SUPER_LEN},
+    lvs::{
+        lvs_lvol::{LvsLvol, WIPE_SUPER_LEN},
+        LvolSnapshotDescriptor,
+    },
     pool_backend::PoolArgs,
 };
 
@@ -731,7 +734,7 @@ impl Lvs {
     /// return an iterator for enumerating all snapshots that reside on the pool
     pub fn snapshots(
         &self,
-    ) -> Option<impl Iterator<Item = VolumeSnapshotDescriptor>> {
+    ) -> Option<impl Iterator<Item = LvolSnapshotDescriptor>> {
         if let Some(bdev) = UntypedBdev::bdev_first() {
             let pool_name = format!("{}/", self.name());
             Some(
@@ -745,7 +748,7 @@ impl Lvs {
                     .filter_map(|b| {
                         Lvol::try_from(b).ok().and_then(|l| {
                             if l.is_snapshot() {
-                                l.snapshot_descriptor(None)
+                                l.lvol_snapshot_descriptor(None)
                             } else {
                                 None
                             }

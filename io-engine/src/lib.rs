@@ -31,7 +31,7 @@ pub mod lvs;
 pub mod persistent_store;
 pub mod pool_backend;
 pub mod rebuild;
-mod replica_backend;
+pub mod replica_backend;
 pub mod sleep;
 pub mod store;
 pub mod subsys;

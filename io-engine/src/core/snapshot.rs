@@ -1,14 +1,5 @@
-use crate::{lvs::Lvol, subsys::NvmfReq};
-use async_trait::async_trait;
-use futures::channel::oneshot;
-use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
-use spdk_rs::libspdk::{spdk_lvol, spdk_xattr_descriptor};
-use std::{
-    ffi::{c_void, CString},
-    fmt::Debug,
-};
-use strum::EnumCount;
+use std::fmt::Debug;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
 /// Snapshot Captures all the Snapshot information for Lvol.
@@ -44,6 +35,44 @@ impl SnapshotParams {
             discarded_snapshot,
         }
     }
+    /// Validate the given arguments and prepare the snapshot parameters.
+    pub fn prepare(
+        snap_name: &str,
+        entity_id: &str,
+        txn_id: &str,
+        snap_uuid: &str,
+        parent_id: String,
+    ) -> Option<SnapshotParams> {
+        let snap_name = if snap_name.is_empty() {
+            return None;
+        } else {
+            snap_name.to_string()
+        };
+        let entity_id = if entity_id.is_empty() {
+            return None;
+        } else {
+            entity_id.to_string()
+        };
+        let txn_id = if txn_id.is_empty() {
+            return None;
+        } else {
+            txn_id.to_string()
+        };
+        let snap_uuid: Option<String> = if snap_uuid.is_empty() {
+            None
+        } else {
+            Some(snap_uuid.to_string())
+        };
+        Some(SnapshotParams::new(
+            Some(entity_id),
+            Some(parent_id),
+            Some(txn_id),
+            Some(snap_name),
+            snap_uuid,
+            Some(chrono::Utc::now().to_string()),
+            false,
+        ))
+    }
 }
 
 /// Parameters details for the Snapshot Clone.
@@ -72,6 +101,34 @@ impl CloneParams {
             source_uuid,
             clone_create_time,
         }
+    }
+    /// Validate the given arguments and prepare the clone parameters.
+    pub fn prepare(
+        clone_name: &str,
+        clone_uuid: &str,
+        source_uuid: &str,
+    ) -> Option<CloneParams> {
+        let clone_name = if clone_name.is_empty() {
+            return None;
+        } else {
+            clone_name.to_string()
+        };
+        let clone_uuid = if clone_uuid.is_empty() {
+            return None;
+        } else {
+            clone_uuid.to_string()
+        };
+        let source_uuid = if source_uuid.is_empty() {
+            return None;
+        } else {
+            source_uuid.to_string()
+        };
+        Some(CloneParams::new(
+            Some(clone_name),
+            Some(clone_uuid),
+            Some(source_uuid),
+            Some(chrono::Utc::now().to_string()),
+        ))
     }
 
     /// Get clone name.
@@ -115,10 +172,9 @@ impl CloneParams {
     }
 }
 
-/// Snapshot Descriptor to respond back as part of listsnapshot.
-#[derive(Clone, Debug)]
-pub struct VolumeSnapshotDescriptor {
-    pub snapshot_lvol: Lvol,
+/// Generic Snapshot information.
+#[derive(Debug)]
+pub struct SnapshotInfo {
     pub source_uuid: String,
     pub snapshot_size: u64,
     pub snap_param: SnapshotParams,
@@ -127,10 +183,9 @@ pub struct VolumeSnapshotDescriptor {
     // set to false, if any of the snapshotdescriptor is not filled properly
     pub valid_snapshot: bool,
 }
-
-impl VolumeSnapshotDescriptor {
+impl SnapshotInfo {
+    /// Return a container for the given information.
     pub fn new(
-        snapshot_lvol: Lvol,
         source_uuid: String,
         snapshot_size: u64,
         snap_param: SnapshotParams,
@@ -138,17 +193,12 @@ impl VolumeSnapshotDescriptor {
         valid_snapshot: bool,
     ) -> Self {
         Self {
-            snapshot_lvol,
             source_uuid,
             snapshot_size,
             snap_param,
             num_clones,
             valid_snapshot,
         }
-    }
-    /// Get snapshot lvol.
-    pub fn snapshot_lvol(&self) -> &Lvol {
-        &self.snapshot_lvol
     }
     /// Get snapshot_uuid.
     pub fn source_uuid(&self) -> String {
@@ -173,6 +223,37 @@ impl VolumeSnapshotDescriptor {
     /// Get ValidSnapshot value.
     pub fn valid_snapshot(&self) -> bool {
         self.valid_snapshot
+    }
+}
+
+/// Snapshot Descriptor to respond back as part of listsnapshot.
+#[derive(Debug)]
+pub struct SnapshotDescriptor {
+    /// The snapshot associated with this descriptor.
+    pub snapshot: Box<dyn SnapshotOps>,
+    /// The generic snapshot information.
+    pub info: SnapshotInfo,
+}
+
+impl SnapshotDescriptor {
+    /// Return a generic SnapshotDescriptor.
+    pub fn new(
+        snapshot: impl SnapshotOps + 'static,
+        info: SnapshotInfo,
+    ) -> Self {
+        Self {
+            snapshot: Box::new(snapshot),
+            info,
+        }
+    }
+    /// Get a reference to the snapshot.
+    #[allow(clippy::borrowed_box)]
+    pub fn snapshot(&self) -> &Box<dyn SnapshotOps> {
+        &self.snapshot
+    }
+    /// Get a reference to the snapshot info.
+    pub fn info(&self) -> &SnapshotInfo {
+        &self.info
     }
 }
 
@@ -222,165 +303,11 @@ impl CloneXattrs {
     }
 }
 
-/// Result for low-level Lvol calls.
-pub type LvolResult = Result<*mut spdk_lvol, Errno>;
-
-///  Traits gives the common snapshot/clone interface for Local/Remote Lvol.
-#[async_trait(?Send)]
-pub trait SnapshotOps {
-    type Error;
-    type SnapshotIter;
-    type Lvol;
-    /// Create Snapshot Common API.
-    async fn create_snapshot(
-        &self,
-        snap_param: SnapshotParams,
-    ) -> Result<Lvol, Self::Error>;
-
-    /// Create a snapshot in Remote.
-    async fn create_snapshot_remote(
-        &self,
-        nvmf_req: &NvmfReq,
-        snapshot_params: SnapshotParams,
-    );
-    /// Destroy snapshot.
-    async fn destroy_snapshot(mut self) -> Result<(), Self::Error>;
-
-    /// List Snapshot details based on source UUID from which snapshot is
-    /// created.
-    fn list_snapshot_by_source_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
-
-    /// List Single snapshot details based on snapshot UUID.
-    fn list_snapshot_by_snapshot_uuid(&self) -> Vec<VolumeSnapshotDescriptor>;
-
-    /// List All Snapshot.
-    fn list_all_snapshots(
-        parent_lvol: Option<&Lvol>,
-    ) -> Vec<VolumeSnapshotDescriptor>;
-
-    /// Create snapshot clone.
-    async fn create_clone(
-        &self,
-        clone_param: CloneParams,
-    ) -> Result<Self::Lvol, Self::Error>;
-
-    /// Get clone list based on snapshot_uuid.
-    fn list_clones_by_snapshot_uuid(&self) -> Vec<Self::Lvol>;
-
-    // Get a Snapshot Iterator.
-    async fn snapshot_iter(self) -> Self::SnapshotIter;
-
-    /// List All Clones.
-    fn list_all_clones() -> Vec<Self::Lvol>;
-
-    /// Prepare Snapshot Config for Block/Nvmf Device, before snapshot create.
-    fn prepare_snap_config(
-        &self,
-        snap_name: &str,
-        entity_id: &str,
-        txn_id: &str,
-        snap_uuid: &str,
-    ) -> Option<SnapshotParams>;
-
-    /// Prepare clone config for snapshot.
-    fn prepare_clone_config(
-        &self,
-        clone_name: &str,
-        clone_uuid: &str,
-        source_uuid: &str,
-    ) -> Option<CloneParams>;
-
-    /// Prepare snapshot xattrs.
-    fn prepare_snapshot_xattrs(
-        &self,
-        attr_descrs: &mut [spdk_xattr_descriptor; SnapshotXattrs::COUNT],
-        params: SnapshotParams,
-        cstrs: &mut Vec<CString>,
-    ) -> Result<(), Self::Error>;
-
-    /// create replica snapshot inner function to call spdk snapshot create
-    /// function.
-    unsafe fn create_snapshot_inner(
-        &self,
-        snap_param: &SnapshotParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut c_void,
-    ) -> Result<(), Self::Error>;
-
-    /// Supporting function for creating local snapshot.
-    async fn do_create_snapshot(
-        &self,
-        snap_param: SnapshotParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut c_void,
-        receiver: oneshot::Receiver<LvolResult>,
-    ) -> Result<Self::Lvol, Self::Error>;
-
-    /// Supporting function for creating remote snapshot.
-    async fn do_create_snapshot_remote(
-        &self,
-        snap_param: SnapshotParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut c_void,
-    ) -> Result<(), Self::Error>;
-
-    /// Prepare clone xattrs.
-    fn prepare_clone_xattrs(
-        &self,
-        attr_descrs: &mut [spdk_xattr_descriptor; CloneXattrs::COUNT],
-        params: CloneParams,
-        cstrs: &mut Vec<CString>,
-    ) -> Result<(), Self::Error>;
-
-    /// Create clone inner function to call spdk clone function.
-    unsafe fn create_clone_inner(
-        &self,
-        clone_param: &CloneParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut c_void,
-    ) -> Result<(), Self::Error>;
-
-    /// Supporting function for creating clone.
-    async fn do_create_clone(
-        &self,
-        clone_param: CloneParams,
-        done_cb: unsafe extern "C" fn(*mut c_void, *mut spdk_lvol, i32),
-        done_cb_arg: *mut c_void,
-        receiver: oneshot::Receiver<LvolResult>,
-    ) -> Result<Self::Lvol, Self::Error>;
-
-    /// Common API to set SnapshotDescriptor for ListReplicaSnapshot.
-    fn snapshot_descriptor(
-        &self,
-        parent: Option<&Lvol>,
-    ) -> Option<VolumeSnapshotDescriptor>;
-
-    /// Return bool value to indicate, if the snapshot is marked as discarded.
-    fn is_discarded_snapshot(&self) -> bool;
-
-    /// During destroying the last linked cloned, if there is any fault
-    /// happened, it is possible that, last clone can be deleted, but linked
-    /// snapshot marked as discarded still present in the system. As part of
-    /// pool import, do the garbage collection to clean the discarded snapshots
-    /// leftout in the system.
-    async fn destroy_pending_discarded_snapshot();
-
-    /// If self is clone or a snapshot whose parent is clone, then do ancestor
-    /// calculation for all snapshot linked to clone.
-    fn calculate_clone_source_snap_usage(
-        &self,
-        total_ancestor_snap_size: u64,
-    ) -> Option<u64>;
-
-    /// Reset snapshot tree usage cache. if the lvol is replica, then reset
-    /// cache will be based on replica uuid, which is parent uuid for all
-    /// snapshots created from the replica. if the lvol is not replica, then
-    /// reset cache  will be judge based on lvol tree present in the system.
-    fn reset_snapshot_tree_usage_cache(&self, is_replica: bool);
-}
+pub use crate::lvs::LvolSnapshotOps;
+use crate::replica_backend::SnapshotOps;
 
 /// Traits gives the Snapshots Related Parameters.
-pub trait SnapshotDescriptor {
+pub trait ISnapshotDescriptor {
     /// Get Transaction Id of the Snapshot Create.
     fn txn_id(&self) -> Option<String>;
 
@@ -425,7 +352,7 @@ pub trait SnapshotDescriptor {
 }
 
 /// Trait to give interface for all Snapshot Parameters.
-impl SnapshotDescriptor for SnapshotParams {
+impl ISnapshotDescriptor for SnapshotParams {
     /// Get Trasanction Id of the Snapshot.
     fn txn_id(&self) -> Option<String> {
         self.txn_id.clone()

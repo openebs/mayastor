@@ -7,7 +7,7 @@ use super::{Error, Nexus, NexusOperation, NexusState};
 use crate::{
     bdev::nexus::{nexus_lookup, NexusChild},
     core::{
-        snapshot::SnapshotDescriptor,
+        snapshot::ISnapshotDescriptor,
         CoreError,
         Reactor,
         SnapshotParams,
