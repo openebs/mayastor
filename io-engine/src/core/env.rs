@@ -27,6 +27,7 @@ use spdk_rs::{
     libspdk::{
         spdk_app_shutdown_cb,
         spdk_env_dpdk_post_init,
+        spdk_env_dpdk_rte_eal_init,
         spdk_env_fini,
         spdk_log_close,
         spdk_log_level,
@@ -43,7 +44,6 @@ use spdk_rs::{
         spdk_thread_lib_fini,
         spdk_thread_send_critical_msg,
         spdk_trace_cleanup,
-        spdk_env_dpdk_rte_eal_init,
         SPDK_LOG_DEBUG,
         SPDK_LOG_INFO,
         SPDK_RPC_RUNTIME,
