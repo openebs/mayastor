@@ -138,7 +138,7 @@ pub struct Config {
     pub source: Option<String>,
     /// these options are not set/copied but are applied
     /// on target creation.
-    pub nvmf_tcp_tgt_conf: NvmfTgtConfig,
+    pub nvmf_tgt_conf: NvmfTgtConfig,
     /// options specific to NVMe bdev types
     pub nvme_bdev_opts: NvmeBdevOpts,
     /// generic bdev options
@@ -208,7 +208,7 @@ impl Config {
         // are immutable, we can copy them with any locks held
         Config {
             source: self.source.clone(),
-            nvmf_tcp_tgt_conf: self.nvmf_tcp_tgt_conf.get(),
+            nvmf_tgt_conf: self.nvmf_tgt_conf.get(),
             nvme_bdev_opts: self.nvme_bdev_opts.get(),
             bdev_opts: self.bdev_opts.get(),
             nexus_opts: self.nexus_opts.get(),

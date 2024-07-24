@@ -109,7 +109,7 @@ impl Target {
     fn init(&mut self) -> Result<()> {
         let cfg = Config::get();
         let tgt_ptr: Box<spdk_nvmf_target_opts> =
-            cfg.nvmf_tcp_tgt_conf.clone().into();
+            cfg.nvmf_tgt_conf.clone().into();
 
         let tgt =
             unsafe { spdk_nvmf_tgt_create(&*tgt_ptr as *const _ as *mut _) };

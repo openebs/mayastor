@@ -106,6 +106,11 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         warn!("Nexus channel debug is enabled");
     }
 
+    if args.rdma {
+        env::set_var("ENABLE_RDMA", "true");
+        warn!("RDMA is enabled for Mayastor NVMEoF target");
+    }
+
     print_feature!("Async QPair connection", "spdk-async-qpair-connect");
     print_feature!("Fault injection", "fault-injection");
 
