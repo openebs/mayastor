@@ -371,11 +371,6 @@ impl Lvol {
             .send(errno_result_from_i32(lvol_ptr, errno))
             .expect("Receiver is gone");
     }
-    /// Format snapshot name
-    /// base_name is the nexus or replica UUID
-    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
-        format!("{base_name}-snap-{snapshot_time}")
-    }
     /// Get a `PtplFileOps` from `&self`.
     pub(crate) fn ptpl(&self) -> impl PtplFileOps {
         LvolPtpl::from(self)
