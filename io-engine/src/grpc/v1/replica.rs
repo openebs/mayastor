@@ -1,10 +1,13 @@
 use crate::{
     core::{
         logical_volume::LvolSpaceUsage,
+        wiper::{WipeMethod, Wiper},
+        Bdev,
         NvmfShareProps,
         ProtectedSubsystems,
         Protocol,
         ResourceLockManager,
+        ToErrno,
         UpdateProps,
     },
     grpc::{
@@ -263,11 +266,27 @@ impl GrpcReplicaFactory {
 pub(crate) struct ReplicaGrpc {
     pub(crate) replica: Box<dyn ReplicaOps>,
 }
+
 impl ReplicaGrpc {
     fn new(replica: Box<dyn ReplicaOps>) -> Self {
         Self {
             replica,
         }
+    }
+    /// Get a wiper for this replica.
+    pub(crate) fn wiper(
+        &self,
+        wipe_method: WipeMethod,
+    ) -> Result<Wiper, Status> {
+        let hdl = Bdev::open(&self.replica.try_as_bdev()?, true)
+            .and_then(|desc| desc.into_handle())
+            .map_err(|e| crate::lvs::LvsError::Invalid {
+                msg: e.to_string(),
+                source: crate::lvs::BsError::from_errno(e.to_errno()),
+            })?;
+
+        let wiper = Wiper::new(hdl, wipe_method)?;
+        Ok(wiper)
     }
     async fn destroy(self) -> Result<(), Status> {
         self.replica.destroy().await?;
@@ -324,7 +343,7 @@ impl ReplicaGrpc {
         self.replica.set_entity_id(id).await?;
         Ok(())
     }
-    fn verify_pool(&self, pool: &PoolGrpc) -> Result<(), Status> {
+    pub(crate) fn verify_pool(&self, pool: &PoolGrpc) -> Result<(), Status> {
         let pool = pool.as_ops();
         let replica = &self.replica;
         if pool.name() != replica.pool_name()

@@ -1,12 +1,15 @@
 use crate::{
-    bdev_api::BdevError,
     core::{
         wiper::{Error as WipeError, StreamedWiper, WipeStats, Wiper},
-        Bdev,
         VerboseError,
     },
-    grpc::{rpc_submit, GrpcClientContext, GrpcResult, RWSerializer},
-    lvs::{BsError, Lvol, Lvs, LvsError, LvsLvol},
+    grpc::{
+        v1::replica::{GrpcReplicaFactory, ReplicaGrpc},
+        GrpcClientContext,
+        GrpcResult,
+        RWSerializer,
+    },
+    replica_backend::FindReplicaArgs,
 };
 use ::function_name::named;
 use io_engine_api::{
@@ -25,13 +28,17 @@ use std::convert::{TryFrom, TryInto};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
+use crate::grpc::v1::pool::PoolGrpc;
 #[cfg(feature = "fault-injection")]
-use crate::core::fault_injection::{
-    add_fault_injection,
-    list_fault_injections,
-    remove_fault_injection,
-    FaultInjectionError,
-    Injection,
+use crate::{
+    core::fault_injection::{
+        add_fault_injection,
+        list_fault_injections,
+        remove_fault_injection,
+        FaultInjectionError,
+        Injection,
+    },
+    grpc::rpc_submit,
 };
 
 #[derive(Debug, Clone)]
@@ -96,18 +103,21 @@ impl TestRpc for TestService {
                     async move {
                         let args = request.into_inner();
                         info!("{:?}", args);
-                        let rx = rpc_submit(async move {
-                            let lvol = Bdev::lookup_by_uuid_str(&args.uuid)
-                                .ok_or(LvsError::InvalidBdev {
-                                    source: BdevError::BdevNotFound {
-                                        name: args.uuid.clone(),
-                                    },
-                                    name: args.uuid,
-                                })
-                                .and_then(Lvol::try_from)?;
-                            validate_pool(&lvol, args.pool)?;
+                        crate::spdk_submit!(async move {
+                            let pool = match args.pool {
+                                Some(pool) => Some(
+                                    GrpcReplicaFactory::pool_finder(pool)
+                                        .await?,
+                                ),
+                                None => None,
+                            };
+                            let repl = GrpcReplicaFactory::finder(
+                                &FindReplicaArgs::new(&args.uuid),
+                            )
+                            .await?;
+                            validate_pool(&repl, pool).await?;
 
-                            let wiper = lvol.wiper(options.wipe_method)?;
+                            let wiper = repl.wiper(options.wipe_method)?;
 
                             let proto_stream = WiperStream(tx_cln);
                             let wiper = StreamedWiper::new(
@@ -118,11 +128,8 @@ impl TestRpc for TestService {
                             )?;
                             let final_stats = wiper.wipe().await?;
                             final_stats.log();
-                            Result::<(), LvsError>::Ok(())
-                        })?;
-                        rx.await
-                            .map_err(|_| Status::cancelled("cancelled"))?
-                            .map_err(Status::from)
+                            Ok(())
+                        })
                     },
                 )
                 .await;
@@ -331,43 +338,27 @@ impl From<WipeError> for tonic::Status {
     }
 }
 
-/// Validate that the specified pool contains the specified lvol.
-fn validate_pool(
-    lvol: &Lvol,
-    pool: Option<wipe_replica_request::Pool>,
-) -> Result<(), LvsError> {
+impl From<wipe_replica_request::Pool> for crate::pool_backend::FindPoolArgs {
+    fn from(value: wipe_replica_request::Pool) -> Self {
+        match value {
+            wipe_replica_request::Pool::PoolName(name) => {
+                Self::name_uuid(name, &None)
+            }
+            wipe_replica_request::Pool::PoolUuid(uuid) => Self::uuid(uuid),
+        }
+    }
+}
+
+/// Validate that the replica belongs to the specified pool.
+async fn validate_pool(
+    repl: &ReplicaGrpc,
+    pool: Option<PoolGrpc>,
+) -> Result<(), Status> {
     let Some(pool) = pool else {
         return Ok(());
     };
 
-    let lvs = lookup_pool(pool)?;
-    if lvol.lvs().uuid() == lvs.uuid() && lvol.lvs().name() == lvs.name() {
-        return Ok(());
-    }
-
-    let msg = format!("Specified {lvs:?} does match the target {lvol:?}!");
-    tracing::error!("{msg}");
-    Err(LvsError::Invalid {
-        source: BsError::InvalidArgument {},
-        msg,
-    })
-}
-
-fn lookup_pool(pool: wipe_replica_request::Pool) -> Result<Lvs, LvsError> {
-    match pool {
-        wipe_replica_request::Pool::PoolUuid(uuid) => {
-            Lvs::lookup_by_uuid(&uuid).ok_or(LvsError::PoolNotFound {
-                source: BsError::LvsNotFound {},
-                msg: format!("Pool uuid={uuid} is not loaded"),
-            })
-        }
-        wipe_replica_request::Pool::PoolName(name) => {
-            Lvs::lookup(&name).ok_or(LvsError::PoolNotFound {
-                source: BsError::LvsNotFound {},
-                msg: format!("Pool name={name} is not loaded"),
-            })
-        }
-    }
+    repl.verify_pool(&pool)
 }
 
 struct WiperStream(

@@ -57,6 +57,7 @@ use crate::{
         Protocol,
         PtplProps,
         SnapshotParams,
+        UntypedBdev,
         UpdateProps,
     },
     lvm::property::Property,
@@ -254,6 +255,11 @@ impl ReplicaOps for LogicalVolume {
         _params: SnapshotParams,
     ) -> Result<Box<dyn SnapshotOps>, crate::pool_backend::Error> {
         Err(Error::SnapshotNotSup {}.into())
+    }
+
+    fn try_as_bdev(&self) -> Result<UntypedBdev, crate::pool_backend::Error> {
+        let bdev = Self::bdev(self.bdev_opts()?.uri())?;
+        Ok(bdev)
     }
 }
 

@@ -48,7 +48,7 @@ pub mod lvs_lvol;
 mod lvs_store;
 
 use crate::{
-    core::{BdevStater, BdevStats, CoreError},
+    core::{BdevStater, BdevStats, CoreError, UntypedBdev},
     replica_backend::{FindSnapshotArgs, ReplicaBdevStats},
 };
 pub use lvol_snapshot::{LvolResult, LvolSnapshotDescriptor, LvolSnapshotOps};
@@ -120,6 +120,10 @@ impl ReplicaOps for Lvol {
     ) -> Result<Box<dyn SnapshotOps>, Error> {
         let snapshot = LvolSnapshotOps::create_snapshot(self, params).await?;
         Ok(Box::new(snapshot))
+    }
+
+    fn try_as_bdev(&self) -> Result<UntypedBdev, Error> {
+        Ok(self.as_bdev())
     }
 }
 

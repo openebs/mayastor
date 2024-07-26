@@ -8,6 +8,7 @@ use crate::core::{
     Protocol,
     PtplProps,
     SnapshotParams,
+    UntypedBdev,
     UpdateProps,
 };
 use std::{fmt::Debug, ops::Deref};
@@ -82,6 +83,9 @@ pub trait ReplicaOps:
         &mut self,
         params: SnapshotParams,
     ) -> Result<Box<dyn SnapshotOps>, crate::pool_backend::Error>;
+
+    /// Returns the underlying bdev of the Logical Volume, if open.
+    fn try_as_bdev(&self) -> Result<UntypedBdev, crate::pool_backend::Error>;
 }
 
 /// Snapshot Operations for snapshots created by `ReplicaOps`.

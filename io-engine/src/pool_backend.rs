@@ -203,15 +203,15 @@ impl From<&PoolArgs> for FindPoolArgs {
 }
 impl FindPoolArgs {
     /// Find pools by name and optional uuid.
-    pub fn name_uuid(name: &str, uuid: &Option<String>) -> Self {
+    pub fn name_uuid(name: String, uuid: &Option<String>) -> Self {
         Self::NameUuid {
-            name: name.to_owned(),
+            name,
             uuid: uuid.to_owned(),
         }
     }
     /// Find pools by uuid.
-    pub fn uuid(uuid: &String) -> Self {
-        Self::Uuid(uuid.to_string())
+    pub fn uuid(uuid: String) -> Self {
+        Self::Uuid(uuid)
     }
     /// Back compat which finds pools by uuid and fallback to name.
     pub fn uuid_or_name(id: &String) -> Self {

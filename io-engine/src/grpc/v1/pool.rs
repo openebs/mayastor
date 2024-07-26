@@ -41,7 +41,7 @@ struct UnixStream(tokio::net::UnixStream);
 
 impl From<DestroyPoolRequest> for FindPoolArgs {
     fn from(value: DestroyPoolRequest) -> Self {
-        Self::name_uuid(&value.name, &value.uuid)
+        Self::name_uuid(value.name, &value.uuid)
     }
 }
 impl From<&destroy_replica_request::Pool> for FindPoolArgs {
@@ -68,7 +68,7 @@ impl From<&destroy_snapshot_request::Pool> for FindPoolArgs {
 }
 impl From<ExportPoolRequest> for FindPoolArgs {
     fn from(value: ExportPoolRequest) -> Self {
-        Self::name_uuid(&value.name, &value.uuid)
+        Self::name_uuid(value.name, &value.uuid)
     }
 }
 
