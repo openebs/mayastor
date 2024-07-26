@@ -13,7 +13,7 @@ use crate::{
 
 use crate::{
     core::{ToErrno, UntypedBdev},
-    replica_backend::bdev_as_replica,
+    replica_backend::ReplicaFactory,
 };
 use spdk_rs::{
     libspdk::{
@@ -220,7 +220,7 @@ async fn create_remote_snapshot(
     params: SnapshotParams,
     nvmf_req: NvmfReq,
 ) {
-    let Some(mut replica_ops) = bdev_as_replica(bdev) else {
+    let Some(mut replica_ops) = ReplicaFactory::bdev_as_replica(bdev) else {
         debug!("unsupported bdev driver");
         nvmf_req.complete_error(nix::errno::Errno::ENOTSUP as i32);
         return;

@@ -62,22 +62,22 @@ use crate::{
     lvm::property::Property,
     pool_backend::{
         FindPoolArgs,
+        IPoolFactory,
         IPoolProps,
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
-        PoolFactory,
         PoolOps,
         ReplicaArgs,
     },
     replica_backend::{
         FindReplicaArgs,
         FindSnapshotArgs,
+        IReplicaFactory,
         ListCloneArgs,
         ListReplicaArgs,
         ListSnapshotArgs,
         ReplicaBdevStats,
-        ReplicaFactory,
         ReplicaOps,
         SnapshotOps,
     },
@@ -343,7 +343,7 @@ impl IPoolProps for VolumeGroup {
 #[derive(Default)]
 pub struct PoolLvmFactory {}
 #[async_trait::async_trait(?Send)]
-impl PoolFactory for PoolLvmFactory {
+impl IPoolFactory for PoolLvmFactory {
     async fn create(
         &self,
         args: PoolArgs,
@@ -418,7 +418,7 @@ impl PoolFactory for PoolLvmFactory {
 #[derive(Default)]
 pub struct ReplLvmFactory {}
 #[async_trait::async_trait(?Send)]
-impl ReplicaFactory for ReplLvmFactory {
+impl IReplicaFactory for ReplLvmFactory {
     fn bdev_as_replica(
         &self,
         _bdev: crate::core::UntypedBdev,

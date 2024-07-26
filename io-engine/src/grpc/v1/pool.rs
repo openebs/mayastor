@@ -17,6 +17,7 @@ use crate::{
     lvs::{BsError, LvsError},
     pool_backend::{
         FindPoolArgs,
+        IPoolFactory,
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
@@ -384,90 +385,51 @@ impl PoolBackend {
 }
 
 /// A pool factory with the various types of specific impls.
-pub(crate) struct GrpcPoolFactory {
-    pool_factory: Box<dyn PoolFactory>,
-}
+pub(crate) struct GrpcPoolFactory(PoolFactory);
 impl GrpcPoolFactory {
     pub(crate) fn factories() -> Vec<Self> {
-        vec![PoolBackend::Lvm, PoolBackend::Lvs]
+        PoolFactory::factories()
             .into_iter()
-            .filter_map(|b| Self::new(b).ok())
-            .collect()
+            .map(Self)
+            .collect::<Vec<_>>()
     }
     fn new(backend: PoolBackend) -> Result<Self, Status> {
         backend.enabled()?;
-        let pool_factory = match backend {
-            PoolBackend::Lvs => {
-                Box::<crate::lvs::PoolLvsFactory>::default() as _
-            }
-            PoolBackend::Lvm => {
-                Box::<crate::lvm::PoolLvmFactory>::default() as _
-            }
-        };
-        Ok(Self {
-            pool_factory,
-        })
+        Ok(Self(PoolFactory::new(backend)))
     }
 
     /// Probe backends for the given name and/or uuid and return the right one.
     pub(crate) async fn finder<I: Into<FindPoolArgs>>(
         args: I,
-    ) -> Result<PoolGrpc, tonic::Status> {
-        let args = args.into();
-        let mut error = None;
-
-        for factory in Self::factories() {
-            match factory.find_pool(&args).await {
-                Ok(Some(pool)) => {
-                    return Ok(pool);
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    error = Some(err);
-                }
-            }
-        }
-        Err(error.unwrap_or_else(|| {
-            Status::not_found(format!("Pool {args:?} not found"))
-        }))
-    }
-    async fn find_pool(
-        &self,
-        args: &FindPoolArgs,
-    ) -> Result<Option<PoolGrpc>, tonic::Status> {
-        let pool = self.as_pool_factory().find(args).await?;
-        match pool {
-            Some(pool) => {
-                let pool_subsystem = ResourceLockManager::get_instance()
-                    .get_subsystem(ProtectedSubsystems::POOL);
-                let lock_guard =
-                    acquire_subsystem_lock(pool_subsystem, Some(pool.name()))
-                        .await?;
-                Ok(Some(PoolGrpc::new(pool, lock_guard)))
-            }
-            None => Ok(None),
-        }
+    ) -> Result<PoolGrpc, Status> {
+        let pool = PoolFactory::find(args).await?;
+        let pool_subsystem = ResourceLockManager::get_instance()
+            .get_subsystem(ProtectedSubsystems::POOL);
+        let lock_guard =
+            acquire_subsystem_lock(pool_subsystem, Some(pool.name())).await?;
+        Ok(PoolGrpc::new(pool, lock_guard))
     }
     async fn list(&self, args: &ListPoolArgs) -> Result<Vec<Pool>, Status> {
-        let pools = self.as_pool_factory().list(args).await?;
+        let pools = self.as_factory().list(args).await?;
         Ok(pools.into_iter().map(Into::into).collect::<Vec<_>>())
     }
+    /// Lists all `PoolOps` matching the given arguments.
     pub(crate) async fn list_ops(
         &self,
         args: &ListPoolArgs,
     ) -> Result<Vec<Box<dyn PoolOps>>, Status> {
-        let pools = self.as_pool_factory().list(args).await?;
+        let pools = self.as_factory().list(args).await?;
         Ok(pools)
     }
     fn backend(&self) -> PoolBackend {
-        self.as_pool_factory().backend()
+        self.as_factory().backend()
     }
     async fn ensure_not_found(
         &self,
         args: &FindPoolArgs,
         backend: PoolBackend,
     ) -> Result<(), Status> {
-        if self.as_pool_factory().find(args).await?.is_some() {
+        if self.as_factory().find(args).await?.is_some() {
             if self.backend() != backend {
                 return Err(Status::invalid_argument(
                     "Pool Already exists on another backend type",
@@ -494,7 +456,7 @@ impl GrpcPoolFactory {
             // todo: inspect disk contents as well!
             factory.ensure_not_found(&finder, args.backend).await?;
         }
-        let pool = self.as_pool_factory().create(args).await?;
+        let pool = self.as_factory().create(args).await?;
         Ok(pool.into())
     }
     async fn import(&self, args: PoolArgs) -> Result<Pool, Status> {
@@ -507,11 +469,11 @@ impl GrpcPoolFactory {
         for factory in Self::factories() {
             factory.ensure_not_found(&finder, args.backend).await?;
         }
-        let pool = self.as_pool_factory().import(args).await?;
+        let pool = self.as_factory().import(args).await?;
         Ok(pool.into())
     }
-    fn as_pool_factory(&self) -> &dyn PoolFactory {
-        self.pool_factory.deref()
+    fn as_factory(&self) -> &dyn IPoolFactory {
+        self.0.as_factory()
     }
 }
 
@@ -647,7 +609,7 @@ impl PoolRpc for PoolService {
                                 pools.extend(fpools);
                             }
                             Err(error) => {
-                                let backend = factory.pool_factory.backend();
+                                let backend = factory.0.as_factory().backend();
                                 tracing::error!("Failed to list pools of type {backend:?}, error: {error}");
                             }
                         }

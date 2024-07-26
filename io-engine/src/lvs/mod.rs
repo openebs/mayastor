@@ -13,20 +13,20 @@ use crate::{
     pool_backend::{
         Error,
         FindPoolArgs,
+        IPoolFactory,
         IPoolProps,
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
-        PoolFactory,
         PoolOps,
         ReplicaArgs,
     },
     replica_backend::{
         FindReplicaArgs,
+        IReplicaFactory,
         ListCloneArgs,
         ListReplicaArgs,
         ListSnapshotArgs,
-        ReplicaFactory,
         ReplicaOps,
         SnapshotOps,
     },
@@ -242,7 +242,7 @@ impl IPoolProps for Lvs {
 #[derive(Default)]
 pub struct PoolLvsFactory {}
 #[async_trait::async_trait(?Send)]
-impl PoolFactory for PoolLvsFactory {
+impl IPoolFactory for PoolLvsFactory {
     async fn create(
         &self,
         args: PoolArgs,
@@ -315,7 +315,7 @@ impl PoolFactory for PoolLvsFactory {
 #[derive(Default)]
 pub struct ReplLvsFactory {}
 #[async_trait::async_trait(?Send)]
-impl ReplicaFactory for ReplLvsFactory {
+impl IReplicaFactory for ReplLvsFactory {
     fn bdev_as_replica(
         &self,
         bdev: crate::core::UntypedBdev,

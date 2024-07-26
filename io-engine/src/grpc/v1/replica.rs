@@ -18,6 +18,7 @@ use crate::{
     pool_backend::{FindPoolArgs, PoolBackend},
     replica_backend::{
         FindReplicaArgs,
+        IReplicaFactory,
         ListCloneArgs,
         ListReplicaArgs,
         ListSnapshotArgs,
@@ -197,42 +198,18 @@ fn filter_replicas_by_replica_type(
 }
 
 /// A replica factory with the various types of specific impls.
-pub(crate) struct GrpcReplicaFactory {
-    repl_factory: Box<dyn ReplicaFactory>,
-}
+pub(crate) struct GrpcReplicaFactory(ReplicaFactory);
 impl GrpcReplicaFactory {
     pub(crate) fn factories() -> Vec<Self> {
-        crate::replica_backend::factories()
+        ReplicaFactory::factories()
             .into_iter()
-            .map(|repl_factory| Self {
-                repl_factory,
-            })
+            .map(Self)
             .collect::<Vec<_>>()
-    }
-    async fn find_ops(
-        args: &FindReplicaArgs,
-    ) -> Result<Box<dyn ReplicaOps>, Status> {
-        let mut error = None;
-
-        for factory in Self::factories() {
-            match factory.find_replica(args).await {
-                Ok(Some(replica)) => {
-                    return Ok(replica);
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    error = Some(err);
-                }
-            }
-        }
-        Err(error.unwrap_or_else(|| {
-            Status::not_found(format!("Replica {args:?} not found"))
-        }))
     }
     pub(crate) async fn finder(
         args: &FindReplicaArgs,
     ) -> Result<ReplicaGrpc, Status> {
-        let replica = Self::find_ops(args).await?;
+        let replica = ReplicaFactory::find(args).await?;
         Ok(ReplicaGrpc::new(replica))
     }
     pub(crate) async fn pool_finder<I: Into<FindPoolArgs>>(
@@ -245,19 +222,6 @@ impl GrpcReplicaFactory {
                 error
             }
         })
-    }
-    async fn find_replica(
-        &self,
-        args: &FindReplicaArgs,
-    ) -> Result<Option<Box<dyn ReplicaOps>>, tonic::Status> {
-        let replica = self.as_factory().find(args).await?;
-        if let Some(replica) = &replica {
-            // should this be an error?
-            if replica.is_snapshot() {
-                return Ok(None);
-            }
-        }
-        Ok(replica)
     }
     pub(crate) async fn list(
         &self,
@@ -290,8 +254,8 @@ impl GrpcReplicaFactory {
     pub(crate) fn backend(&self) -> PoolBackend {
         self.as_factory().backend()
     }
-    fn as_factory(&self) -> &dyn ReplicaFactory {
-        self.repl_factory.deref()
+    fn as_factory(&self) -> &dyn IReplicaFactory {
+        self.0.as_factory()
     }
 }
 
