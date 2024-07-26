@@ -8,17 +8,18 @@ use crate::{
         RWLock,
         Serializer,
     },
-    lvs::Lvs,
 };
 use futures::{future::join_all, FutureExt};
 use io_engine_api::v1::stats::*;
-use std::{convert::TryFrom, fmt::Debug, panic::AssertUnwindSafe};
+use std::{fmt::Debug, panic::AssertUnwindSafe};
 use tonic::{Request, Response, Status};
 
 use crate::{
-    bdev::{nexus, Nexus},
-    core::{BlockDeviceIoStats, CoreError, LogicalVolume, UntypedBdev},
-    lvs::{Lvol, LvsLvol, PropName, PropValue},
+    bdev::nexus,
+    core::{BdevStater, BdevStats, CoreError, UntypedBdev},
+    grpc::v1::{pool::GrpcPoolFactory, replica::GrpcReplicaFactory},
+    pool_backend::ListPoolArgs,
+    replica_backend::{ListReplicaArgs, ReplicaBdevStats},
 };
 use ::function_name::named;
 
@@ -131,36 +132,25 @@ impl StatsRpc for StatsService {
     ) -> GrpcResult<PoolIoStatsResponse> {
         self.shared(self.pool_svc.rw_lock().await, async move {
             let args = request.into_inner();
-            let rx = rpc_submit::<_, _, CoreError>(async move {
-                let pool_stats_future: Vec<_> = if let Some(name) = args.name {
-                    if let Some(l) = Lvs::lookup(&name) {
-                        vec![get_stats(name, l.uuid(), l.base_bdev())]
-                    } else {
-                        vec![]
-                    }
-                } else {
-                    Lvs::iter()
-                        .map(|lvs| {
-                            get_stats(
-                                lvs.name().to_string(),
-                                lvs.uuid(),
-                                lvs.base_bdev(),
-                            )
-                        })
-                        .collect()
-                };
+            crate::spdk_submit!(async move {
+                let mut pools = vec![];
+                let args = ListPoolArgs::new_named(args.name);
+                for factory in GrpcPoolFactory::factories() {
+                    pools.extend(
+                        factory.list_ops(&args).await.unwrap_or_default(),
+                    );
+                }
+                let pools_stats_future = pools.iter().map(|r| r.stats());
+                let pools_stats =
+                    join_all(pools_stats_future).await.into_iter();
+                let stats = pools_stats
+                    .map(|d| d.map(Into::into))
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                let pool_stats: Result<Vec<_>, _> =
-                    join_all(pool_stats_future).await.into_iter().collect();
-                let pool_stats = pool_stats?;
                 Ok(PoolIoStatsResponse {
-                    stats: pool_stats,
+                    stats,
                 })
-            })?;
-            rx.await
-                .map_err(|_| Status::cancelled("cancelled"))?
-                .map_err(Status::from)
-                .map(Response::new)
+            })
         })
         .await
     }
@@ -174,43 +164,23 @@ impl StatsRpc for StatsService {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let args = request.into_inner();
-                let rx = rpc_submit::<_, _, CoreError>(async move {
-                    let nexus_stats_future: Vec<_> =
-                        if let Some(name) = args.name {
-                            if let Some(nexus) = nexus::nexus_lookup(&name) {
-                                vec![nexus_stats(
-                                    nexus.name.clone(),
-                                    nexus.uuid().to_string(),
-                                    nexus,
-                                )]
-                            } else {
-                                vec![]
-                            }
-                        } else {
-                            nexus::nexus_iter()
-                                .map(|nexus| {
-                                    nexus_stats(
-                                        nexus.name.clone(),
-                                        nexus.uuid().to_string(),
-                                        nexus,
-                                    )
-                                })
-                                .collect()
-                        };
-                    let nexus_stats: Result<Vec<_>, _> =
-                        join_all(nexus_stats_future)
-                            .await
-                            .into_iter()
-                            .collect();
-                    let nexus_stats = nexus_stats?;
+                crate::spdk_submit!(async move {
+                    let nexus_stats_future = if let Some(name) = args.name {
+                        let nexus = nexus::nexus_lookup(&name)
+                            .ok_or(Status::not_found("Nexus not found"))?;
+                        vec![nexus.stats()]
+                    } else {
+                        nexus::nexus_iter().map(|nexus| nexus.stats()).collect()
+                    };
+                    let nexus_stats = join_all(nexus_stats_future)
+                        .await
+                        .into_iter()
+                        .map(|d| d.map(Into::into));
+                    let stats = nexus_stats.collect::<Result<Vec<_>, _>>()?;
                     Ok(NexusIoStatsResponse {
-                        stats: nexus_stats,
+                        stats,
                     })
-                })?;
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                })
             },
         )
         .await
@@ -221,40 +191,24 @@ impl StatsRpc for StatsService {
     ) -> GrpcResult<ReplicaIoStatsResponse> {
         self.shared(self.replica_svc.rw_lock().await, async move {
             let args = request.into_inner();
-            let rx = rpc_submit::<_, _, CoreError>(async move {
-                let replica_stats_future: Vec<_> = if let Some(name) = args.name
-                {
-                    UntypedBdev::bdev_first()
-                        .and_then(|bdev| {
-                            bdev.into_iter().find(|b| {
-                                b.driver() == "lvol" && b.name() == name
-                            })
-                        })
-                        .and_then(|b| Lvol::try_from(b).ok())
-                        .map(|lvol| vec![replica_stats(lvol)])
-                        .unwrap_or_default()
-                } else {
-                    let mut lvols = Vec::new();
-                    if let Some(bdev) = UntypedBdev::bdev_first() {
-                        lvols = bdev
-                            .into_iter()
-                            .filter(|b| b.driver() == "lvol")
-                            .map(|b| Lvol::try_from(b).unwrap())
-                            .collect();
-                    }
-                    lvols.into_iter().map(replica_stats).collect()
-                };
-                let replica_stats: Result<Vec<_>, _> =
-                    join_all(replica_stats_future).await.into_iter().collect();
-                let replica_stats = replica_stats?;
+            crate::spdk_submit!(async move {
+                let mut replicas = vec![];
+                let args = ListReplicaArgs::new_named(args.name);
+                for factory in GrpcReplicaFactory::factories() {
+                    replicas.extend(
+                        factory.list_ops(&args).await.unwrap_or_default(),
+                    );
+                }
+                let replica_stats_future = replicas.iter().map(|r| r.stats());
+                let replica_stats =
+                    join_all(replica_stats_future).await.into_iter();
+                let stats = replica_stats
+                    .map(|d| d.map(Into::into))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(ReplicaIoStatsResponse {
-                    stats: replica_stats,
+                    stats,
                 })
-            })?;
-            rx.await
-                .map_err(|_| Status::cancelled("cancelled"))?
-                .map_err(Status::from)
-                .map(Response::new)
+            })
         })
         .await
     }
@@ -282,15 +236,13 @@ impl StatsRpc for StatsService {
     }
 }
 
-struct ExternalType<T>(T);
-
 /// Conversion fn to get gRPC type IOStat from BlockDeviceIoStats.
-impl From<ExternalType<(String, String, BlockDeviceIoStats)>> for IoStats {
-    fn from(value: ExternalType<(String, String, BlockDeviceIoStats)>) -> Self {
-        let stats = value.0 .2;
+impl From<BdevStats> for IoStats {
+    fn from(value: BdevStats) -> Self {
+        let stats = value.stats;
         Self {
-            name: value.0 .0,
-            uuid: value.0 .1,
+            name: value.name,
+            uuid: value.uuid,
             num_read_ops: stats.num_read_ops,
             bytes_read: stats.bytes_read,
             num_write_ops: stats.num_write_ops,
@@ -310,40 +262,12 @@ impl From<ExternalType<(String, String, BlockDeviceIoStats)>> for IoStats {
         }
     }
 }
-
-/// Returns IoStats for a given BlockDevice.
-async fn get_stats(
-    name: String,
-    uuid: String,
-    bdev: UntypedBdev,
-) -> Result<IoStats, CoreError> {
-    let stats = bdev.stats_async().await?;
-    Ok(IoStats::from(ExternalType((name, uuid, stats))))
-}
-
-/// Returns IoStats for a given Lvol(Replica).
-async fn replica_stats(lvol: Lvol) -> Result<ReplicaIoStats, CoreError> {
-    let stats = lvol.as_bdev().stats_async().await?;
-    let io_stat =
-        IoStats::from(ExternalType((lvol.name(), lvol.uuid(), stats)));
-    let replica_stat = ReplicaIoStats {
-        stats: Some(io_stat),
-        entity_id: lvol.get(PropName::EntityId).await.ok().and_then(|id| {
-            match id {
-                PropValue::EntityId(id) => Some(id),
-                _ => None,
-            }
-        }),
-    };
-    Ok(replica_stat)
-}
-
-/// Returns IoStats for a given Nexus.
-async fn nexus_stats(
-    name: String,
-    uuid: String,
-    bdev: &Nexus<'_>,
-) -> Result<IoStats, CoreError> {
-    let stats = bdev.bdev_stats().await?;
-    Ok(IoStats::from(ExternalType((name, uuid, stats))))
+/// Conversion fn to get gRPC type IOStat from BlockDeviceIoStats.
+impl From<ReplicaBdevStats> for ReplicaIoStats {
+    fn from(value: ReplicaBdevStats) -> Self {
+        Self {
+            entity_id: value.entity_id,
+            stats: Some(value.stats.into()),
+        }
+    }
 }

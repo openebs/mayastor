@@ -1,6 +1,8 @@
 use super::pool_backend::PoolBackend;
 use crate::core::{
     snapshot::SnapshotDescriptor,
+    BdevStater,
+    BdevStats,
     CloneParams,
     LogicalVolume,
     Protocol,
@@ -16,7 +18,9 @@ use std::fmt::Debug;
 /// specific options to be passed as parameters.
 /// A `Replica` is also a `LogicalVolume` and also has `Share` traits.
 #[async_trait::async_trait(?Send)]
-pub trait ReplicaOps: LogicalVolume {
+pub trait ReplicaOps:
+    LogicalVolume + BdevStater<Stats = ReplicaBdevStats>
+{
     fn shared(&self) -> Option<Protocol>;
     fn create_ptpl(
         &self,
@@ -130,6 +134,15 @@ pub struct ListReplicaArgs {
     /// Match the given pool uuid.
     pub pool_uuid: Option<String>,
 }
+impl ListReplicaArgs {
+    /// A new `Self` with only the name specified.
+    pub fn new_named(name: Option<String>) -> Self {
+        Self {
+            name,
+            ..Default::default()
+        }
+    }
+}
 
 /// Find replica with filters.
 #[derive(Debug, Clone)]
@@ -167,7 +180,8 @@ pub trait ReplicaFactory {
         &self,
         args: &FindSnapshotArgs,
     ) -> Result<Option<Box<dyn SnapshotOps>>, crate::pool_backend::Error>;
-    /// Lists all replicas specified by the arguments.
+    /// Lists all replicas specified by the arguments, except the replica kinds.
+    /// It lists all types of replicas.
     async fn list(
         &self,
         args: &ListReplicaArgs,
@@ -184,6 +198,21 @@ pub trait ReplicaFactory {
         args: &ListCloneArgs,
     ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error>;
     fn backend(&self) -> PoolBackend;
+}
+
+/// Replica IO stats along with its name and uuid.
+pub struct ReplicaBdevStats {
+    pub stats: BdevStats,
+    pub entity_id: Option<String>,
+}
+impl ReplicaBdevStats {
+    /// Create a new `Self` from the given parts.
+    pub fn new(stats: BdevStats, entity_id: Option<String>) -> Self {
+        Self {
+            stats,
+            entity_id,
+        }
+    }
 }
 
 /// Find snapshots with filters.

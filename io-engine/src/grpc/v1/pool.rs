@@ -1,3 +1,4 @@
+pub use crate::pool_backend::FindPoolArgs as PoolIdProbe;
 use crate::{
     core::{
         NvmfShareProps,
@@ -33,8 +34,6 @@ use io_engine_api::v1::{
 };
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, panic::AssertUnwindSafe};
 use tonic::{Request, Status};
-
-pub use crate::pool_backend::FindPoolArgs as PoolIdProbe;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
@@ -389,7 +388,7 @@ pub(crate) struct GrpcPoolFactory {
     pool_factory: Box<dyn PoolFactory>,
 }
 impl GrpcPoolFactory {
-    fn factories() -> Vec<Self> {
+    pub(crate) fn factories() -> Vec<Self> {
         vec![PoolBackend::Lvm, PoolBackend::Lvs]
             .into_iter()
             .filter_map(|b| Self::new(b).ok())
@@ -452,6 +451,13 @@ impl GrpcPoolFactory {
     async fn list(&self, args: &ListPoolArgs) -> Result<Vec<Pool>, Status> {
         let pools = self.as_pool_factory().list(args).await?;
         Ok(pools.into_iter().map(Into::into).collect::<Vec<_>>())
+    }
+    pub(crate) async fn list_ops(
+        &self,
+        args: &ListPoolArgs,
+    ) -> Result<Vec<Box<dyn PoolOps>>, Status> {
+        let pools = self.as_pool_factory().list(args).await?;
+        Ok(pools)
     }
     fn backend(&self) -> PoolBackend {
         self.as_pool_factory().backend()

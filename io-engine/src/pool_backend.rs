@@ -1,4 +1,7 @@
-use crate::{core::ToErrno, replica_backend::ReplicaOps};
+use crate::{
+    core::{BdevStater, BdevStats, ToErrno},
+    replica_backend::ReplicaOps,
+};
 use nix::errno::Errno;
 
 /// PoolArgs is used to translate the input for the grpc
@@ -82,7 +85,9 @@ impl ToErrno for Error {
 /// much as possible, though we can allow for extra pool specific options
 /// to be passed as parameters.
 #[async_trait::async_trait(?Send)]
-pub trait PoolOps: IPoolProps + std::fmt::Debug {
+pub trait PoolOps:
+    IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug
+{
     /// Create a replica on this pool with the given arguments.
     async fn create_repl(
         &self,
@@ -119,7 +124,7 @@ pub trait PoolFactory {
 }
 
 /// List pools using filters.
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct ListPoolArgs {
     /// Filter using the pool name.
     pub name: Option<String>,
@@ -128,7 +133,16 @@ pub struct ListPoolArgs {
     /// Filter using the pool uuid.
     pub uuid: Option<String>,
 }
-/// Probe for pools using this criteria.
+impl ListPoolArgs {
+    /// A new `Self` with only the name specified.
+    pub fn new_named(name: Option<String>) -> Self {
+        Self {
+            name,
+            ..Default::default()
+        }
+    }
+}
+/// Probe for pools using these criteria.
 #[derive(Debug, Clone)]
 pub enum FindPoolArgs {
     Uuid(String),

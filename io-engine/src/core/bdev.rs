@@ -152,8 +152,8 @@ where
     }
 
     /// Gets tick rate of the current io engine instance.
-    /// NOTE: tick_rate returned in SPDK struct is not accurate. Hence we get it
-    /// via this method.
+    /// NOTE: tick_rate returned in SPDK struct is not accurate. Hence, we get
+    /// it via this method.
     pub fn get_tick_rate(&self) -> u64 {
         unsafe { spdk_get_ticks_hz() }
     }
@@ -402,5 +402,61 @@ where
 {
     pub fn new() -> Self {
         Default::default()
+    }
+}
+
+/// A Bdev should expose information and IO stats as well as having the ability
+/// to reset the cumulative stats.
+#[async_trait::async_trait(?Send)]
+pub trait BdevStater {
+    type Stats;
+
+    /// Gets tick rate of the bdev stats.
+    fn tick_rate(&self) -> u64 {
+        unsafe { spdk_get_ticks_hz() }
+    }
+
+    /// Returns IoStats for a particular bdev.
+    async fn stats(&self) -> Result<Self::Stats, CoreError>;
+
+    /// Resets io stats for a given Bdev.
+    async fn reset_stats(&self) -> Result<(), CoreError>;
+}
+
+/// Bdev IO stats along with its name and uuid.
+pub struct BdevStats {
+    /// Name of the Bdev.
+    pub name: String,
+    /// Uuid of the Bdev.
+    pub uuid: String,
+    /// Stats of the Bdev.
+    pub stats: BlockDeviceIoStats,
+}
+impl BdevStats {
+    /// Create a new `Self` from the given parts.
+    pub fn new(name: String, uuid: String, stats: BlockDeviceIoStats) -> Self {
+        Self {
+            name,
+            uuid,
+            stats,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl<T: spdk_rs::BdevOps> BdevStater for Bdev<T> {
+    type Stats = BdevStats;
+
+    async fn stats(&self) -> Result<BdevStats, CoreError> {
+        let stats = self.stats_async().await?;
+        Ok(BdevStats::new(
+            self.name().to_string(),
+            self.uuid_as_string(),
+            stats,
+        ))
+    }
+
+    async fn reset_stats(&self) -> Result<(), CoreError> {
+        self.reset_bdev_io_stats().await
     }
 }

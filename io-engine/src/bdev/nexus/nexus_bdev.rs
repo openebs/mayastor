@@ -67,7 +67,7 @@ use crate::{
     subsys::NvmfSubsystem,
 };
 
-use crate::core::{BlockDeviceIoStats, CoreError, IoCompletionStatus};
+use crate::core::{BdevStater, BdevStats, CoreError, IoCompletionStatus};
 use events_api::event::EventAction;
 use spdk_rs::{
     libspdk::spdk_bdev_notify_blockcnt_change,
@@ -360,6 +360,21 @@ impl Display for NexusState {
     }
 }
 
+#[async_trait::async_trait(?Send)]
+impl BdevStater for Nexus<'_> {
+    type Stats = BdevStats;
+
+    async fn stats(&self) -> Result<BdevStats, CoreError> {
+        let bdev = unsafe { self.bdev() };
+        bdev.stats().await
+    }
+
+    async fn reset_stats(&self) -> Result<(), CoreError> {
+        let bdev = unsafe { self.bdev() };
+        bdev.reset_bdev_io_stats().await
+    }
+}
+
 impl<'n> Nexus<'n> {
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
@@ -533,14 +548,6 @@ impl<'n> Nexus<'n> {
     /// Returns name of the underlying Bdev.
     pub(crate) fn bdev_name(&self) -> String {
         unsafe { self.bdev().name().to_string() }
-    }
-
-    /// Returns io stats for underlying Bdev.
-    pub(crate) async fn bdev_stats(
-        &self,
-    ) -> Result<BlockDeviceIoStats, CoreError> {
-        let bdev = unsafe { self.bdev() };
-        bdev.stats_async().await
     }
 
     /// TODO

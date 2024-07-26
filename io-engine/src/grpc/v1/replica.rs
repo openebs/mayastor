@@ -259,12 +259,19 @@ impl GrpcReplicaFactory {
         }
         Ok(replica)
     }
-    async fn list(
+    pub(crate) async fn list(
         &self,
         args: &ListReplicaArgs,
     ) -> Result<Vec<Replica>, Status> {
         let replicas = self.as_factory().list(args).await?;
         Ok(replicas.into_iter().map(Into::into).collect::<Vec<_>>())
+    }
+    pub(crate) async fn list_ops(
+        &self,
+        args: &ListReplicaArgs,
+    ) -> Result<Vec<Box<dyn ReplicaOps>>, Status> {
+        let replicas = self.as_factory().list(args).await?;
+        Ok(replicas)
     }
     pub(crate) async fn list_snaps(
         &self,
