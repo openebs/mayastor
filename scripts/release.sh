@@ -7,6 +7,19 @@
 
 CI=${CI-}
 
+# Write output to error output stream.
+echo_stderr() {
+  echo -e "${1}" >&2
+}
+
+# Write out error and exit process with specified error or 1.
+die()
+{
+  local _return="${2:-1}"
+  echo_stderr "$1"
+  exit "${_return}"
+}
+
 set -euo pipefail
 
 # Test if the image already exists in dockerhub
@@ -59,8 +72,51 @@ pre_fetch_cargo_deps() {
     return 0
   fi
 
-  echo "Failed to pre-fetch the cargo vendored dependencies in $maxAttempt attempts"
-  exit 1
+  die "Failed to pre-fetch the cargo vendored dependencies in $maxAttempt attempts"
+}
+# Setup DOCKER with the docker or podman (which is mostly cli compat with docker and thus
+# we can simply use it as an alias) cli.
+# If present, the env variable DOCKER is checked for the binary, with precedence.
+docker_alias() {
+  DOCKER_CLIS=("docker" "podman")
+  if [ -n "${DOCKER:-}" ]; then
+    DOCKER_CLIS=("$DOCKER" ${DOCKER_CLIS[@]})
+  fi
+  for cli in ${DOCKER_CLIS[@]}; do
+    if binary_check "$cli" "info"; then
+      echo "$cli"
+      return
+    fi
+  done
+  binary_missing_die "docker compatible"
+}
+# Check if the binaries are present, otherwise bail out.
+binaries_check() {
+  FAIL=
+  for bin in ${@}; do
+    if ! binary_check $bin; then
+      binary_missing "$bin"
+      FAIL="y"
+    fi
+  done
+  if [ -n "$FAIL" ]; then
+    exit 1
+  fi
+}
+# Check if the binary name is present, otherwise bail out.
+binary_check() {
+  check=${2:-"--version"}
+  if ! $1 $check &>/dev/null; then
+    return 1
+  fi
+}
+# Check if the binary name is present, otherwise bail out.
+binary_missing_die() {
+  die "$(binary_missing_msg "$1")"
+}
+# Get the binary missing error message
+binary_missing_msg() {
+  echo "$1 binary missing - please install it and add it to your PATH"
 }
 
 help() {
@@ -84,7 +140,7 @@ Examples:
 EOF
 }
 
-DOCKER="docker"
+DOCKER=$(docker_alias)
 NIX_BUILD="nix-build"
 NIX_EVAL="nix eval$(nix_experimental)"
 RM="rm"
@@ -106,16 +162,7 @@ CARGO_VENDOR_DIR=${CARGO_VENDOR_DIR:-}
 CARGO_VENDOR_ATTEMPTS=${CARGO_VENDOR_ATTEMPTS:-25}
 
 # Check if all needed tools are installed
-curl --version >/dev/null
-if [ $? -ne 0 ]; then
-  echo "Missing curl - install it and put it to your PATH"
-  exit 1
-fi
-$DOCKER --version >/dev/null
-if [ $? -ne 0 ]; then
-  echo "Missing docker - install it and put it to your PATH"
-  exit 1
-fi
+binaries_check "curl" "$DOCKER"
 
 # Parse arguments
 while [ "$#" -gt 0 ]; do
