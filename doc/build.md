@@ -95,8 +95,8 @@ $ sudo nixos-rebuild switch --update
 [running][doc-run], then [testing][doc-test].
 
 You can use a tool like [`direnv`][direnv] to automate `nix shell` entry.
-If you are unable to use the Nix provided Rust for some reason, there are `norust` and
-`nospdk` arguments to Nix shell. `nix-shell --arg norust true`
+If you are unable to use the Nix provided Rust for some reason, there are `rust` and
+`spdk` arguments to Nix shell. `nix-shell --arg rust none`
 
 After cloning the repository don't forget to run a:
 
@@ -129,11 +129,12 @@ cargo build --release
 **Want to run or hack on Mayastor?** _You need more configuration!_ See
 [running][doc-running], then [testing][doc-testing].
 
-Whilst the nix develop will allow you to build mayastor exactly as the image build, it might not have all the necessary components required for testing.
+Whilst the nix develop will allow you to build mayastor exactly as the image build, it might not have all the necessary
+components required for testing.
 For that you might want to use the explicit shell configuration file: ci.nix:
 
 ```bash
-nix-shell ci.nix
+nix-shell
 ```
 
 To ensure you are aware of this, we greet you with a nice cow.
@@ -164,7 +165,7 @@ done
 
 Try them as if they were installed:
 
-```rust
+```bash
 nix shell -f . io-engine
 ```
 
@@ -216,6 +217,10 @@ Build the Docker images with the CI build script:
   ❯ ./scripts/release.sh --registry localhost:5000 --image "mayastor-io-engine"
 ```
 
+The container images are packaged and pushed using either docker or podman - whichever is run successfully with
+--version cli argument.
+If you want to specifically test one of these first, please set DOCKER env variable.
+
 Build the Docker images with [`nix build`][nix-build]:
 
 ```bash
@@ -241,21 +246,39 @@ you want to run them locally:
 > `spdk-rs` README on this matter.
 
 [doc-run]: ./run.md
+
 [doc-test]: ./test.md
+
 [direnv]: https://direnv.net/
+
 [nix-explore]: https://nixos.org/explore.html
+
 [nix-install]: https://nixos.org/download.html
+
 [nix-develop]: https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-develop.html
+
 [nix-paper]: https://edolstra.github.io/pubs/nixos-jfp-final.pdf
+
 [nix-build]: https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-build.html
+
 [nix-bundle]: https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-bundle.html
+
 [nix-shell]: https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-shell.html
+
 [nix-channel]: https://nixos.wiki/wiki/Nix_channels
+
 [nixos]: https://nixos.org/
+
 [rust-lang]: https://www.rust-lang.org/
+
 [windows-wsl2]: https://wiki.ubuntu.com/WSL#Ubuntu_on_WSL
+
 [windows-hyperv]: https://wiki.ubuntu.com/Hyper-V
+
 [docker-install]: https://docs.docker.com/get-docker/
+
 [reproducible-builds]: https://reproducible-builds.org/
+
 [cii-best-practices]: https://www.coreinfrastructure.org/programs/best-practices-program/
+
 [direnv]: https://direnv.net/

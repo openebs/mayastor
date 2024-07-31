@@ -280,9 +280,12 @@ Otherwise, you can follow [the production guide][running-on-a-real-kubernetes-cl
 Our testing showed some common Kubernetes development environments are not sufficient for
 Mayastor development.
 
-Here are the ones known to not work:
+Here are the ones known to not work by default:
 
 - [`kind`][kind]
+  In order to make this one work, you need to add `/run/udev` and `/run/udev` to the kind node hostPath.
+  Once the node containers are running, you may need to remount `/sys` as rw.
+  Here is an example: https://github.com/openebs/mayastor-extensions/blob/develop/scripts/k8s/deployer.sh
 
 ## Running on a real Kubernetes cluster
 
@@ -290,25 +293,47 @@ We have a [production deployment manual & user manual][manual] prepared. Please 
 production Mayastor deployment and operation instructions.
 
 [running-on-a-real-kubernetes-cluster]: #running-on-a-real-kubernetes-cluster
+
 [doc-build]: ./build.md
+
 [doc-build-iterative-builds]: ./build.md#Iterative-Builds
+
 [doc-build-building-docker-images]: ./build.md#Building-Docker-images
+
 [doc-build-building-portable-nix-bundles]: ./build.md#Building-portable-Nix-bundles
+
 [doc-test]: ./test.md
+
 [io_uring-intro]: https://unixism.net/loti/what_is_io_uring.html
+
 [hugepages-lwn-one]: https://lwn.net/Articles/374424/
+
 [hugepages-lwn-two]: https://lwn.net/Articles/375096/
+
 [hugepages-lwn-three]: https://lwn.net/Articles/376606/
+
 [hugepages-lwn-four]: https://lwn.net/Articles/378641/
+
 [hugepages-lwn-five]: https://lwn.net/Articles/379748/
+
 [m-dot-2]: https://en.wikipedia.org/wiki/M.2
+
 [nix-install]: https://nixos.org/download.html
+
 [nix-shell]: https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-shell.html
+
 [control-groups]: https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/cgroups.html
+
 [mozilla-rust-overlay]: https://github.com/mozilla/nixpkgs-mozilla/blob/master/rust-overlay.nix
+
 [isa]: https://en.wikipedia.org/wiki/Instruction_set_architecture
+
 [kind]: https://kind.sigs.k8s.io/
+
 [manual]: https://mayastor.gitbook.io/
+
 [lxd]: https://linuxcontainers.org/
+
 [libvirtd]: https://libvirt.org/index.html
+
 [terraform-readme]: ./terraform/readme.adoc
