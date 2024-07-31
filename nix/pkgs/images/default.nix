@@ -84,6 +84,10 @@ let
     mkdir -p $out/bin
     cp ${io-engine.out}/bin/casperf $out/bin/casperf
   '';
+  casperf-dev = runCommand "casperf" { } ''
+    mkdir -p $out/bin
+    cp ${io-engine-dev.out}/bin/casperf $out/bin/casperf
+  '';
   io-engine-bins = runCommand "io-engine" { } ''
     mkdir -p $out/bin
     cp ${io-engine.out}/bin/io-engine $out/bin/io-engine
@@ -94,12 +98,11 @@ let
     /bin/io-engine-client "$@"
   '';
 in
-{
+let
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine";
     copyToRoot = [ busybox io-engine-bins mctl ];
   });
-
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine-dev";
     copyToRoot = [ busybox io-engine-dev ];
@@ -110,14 +113,44 @@ in
     copyToRoot = [ busybox io-engine ];
     config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
-
-  mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
-    name = "${repo-org}/${img_prefix}-fio-spdk";
-    copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
+  mayastor-io-engine-client-dev = dockerTools.buildImage (ioEngineImageProps // {
+    name = "${repo-org}/${img_prefix}-io-engine-client";
+    copyToRoot = [ busybox io-engine-dev ];
+    config = { Entrypoint = [ "/bin/io-engine-client" ]; };
   });
 
   mayastor-casperf = dockerTools.buildImage (clientImageProps // {
     name = "${repo-org}/${img_prefix}-casperf";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf ];
   });
+  mayastor-casperf-dev = dockerTools.buildImage (clientImageProps // {
+    name = "${repo-org}/${img_prefix}-casperf";
+    copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf-dev ];
+  });
+
+  mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
+    name = "${repo-org}/${img_prefix}-fio-spdk";
+    copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
+  });
+in
+{
+  # keep for back-compat, in case it's necessary
+  inherit mayastor-io-engine mayastor-io-engine-dev mayastor-casperf mayastor-fio-spdk;
+
+  release = {
+    mayastor = {
+      io-engine = mayastor-io-engine;
+      io-engine-client = mayastor-io-engine-client;
+      casperf = mayastor-casperf;
+    };
+    fio-spdk = mayastor-fio-spdk;
+  };
+  debug = {
+    mayastor = {
+      io-engine = mayastor-io-engine-dev;
+      io-engine-client = mayastor-io-engine-client-dev;
+      casperf = mayastor-casperf-dev;
+    };
+    fio-spdk = mayastor-fio-spdk;
+  };
 }
