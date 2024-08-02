@@ -1072,8 +1072,11 @@ pub(crate) mod options {
             self.admin_timeout_ms = Some(timeout);
             self
         }
-        pub fn with_fabrics_connect_timeout_us(mut self, timeout: u64) -> Self {
-            self.fabrics_connect_timeout_us = Some(timeout);
+        pub fn with_fabrics_connect_timeout_us<T: Into<Option<u64>>>(
+            mut self,
+            timeout: T,
+        ) -> Self {
+            self.fabrics_connect_timeout_us = timeout.into();
             self
         }
 

@@ -174,7 +174,7 @@ pub struct NvmfTcpTransportOpts {
 }
 
 /// try to read an env variable or returns the default when not found
-fn try_from_env<T>(name: &str, default: T) -> T
+pub(crate) fn try_from_env<T>(name: &str, default: T) -> T
 where
     T: FromStr + Display + Copy,
     <T as FromStr>::Err: Debug + Display,
