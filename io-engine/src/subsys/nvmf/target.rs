@@ -28,7 +28,7 @@ use spdk_rs::libspdk::{
 
 use crate::{
     constants::NVME_CONTROLLER_MODEL_ID,
-    core::{Cores, Mthread, Reactor, Reactors},
+    core::{Cores, Mthread, Reactors},
     ffihelper::{AsStr, FfiResult},
     subsys::{
         nvmf::{
@@ -277,9 +277,9 @@ impl Target {
         Ok(())
     }
 
-    /// enable discovery for the target -- note that the discovery system is not
-    /// started
-    fn enable_discovery(&self) {
+    /// Create the discovery for the target -- note that the discovery system is
+    /// not started.
+    fn create_discovery_subsystem(&self) -> NvmfSubsystem {
         debug!("enabling discovery for target");
         let discovery = unsafe {
             NvmfSubsystem::from(spdk_nvmf_subsystem_create(
@@ -303,12 +303,7 @@ impl Target {
 
         discovery.allow_any(true);
 
-        Reactor::block_on(async {
-            let nqn = discovery.get_nqn();
-            if let Err(e) = discovery.start().await {
-                error!("Error starting subsystem '{}': {}", nqn, e.to_string());
-            }
-        });
+        discovery
     }
 
     /// stop all subsystems on this target we are borrowed here
@@ -362,13 +357,20 @@ impl Target {
 
     /// Final state for the target during init.
     pub fn running(&mut self) {
-        self.enable_discovery();
-        info!(
-            "nvmf target accepting new connections and is ready to roll..{}",
-            '\u{1F483}'
-        );
+        let discovery = self.create_discovery_subsystem();
 
-        unsafe { spdk_subsystem_init_next(0) }
+        Reactors::master().send_future(async move {
+            let nqn = discovery.get_nqn();
+            if let Err(error) = discovery.start().await {
+                error!("Error starting subsystem '{nqn}': {error}");
+            }
+
+            info!(
+                "nvmf target accepting new connections and is ready to roll..{}",
+                '\u{1F483}'
+            );
+            unsafe { spdk_subsystem_init_next(0) }
+        })
     }
 
     /// Shutdown procedure.
