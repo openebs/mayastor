@@ -900,7 +900,7 @@ impl<'n> Nexus<'n> {
                         nexus_name,
                         child_device, "Unplugging nexus child device",
                     );
-                    child.unplug();
+                    child.unplug().await;
                 }
                 None => {
                     warn!(
