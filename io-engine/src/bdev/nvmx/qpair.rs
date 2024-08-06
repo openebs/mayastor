@@ -467,9 +467,9 @@ impl<'a> Connection<'a> {
             0 => Ok(false),
             // Connection is still in progress, keep polling.
             1 => Ok(true),
-            // Error occured during polling.
+            // Error occurred during polling.
             e => {
-                let e = Errno::from_i32(-e);
+                let e = Errno::from_i32(e.abs());
                 error!(?self, "I/O qpair async connection polling error: {e}");
                 Err(e)
             }
