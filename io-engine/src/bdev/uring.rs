@@ -10,7 +10,7 @@ use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
 
-use spdk_rs::libspdk::{create_uring_bdev, delete_uring_bdev};
+use spdk_rs::libspdk::{bdev_uring_opts, create_uring_bdev, delete_uring_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
@@ -101,10 +101,16 @@ impl CreateDestroy for Uring {
         }
 
         let cname = CString::new(self.get_name()).unwrap();
+        let opts = bdev_uring_opts {
+            name: cname.as_ptr(),
+            filename: cname.as_ptr(),
+            block_size: self.blk_size,
+            uuid: spdk_rs::Uuid::generate().into_raw(),
+        };
 
-        if let Some(mut bdev) = UntypedBdev::checked_from_ptr(unsafe {
-            create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
-        }) {
+        if let Some(mut bdev) =
+            UntypedBdev::checked_from_ptr(unsafe { create_uring_bdev(&opts) })
+        {
             if let Some(uuid) = self.uuid {
                 unsafe { bdev.set_raw_uuid(uuid.into()) };
             }

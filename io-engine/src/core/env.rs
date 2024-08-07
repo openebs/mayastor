@@ -272,6 +272,9 @@ pub struct MayastorCliArgs {
     /// Enables RDMA between initiator and Mayastor Nvmf target.
     #[clap(long = "enable-rdma", env = "ENABLE_RDMA", value_parser = delay_compat)]
     pub rdma: bool,
+    /// Enables globally blob store cluster release on unmap.
+    #[clap(long, env = "ENABLE_BS_CLUSTER_UNMAP", hide = true)]
+    pub bs_cluster_unmap: bool,
 }
 
 fn delay_compat(s: &str) -> Result<bool, String> {
@@ -340,6 +343,7 @@ impl Default for MayastorCliArgs {
             snap_rebuild: false,
             developer_delay: false,
             rdma: false,
+            bs_cluster_unmap: false,
         }
     }
 }
@@ -421,6 +425,7 @@ pub struct MayastorEnvironment {
     enable_io_all_thrd_nexus_channels: bool,
     developer_delay: bool,
     rdma: bool,
+    bs_cluster_unmap: bool,
 }
 
 impl Default for MayastorEnvironment {
@@ -470,6 +475,7 @@ impl Default for MayastorEnvironment {
             enable_io_all_thrd_nexus_channels: false,
             developer_delay: false,
             rdma: false,
+            bs_cluster_unmap: false,
         }
     }
 }
@@ -612,6 +618,7 @@ impl MayastorEnvironment {
             skip_sig_handler: args.skip_sig_handler,
             developer_delay: args.developer_delay,
             rdma: args.rdma,
+            bs_cluster_unmap: args.bs_cluster_unmap,
             enable_io_all_thrd_nexus_channels: args
                 .enable_io_all_thrd_nexus_channels,
             ..Default::default()

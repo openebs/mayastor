@@ -16,7 +16,13 @@ pub fn create_error_bdev(error_device: &str, backing_device: &str) {
 
     unsafe {
         // this allows us to create a bdev without its name being a uri
-        retval = create_aio_bdev(cname.as_ptr(), filename.as_ptr(), 512, false)
+        retval = create_aio_bdev(
+            cname.as_ptr(),
+            filename.as_ptr(),
+            512,
+            false,
+            false,
+        )
     };
     assert_eq!(retval, 0);
 
