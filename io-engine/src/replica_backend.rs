@@ -1,14 +1,17 @@
-use super::pool_backend::PoolBackend;
+use super::pool_backend::{Error, GenericError, PoolBackend};
 use crate::core::{
     snapshot::SnapshotDescriptor,
+    BdevStater,
+    BdevStats,
     CloneParams,
     LogicalVolume,
     Protocol,
     PtplProps,
     SnapshotParams,
+    UntypedBdev,
     UpdateProps,
 };
-use std::fmt::Debug;
+use std::{fmt::Debug, ops::Deref};
 
 /// This interface defines the high level operations which can be done on a
 /// `Pool` replica. Replica-Specific details should be hidden away in the
@@ -16,7 +19,9 @@ use std::fmt::Debug;
 /// specific options to be passed as parameters.
 /// A `Replica` is also a `LogicalVolume` and also has `Share` traits.
 #[async_trait::async_trait(?Send)]
-pub trait ReplicaOps: LogicalVolume {
+pub trait ReplicaOps:
+    LogicalVolume + BdevStater<Stats = ReplicaBdevStats>
+{
     fn shared(&self) -> Option<Protocol>;
     fn create_ptpl(
         &self,
@@ -78,6 +83,9 @@ pub trait ReplicaOps: LogicalVolume {
         &mut self,
         params: SnapshotParams,
     ) -> Result<Box<dyn SnapshotOps>, crate::pool_backend::Error>;
+
+    /// Returns the underlying bdev of the Logical Volume, if open.
+    fn try_as_bdev(&self) -> Result<UntypedBdev, crate::pool_backend::Error>;
 }
 
 /// Snapshot Operations for snapshots created by `ReplicaOps`.
@@ -130,6 +138,15 @@ pub struct ListReplicaArgs {
     /// Match the given pool uuid.
     pub pool_uuid: Option<String>,
 }
+impl ListReplicaArgs {
+    /// A new `Self` with only the name specified.
+    pub fn new_named(name: Option<String>) -> Self {
+        Self {
+            name,
+            ..Default::default()
+        }
+    }
+}
 
 /// Find replica with filters.
 #[derive(Debug, Clone)]
@@ -149,7 +166,7 @@ impl FindReplicaArgs {
 /// Interface for a replica factory which can be used for various
 /// listing operations, for a specific backend type.
 #[async_trait::async_trait(?Send)]
-pub trait ReplicaFactory {
+pub trait IReplicaFactory {
     /// If the bdev is a `ReplicaOps`, move and retrieve it as a `ReplicaOps`.
     fn bdev_as_replica(
         &self,
@@ -167,7 +184,8 @@ pub trait ReplicaFactory {
         &self,
         args: &FindSnapshotArgs,
     ) -> Result<Option<Box<dyn SnapshotOps>>, crate::pool_backend::Error>;
-    /// Lists all replicas specified by the arguments.
+    /// Lists all replicas specified by the arguments, except the replica kinds.
+    /// It lists all types of replicas.
     async fn list(
         &self,
         args: &ListReplicaArgs,
@@ -184,6 +202,21 @@ pub trait ReplicaFactory {
         args: &ListCloneArgs,
     ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error>;
     fn backend(&self) -> PoolBackend;
+}
+
+/// Replica IO stats along with its name and uuid.
+pub struct ReplicaBdevStats {
+    pub stats: BdevStats,
+    pub entity_id: Option<String>,
+}
+impl ReplicaBdevStats {
+    /// Create a new `Self` from the given parts.
+    pub fn new(stats: BdevStats, entity_id: Option<String>) -> Self {
+        Self {
+            stats,
+            entity_id,
+        }
+    }
 }
 
 /// Find snapshots with filters.
@@ -217,35 +250,64 @@ pub struct ListCloneArgs {
     pub snapshot_uuid: Option<String>,
 }
 
-/// Get the `ReplicaFactory` for the given backend type.
-pub(crate) fn factory_enabled(
-    backend: PoolBackend,
-) -> Option<Box<dyn ReplicaFactory>> {
-    backend.enabled().ok()?;
-    Some(factory_unsafe(backend))
-}
-/// Get the `ReplicaFactory` for the given backend type.
-pub(crate) fn factory_unsafe(backend: PoolBackend) -> Box<dyn ReplicaFactory> {
-    match backend {
-        PoolBackend::Lvs => Box::new(crate::lvs::ReplLvsFactory {}) as _,
-        PoolBackend::Lvm => Box::new(crate::lvm::ReplLvmFactory {}) as _,
+/// A replica factory helper.
+pub struct ReplicaFactory(Box<dyn IReplicaFactory>);
+impl ReplicaFactory {
+    /// Get factories for all **enabled** backends.
+    pub fn factories() -> Vec<Self> {
+        let backends = crate::pool_backend::PoolFactory::backends();
+        backends.into_iter().map(Self::new).collect()
     }
-}
-/// Get all the enabled `ReplicaFactory`.
-pub(crate) fn factories() -> Vec<Box<dyn ReplicaFactory>> {
-    vec![PoolBackend::Lvm, PoolBackend::Lvs]
-        .into_iter()
-        .filter_map(factory_enabled)
-        .collect()
-}
-/// Get the given bdev as a `ReplicaOps`.
-pub(crate) fn bdev_as_replica(
-    bdev: crate::core::UntypedBdev,
-) -> Option<Box<dyn ReplicaOps>> {
-    for factory in factories() {
-        if let Some(replica) = factory.bdev_as_replica(bdev) {
-            return Some(replica);
+    /// Returns the factory for the given backend kind.
+    pub fn new(backend: PoolBackend) -> Self {
+        Self(match backend {
+            PoolBackend::Lvs => {
+                Box::<crate::lvs::ReplLvsFactory>::default() as _
+            }
+            PoolBackend::Lvm => {
+                Box::<crate::lvm::ReplLvmFactory>::default() as _
+            }
+        })
+    }
+    /// Get the given bdev as a `ReplicaOps`.
+    pub(crate) fn bdev_as_replica(
+        bdev: crate::core::UntypedBdev,
+    ) -> Option<Box<dyn ReplicaOps>> {
+        for factory in Self::factories() {
+            if let Some(replica) = factory.as_factory().bdev_as_replica(bdev) {
+                return Some(replica);
+            }
         }
+        None
     }
-    None
+    /// Probe backends for the given name and/or uuid and return the right one.
+    pub async fn find(
+        args: &FindReplicaArgs,
+    ) -> Result<Box<dyn ReplicaOps>, Error> {
+        let mut error = None;
+
+        for factory in Self::factories() {
+            match factory.0.find(args).await {
+                Ok(Some(replica)) => {
+                    // should this be an error?
+                    if !replica.is_snapshot() {
+                        return Ok(replica);
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    error = Some(err);
+                }
+            }
+        }
+        Err(error.unwrap_or_else(|| Error::Gen {
+            source: GenericError::NotFound {
+                message: format!("Replica {args:?} not found"),
+            },
+        }))
+    }
+    /// Get the inner factory interface.
+    pub fn as_factory(&self) -> &dyn IReplicaFactory {
+        self.0.deref()
+    }
 }

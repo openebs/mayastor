@@ -40,7 +40,6 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         logical_volume::{LogicalVolume, LvolSpaceUsage},
-        wiper::{WipeMethod, Wiper},
         Bdev,
         CloneXattrs,
         LvolSnapshotOps,
@@ -49,7 +48,6 @@ use crate::{
         PtplProps,
         Share,
         SnapshotXattrs,
-        ToErrno,
         UntypedBdev,
         UpdateProps,
     },
@@ -340,22 +338,6 @@ impl Lvol {
         Ok(())
     }
 
-    /// Get a wiper for this replica.
-    pub(crate) fn wiper(
-        &self,
-        wipe_method: WipeMethod,
-    ) -> Result<Wiper, LvsError> {
-        let hdl = Bdev::open(&self.as_bdev(), true)
-            .and_then(|desc| desc.into_handle())
-            .map_err(|e| LvsError::Invalid {
-                msg: e.to_string(),
-                source: BsError::from_errno(e.to_errno()),
-            })?;
-
-        let wiper = Wiper::new(hdl, wipe_method)?;
-        Ok(wiper)
-    }
-
     /// generic callback for lvol operations
     pub(crate) extern "C" fn lvol_cb(
         sender_ptr: *mut c_void,
@@ -370,11 +352,6 @@ impl Lvol {
         sender
             .send(errno_result_from_i32(lvol_ptr, errno))
             .expect("Receiver is gone");
-    }
-    /// Format snapshot name
-    /// base_name is the nexus or replica UUID
-    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
-        format!("{base_name}-snap-{snapshot_time}")
     }
     /// Get a `PtplFileOps` from `&self`.
     pub(crate) fn ptpl(&self) -> impl PtplFileOps {
@@ -659,7 +636,7 @@ pub trait LvsLvol: LogicalVolume + Share {
     async fn resize_replica(&mut self, resize_to: u64) -> Result<(), LvsError>;
 }
 
-///  LogicalVolume implement Generic interface for Lvol.
+/// LogicalVolume implement Generic interface for Lvol.
 impl LogicalVolume for Lvol {
     /// Returns the name of the Snapshot.
     fn name(&self) -> String {

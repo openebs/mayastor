@@ -8,7 +8,7 @@ use std::{
 use nix::errno::Errno;
 use snafu::Snafu;
 
-pub use bdev::{Bdev, BdevIter, UntypedBdev};
+pub use bdev::{Bdev, BdevIter, BdevStater, BdevStats, UntypedBdev};
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,

@@ -49,31 +49,36 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         snapshot::SnapshotDescriptor,
+        BdevStater,
+        BdevStats,
         CloneParams,
+        CoreError,
         NvmfShareProps,
         Protocol,
         PtplProps,
         SnapshotParams,
+        UntypedBdev,
         UpdateProps,
     },
     lvm::property::Property,
     pool_backend::{
         FindPoolArgs,
+        IPoolFactory,
         IPoolProps,
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
-        PoolFactory,
         PoolOps,
         ReplicaArgs,
     },
     replica_backend::{
         FindReplicaArgs,
         FindSnapshotArgs,
+        IReplicaFactory,
         ListCloneArgs,
         ListReplicaArgs,
         ListSnapshotArgs,
-        ReplicaFactory,
+        ReplicaBdevStats,
         ReplicaOps,
         SnapshotOps,
     },
@@ -161,6 +166,23 @@ impl PoolOps for VolumeGroup {
 }
 
 #[async_trait::async_trait(?Send)]
+impl BdevStater for VolumeGroup {
+    type Stats = BdevStats;
+
+    async fn stats(&self) -> Result<BdevStats, CoreError> {
+        Err(CoreError::NotSupported {
+            source: nix::errno::Errno::ENOSYS,
+        })
+    }
+
+    async fn reset_stats(&self) -> Result<(), CoreError> {
+        Err(CoreError::NotSupported {
+            source: nix::errno::Errno::ENOSYS,
+        })
+    }
+}
+
+#[async_trait::async_trait(?Send)]
 impl ReplicaOps for LogicalVolume {
     async fn share_nvmf(
         &mut self,
@@ -234,7 +256,30 @@ impl ReplicaOps for LogicalVolume {
     ) -> Result<Box<dyn SnapshotOps>, crate::pool_backend::Error> {
         Err(Error::SnapshotNotSup {}.into())
     }
+
+    fn try_as_bdev(&self) -> Result<UntypedBdev, crate::pool_backend::Error> {
+        let bdev = Self::bdev(self.bdev_opts()?.uri())?;
+        Ok(bdev)
+    }
 }
+
+#[async_trait::async_trait(?Send)]
+impl BdevStater for LogicalVolume {
+    type Stats = ReplicaBdevStats;
+
+    async fn stats(&self) -> Result<ReplicaBdevStats, CoreError> {
+        Err(CoreError::NotSupported {
+            source: nix::errno::Errno::ENOSYS,
+        })
+    }
+
+    async fn reset_stats(&self) -> Result<(), CoreError> {
+        Err(CoreError::NotSupported {
+            source: nix::errno::Errno::ENOSYS,
+        })
+    }
+}
+
 #[async_trait::async_trait(?Send)]
 impl SnapshotOps for LogicalVolume {
     async fn destroy_snapshot(
@@ -304,7 +349,7 @@ impl IPoolProps for VolumeGroup {
 #[derive(Default)]
 pub struct PoolLvmFactory {}
 #[async_trait::async_trait(?Send)]
-impl PoolFactory for PoolLvmFactory {
+impl IPoolFactory for PoolLvmFactory {
     async fn create(
         &self,
         args: PoolArgs,
@@ -369,6 +414,7 @@ impl PoolFactory for PoolLvmFactory {
             .map(|p| Box::new(p) as _)
             .collect::<Vec<_>>())
     }
+
     fn backend(&self) -> PoolBackend {
         PoolBackend::Lvm
     }
@@ -378,7 +424,7 @@ impl PoolFactory for PoolLvmFactory {
 #[derive(Default)]
 pub struct ReplLvmFactory {}
 #[async_trait::async_trait(?Send)]
-impl ReplicaFactory for ReplLvmFactory {
+impl IReplicaFactory for ReplLvmFactory {
     fn bdev_as_replica(
         &self,
         _bdev: crate::core::UntypedBdev,

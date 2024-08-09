@@ -8,31 +8,20 @@ use std::{
 
 use crate::{
     bdev::{nexus, nvmx::NvmeSnapshotMessage},
-    core::{
-        logical_volume::LogicalVolume,
-        snapshot::LvolSnapshotOps,
-        Bdev,
-        Reactors,
-        SnapshotParams,
-    },
-    lvs::Lvol,
+    core::{Bdev, Reactors, SnapshotParams},
 };
 
 use crate::{
     core::{ToErrno, UntypedBdev},
-    replica_backend::bdev_as_replica,
+    replica_backend::ReplicaFactory,
 };
-use chrono::Utc;
 use spdk_rs::{
     libspdk::{
         nvme_cmd_cdw10_get,
-        nvme_cmd_cdw10_get_val,
         nvme_cmd_cdw11_get,
-        nvme_cmd_cdw11_get_val,
         nvme_status_get,
         spdk_bdev,
         spdk_bdev_desc,
-        spdk_bdev_io,
         spdk_io_channel,
         spdk_nvme_cmd,
         spdk_nvme_cpl,
@@ -49,7 +38,6 @@ use spdk_rs::{
         spdk_nvmf_subsystem_get_max_nsid,
     },
     nvme_admin_opc,
-    Uuid,
 };
 
 #[warn(unused_variables)]
@@ -232,7 +220,7 @@ async fn create_remote_snapshot(
     params: SnapshotParams,
     nvmf_req: NvmfReq,
 ) {
-    let Some(mut replica_ops) = bdev_as_replica(bdev) else {
+    let Some(mut replica_ops) = ReplicaFactory::bdev_as_replica(bdev) else {
         debug!("unsupported bdev driver");
         nvmf_req.complete_error(nix::errno::Errno::ENOTSUP as i32);
         return;
@@ -256,37 +244,6 @@ async fn create_remote_snapshot(
             nvmf_req.complete_error(error.to_errno() as i32)
         }
     }
-}
-pub fn create_snapshot(
-    lvol: Lvol,
-    cmd: &spdk_nvme_cmd,
-    _io: *mut spdk_bdev_io,
-) {
-    let snapshot_time = unsafe {
-        nvme_cmd_cdw10_get_val(cmd) as u64
-            | (nvme_cmd_cdw11_get_val(cmd) as u64) << 32
-    };
-    let snapshot_name = Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
-    let snap_param = SnapshotParams::new(
-        Some(lvol.name()),
-        Some(lvol.name()),
-        Some(Uuid::generate().to_string()),
-        Some(snapshot_name),
-        Some(Uuid::generate().to_string()),
-        Some(Utc::now().to_string()),
-        false,
-    );
-    // Blobfs operations must be on md_thread
-    Reactors::master().send_future(async move {
-        match lvol.create_snapshot(snap_param).await {
-            Ok(lvol) => {
-                info!("Create Snapshot {:?} Success!", lvol);
-            }
-            Err(e) => {
-                error!("Create Snapshot Failed with Error: {:?}", e);
-            }
-        }
-    });
 }
 
 /// Register custom NVMe admin command handler

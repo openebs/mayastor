@@ -3,7 +3,7 @@
 SCRIPT_DIR="$(dirname "$0")"
 ROOT_DIR=$(realpath "$SCRIPT_DIR/..")
 
-sudo nvme disconnect-all
+nix-sudo nvme disconnect-all
 
 # Detach any loop devices created for test purposes
 for back_file in "/tmp/io-engine-tests"/*; do
@@ -14,12 +14,12 @@ for back_file in "/tmp/io-engine-tests"/*; do
     while IFS= read -r device; do
         if [ -n "$device" ]; then
             echo "Detaching loop device: $device"
-            losetup -d "$device"
+            sudo losetup -d "$device"
         fi
     done <<< "$devices"
 done
 # Delete the directory too
-rmdir --ignore-fail-on-non-empty "/tmp/io-engine-tests"
+nix-sudo rmdir --ignore-fail-on-non-empty "/tmp/io-engine-tests" 2>/dev/null
 
 
 for c in $(docker ps -a --filter "label=io.composer.test.name" --format '{{.ID}}') ; do

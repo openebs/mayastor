@@ -13,20 +13,20 @@ use crate::{
     pool_backend::{
         Error,
         FindPoolArgs,
+        IPoolFactory,
         IPoolProps,
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
-        PoolFactory,
         PoolOps,
         ReplicaArgs,
     },
     replica_backend::{
         FindReplicaArgs,
+        IReplicaFactory,
         ListCloneArgs,
         ListReplicaArgs,
         ListSnapshotArgs,
-        ReplicaFactory,
         ReplicaOps,
         SnapshotOps,
     },
@@ -39,6 +39,7 @@ pub use lvs_lvol::{Lvol, LvsLvol, PropName, PropValue};
 pub use lvs_store::Lvs;
 use std::{convert::TryFrom, pin::Pin};
 
+mod lvol_iter;
 mod lvol_snapshot;
 mod lvs_bdev;
 mod lvs_error;
@@ -46,7 +47,10 @@ mod lvs_iter;
 pub mod lvs_lvol;
 mod lvs_store;
 
-use crate::replica_backend::FindSnapshotArgs;
+use crate::{
+    core::{BdevStater, BdevStats, CoreError, UntypedBdev},
+    replica_backend::{FindSnapshotArgs, ReplicaBdevStats},
+};
 pub use lvol_snapshot::{LvolResult, LvolSnapshotDescriptor, LvolSnapshotOps};
 
 #[async_trait::async_trait(?Send)]
@@ -117,6 +121,24 @@ impl ReplicaOps for Lvol {
         let snapshot = LvolSnapshotOps::create_snapshot(self, params).await?;
         Ok(Box::new(snapshot))
     }
+
+    fn try_as_bdev(&self) -> Result<UntypedBdev, Error> {
+        Ok(self.as_bdev())
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl BdevStater for Lvol {
+    type Stats = ReplicaBdevStats;
+
+    async fn stats(&self) -> Result<ReplicaBdevStats, CoreError> {
+        let stats = self.as_bdev().stats().await?;
+        Ok(ReplicaBdevStats::new(stats, self.entity_id()))
+    }
+
+    async fn reset_stats(&self) -> Result<(), CoreError> {
+        self.as_bdev().reset_stats().await
+    }
 }
 
 #[async_trait::async_trait(?Send)]
@@ -172,6 +194,20 @@ impl PoolOps for Lvs {
     }
 }
 
+#[async_trait::async_trait(?Send)]
+impl BdevStater for Lvs {
+    type Stats = BdevStats;
+
+    async fn stats(&self) -> Result<BdevStats, CoreError> {
+        let stats = self.base_bdev().stats_async().await?;
+        Ok(BdevStats::new(self.name().to_string(), self.uuid(), stats))
+    }
+
+    async fn reset_stats(&self) -> Result<(), CoreError> {
+        self.base_bdev().reset_bdev_io_stats().await
+    }
+}
+
 impl IPoolProps for Lvs {
     fn name(&self) -> &str {
         self.name()
@@ -210,7 +246,7 @@ impl IPoolProps for Lvs {
 #[derive(Default)]
 pub struct PoolLvsFactory {}
 #[async_trait::async_trait(?Send)]
-impl PoolFactory for PoolLvsFactory {
+impl IPoolFactory for PoolLvsFactory {
     async fn create(
         &self,
         args: PoolArgs,
@@ -273,6 +309,7 @@ impl PoolFactory for PoolLvsFactory {
             .map(|p| Box::new(p) as _)
             .collect::<Vec<_>>())
     }
+
     fn backend(&self) -> PoolBackend {
         PoolBackend::Lvs
     }
@@ -282,7 +319,7 @@ impl PoolFactory for PoolLvsFactory {
 #[derive(Default)]
 pub struct ReplLvsFactory {}
 #[async_trait::async_trait(?Send)]
-impl ReplicaFactory for ReplLvsFactory {
+impl IReplicaFactory for ReplLvsFactory {
     fn bdev_as_replica(
         &self,
         bdev: crate::core::UntypedBdev,
@@ -323,15 +360,11 @@ impl ReplicaFactory for ReplLvsFactory {
         &self,
         args: &ListReplicaArgs,
     ) -> Result<Vec<Box<dyn ReplicaOps>>, Error> {
-        let Some(bdev) = crate::core::UntypedBdev::bdev_first() else {
-            return Ok(vec![]);
-        };
         let retain = |arg: Option<&String>, val: &String| -> bool {
             arg.is_none() || arg == Some(val)
         };
 
-        let lvols = bdev.into_iter().filter_map(Lvol::ok_from);
-        let lvols = lvols.filter(|lvol| {
+        let lvols = lvol_iter::LvolIter::new().filter(|lvol| {
             retain(args.pool_name.as_ref(), &lvol.pool_name())
                 && retain(args.pool_uuid.as_ref(), &lvol.pool_uuid())
                 && retain(args.name.as_ref(), &lvol.name())
@@ -340,7 +373,6 @@ impl ReplicaFactory for ReplLvsFactory {
 
         Ok(lvols.map(|lvol| Box::new(lvol) as _).collect::<Vec<_>>())
     }
-
     async fn list_snaps(
         &self,
         args: &ListSnapshotArgs,

@@ -13,7 +13,7 @@ use std::{cell::RefCell, mem::zeroed};
 use nix::errno::Errno;
 use snafu::Snafu;
 
-pub use admin_cmd::{create_snapshot, set_snapshot_time, NvmeCpl, NvmfReq};
+pub use admin_cmd::{set_snapshot_time, NvmeCpl, NvmfReq};
 use poll_groups::PollGroup;
 use spdk_rs::libspdk::{
     spdk_subsystem,

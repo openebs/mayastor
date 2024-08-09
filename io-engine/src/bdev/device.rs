@@ -67,7 +67,7 @@ use crate::core::fault_injection::{
     FaultDomain,
     InjectIoCtx,
 };
-use crate::replica_backend::bdev_as_replica;
+use crate::replica_backend::ReplicaFactory;
 
 /// TODO
 type EventDispatcherMap = HashMap<String, DeviceEventDispatcher>;
@@ -584,14 +584,14 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         })
     }
 
-    // NVMe commands are not applicable for non-NVMe devices.
+    /// NVMe commands are not applicable for non-NVMe devices.
     async fn create_snapshot(
         &self,
         snapshot: SnapshotParams,
     ) -> Result<u64, CoreError> {
         let bdev = self.handle.get_bdev();
 
-        let Some(mut replica) = bdev_as_replica(bdev) else {
+        let Some(mut replica) = ReplicaFactory::bdev_as_replica(bdev) else {
             return Err(CoreError::NotSupported {
                 source: Errno::ENXIO,
             });

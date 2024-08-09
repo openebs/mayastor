@@ -16,7 +16,6 @@ use crate::{
         GrpcResult,
         RWSerializer,
     },
-    replica_backend,
 };
 use ::function_name::named;
 use chrono::{DateTime, Utc};
@@ -227,6 +226,7 @@ use crate::{
         FindSnapshotArgs,
         ListCloneArgs,
         ListSnapshotArgs,
+        ReplicaFactory,
         SnapshotOps,
     },
 };
@@ -291,8 +291,8 @@ impl SnapshotGrpc {
     async fn finder(args: &FindSnapshotArgs) -> Result<Self, Status> {
         let mut error = None;
 
-        for factory in replica_backend::factories() {
-            match factory.find_snap(args).await {
+        for factory in ReplicaFactory::factories() {
+            match factory.as_factory().find_snap(args).await {
                 Ok(Some(snapshot)) => {
                     return Ok(Self(snapshot));
                 }

@@ -152,7 +152,7 @@ pub struct RunLogicalVolume {
 
 /// Runtime settings for the LogicalVolume.
 #[derive(Debug, Default, Clone)]
-struct BdevOpts {
+pub(crate) struct BdevOpts {
     /// The share URI of the SPDK Bdev which is created against the lv_path.
     share_uri: Option<String>,
     /// The URI of the SPDK Bdev which is created against the lv_path.
@@ -177,6 +177,10 @@ impl BdevOpts {
         self.share_uri = to.share_uri;
         self.allowed_hosts = to.allowed_hosts;
         self.share = to.share;
+    }
+    /// Get a reference to the original bdev uri.
+    pub(crate) fn uri(&self) -> &str {
+        &self.open_uri
     }
 }
 
@@ -320,10 +324,11 @@ impl LogicalVolume {
     /// The bdev is unshared (if shared) and closed, allowing the logical volume
     /// to be closed and/or destroyed.
     pub(super) async fn export_bdev(&mut self) -> Result<(), Error> {
-        let Ok(uri) = self.bdev_uri() else {
+        let Ok(bdev) = self.bdev_opts() else {
             // Nothing to do if the bdev was not setup...
             return Ok(());
         };
+        let uri = bdev.open_uri.clone();
         crate::spdk_run!(async move {
             if let Ok(mut bdev) = Self::bdev(&uri) {
                 // todo: must we error if we can't unshare?
@@ -545,8 +550,8 @@ impl LogicalVolume {
         let uri = bdev.open_uri.clone();
         Ok((bdev, uri))
     }
-    fn bdev_uri(&self) -> Result<String, Error> {
-        let Some(uri) = self.bdev.as_ref().map(|b| b.open_uri.clone()) else {
+    pub(crate) fn bdev_opts(&self) -> Result<&BdevOpts, Error> {
+        let Some(uri) = self.bdev.as_ref() else {
             // Nothing to do if the bdev was not setup...
             return Err(Error::BdevMissing {});
         };
@@ -647,7 +652,7 @@ impl LogicalVolume {
 ///     we could go the other way and use trampoline from spdk to tokio, but
 ///     then also hit the problem?
 impl LogicalVolume {
-    fn bdev(uri: &str) -> Result<UntypedBdev, Error> {
+    pub(crate) fn bdev(uri: &str) -> Result<UntypedBdev, Error> {
         UntypedBdev::get_by_name(uri).map_err(|_| Error::BdevMissing {})
     }
 

@@ -1,10 +1,13 @@
 use crate::{
     core::{
         logical_volume::LvolSpaceUsage,
+        wiper::{WipeMethod, Wiper},
+        Bdev,
         NvmfShareProps,
         ProtectedSubsystems,
         Protocol,
         ResourceLockManager,
+        ToErrno,
         UpdateProps,
     },
     grpc::{
@@ -18,6 +21,7 @@ use crate::{
     pool_backend::{FindPoolArgs, PoolBackend},
     replica_backend::{
         FindReplicaArgs,
+        IReplicaFactory,
         ListCloneArgs,
         ListReplicaArgs,
         ListSnapshotArgs,
@@ -197,42 +201,18 @@ fn filter_replicas_by_replica_type(
 }
 
 /// A replica factory with the various types of specific impls.
-pub(crate) struct GrpcReplicaFactory {
-    repl_factory: Box<dyn ReplicaFactory>,
-}
+pub(crate) struct GrpcReplicaFactory(ReplicaFactory);
 impl GrpcReplicaFactory {
     pub(crate) fn factories() -> Vec<Self> {
-        crate::replica_backend::factories()
+        ReplicaFactory::factories()
             .into_iter()
-            .map(|repl_factory| Self {
-                repl_factory,
-            })
+            .map(Self)
             .collect::<Vec<_>>()
-    }
-    async fn find_ops(
-        args: &FindReplicaArgs,
-    ) -> Result<Box<dyn ReplicaOps>, Status> {
-        let mut error = None;
-
-        for factory in Self::factories() {
-            match factory.find_replica(args).await {
-                Ok(Some(replica)) => {
-                    return Ok(replica);
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    error = Some(err);
-                }
-            }
-        }
-        Err(error.unwrap_or_else(|| {
-            Status::not_found(format!("Replica {args:?} not found"))
-        }))
     }
     pub(crate) async fn finder(
         args: &FindReplicaArgs,
     ) -> Result<ReplicaGrpc, Status> {
-        let replica = Self::find_ops(args).await?;
+        let replica = ReplicaFactory::find(args).await?;
         Ok(ReplicaGrpc::new(replica))
     }
     pub(crate) async fn pool_finder<I: Into<FindPoolArgs>>(
@@ -246,25 +226,19 @@ impl GrpcReplicaFactory {
             }
         })
     }
-    async fn find_replica(
-        &self,
-        args: &FindReplicaArgs,
-    ) -> Result<Option<Box<dyn ReplicaOps>>, tonic::Status> {
-        let replica = self.as_factory().find(args).await?;
-        if let Some(replica) = &replica {
-            // should this be an error?
-            if replica.is_snapshot() {
-                return Ok(None);
-            }
-        }
-        Ok(replica)
-    }
-    async fn list(
+    pub(crate) async fn list(
         &self,
         args: &ListReplicaArgs,
     ) -> Result<Vec<Replica>, Status> {
         let replicas = self.as_factory().list(args).await?;
         Ok(replicas.into_iter().map(Into::into).collect::<Vec<_>>())
+    }
+    pub(crate) async fn list_ops(
+        &self,
+        args: &ListReplicaArgs,
+    ) -> Result<Vec<Box<dyn ReplicaOps>>, Status> {
+        let replicas = self.as_factory().list(args).await?;
+        Ok(replicas)
     }
     pub(crate) async fn list_snaps(
         &self,
@@ -283,8 +257,8 @@ impl GrpcReplicaFactory {
     pub(crate) fn backend(&self) -> PoolBackend {
         self.as_factory().backend()
     }
-    fn as_factory(&self) -> &dyn ReplicaFactory {
-        self.repl_factory.deref()
+    fn as_factory(&self) -> &dyn IReplicaFactory {
+        self.0.as_factory()
     }
 }
 
@@ -292,11 +266,27 @@ impl GrpcReplicaFactory {
 pub(crate) struct ReplicaGrpc {
     pub(crate) replica: Box<dyn ReplicaOps>,
 }
+
 impl ReplicaGrpc {
     fn new(replica: Box<dyn ReplicaOps>) -> Self {
         Self {
             replica,
         }
+    }
+    /// Get a wiper for this replica.
+    pub(crate) fn wiper(
+        &self,
+        wipe_method: WipeMethod,
+    ) -> Result<Wiper, Status> {
+        let hdl = Bdev::open(&self.replica.try_as_bdev()?, true)
+            .and_then(|desc| desc.into_handle())
+            .map_err(|e| crate::lvs::LvsError::Invalid {
+                msg: e.to_string(),
+                source: crate::lvs::BsError::from_errno(e.to_errno()),
+            })?;
+
+        let wiper = Wiper::new(hdl, wipe_method)?;
+        Ok(wiper)
     }
     async fn destroy(self) -> Result<(), Status> {
         self.replica.destroy().await?;
@@ -353,7 +343,7 @@ impl ReplicaGrpc {
         self.replica.set_entity_id(id).await?;
         Ok(())
     }
-    fn verify_pool(&self, pool: &PoolGrpc) -> Result<(), Status> {
+    pub(crate) fn verify_pool(&self, pool: &PoolGrpc) -> Result<(), Status> {
         let pool = pool.as_ops();
         let replica = &self.replica;
         if pool.name() != replica.pool_name()

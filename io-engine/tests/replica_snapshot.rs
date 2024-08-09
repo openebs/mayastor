@@ -2,7 +2,7 @@ use io_engine::{
     bdev::nexus::nexus_create,
     constants::NVME_NQN_PREFIX,
     core::{CoreError, MayastorCliArgs, SnapshotParams, UntypedBdevHandle},
-    lvs::{Lvol, Lvs},
+    lvs::Lvs,
     pool_backend::{PoolArgs, PoolBackend},
 };
 use tracing::info;
@@ -169,13 +169,18 @@ async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
     if t > 0 {
         children
             .iter_mut()
-            .for_each(|c| *c = Lvol::format_snapshot_name(c, t));
+            .for_each(|c| *c = format_snapshot_name(c, t));
         nexus_name = NXNAME_SNAP;
     }
 
     nexus_create(nexus_name, 64 * 1024 * 1024, None, &children)
         .await
         .unwrap();
+}
+/// Format snapshot name
+/// base_name is the nexus or replica UUID
+fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
+    format!("{base_name}-snap-{snapshot_time}")
 }
 
 async fn create_snapshot() -> Result<u64, CoreError> {
