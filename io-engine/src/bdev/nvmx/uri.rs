@@ -227,6 +227,12 @@ impl<'probe> NvmeControllerContext<'probe> {
             )
             .with_transport_retry_count(
                 Config::get().nvme_bdev_opts.transport_retry_count as u8,
+            )
+            .with_fabrics_connect_timeout_us(
+                crate::subsys::config::opts::try_from_env(
+                    "NVMF_FABRICS_CONNECT_TIMEOUT",
+                    1_000_000,
+                ),
             );
 
         let hostnqn = template.hostnqn.clone().or_else(|| {
