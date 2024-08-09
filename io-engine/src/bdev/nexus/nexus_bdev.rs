@@ -1380,30 +1380,41 @@ impl<'n> BdevOps for Nexus<'n> {
             return;
         }
 
-        let self_ptr = unsafe { unsafe_static_ptr(&self) };
+        let open_children =
+            self.children.iter().filter(|c| c.is_opened()).count();
+        // TODO: This doesn't seem possible to happen at this stage, but seems
+        // we should still try to handle this in separate future since
+        // we're handling it here anyway as a block_on is not safe to
+        // use for running production code.
+        if open_children > 0 {
+            tracing::error!(
+                "BUG => {open_children} child(ren) left open during nexus bdev destruction"
+            );
+            let self_ptr = unsafe { unsafe_static_ptr(&self) };
+            Reactor::block_on(async move {
+                let self_ref = unsafe { &mut *self_ptr };
 
-        Reactor::block_on(async move {
-            let self_ref = unsafe { &mut *self_ptr };
+                // TODO: double-check interaction with rebuild job logic
+                // TODO: cancel rebuild jobs?
+                let n =
+                    self_ref.children.iter().filter(|c| c.is_opened()).count();
 
-            // TODO: double-check interaction with rebuild job logic
-            // TODO: cancel rebuild jobs?
-            let n = self_ref.children.iter().filter(|c| c.is_opened()).count();
+                if n > 0 {
+                    warn!(
+                        "{:?}: {} open children remain(s), closing...",
+                        self_ref, n
+                    );
 
-            if n > 0 {
-                warn!(
-                    "{:?}: {} open children remain(s), closing...",
-                    self_ref, n
-                );
-
-                for child in self_ref.children.iter() {
-                    if child.is_opened() {
-                        child.close().await.ok();
+                    for child in self_ref.children.iter() {
+                        if child.is_opened() {
+                            child.close().await.ok();
+                        }
                     }
                 }
-            }
 
-            self_ref.children.clear();
-        });
+                self_ref.children.clear();
+            });
+        }
 
         self.as_mut().unregister_io_device();
         unsafe {
