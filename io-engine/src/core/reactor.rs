@@ -362,8 +362,15 @@ impl Reactor {
         task
     }
 
-    /// spawn a future locally on the current core block until the future is
+    /// Spawns a future locally on the current core block until the future is
     /// completed. The master core is used.
+    /// # Warning
+    /// This code should only be used for testing and not running production!
+    /// This is because when calling block_on from a thread_poll callback, we
+    /// may be leaving messages behind, which can lead to timeouts etc...
+    /// A work-around to make this safe could be to potentially "pull" the
+    /// messages which haven't been polled, and poll them here before
+    /// proceeding to re-poll via thread_poll again.
     pub fn block_on<F, R>(future: F) -> Option<R>
     where
         F: Future<Output = R> + 'static,

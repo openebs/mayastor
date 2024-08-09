@@ -2,7 +2,6 @@ use futures::channel::oneshot::Receiver;
 use nix::errno::Errno;
 pub use server::MayastorGrpcServer;
 use std::{
-    error::Error,
     fmt::{Debug, Display},
     future::Future,
     time::Duration,
@@ -157,22 +156,6 @@ macro_rules! spdk_submit {
 }
 
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;
-
-/// call the given future within the context of the reactor on the first core
-/// on the init thread, while the future is waiting to be completed the reactor
-/// is continuously polled so that forward progress can be made
-pub fn rpc_call<G, I, L, A>(future: G) -> Result<Response<A>, tonic::Status>
-where
-    G: Future<Output = Result<I, L>> + 'static,
-    I: 'static,
-    L: Into<Status> + Error + 'static,
-    A: 'static + From<I>,
-{
-    Reactor::block_on(future)
-        .unwrap()
-        .map(|r| Response::new(A::from(r)))
-        .map_err(|e| e.into())
-}
 
 /// Submit rpc code to the primary reactor.
 pub fn rpc_submit<F, R, E>(
