@@ -24,8 +24,6 @@ use crate::{
         BlockDeviceHandle,
         CoreError,
         DeviceEventSink,
-        Reactor,
-        Reactors,
         VerboseError,
     },
     eventing::replica_events::state_change_event_meta,
@@ -1109,7 +1107,7 @@ impl<'c> NexusChild<'c> {
     /// underlying device is removed.
     ///
     /// Note: The descriptor *must* be dropped for the unplug to complete.
-    pub(crate) fn unplug(&mut self) {
+    pub(crate) async fn unplug(&mut self) {
         info!("{self:?}: unplugging child...");
 
         let state = self.state();
@@ -1139,12 +1137,10 @@ impl<'c> NexusChild<'c> {
         // device-related events directly.
         if state != ChildState::Faulted(FaultReason::IoError) {
             let nexus_name = self.parent.clone();
-            Reactor::block_on(async move {
-                match nexus_lookup_mut(&nexus_name) {
-                    Some(n) => n.reconfigure(DrEvent::ChildUnplug).await,
-                    None => error!("Nexus '{nexus_name}' not found"),
-                }
-            });
+            match nexus_lookup_mut(&nexus_name) {
+                Some(n) => n.reconfigure(DrEvent::ChildUnplug).await,
+                None => error!("Nexus '{nexus_name}' not found"),
+            }
         }
 
         if is_destroying {
@@ -1153,22 +1149,16 @@ impl<'c> NexusChild<'c> {
             self.device_descriptor.take();
         }
 
-        self.unplug_complete();
-        info!("{self:?}: child successfully unplugged");
+        self.unplug_complete().await;
     }
 
     /// Signal that the child unplug is complete.
-    fn unplug_complete(&self) {
-        let sender = self.remove_channel.0.clone();
-        let name = self.name.clone();
-        Reactors::current().send_future(async move {
-            if let Err(e) = sender.send(()).await {
-                error!(
-                    "Failed to send unplug complete for child '{}': {}",
-                    name, e
-                );
-            }
-        });
+    async fn unplug_complete(&self) {
+        if let Err(error) = self.remove_channel.0.send(()).await {
+            info!("{self:?}: failed to send unplug complete: {error}");
+        } else {
+            info!("{self:?}: child successfully unplugged");
+        }
     }
 
     /// create a new nexus child
