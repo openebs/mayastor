@@ -320,7 +320,7 @@ impl RebuildJob {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct RebuildFBendChan {
     sender: async_channel::Sender<RebuildJobRequest>,
 }
