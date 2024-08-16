@@ -416,7 +416,7 @@ impl Default for NvmeBdevOpts {
             nvme_adminq_poll_period_us: time_try_from_env(
                 "NVME_ADMINQ_POLL_PERIOD",
                 1_000,
-                TimeUnit::MilliSeconds,
+                TimeUnit::MicroSeconds,
             ),
             nvme_ioq_poll_period_us: time_try_from_env(
                 "NVME_IOQ_POLL_PERIOD",
