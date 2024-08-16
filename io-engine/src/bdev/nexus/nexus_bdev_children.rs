@@ -41,6 +41,7 @@ use super::{
     Nexus,
     NexusChild,
     NexusOperation,
+    NexusPauseState,
     NexusState,
     NexusStatus,
     PersistOp,
@@ -787,6 +788,13 @@ impl<'n> DeviceEventListener for Nexus<'n> {
                     false,
                 );
             }
+            DeviceEventType::AdminQNoticeCtrlFailed => {
+                Reactors::master().send_future(Nexus::disconnect_failed_child(
+                    self.name.clone(),
+                    dev_name.to_owned(),
+                ));
+            }
+
             _ => {
                 warn!(
                     "{:?}: ignoring event '{:?}' for device '{}'",
@@ -917,6 +925,28 @@ impl<'n> Nexus<'n> {
         }
     }
 
+    /// Disconnect a failed child from the given nexus.
+    async fn disconnect_failed_child(nexus_name: String, dev: String) {
+        let Some(nex) = nexus_lookup_mut(&nexus_name) else {
+            warn!(
+                "Nexus '{nexus_name}': retiring failed device '{dev}': \
+                nexus already gone"
+            );
+            return;
+        };
+
+        info!("Nexus '{nexus_name}': disconnect handlers for controller failed device: '{dev}'");
+
+        if nex.io_subsystem_state() == Some(NexusPauseState::Pausing) {
+            nex.traverse_io_channels_async((), |channel, _| {
+                channel.disconnect_detached_devices(|h| {
+                    h.get_device().device_name() == dev && h.is_ctrlr_failed()
+                });
+            })
+            .await;
+        }
+    }
+
     /// Retires a child device for the given nexus.
     async fn child_retire_routine(
         nexus_name: String,
@@ -981,12 +1011,12 @@ impl<'n> Nexus<'n> {
         // channels, and all I/Os failing due to this device will eventually
         // resubmit and succeeded (if any healthy children are left).
         //
-        // Device disconnection is done in two steps (detach, than disconnect)
+        // Device disconnection is done in two steps (detach, then disconnect)
         // in order to prevent an I/O race when retiring a device.
         self.detach_device(&dev).await;
 
         // Disconnect the devices with failed controllers _before_ pause,
-        // otherwise pause would stuck. Keep all controoled that are _not_
+        // otherwise pause would get stuck. Keep all controllers which are _not_
         // failed (e.g., in the case I/O failed due to ENOSPC).
         self.traverse_io_channels_async((), |channel, _| {
             channel.disconnect_detached_devices(|h| h.is_ctrlr_failed());
