@@ -5,13 +5,21 @@ use std::future::Future;
 use tokio::sync::oneshot::channel;
 
 use crate::mayastor_test_init_ex;
-use io_engine::core::{
-    mayastor_env_stop,
-    MayastorCliArgs,
-    MayastorEnvironment,
-    Reactor,
-    Reactors,
-    GLOBAL_RC,
+use io_engine::{
+    core::{
+        device_monitor_loop,
+        mayastor_env_stop,
+        runtime,
+        MayastorCliArgs,
+        MayastorEnvironment,
+        ProtectedSubsystems,
+        Reactor,
+        Reactors,
+        ResourceLockManager,
+        ResourceLockManagerConfig,
+        GLOBAL_RC,
+    },
+    grpc,
 };
 use std::time::Duration;
 
@@ -98,6 +106,34 @@ impl<'a> MayastorTest<'a> {
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+    }
+
+    /// Starts the device monitor loop which is required to fully
+    /// remove devices when they are not in use.
+    pub fn start_device_monitor(&self) {
+        runtime::spawn(device_monitor_loop());
+    }
+
+    /// Start the gRPC server which can be useful to debug tests.
+    pub fn start_grpc(&self) {
+        let cfg = ResourceLockManagerConfig::default()
+            .with_subsystem(ProtectedSubsystems::POOL, 32)
+            .with_subsystem(ProtectedSubsystems::NEXUS, 512)
+            .with_subsystem(ProtectedSubsystems::REPLICA, 1024);
+        ResourceLockManager::initialize(cfg);
+
+        let env = MayastorEnvironment::global_or_default();
+        runtime::spawn(async {
+            grpc::MayastorGrpcServer::run(
+                &env.node_name,
+                &env.node_nqn,
+                env.grpc_endpoint.unwrap(),
+                env.rpc_addr,
+                env.api_versions,
+            )
+            .await
+            .ok();
+        });
     }
 }
 
