@@ -136,6 +136,11 @@ pub enum LvsError {
         source: BdevError,
         name: String,
     },
+    #[snafu(display("{source}, failed to grow pool {name}"))]
+    Grow {
+        source: BsError,
+        name: String,
+    },
     #[snafu(display("{}", msg))]
     PoolNotFound {
         source: BsError,
@@ -158,6 +163,11 @@ pub enum LvsError {
     ))]
     InvalidClusterSize {
         source: BsError,
+        name: String,
+        msg: String,
+    },
+    #[snafu(display("pool {name}: invalid metadata parameter: {msg}"))]
+    InvalidMetadataParam {
         name: String,
         msg: String,
     },
@@ -291,6 +301,9 @@ impl ToErrno for LvsError {
             Self::Destroy {
                 ..
             } => Errno::ENXIO,
+            Self::Grow {
+                ..
+            } => Errno::ENXIO,
             Self::PoolNotFound {
                 source, ..
             } => source.to_errno(),
@@ -303,6 +316,9 @@ impl ToErrno for LvsError {
             Self::InvalidClusterSize {
                 source, ..
             } => source.to_errno(),
+            Self::InvalidMetadataParam {
+                ..
+            } => Errno::EINVAL,
             Self::RepExists {
                 source, ..
             } => source.to_errno(),

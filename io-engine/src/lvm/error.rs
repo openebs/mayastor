@@ -58,6 +58,10 @@ pub enum Error {
     NoSpace { error: String },
     #[snafu(display("Snapshots are not currently supported for LVM volumes"))]
     SnapshotNotSup {},
+    #[snafu(display(
+        "Pool expansion is not currently supported for LVM volumes"
+    ))]
+    GrowNotSup {},
 }
 
 impl ToErrno for Error {
@@ -127,6 +131,9 @@ impl ToErrno for Error {
                 ..
             } => Errno::ENOSPC,
             Error::SnapshotNotSup {
+                ..
+            } => Errno::ENOTSUP,
+            Error::GrowNotSup {
                 ..
             } => Errno::ENOTSUP,
         }

@@ -358,6 +358,7 @@ impl VolumeGroup {
     pub(crate) fn committed(&self) -> u64 {
         self.size
     }
+
     /// Get the volume group cluster size.
     pub(crate) fn cluster_size(&self) -> u64 {
         4 * 1024 * 1024

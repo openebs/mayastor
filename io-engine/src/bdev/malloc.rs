@@ -20,6 +20,7 @@ use spdk_rs::{
         create_malloc_disk,
         delete_malloc_disk,
         malloc_bdev_opts,
+        resize_malloc_disk,
         spdk_bdev,
         SPDK_DIF_DISABLE,
     },
@@ -45,6 +46,8 @@ pub struct Malloc {
     blk_size: u32,
     /// uuid of the spdk bdev
     uuid: Option<uuid::Uuid>,
+    /// Enable resizing if the bdev already exists
+    resizing: bool,
 }
 
 impl Debug for Malloc {
@@ -105,6 +108,8 @@ impl TryFrom<&Url> for Malloc {
             },
         )?;
 
+        let resizing = parameters.remove("resize").is_some();
+
         reject_unknown_parameters(uri, parameters)?;
 
         // Validate parameters.
@@ -141,6 +146,7 @@ impl TryFrom<&Url> for Malloc {
             } as u64,
             blk_size,
             uuid,
+            resizing,
         })
     }
 }
@@ -157,9 +163,13 @@ impl CreateDestroy for Malloc {
 
     async fn create(&self) -> Result<String, Self::Error> {
         if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(BdevError::BdevExists {
-                name: self.name.clone(),
-            });
+            return if self.resizing {
+                self.try_resize()
+            } else {
+                Err(BdevError::BdevExists {
+                    name: self.name.clone(),
+                })
+            };
         }
 
         debug!("{:?}: creating bdev", self);
@@ -243,5 +253,34 @@ impl CreateDestroy for Malloc {
                 name: self.name,
             })
         }
+    }
+}
+
+impl Malloc {
+    fn try_resize(&self) -> Result<String, <Self as CreateDestroy>::Error> {
+        debug!("{:?}: resizing existing bdev", self);
+
+        let cname = self.name.clone().into_cstring();
+        let new_sz_mb = self.num_blocks * self.blk_size as u64 / (1024 * 1024);
+
+        let errno = unsafe {
+            resize_malloc_disk(
+                cname.as_ptr() as *mut std::os::raw::c_char,
+                new_sz_mb,
+            )
+        };
+
+        if errno != 0 {
+            let err = BdevError::ResizeBdevFailed {
+                source: Errno::from_i32(errno.abs()),
+                name: self.name.clone(),
+            };
+
+            error!("{:?} error: {}", self, err.verbose());
+
+            return Err(err);
+        }
+
+        Ok(self.name.clone())
     }
 }

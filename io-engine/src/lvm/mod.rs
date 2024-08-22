@@ -68,6 +68,7 @@ use crate::{
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
+        PoolMetadataInfo,
         PoolOps,
         ReplicaArgs,
     },
@@ -150,6 +151,7 @@ impl PoolOps for VolumeGroup {
         .await?;
         Ok(Box::new(replica))
     }
+
     async fn destroy(
         self: Box<Self>,
     ) -> Result<(), crate::pool_backend::Error> {
@@ -162,6 +164,10 @@ impl PoolOps for VolumeGroup {
     ) -> Result<(), crate::pool_backend::Error> {
         VolumeGroup::export(&mut self).await?;
         Ok(())
+    }
+
+    async fn grow(&self) -> Result<(), crate::pool_backend::Error> {
+        Err(Error::GrowNotSup {}.into())
     }
 }
 
@@ -312,6 +318,10 @@ impl SnapshotOps for LogicalVolume {
 }
 
 impl IPoolProps for VolumeGroup {
+    fn pool_type(&self) -> PoolBackend {
+        PoolBackend::Lvm
+    }
+
     fn name(&self) -> &str {
         self.name()
     }
@@ -324,6 +334,22 @@ impl IPoolProps for VolumeGroup {
         self.disks().clone()
     }
 
+    fn disk_capacity(&self) -> u64 {
+        self.capacity()
+    }
+
+    fn cluster_size(&self) -> u32 {
+        self.cluster_size() as u32
+    }
+
+    fn page_size(&self) -> Option<u32> {
+        None
+    }
+
+    fn capacity(&self) -> u64 {
+        self.capacity()
+    }
+
     fn used(&self) -> u64 {
         self.used()
     }
@@ -332,16 +358,8 @@ impl IPoolProps for VolumeGroup {
         self.committed()
     }
 
-    fn capacity(&self) -> u64 {
-        self.capacity()
-    }
-
-    fn pool_type(&self) -> PoolBackend {
-        PoolBackend::Lvm
-    }
-
-    fn cluster_size(&self) -> u32 {
-        self.cluster_size() as u32
+    fn md_props(&self) -> Option<PoolMetadataInfo> {
+        None
     }
 }
 

@@ -57,17 +57,21 @@ async fn lvs_pool_test() {
     })
     .await;
 
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![format!("aio://{DISKNAME1}")],
+        uuid: None,
+        cluster_size: None,
+        md_args: None,
+        backend: PoolBackend::Lvs,
+    };
+
     // should succeed to create a pool we can not import
-    ms.spawn(async {
-        Lvs::create_or_import(PoolArgs {
-            name: "tpool".into(),
-            disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            backend: PoolBackend::Lvs,
-        })
-        .await
-        .unwrap();
+    ms.spawn({
+        let pool_args = pool_args.clone();
+        async {
+            Lvs::create_or_import(pool_args).await.unwrap();
+        }
     })
     .await;
 
@@ -76,14 +80,7 @@ async fn lvs_pool_test() {
     // have an idempotent snafu, we dont crash and
     // burn
     ms.spawn(async {
-        assert!(Lvs::create(
-            "tpool",
-            format!("aio://{DISKNAME1}").as_str(),
-            None,
-            None
-        )
-        .await
-        .is_err())
+        assert!(Lvs::create_from_args_inner(pool_args).await.is_err())
     })
     .await;
 
@@ -147,12 +144,14 @@ async fn lvs_pool_test() {
             .is_err());
 
         assert_eq!(Lvs::iter().count(), 0);
-        assert!(Lvs::create(
-            "tpool",
-            format!("aio://{DISKNAME1}").as_str(),
-            None,
-            None
-        )
+        assert!(Lvs::create_from_args_inner(PoolArgs {
+            name: "tpool".to_string(),
+            disks: vec![format!("aio://{DISKNAME1}")],
+            uuid: None,
+            cluster_size: None,
+            md_args: None,
+            backend: PoolBackend::Lvs,
+        })
         .await
         .is_ok());
 
@@ -188,6 +187,7 @@ async fn lvs_pool_test() {
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await
@@ -225,6 +225,7 @@ async fn lvs_pool_test() {
             disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await
@@ -369,6 +370,7 @@ async fn lvs_pool_test() {
             disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await
@@ -390,6 +392,7 @@ async fn lvs_pool_test() {
             disks: vec![format!("aio://{pool_dev_aio}")],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await
@@ -417,6 +420,7 @@ async fn lvs_pool_test() {
             disks: vec![format!("uring://{pool_dev_uring}")],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await
@@ -454,6 +458,7 @@ async fn lvs_pool_test() {
             disks: vec![format!("aio://{DISKNAME1}")],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await
@@ -471,6 +476,7 @@ async fn lvs_pool_test() {
             disks: vec![format!("aio://{DISKNAME2}")],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         })
         .await

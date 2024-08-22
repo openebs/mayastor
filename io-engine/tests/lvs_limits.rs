@@ -49,6 +49,7 @@ async fn lvs_metadata_limit() {
             disks: vec![BDEV_NAME.to_string()],
             uuid: Some(POOL_UUID.to_string()),
             cluster_size: None,
+            md_args: None,
             backend: Default::default(),
         };
 

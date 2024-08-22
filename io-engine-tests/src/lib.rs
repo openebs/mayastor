@@ -130,10 +130,10 @@ macro_rules! test_init {
 }
 
 pub fn mayastor_test_init() {
-    mayastor_test_init_ex(LogFormat::default());
+    mayastor_test_init_ex(LogFormat::default(), None);
 }
 
-pub fn mayastor_test_init_ex(log_format: LogFormat) {
+pub fn mayastor_test_init_ex(log_format: LogFormat, log_level: Option<&str>) {
     fn binary_present(name: &str) -> Result<bool, std::env::VarError> {
         std::env::var("PATH").map(|paths| {
             paths
@@ -151,7 +151,11 @@ pub fn mayastor_test_init_ex(log_format: LogFormat) {
             }
         });
 
-    logger::init_ex("info,io_engine=DEBUG", log_format, None);
+    logger::init_ex(
+        log_level.unwrap_or("info,io_engine=DEBUG"),
+        log_format,
+        None,
+    );
 
     io_engine::CPS_INIT!();
 }
