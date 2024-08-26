@@ -154,9 +154,18 @@ impl TransportId {
 
 impl Display for TransportId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // If an rdma transport is found in transport id, we modify the
+        // trstring for uri scheme to explicitly indicate the tcp support
+        // also by default when there is rdma available.
+        let trstring = match self.0.trstring.as_str() {
+            "RDMA" => "rdma+tcp".to_string(),
+            _else => _else.to_lowercase(),
+        };
+
         write!(
             f,
-            "nvmf://{}:{}",
+            "nvmf+{}://{}:{}",
+            trstring,
             self.0.traddr.as_str(),
             self.0.trsvcid.as_str()
         )

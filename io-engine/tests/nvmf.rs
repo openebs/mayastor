@@ -156,9 +156,10 @@ async fn nvmf_set_target_interface() {
             .into_inner()
             .uri;
 
-        let re = Regex::new(r"^nvmf://([0-9.]+):[0-9]+/.*$").unwrap();
+        let re = Regex::new(r"^nvmf(\+rdma\+tcp|\+tcp)://([0-9.]+):[0-9]+/.*$")
+            .unwrap();
         let cap = re.captures(&bdev_uri).unwrap();
-        let shared_ip = cap.get(1).unwrap().as_str();
+        let shared_ip = cap.get(2).unwrap().as_str();
 
         hdl.bdev
             .unshare(CreateReply {

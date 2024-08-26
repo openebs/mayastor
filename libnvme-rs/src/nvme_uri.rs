@@ -42,12 +42,14 @@ impl Drop for NvmeStringWrapper {
 #[derive(Debug, PartialEq)]
 enum NvmeTransportType {
     Tcp,
+    Rdma,
 }
 
 impl NvmeTransportType {
     fn to_str(&self) -> &str {
         match self {
             NvmeTransportType::Tcp => "tcp",
+            NvmeTransportType::Rdma => "rdma",
         }
     }
 }
@@ -83,6 +85,7 @@ impl TryFrom<&str> for NvmeTarget {
 
         let trtype = match url.scheme() {
             "nvmf" | "nvmf+tcp" => Ok(NvmeTransportType::Tcp),
+            "nvmf+rdma+tcp" => Ok(NvmeTransportType::Rdma),
             _ => Err(NvmeError::UrlError {
                 source: ParseError::IdnaError,
             }),
