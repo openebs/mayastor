@@ -74,8 +74,10 @@ impl RebuildStates {
     }
     /// Set the final rebuild statistics.
     pub(super) fn set_final_stats(&mut self, mut stats: RebuildStats) {
-        stats.end_time = Some(Utc::now());
-        self.final_stats = Some(stats);
+        if self.final_stats.is_none() {
+            stats.end_time = Some(Utc::now());
+            self.final_stats = Some(stats);
+        }
     }
 
     /// Set's the next pending state
