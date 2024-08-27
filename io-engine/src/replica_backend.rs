@@ -153,12 +153,22 @@ impl ListReplicaArgs {
 pub struct FindReplicaArgs {
     /// The replica uuid to find for.
     pub uuid: String,
+    /// Finds Replicas which may also be snapshots.
+    pub allow_snapshots: bool,
 }
 impl FindReplicaArgs {
     /// Create `Self` with the replica uuid.
     pub fn new(uuid: &str) -> Self {
         Self {
             uuid: uuid.to_string(),
+            allow_snapshots: false,
+        }
+    }
+    /// Allow finding replicas which may also be snapshots.
+    pub fn allow_snapshots(self) -> Self {
+        Self {
+            allow_snapshots: true,
+            ..self
         }
     }
 }
@@ -290,7 +300,7 @@ impl ReplicaFactory {
             match factory.0.find(args).await {
                 Ok(Some(replica)) => {
                     // should this be an error?
-                    if !replica.is_snapshot() {
+                    if !replica.is_snapshot() || args.allow_snapshots {
                         return Ok(replica);
                     }
                 }
