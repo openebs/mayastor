@@ -19,8 +19,14 @@ pub enum DeviceEventType {
     DeviceResized,
     /// TODO
     MediaManagement,
-    /// TODO
+    /// Sent when admin q polling fails for the first time.
     AdminCommandCompletionFailed,
+    /// When the adminq poll fails the first time, the controller may not yet
+    /// be failed.
+    /// Next time the admin q poll fails, if the controller is noticed as
+    /// failed for the first time, this event is sent, allowing further
+    /// clean up to be performed.
+    AdminQNoticeCtrlFailed,
 }
 
 /// TODO

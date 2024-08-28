@@ -336,7 +336,7 @@ impl RebuildJobBackendManager {
         }
     }
 
-    /// Reply back to the requester with the generic rebuild stats.
+    /// Reply to the requester with the generic rebuild stats.
     async fn reply_stats(
         &mut self,
         requester: oneshot::Sender<RebuildStats>,
@@ -488,10 +488,27 @@ impl RebuildJobBackendManager {
 }
 
 impl Drop for RebuildJobBackendManager {
+    /// Close and drain comms channel allowing sender to see the cancellation
+    /// error, should it attempt to communicate.
+    /// This is required because it seems if a message was already sent then it
+    /// will not get dropped until both the receivers and the senders are
+    /// dropped.
     fn drop(&mut self) {
+        // set final stats now so failed stats requesters can still get stats.
         let stats = self.stats();
         info!("{self}: backend dropped; final stats: {stats:?}");
-        self.states.write().set_final_stats(stats);
+        self.states.write().set_final_stats(stats.clone());
+
+        // we close before draining, ensuring no new messages can be sent
+        self.info_chan.receiver.close();
+        // now we can drain, and we could just ignore, but let's try to
+        // reply to any stats requests
+        while let Ok(message) = self.info_chan.receiver.try_recv() {
+            if let RebuildJobRequest::GetStats(reply) = message {
+                reply.send(stats.clone()).ok();
+            }
+        }
+
         for sender in self.complete_chan.lock().drain(..) {
             sender.send(self.state()).ok();
         }

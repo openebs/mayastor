@@ -844,13 +844,14 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     if result < 0 {
         if context.start_device_destroy() {
             error!(
-                "process adminq: {}: {}",
+                "process adminq: {}: ctrl failed: {}, error: {}",
                 context.name,
+                context.is_failed(),
                 Errno::from_i32(result.abs())
             );
             info!("dispatching nexus fault and retire: {}", context.name);
-            let dev_name = context.name.to_string();
-            let carc = NVME_CONTROLLERS.lookup_by_name(&dev_name).unwrap();
+            let dev_name = context.name.as_str();
+            let carc = NVME_CONTROLLERS.lookup_by_name(dev_name).unwrap();
             debug!(
                 ?dev_name,
                 "notifying listeners of admin command completion failure"
@@ -864,6 +865,11 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
                 ?num_listeners,
                 "listeners notified of admin command completion failure"
             );
+        } else if context.report_failed() {
+            if let Some(carc) = NVME_CONTROLLERS.lookup_by_name(&context.name) {
+                carc.lock()
+                    .notify_listeners(DeviceEventType::AdminQNoticeCtrlFailed);
+            }
         }
         return 1;
     }

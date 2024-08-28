@@ -381,7 +381,7 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 #[allow(dead_code)]
 pub struct MayastorEnvironment {
     pub node_name: String,
-    node_nqn: Option<String>,
+    pub node_nqn: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
     pub registration_endpoint: Option<Uri>,
     ps_endpoint: Option<String>,
@@ -420,7 +420,7 @@ pub struct MayastorEnvironment {
     nvmf_tgt_interface: Option<String>,
     /// NVMF target Command Retry Delay in x100 ms.
     pub nvmf_tgt_crdt: [u16; TARGET_CRDT_LEN],
-    api_versions: Vec<ApiVersion>,
+    pub api_versions: Vec<ApiVersion>,
     skip_sig_handler: bool,
     enable_io_all_thrd_nexus_channels: bool,
     developer_delay: bool,

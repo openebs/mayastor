@@ -74,6 +74,7 @@ pub(crate) struct TimeoutConfig {
     reset_attempts: u32,
     next_reset_time: Instant,
     destroy_in_progress: AtomicCell<bool>,
+    report_failed: AtomicCell<bool>,
 }
 
 impl Drop for TimeoutConfig {
@@ -94,6 +95,7 @@ impl TimeoutConfig {
             reset_attempts: MAX_RESET_ATTEMPTS,
             next_reset_time: Instant::now(),
             destroy_in_progress: AtomicCell::new(false),
+            report_failed: AtomicCell::new(true),
         }
     }
 
@@ -114,6 +116,19 @@ impl TimeoutConfig {
         unsafe {
             spdk_nvme_ctrlr_process_admin_completions(self.ctrlr.as_ptr())
         }
+    }
+
+    /// Check if the SPDK's nvme controller is failed.
+    pub fn is_failed(&self) -> bool {
+        self.ctrlr.is_failed
+    }
+    /// Check if we need to report the controller failure.
+    /// We only report this failure once.
+    pub fn report_failed(&mut self) -> bool {
+        if !self.is_failed() {
+            return false;
+        }
+        self.report_failed.compare_exchange(true, false).is_ok()
     }
 
     fn reset_cb(success: bool, ctx: *mut c_void) {
