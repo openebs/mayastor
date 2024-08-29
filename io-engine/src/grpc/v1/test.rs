@@ -111,8 +111,10 @@ impl TestRpc for TestService {
                                 ),
                                 None => None,
                             };
+                            let args = FindReplicaArgs::new(&args.uuid);
                             let repl = GrpcReplicaFactory::finder(
-                                &FindReplicaArgs::new(&args.uuid),
+                                // until API is modified to allow snapshots
+                                &args.allow_snapshots(),
                             )
                             .await?;
                             validate_pool(&repl, pool).await?;
