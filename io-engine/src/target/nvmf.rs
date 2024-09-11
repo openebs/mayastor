@@ -16,7 +16,7 @@ where
     };
 
     let ss = NvmfSubsystem::try_from(bdev)?;
-    ss.start().await?;
+    ss.start(false).await?;
 
     Ok(())
 }

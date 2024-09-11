@@ -14,6 +14,7 @@ use spdk_rs::{
         spdk_nvme_transport_id,
         spdk_nvmf_tgt_add_transport,
         spdk_nvmf_transport_create,
+        SPDK_NVME_TRANSPORT_RDMA,
         SPDK_NVME_TRANSPORT_TCP,
         SPDK_NVMF_ADRFAM_IPV4,
         SPDK_NVMF_TRSVCID_MAX_LEN,
@@ -24,6 +25,7 @@ use crate::{
     core::MayastorEnvironment,
     ffihelper::{cb_arg, done_errno_cb, AsStr, ErrnoResult, FfiResult},
     subsys::{
+        config::opts::NvmfTgtTransport,
         nvmf::{Error, NVMF_TGT},
         Config,
     },
@@ -32,16 +34,19 @@ use crate::{
 static TCP_TRANSPORT: Lazy<CString> =
     Lazy::new(|| CString::new("TCP").unwrap());
 
-pub async fn add_tcp_transport() -> Result<(), Error> {
+pub static RDMA_TRANSPORT: Lazy<CString> =
+    Lazy::new(|| CString::new("RDMA").unwrap());
+
+pub async fn create_and_add_transports(add_rdma: bool) -> Result<(), Error> {
     let cfg = Config::get();
-    let mut opts = cfg.nvmf_tgt_conf.opts.into();
+    let mut opts = cfg.nvmf_tgt_conf.opts_tcp.into();
     let transport = unsafe {
         spdk_nvmf_transport_create(TCP_TRANSPORT.as_ptr(), &mut opts)
     };
 
     transport.to_result(|_| Error::Transport {
         source: Errno::UnknownErrno,
-        msg: "failed to create transport".into(),
+        msg: "failed to create TCP transport".into(),
     })?;
 
     let (s, r) = oneshot::channel::<ErrnoResult<()>>();
@@ -57,8 +62,47 @@ pub async fn add_tcp_transport() -> Result<(), Error> {
     };
 
     let _result = r.await.unwrap();
-
     debug!("Added TCP nvmf transport");
+
+    if add_rdma {
+        info!("Adding RDMA transport for Mayastor Nvmf target");
+        let mut opts = cfg.nvmf_tgt_conf.opts_rdma.into();
+        let transport = unsafe {
+            spdk_nvmf_transport_create(RDMA_TRANSPORT.as_ptr(), &mut opts)
+        };
+
+        let ret = transport.to_result(|_| Error::Transport {
+            source: Errno::UnknownErrno,
+            msg: "failed to create RDMA transport".into(),
+        });
+
+        if let Err(e) = ret {
+            // XXX: How to reset Target.rdma = false
+            // todo: add event mechanism for Target and Nvmfsubsystem
+            warn!(
+                "RDMA enablement failed {e}.\
+                The target will however keep running with only tcp, \
+                with performance expectations of tcp."
+            );
+            return Ok(());
+        }
+
+        let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+        unsafe {
+            NVMF_TGT.with(|t| {
+                spdk_nvmf_tgt_add_transport(
+                    t.borrow().tgt.as_ptr(),
+                    transport,
+                    Some(done_errno_cb),
+                    cb_arg(s),
+                );
+            })
+        };
+
+        let _result = r.await.ok();
+        debug!("Added RDMA nvmf transport");
+    }
+
     Ok(())
 }
 
@@ -78,11 +122,17 @@ impl DerefMut for TransportId {
 }
 
 impl TransportId {
-    pub fn new(port: u16) -> Self {
+    pub fn new(port: u16, transport: NvmfTgtTransport) -> Self {
         let address = get_ipv4_address().unwrap();
+        let (xprt_type, xprt_cstr) = match transport {
+            NvmfTgtTransport::Tcp => (SPDK_NVME_TRANSPORT_TCP, &TCP_TRANSPORT),
+            NvmfTgtTransport::Rdma => {
+                (SPDK_NVME_TRANSPORT_RDMA, &RDMA_TRANSPORT)
+            }
+        };
 
         let mut trid = spdk_nvme_transport_id {
-            trtype: SPDK_NVME_TRANSPORT_TCP,
+            trtype: xprt_type,
             adrfam: SPDK_NVMF_ADRFAM_IPV4,
             ..Default::default()
         };
@@ -90,7 +140,7 @@ impl TransportId {
         let port = format!("{port}");
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
 
-        copy_cstr_with_null(&TCP_TRANSPORT, &mut trid.trstring);
+        copy_cstr_with_null(xprt_cstr, &mut trid.trstring);
         copy_str_with_null(&address, &mut trid.traddr);
         copy_str_with_null(&port, &mut trid.trsvcid);
 
