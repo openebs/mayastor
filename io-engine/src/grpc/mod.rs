@@ -202,14 +202,14 @@ pub async fn acquire_subsystem_lock<'a>(
     if let Some(resource) = resource {
         match subsystem.lock_resource(resource.to_string(), None, true).await {
             Some(lock_guard) => Ok(lock_guard),
-            None => Err(Status::already_exists(format!(
+            None => Err(Status::aborted(format!(
                 "Failed to acquire lock for the resource: {resource}, lock already held"
             ))),
         }
     } else {
         match subsystem.lock(None, true).await {
             Some(lock_guard) => Ok(lock_guard),
-            None => Err(Status::already_exists(format!(
+            None => Err(Status::aborted(format!(
                 "Failed to acquire subsystem lock: {subsystem:?}, lock already held",
             ))),
         }
