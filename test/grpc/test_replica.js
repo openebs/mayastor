@@ -290,7 +290,7 @@ describe('replica', function () {
       (err, res) => {
         if (err) return done(err);
         assert.match(res.uri, NVMF_URI);
-        assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
+        assert.equal(res.uri.match(NVMF_URI)[2], common.getMyIp());
 
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
@@ -548,7 +548,7 @@ describe('replica', function () {
           assert.equal(res.size, 96 * 1024 * 1024);
           assert.equal(res.share, 'REPLICA_NVMF');
           assert.match(res.uri, NVMF_URI);
-          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
+          assert.equal(res.uri.match(NVMF_URI)[2], common.getMyIp());
           uri = res.uri;
           done();
         }
@@ -635,7 +635,7 @@ describe('replica', function () {
           if (err) return done(err);
 
           assert.match(res.uri, NVMF_URI);
-          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
+          assert.equal(res.uri.match(NVMF_URI)[2], common.getMyIp());
           uri = res.uri;
           done();
         }

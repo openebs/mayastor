@@ -35,9 +35,16 @@ pub async fn unshare(uuid: &str) -> Result<(), NvmfError> {
 
 pub fn get_uri(uuid: &str) -> Option<String> {
     if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
-        // for now we only pop the first but we can share a bdev
-        // over multiple nqn's
-        ss.uri_endpoints().unwrap().pop()
+        // If there is rdma capable uri available, return that. Otherwise,
+        // for now we only pop the most relevant, but we can share a bdev
+        // over multiple nqn's.
+        let mut uris = ss.uri_endpoints().expect("no uri endpoints");
+        let rdma_uri = uris
+            .iter()
+            .find(|u| u.starts_with("nvmf+rdma+tcp"))
+            .cloned();
+
+        rdma_uri.or(uris.pop())
     } else {
         None
     }

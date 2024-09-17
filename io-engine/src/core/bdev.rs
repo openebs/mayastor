@@ -203,7 +203,7 @@ where
     type Error = CoreError;
     type Output = String;
 
-    /// share the bdev over NVMe-OF TCP
+    /// share the bdev over NVMe-OF TCP(and RDMA if enabled)
     async fn share_nvmf(
         self: Pin<&mut Self>,
         props: Option<NvmfShareProps>,

@@ -66,7 +66,12 @@ pub(crate) mod uri {
             }
             "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
             "null" => Ok(Box::new(null_bdev::Null::try_from(&url)?)),
-            "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
+            // keeping nvmf scheme so existing tests(if any, setting this
+            // scheme) work. The replicas and nexus however should
+            // always be exposing nvmf+tcp or nvmf+rdma now.
+            "nvmf" | "nvmf+tcp" | "nvmf+rdma+tcp" => {
+                Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?))
+            }
             "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
             "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
             "nexus" => Ok(Box::new(nx::Nexus::try_from(&url)?)),

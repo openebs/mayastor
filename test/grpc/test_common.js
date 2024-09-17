@@ -21,7 +21,7 @@ const CSI_ID = 'test-node-id';
 const LOCALHOST = '127.0.0.1';
 const NVME_MODEL_ID = 'Mayastor NVMe controller';
 const NVME_NQN_PREFIX = 'nqn.2019-05.io.openebs';
-const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
+const NVMF_URI = /^nvmf\+(tcp|rdma\+tcp):\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
 
 const testPort = process.env.TEST_PORT || GRPC_PORT;
 const myIp = getMyIp() || LOCALHOST;

@@ -126,7 +126,7 @@ where
         Ok(device) if device.get_name() == bdev.name() => {
             bdev.driver()
                 == match uri.scheme() {
-                    "nvmf" | "pcie" => "nvme",
+                    "nvmf" | "nvmf+tcp" | "nvmf+rdma+tcp" | "pcie" => "nvme",
                     scheme => scheme,
                 }
         }
@@ -143,7 +143,7 @@ where
         Ok(device) if device.get_name() == bdev.name() => {
             bdev.driver()
                 == match uri.scheme() {
-                    "nvmf" | "pcie" => "nvme",
+                    "nvmf" | "nvmf+tcp" | "nvmf+rdma+tcp" | "pcie" => "nvme",
                     scheme => scheme,
                 }
         }
