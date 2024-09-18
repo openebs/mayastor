@@ -110,10 +110,14 @@ impl From<Property<'_>> for u64 {
 // Determine the type of devices which may be potentially presented
 // as "available" for use.
 fn usable_device(devmajor: &u32) -> bool {
-    const DEVICE_TYPES: [u32; 4] = [
-        7,   // Loopback devices
-        8,   // SCSI disk devices
-        43,  // Network block devices
+    const DEVICE_TYPES: [u32; 20] = [
+        7,  // Loopback devices
+        8,  // SCSI disk devices
+        43, // Network block devices
+        // START 240-254 block
+        240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253,
+        254, // END
+        255, // Reserved
         259, // Block Extended Major
     ];
 
@@ -230,7 +234,7 @@ fn new_filesystem(
 
 // Create a new BlockDevice object from collected information.
 // This function also contains the logic for determining whether
-// or not the device that this represents is "available" for use.
+//  the device that this represents is "available" for use.
 fn new_device(
     parent: Option<&str>,
     include: bool,
