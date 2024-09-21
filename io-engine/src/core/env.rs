@@ -137,9 +137,16 @@ fn parse_crdt(src: &str) -> Result<[u16; TARGET_CRDT_LEN], String> {
     version = version_info_str!(),
 )]
 pub struct MayastorCliArgs {
-    #[clap(short = 'g', default_value = grpc::default_endpoint_str())]
+    #[clap(short = 'g', long = "grpc-endpoint")]
+    #[deprecated = "Use grpc_ip and grpc_port instead"]
     /// IP address and port (optional) for the gRPC server to listen on.
-    pub grpc_endpoint: String,
+    pub deprecated_grpc_endpoint: Option<String>,
+    #[clap(default_value_t = std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED))]
+    /// IP address for the gRPC server to listen on.
+    pub grpc_ip: std::net::IpAddr,
+    #[clap(default_value_t = 10124)]
+    /// Port for the gRPC server to listen on.
+    pub grpc_port: u16,
     #[clap(short = 'R')]
     /// Registration grpc endpoint
     pub registration_endpoint: Option<Uri>,
@@ -308,8 +315,11 @@ impl MayastorFeatures {
 /// Defaults are redefined here in case of using it during tests
 impl Default for MayastorCliArgs {
     fn default() -> Self {
+        #[allow(deprecated)]
         Self {
-            grpc_endpoint: grpc::default_endpoint().to_string(),
+            deprecated_grpc_endpoint: None,
+            grpc_ip: std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED),
+            grpc_port: 10124,
             ps_endpoint: None,
             ps_timeout: Duration::from_secs(10),
             ps_retries: 30,
@@ -352,6 +362,15 @@ impl MayastorCliArgs {
     /// Create the hostnqn for this io-engine instance.
     pub fn make_hostnqn(&self) -> Option<String> {
         make_hostnqn(self.node_name.as_ref())
+    }
+
+    pub fn grpc_endpoint(&self) -> std::net::SocketAddr {
+        #[allow(deprecated)]
+        if let Some(deprecated_endpoint) = &self.deprecated_grpc_endpoint {
+            grpc::endpoint_from_str(deprecated_endpoint, self.grpc_port)
+        } else {
+            std::net::SocketAddr::new(self.grpc_ip, self.grpc_port)
+        }
     }
 }
 
@@ -586,7 +605,7 @@ static MAYASTOR_DEFAULT_ENV: OnceCell<parking_lot::Mutex<MayastorEnvironment>> =
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
-            grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
+            grpc_endpoint: Some(args.grpc_endpoint()),
             registration_endpoint: args.registration_endpoint,
             ps_endpoint: args.ps_endpoint,
             ps_timeout: args.ps_timeout,
