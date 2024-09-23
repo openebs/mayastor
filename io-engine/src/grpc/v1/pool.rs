@@ -16,6 +16,7 @@ use crate::{
     },
     lvs::{BsError, LvsError},
     pool_backend::{
+        self,
         FindPoolArgs,
         IPoolFactory,
         ListPoolArgs,
@@ -68,6 +69,11 @@ impl From<&destroy_snapshot_request::Pool> for FindPoolArgs {
 }
 impl From<ExportPoolRequest> for FindPoolArgs {
     fn from(value: ExportPoolRequest) -> Self {
+        Self::name_uuid(value.name, &value.uuid)
+    }
+}
+impl From<GrowPoolRequest> for FindPoolArgs {
+    fn from(value: GrowPoolRequest) -> Self {
         Self::name_uuid(value.name, &value.uuid)
     }
 }
@@ -183,8 +189,16 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             disks: args.disks,
             uuid: args.uuid,
             cluster_size: args.cluster_size,
+            md_args: args.md_args.map(|md| md.into()),
             backend: backend.into(),
         })
+    }
+}
+impl From<PoolMetadataArgs> for pool_backend::PoolMetadataArgs {
+    fn from(params: PoolMetadataArgs) -> Self {
+        Self {
+            md_resv_ratio: params.md_resv_ratio,
+        }
     }
 }
 impl From<PoolType> for PoolBackend {
@@ -256,6 +270,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             disks: args.disks,
             uuid: args.uuid,
             cluster_size: None,
+            md_args: None,
             backend: backend.into(),
         })
     }
@@ -299,6 +314,7 @@ impl PoolGrpc {
                 uuid: args.uuid,
                 thin: args.thin,
                 entity_id: args.entity_id,
+                use_extent_table: None,
             })
             .await
         {
@@ -337,6 +353,10 @@ impl PoolGrpc {
         self.pool.export().await?;
         Ok(())
     }
+    async fn grow(&self) -> Result<(), tonic::Status> {
+        self.pool.grow().await?;
+        Ok(())
+    }
     /// Access the `PoolOps` from this wrapper.
     pub(crate) fn as_ops(&self) -> &dyn PoolOps {
         self.pool.deref()
@@ -361,6 +381,18 @@ impl From<&dyn PoolOps> for Pool {
             committed: value.committed(),
             pooltype: PoolType::from(value.pool_type()) as i32,
             cluster_size: value.cluster_size(),
+            page_size: value.page_size(),
+            disk_capacity: value.disk_capacity(),
+            md_info: value.md_props().map(|md| md.into()),
+        }
+    }
+}
+impl From<pool_backend::PoolMetadataInfo> for PoolMetadataInfo {
+    fn from(value: pool_backend::PoolMetadataInfo) -> Self {
+        Self {
+            md_page_size: value.md_page_size,
+            md_pages: value.md_pages,
+            md_used_pages: value.md_used_pages,
         }
     }
 }
@@ -617,6 +649,49 @@ impl PoolRpc for PoolService {
 
                     Ok(ListPoolsResponse {
                         pools,
+                    })
+                })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn grow_pool(
+        &self,
+        request: Request<GrowPoolRequest>,
+    ) -> GrpcResult<GrowPoolResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
+
+                    let pool =
+                        GrpcPoolFactory::finder(request.into_inner()).await?;
+
+                    let previous_pool = Pool::from(pool.as_ops());
+                    pool.grow().await.map_err(Into::<Status>::into)?;
+                    let current_pool = Pool::from(pool.as_ops());
+
+                    if current_pool.capacity == previous_pool.capacity {
+                        info!(
+                            "Grow pool '{p}': capacity did not change: {sz} bytes",
+                            p = current_pool.name,
+                            sz = current_pool.capacity,
+                        );
+                    } else{
+                        info!(
+                            "Grow pool '{p}': pool capacity has changed from {a} to {b} bytes",
+                            p = current_pool.name,
+                            a = previous_pool.capacity,
+                            b = current_pool.capacity
+                        );
+                    }
+
+                    Ok(GrowPoolResponse {
+                        previous_pool: Some(previous_pool),
+                        current_pool: Some(current_pool),
                     })
                 })
             },

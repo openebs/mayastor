@@ -215,6 +215,7 @@ impl Lvs {
             disks: vec![self.disk.to_owned()],
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: PoolBackend::Lvs,
         };
         match &self.mode {

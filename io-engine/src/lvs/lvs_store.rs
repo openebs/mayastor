@@ -11,18 +11,25 @@ use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
+
 use spdk_rs::libspdk::{
+    spdk_bdev_update_bs_blockcnt,
     spdk_blob_store,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
+    spdk_bs_get_md_len,
+    spdk_bs_get_page_size,
+    spdk_bs_get_used_md,
     spdk_bs_total_data_cluster_count,
     spdk_lvol,
+    spdk_lvol_opts,
+    spdk_lvol_opts_init,
     spdk_lvol_store,
+    spdk_lvs_grow_live,
     vbdev_get_lvol_store_by_name,
     vbdev_get_lvol_store_by_uuid,
     vbdev_get_lvs_bdev_by_lvs,
-    vbdev_lvol_create,
-    vbdev_lvol_create_with_uuid,
+    vbdev_lvol_create_with_opts,
     vbdev_lvs_create,
     vbdev_lvs_create_with_uuid,
     vbdev_lvs_destruct,
@@ -62,7 +69,7 @@ use crate::{
         lvs_lvol::{LvsLvol, WIPE_SUPER_LEN},
         LvolSnapshotDescriptor,
     },
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, ReplicaArgs},
 };
 
 static ROUND_TO_MB: u32 = 1024 * 1024;
@@ -86,6 +93,7 @@ impl Debug for Lvs {
 }
 
 /// Logical Volume Store (LVS) stores the lvols
+#[derive(Clone)]
 pub struct Lvs {
     inner: NonNull<spdk_lvol_store>,
 }
@@ -100,7 +108,7 @@ impl Lvs {
 
     /// TODO
     #[inline(always)]
-    unsafe fn as_inner_ptr(&self) -> *mut spdk_lvol_store {
+    pub fn as_inner_ptr(&self) -> *mut spdk_lvol_store {
         self.inner.as_ptr()
     }
 
@@ -112,7 +120,7 @@ impl Lvs {
 
     /// TODO
     #[inline(always)]
-    pub(super) fn blob_store(&self) -> *mut spdk_blob_store {
+    pub fn blob_store(&self) -> *mut spdk_blob_store {
         self.as_inner_ref().blobstore
     }
 
@@ -224,6 +232,21 @@ impl Lvs {
     pub fn blob_cluster_size(&self) -> u64 {
         let blobs = self.blob_store();
         unsafe { spdk_bs_get_cluster_size(blobs) }
+    }
+
+    /// Returns blobstore page size.
+    pub fn page_size(&self) -> u64 {
+        unsafe { spdk_bs_get_page_size(self.blob_store()) }
+    }
+
+    /// TODO
+    pub fn md_pages(&self) -> u64 {
+        unsafe { spdk_bs_get_md_len(self.blob_store()) }
+    }
+
+    /// TODO
+    pub fn md_used_pages(&self) -> u64 {
+        unsafe { spdk_bs_get_used_md(self.blob_store()) }
     }
 
     /// returns the UUID of the lvs
@@ -409,41 +432,64 @@ impl Lvs {
         }
     }
 
-    /// Create a pool on base bdev
-    pub async fn create(
-        name: &str,
-        bdev: &str,
-        uuid: Option<String>,
-        cluster_size: Option<u32>,
+    /// Converts floating point metadata reservation ratio into SPDK's format.
+    fn mdp_ratio(args: &PoolArgs) -> Result<u32, LvsError> {
+        if let Some(h) = args.md_args.as_ref().and_then(|p| p.md_resv_ratio) {
+            if h > 0.0 {
+                Ok((h * 100.0) as u32)
+            } else {
+                Err(LvsError::InvalidMetadataParam {
+                    name: args.name.clone(),
+                    msg: format!("bad metadata resevation ratio: {h}"),
+                })
+            }
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Creates a pool on base bdev.
+    /// The caller must ensure the base bdev exists.
+    /// This function is made public for tests purposes.
+    pub async fn create_from_args_inner(
+        args: PoolArgs,
     ) -> Result<Lvs, LvsError> {
-        let pool_name = name.into_cstring();
+        assert_eq!(args.disks.len(), 1);
+        let bdev = args.disks[0].clone();
+
+        let pool_name = args.name.clone().into_cstring();
         let bdev_name = bdev.into_cstring();
-        let cluster_size = if let Some(cluster_size) = cluster_size {
+
+        let cluster_size = if let Some(cluster_size) = args.cluster_size {
             if cluster_size % ROUND_TO_MB == 0 {
                 cluster_size
             } else {
                 return Err(LvsError::InvalidClusterSize {
                     source: BsError::InvalidArgument {},
-                    name: name.to_string(),
+                    name: args.name,
                     msg: format!("{cluster_size}, not multiple of 1MiB"),
                 });
             }
         } else {
             DEFAULT_CLUSTER_SIZE
         };
+
         if cluster_size > MAX_CLUSTER_SIZE {
             return Err(LvsError::InvalidClusterSize {
                 source: BsError::InvalidArgument {},
-                name: name.to_string(),
+                name: args.name,
                 msg: format!(
                     "{cluster_size}, larger than max limit {MAX_CLUSTER_SIZE}"
                 ),
             });
         }
+
+        let mdp_ratio = Self::mdp_ratio(&args)?;
+
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
-            if let Some(uuid) = uuid {
-                let cuuid = uuid.into_cstring();
+            if let Some(uuid) = &args.uuid {
+                let cuuid = uuid.clone().into_cstring();
                 vbdev_lvs_create_with_uuid(
                     bdev_name.as_ptr(),
                     pool_name.as_ptr(),
@@ -456,7 +502,7 @@ impl Lvs {
                     // lvols tend to be small so there the overhead is
                     // acceptable.
                     LVS_CLEAR_WITH_NONE,
-                    0, // num_md_pages_per_cluster_ratio
+                    mdp_ratio,
                     Some(Self::lvs_cb),
                     cb_arg(sender),
                 )
@@ -472,7 +518,7 @@ impl Lvs {
                     // lvols tend to be small so there the overhead is
                     // acceptable.
                     LVS_CLEAR_WITH_NONE,
-                    0, // num_md_pages_per_cluster_ratio
+                    mdp_ratio,
                     Some(Self::lvs_cb),
                     cb_arg(sender),
                 )
@@ -480,7 +526,7 @@ impl Lvs {
         }
         .to_result(|e| LvsError::PoolCreate {
             source: BsError::from_i32(e),
-            name: name.to_string(),
+            name: args.name.clone(),
         })?;
 
         receiver
@@ -488,22 +534,23 @@ impl Lvs {
             .expect("Cancellation is not supported")
             .map_err(|err| LvsError::PoolCreate {
                 source: BsError::from_errno(err),
-                name: name.to_string(),
+                name: args.name.clone(),
             })?;
 
-        match Self::lookup(name) {
+        match Self::lookup(&args.name) {
             Some(pool) => {
                 info!("{:?}: new lvs created successfully", pool);
                 Ok(pool)
             }
             None => Err(LvsError::PoolCreate {
                 source: BsError::LvolNotFound {},
-                name: name.to_string(),
+                name: args.name.clone(),
             }),
         }
     }
 
-    /// imports the pool if it exists, otherwise try to create it
+    /// Imports the pool if it exists, otherwise tries to create a new pool.
+    /// This function creates the underlying bdev if it does not exist.
     #[tracing::instrument(level = "debug", err)]
     pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
@@ -513,13 +560,14 @@ impl Lvs {
             args.name, disk
         );
 
-        let parsed = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
-            source: e,
-            name: args.name.clone(),
-        })?;
+        let bdev_ops =
+            uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
+                source: e,
+                name: args.name.clone(),
+            })?;
 
         if let Some(pool) = Self::lookup(&args.name) {
-            return if pool.base_bdev().name() == parsed.get_name() {
+            return if pool.base_bdev().name() == bdev_ops.get_name() {
                 Err(LvsError::PoolCreate {
                     source: BsError::VolAlreadyExists {},
                     name: args.name.clone(),
@@ -532,14 +580,15 @@ impl Lvs {
             };
         }
 
-        let bdev = match parsed.create().await {
+        // Create the underlying ndev.
+        let bdev_name = match bdev_ops.create().await {
             Err(e) => match e {
                 BdevError::BdevExists {
                     ..
-                } => Ok(parsed.get_name()),
+                } => Ok(bdev_ops.get_name()),
                 BdevError::CreateBdevInvalidParams {
                     source, ..
-                } if source == Errno::EEXIST => Ok(parsed.get_name()),
+                } if source == Errno::EEXIST => Ok(bdev_ops.get_name()),
                 _ => {
                     tracing::error!("Failed to create pool bdev: {e:?}");
                     Err(LvsError::InvalidBdev {
@@ -557,20 +606,18 @@ impl Lvs {
             Err(LvsError::Import {
                 source, ..
             }) if matches!(source, BsError::CannotImportLvs {}) => {
-                match Self::create(
-                    &args.name,
-                    &bdev,
-                    args.uuid,
-                    args.cluster_size,
-                )
+                match Self::create_from_args_inner(PoolArgs {
+                    disks: vec![bdev_name.clone()],
+                    ..args
+                })
                 .await
                 {
                     Err(create) => {
-                        let _ = parsed.destroy().await.map_err(|_e| {
+                        let _ = bdev_ops.destroy().await.map_err(|_e| {
                             // we failed to delete the base_bdev be loud about it
                             // there is not much we can do about it here, likely
                             // some desc is still holding on to it or something.
-                            error!("failed to delete base_bdev {} after failed pool creation", bdev);
+                            error!("failed to delete base_bdev {bdev_name} after failed pool creation");
                         });
                         Err(create)
                     }
@@ -731,6 +778,35 @@ impl Lvs {
         Ok(())
     }
 
+    /// Grows the online (live) pool.
+    #[tracing::instrument(level = "debug", err)]
+    pub async fn grow(&self) -> Result<(), LvsError> {
+        info!("{self:?}: growing lvs...");
+
+        let (s, r) = pair::<i32>();
+
+        unsafe {
+            let lvs = self.as_inner_ptr();
+
+            // Update block count on spdk_bs_bdev.
+            spdk_bdev_update_bs_blockcnt((*lvs).bs_dev);
+
+            // Grow the LVS.
+            spdk_lvs_grow_live(lvs, Some(Self::lvs_op_cb), cb_arg(s));
+        }
+
+        r.await
+            .expect("callback gone while growing lvs")
+            .to_result(|e| LvsError::Grow {
+                source: BsError::from_i32(e),
+                name: self.name().to_string(),
+            })?;
+
+        info!("{self:?}: lvs has been grown successfully");
+
+        Ok(())
+    }
+
     /// return an iterator for enumerating all snapshots that reside on the pool
     pub fn snapshots(
         &self,
@@ -779,6 +855,7 @@ impl Lvs {
             None
         }
     }
+
     /// create a new lvol on this pool
     pub async fn create_lvol(
         &self,
@@ -788,25 +865,42 @@ impl Lvs {
         thin: bool,
         entity_id: Option<String>,
     ) -> Result<Lvol, LvsError> {
+        self.create_lvol_with_opts(ReplicaArgs {
+            name: name.to_owned(),
+            size,
+            uuid: uuid.unwrap_or("").to_string(),
+            thin,
+            entity_id,
+            use_extent_table: None,
+        })
+        .await
+    }
+
+    /// create a new lvol on this pool
+    pub async fn create_lvol_with_opts(
+        &self,
+        opts: ReplicaArgs,
+    ) -> Result<Lvol, LvsError> {
         let clear_method = if self.base_bdev().io_type_supported(IoType::Unmap)
         {
             LVOL_CLEAR_WITH_UNMAP
         } else {
             LVOL_CLEAR_WITH_NONE
         };
-        if let Some(uuid) = uuid {
-            if UntypedBdev::lookup_by_uuid_str(uuid).is_some() {
-                return Err(LvsError::RepExists {
-                    source: BsError::VolAlreadyExists {},
-                    name: uuid.to_string(),
-                });
-            }
-        }
 
-        if UntypedBdev::lookup_by_name(name).is_some() {
+        if !opts.uuid.is_empty()
+            && UntypedBdev::lookup_by_uuid_str(&opts.uuid).is_some()
+        {
             return Err(LvsError::RepExists {
                 source: BsError::VolAlreadyExists {},
-                name: name.to_string(),
+                name: opts.uuid,
+            });
+        }
+
+        if UntypedBdev::lookup_by_name(&opts.name).is_some() {
+            return Err(LvsError::RepExists {
+                source: BsError::VolAlreadyExists {},
+                name: opts.name,
             });
         };
 
@@ -815,51 +909,49 @@ impl Lvs {
         {
             return Err(LvsError::RepCreate {
                 source: BsError::NoSpace {},
-                name: name.to_string(),
+                name: opts.name,
             });
         }
 
         // As it stands lvs pools can't grow, so limit the max replica size to
         // the pool capacity.
-        if size > self.capacity() {
+        if opts.size > self.capacity() {
             return Err(LvsError::RepCreate {
                 source: BsError::CapacityOverflow {},
-                name: name.to_string(),
+                name: opts.name,
             });
         }
 
         let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
-        let cname = name.into_cstring();
-        unsafe {
-            match uuid {
-                Some(u) => {
-                    let cuuid = u.into_cstring();
 
-                    vbdev_lvol_create_with_uuid(
-                        self.as_inner_ptr(),
-                        cname.as_ptr(),
-                        size,
-                        thin,
-                        clear_method,
-                        cuuid.as_ptr(),
-                        Some(Lvol::lvol_cb),
-                        cb_arg(s),
-                    )
-                }
-                None => vbdev_lvol_create(
-                    self.as_inner_ptr(),
-                    cname.as_ptr(),
-                    size,
-                    thin,
-                    clear_method,
-                    Some(Lvol::lvol_cb),
-                    cb_arg(s),
-                ),
+        let cname = opts.name.clone().into_cstring();
+        let cuuid = opts.uuid.clone().into_cstring();
+
+        unsafe {
+            let mut lvol_opts: spdk_lvol_opts = std::mem::zeroed();
+            spdk_lvol_opts_init(&mut lvol_opts as *mut _);
+            lvol_opts.name = cname.as_ptr();
+            lvol_opts.size = opts.size;
+            lvol_opts.thin_provision = opts.thin;
+            if let Some(v) = opts.use_extent_table {
+                lvol_opts.use_extent_table = v;
             }
+            lvol_opts.clear_method = clear_method;
+
+            if !cuuid.is_empty() {
+                lvol_opts.uuid = cuuid.as_ptr();
+            }
+
+            vbdev_lvol_create_with_opts(
+                self.as_inner_ptr(),
+                &lvol_opts as *const _,
+                Some(Lvol::lvol_cb),
+                cb_arg(s),
+            )
         }
         .to_result(|e| LvsError::RepCreate {
             source: BsError::from_i32(e),
-            name: name.to_string(),
+            name: opts.name.clone(),
         })?;
 
         let mut lvol = r
@@ -867,11 +959,11 @@ impl Lvs {
             .expect("lvol creation callback dropped")
             .map_err(|e| LvsError::RepCreate {
                 source: BsError::from_errno(e),
-                name: name.to_string(),
+                name: opts.name.clone(),
             })
             .map(Lvol::from_inner_ptr)?;
 
-        if let Some(id) = entity_id {
+        if let Some(id) = opts.entity_id {
             if let Err(error) =
                 Pin::new(&mut lvol).set(PropValue::EntityId(id)).await
             {

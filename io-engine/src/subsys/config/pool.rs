@@ -175,6 +175,7 @@ impl From<&Pool> for PoolArgs {
             disks: pool.disks.clone(),
             uuid: None,
             cluster_size: None,
+            md_args: None,
             backend: pool.backend,
         }
     }

@@ -286,7 +286,7 @@ impl Lvol {
 
     /// TODO
     #[inline(always)]
-    fn as_inner_ref(&self) -> &spdk_lvol {
+    pub fn as_inner_ref(&self) -> &spdk_lvol {
         unsafe { self.inner.as_ref() }
     }
 

@@ -10,9 +10,11 @@ use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use snafu::ResultExt;
+use spdk_rs::{
+    ffihelper::IntoCString,
+    libspdk::{bdev_aio_delete, bdev_aio_rescan, create_aio_bdev},
+};
 use url::Url;
-
-use spdk_rs::libspdk::{bdev_aio_delete, create_aio_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
@@ -26,6 +28,7 @@ pub(super) struct Aio {
     alias: String,
     blk_size: u32,
     uuid: Option<uuid::Uuid>,
+    rescan: bool,
 }
 
 impl Debug for Aio {
@@ -77,6 +80,8 @@ impl TryFrom<&Url> for Aio {
             },
         )?;
 
+        let rescan = parameters.remove("rescan").is_some();
+
         reject_unknown_parameters(url, parameters)?;
 
         Ok(Aio {
@@ -84,6 +89,7 @@ impl TryFrom<&Url> for Aio {
             alias: url.to_string(),
             blk_size,
             uuid,
+            rescan,
         })
     }
 }
@@ -100,10 +106,14 @@ impl CreateDestroy for Aio {
 
     /// Create an AIO bdev
     async fn create(&self) -> Result<String, Self::Error> {
-        if UntypedBdev::lookup_by_name(&self.name).is_some() {
-            return Err(BdevError::BdevExists {
-                name: self.get_name(),
-            });
+        if let Some(bdev) = UntypedBdev::lookup_by_name(&self.name) {
+            return if self.rescan {
+                self.try_rescan(bdev)
+            } else {
+                Err(BdevError::BdevExists {
+                    name: self.name.clone(),
+                })
+            };
         }
 
         debug!("{:?}: creating bdev", self);
@@ -176,5 +186,41 @@ impl CreateDestroy for Aio {
                 name: self.get_name(),
             }),
         }
+    }
+}
+
+impl Aio {
+    fn try_rescan(
+        &self,
+        bdev: UntypedBdev,
+    ) -> Result<String, <Self as CreateDestroy>::Error> {
+        let before = bdev.num_blocks();
+
+        debug!("{self:?}: rescanning existing AIO bdev ({before} blocks) ...");
+
+        let cname = self.name.clone().into_cstring();
+
+        let errno = unsafe {
+            bdev_aio_rescan(cname.as_ptr() as *mut std::os::raw::c_char)
+        };
+
+        if errno != 0 {
+            let err = BdevError::ResizeBdevFailed {
+                source: Errno::from_i32(errno.abs()),
+                name: self.name.clone(),
+            };
+
+            error!("{:?} error: {}", self, err.verbose());
+
+            return Err(err);
+        }
+
+        let after = bdev.num_blocks();
+
+        debug!(
+            "{self:?}: rescanning existing AIO bdev okay: {before} -> {after} blocks"
+        );
+
+        Ok(self.name.clone())
     }
 }

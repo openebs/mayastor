@@ -68,6 +68,7 @@ async fn create_test_pool(
         disks: vec![disk],
         uuid: None,
         cluster_size,
+        md_args: None,
         backend: PoolBackend::Lvs,
     })
     .await

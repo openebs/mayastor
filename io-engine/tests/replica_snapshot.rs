@@ -98,6 +98,7 @@ async fn replica_snapshot() {
                 disks: vec![format!("aio://{DISKNAME1}")],
                 uuid: None,
                 cluster_size: None,
+                md_args: None,
                 backend: PoolBackend::Lvs,
             })
             .await

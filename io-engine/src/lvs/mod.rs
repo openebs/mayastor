@@ -18,6 +18,7 @@ use crate::{
         ListPoolArgs,
         PoolArgs,
         PoolBackend,
+        PoolMetadataInfo,
         PoolOps,
         ReplicaArgs,
     },
@@ -170,17 +171,10 @@ impl PoolOps for Lvs {
         &self,
         args: ReplicaArgs,
     ) -> Result<Box<dyn ReplicaOps>, crate::pool_backend::Error> {
-        let lvol = self
-            .create_lvol(
-                &args.name,
-                args.size,
-                Some(&args.uuid),
-                args.thin,
-                args.entity_id,
-            )
-            .await?;
+        let lvol = self.create_lvol_with_opts(args).await?;
         Ok(Box::new(lvol))
     }
+
     async fn destroy(
         self: Box<Self>,
     ) -> Result<(), crate::pool_backend::Error> {
@@ -190,6 +184,11 @@ impl PoolOps for Lvs {
 
     async fn export(self: Box<Self>) -> Result<(), crate::pool_backend::Error> {
         (*self).export().await?;
+        Ok(())
+    }
+
+    async fn grow(&self) -> Result<(), crate::pool_backend::Error> {
+        (*self).grow().await?;
         Ok(())
     }
 }
@@ -209,6 +208,10 @@ impl BdevStater for Lvs {
 }
 
 impl IPoolProps for Lvs {
+    fn pool_type(&self) -> PoolBackend {
+        PoolBackend::Lvs
+    }
+
     fn name(&self) -> &str {
         self.name()
     }
@@ -221,6 +224,22 @@ impl IPoolProps for Lvs {
         vec![self.base_bdev().bdev_uri_str().unwrap_or_else(|| "".into())]
     }
 
+    fn disk_capacity(&self) -> u64 {
+        self.base_bdev().size_in_bytes()
+    }
+
+    fn cluster_size(&self) -> u32 {
+        self.blob_cluster_size() as u32
+    }
+
+    fn page_size(&self) -> Option<u32> {
+        Some(self.page_size() as u32)
+    }
+
+    fn capacity(&self) -> u64 {
+        self.capacity()
+    }
+
     fn used(&self) -> u64 {
         self.used()
     }
@@ -229,22 +248,19 @@ impl IPoolProps for Lvs {
         self.committed()
     }
 
-    fn capacity(&self) -> u64 {
-        self.capacity()
-    }
-
-    fn pool_type(&self) -> PoolBackend {
-        PoolBackend::Lvs
-    }
-
-    fn cluster_size(&self) -> u32 {
-        self.blob_cluster_size() as u32
+    fn md_props(&self) -> Option<PoolMetadataInfo> {
+        Some(PoolMetadataInfo {
+            md_page_size: self.page_size() as u32,
+            md_pages: self.md_pages(),
+            md_used_pages: self.md_used_pages(),
+        })
     }
 }
 
 /// A factory instance which implements LVS specific `PoolFactory`.
 #[derive(Default)]
 pub struct PoolLvsFactory {}
+
 #[async_trait::async_trait(?Send)]
 impl IPoolFactory for PoolLvsFactory {
     async fn create(
@@ -254,6 +270,7 @@ impl IPoolFactory for PoolLvsFactory {
         let lvs = Lvs::create_or_import(args).await?;
         Ok(Box::new(lvs))
     }
+
     async fn import(
         &self,
         args: PoolArgs,
@@ -261,6 +278,7 @@ impl IPoolFactory for PoolLvsFactory {
         let lvs = Lvs::import_from_args(args).await?;
         Ok(Box::new(lvs))
     }
+
     async fn find(
         &self,
         args: &FindPoolArgs,
@@ -284,6 +302,7 @@ impl IPoolFactory for PoolLvsFactory {
         };
         Ok(lvs.map(|lvs| Box::new(lvs) as _))
     }
+
     async fn list(
         &self,
         args: &ListPoolArgs,
@@ -318,6 +337,7 @@ impl IPoolFactory for PoolLvsFactory {
 /// A factory instance which implements LVS specific `ReplicaFactory`.
 #[derive(Default)]
 pub struct ReplLvsFactory {}
+
 #[async_trait::async_trait(?Send)]
 impl IReplicaFactory for ReplLvsFactory {
     fn bdev_as_replica(
@@ -332,6 +352,7 @@ impl IReplicaFactory for ReplLvsFactory {
         }
         Some(Box::new(lvol))
     }
+
     async fn find(
         &self,
         args: &FindReplicaArgs,
@@ -341,6 +362,7 @@ impl IReplicaFactory for ReplLvsFactory {
             .transpose()?;
         Ok(lvol.map(|l| Box::new(l) as _))
     }
+
     async fn find_snap(
         &self,
         args: &FindSnapshotArgs,
@@ -356,6 +378,7 @@ impl IReplicaFactory for ReplLvsFactory {
         }
         Ok(lvol.map(|l| Box::new(l) as _))
     }
+
     async fn list(
         &self,
         args: &ListReplicaArgs,

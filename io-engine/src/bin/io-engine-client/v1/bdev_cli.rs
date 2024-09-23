@@ -6,6 +6,7 @@ use crate::{
     ClientError,
     GrpcStatus,
 };
+use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::prelude::*;
 use io_engine_api::v1 as v1rpc;
@@ -103,6 +104,7 @@ async fn list(mut ctx: Context, _args: &ArgMatches) -> crate::Result<()> {
                 "UUID",
                 "NUM_BLOCKS",
                 "BLK_SIZE",
+                "CAPACITY",
                 "CLAIMED_BY",
                 "NAME",
                 "SHARE_URI",
@@ -110,10 +112,14 @@ async fn list(mut ctx: Context, _args: &ArgMatches) -> crate::Result<()> {
             let table = bdevs
                 .iter()
                 .map(|bdev| {
+                    let cap = Byte::from_bytes(
+                        (bdev.num_blocks * bdev.blk_size as u64).into(),
+                    );
                     vec![
                         bdev.uuid.to_string(),
                         bdev.num_blocks.to_string(),
                         bdev.blk_size.to_string(),
+                        ctx.units(cap),
                         bdev.claimed_by.to_string(),
                         bdev.name.to_string(),
                         bdev.share_uri.to_string(),

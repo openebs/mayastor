@@ -88,6 +88,9 @@ pub enum BdevError {
     // Generic destruction failure.
     #[snafu(display("Failed to destroy a BDEV '{}'", name))]
     DestroyBdevFailed { source: Errno, name: String },
+    // Generic resize failure.
+    #[snafu(display("Failed to resize a BDEV '{}'", name))]
+    ResizeBdevFailed { source: Errno, name: String },
     #[snafu(display("Failed to create BDEV '{name}': {error}"))]
     CreateBdevFailedStr { name: String, error: String },
     #[snafu(display("Failed to destroy BDEV '{name}': {error}"))]

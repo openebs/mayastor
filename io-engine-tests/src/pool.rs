@@ -1,7 +1,7 @@
 pub use super::compose::rpc::v1::pool::Pool;
 use super::{
     compose::rpc::v1::{
-        pool::{CreatePoolRequest, ListPoolOptions},
+        pool::{CreatePoolRequest, GrowPoolRequest, ListPoolOptions},
         replica::{ListReplicaOptions, Replica},
         SharedRpcHandle,
         Status,
@@ -190,6 +190,7 @@ impl PoolBuilderRpc {
             .with_malloc_blk_size(bdev_name, size_mb, blk_size);
         self
     }
+
     pub async fn create(&mut self) -> Result<Pool, Status> {
         self.rpc()
             .lock()
@@ -201,9 +202,26 @@ impl PoolBuilderRpc {
                 pooltype: 0,
                 disks: vec![self.bdev.as_ref().unwrap().clone()],
                 cluster_size: None,
+                md_args: None,
             })
             .await
             .map(|r| r.into_inner())
+    }
+
+    pub async fn grow(&mut self) -> Result<(Pool, Pool), Status> {
+        self.rpc()
+            .lock()
+            .await
+            .pool
+            .grow_pool(GrowPoolRequest {
+                name: self.name(),
+                uuid: Some(self.uuid()),
+            })
+            .await
+            .map(|r| {
+                let t = r.into_inner();
+                (t.previous_pool.unwrap(), t.current_pool.unwrap())
+            })
     }
 
     pub async fn get_pool(&self) -> Result<Pool, Status> {
@@ -263,6 +281,7 @@ impl PoolBuilderLocal {
             uuid: Some(self.uuid()),
             disks: vec![self.bdev.as_ref().unwrap().clone()],
             cluster_size: None,
+            md_args: None,
             backend: Default::default(),
         })
         .await?;

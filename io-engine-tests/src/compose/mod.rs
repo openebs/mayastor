@@ -78,8 +78,15 @@ impl<'a> MayastorTest<'a> {
     }
 
     pub fn new(args: MayastorCliArgs) -> MayastorTest<'static> {
+        Self::new_ex(args, None)
+    }
+
+    pub fn new_ex(
+        args: MayastorCliArgs,
+        log_level: Option<&str>,
+    ) -> MayastorTest<'static> {
         let (tx, rx) = bounded(1);
-        mayastor_test_init_ex(args.log_format.unwrap_or_default());
+        mayastor_test_init_ex(args.log_format.unwrap_or_default(), log_level);
         let thdl = std::thread::Builder::new()
             .name("mayastor_master".into())
             .spawn(move || {

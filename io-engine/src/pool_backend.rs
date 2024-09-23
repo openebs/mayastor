@@ -14,7 +14,14 @@ pub struct PoolArgs {
     pub disks: Vec<String>,
     pub uuid: Option<String>,
     pub cluster_size: Option<u32>,
+    pub md_args: Option<PoolMetadataArgs>,
     pub backend: PoolBackend,
+}
+
+/// Pool metadata args.
+#[derive(Clone, Debug, Default)]
+pub struct PoolMetadataArgs {
+    pub md_resv_ratio: Option<f32>,
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc
@@ -27,11 +34,12 @@ pub enum PoolBackend {
 
 /// Arguments for replica creation.
 pub struct ReplicaArgs {
-    pub(crate) name: String,
-    pub(crate) size: u64,
-    pub(crate) uuid: String,
-    pub(crate) thin: bool,
-    pub(crate) entity_id: Option<String>,
+    pub name: String,
+    pub size: u64,
+    pub uuid: String,
+    pub thin: bool,
+    pub entity_id: Option<String>,
+    pub use_extent_table: Option<bool>,
 }
 
 /// Generic Errors shared by all backends.
@@ -137,11 +145,16 @@ pub trait PoolOps:
         &self,
         args: ReplicaArgs,
     ) -> Result<Box<dyn ReplicaOps>, Error>;
+
     /// Destroy the pool itself along with all its replicas.
     async fn destroy(self: Box<Self>) -> Result<(), Error>;
+
     /// Exports the volume group by unloading all logical volumes.
     /// The pool will no longer be listable until it is imported again.
     async fn export(self: Box<Self>) -> Result<(), Error>;
+
+    /// Grows the given pool by filling the entire underlying device(s).
+    async fn grow(&self) -> Result<(), Error>;
 }
 
 /// Interface for a pool factory which can be used for various
@@ -219,16 +232,26 @@ impl FindPoolArgs {
     }
 }
 
+/// Pool metadata properties/statistics.
+pub struct PoolMetadataInfo {
+    pub md_page_size: u32,
+    pub md_pages: u64,
+    pub md_used_pages: u64,
+}
+
 /// Various properties from a pool.
 pub trait IPoolProps {
+    fn pool_type(&self) -> PoolBackend;
     fn name(&self) -> &str;
     fn uuid(&self) -> String;
     fn disks(&self) -> Vec<String>;
-    fn used(&self) -> u64;
-    fn capacity(&self) -> u64;
-    fn committed(&self) -> u64;
-    fn pool_type(&self) -> PoolBackend;
+    fn disk_capacity(&self) -> u64;
     fn cluster_size(&self) -> u32;
+    fn page_size(&self) -> Option<u32>;
+    fn capacity(&self) -> u64;
+    fn used(&self) -> u64;
+    fn committed(&self) -> u64;
+    fn md_props(&self) -> Option<PoolMetadataInfo>;
 }
 
 /// A pool factory helper.
