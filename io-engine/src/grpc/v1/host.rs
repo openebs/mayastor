@@ -104,6 +104,7 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
             logical_volume_manager: Some(f.logical_volume_manager),
             snapshot_rebuild: Some(f.snapshot_rebuild),
+            rdma_capable_io_engine: Some(f.rdma_capable_io_engine),
         }
     }
 }

@@ -292,11 +292,13 @@ impl MayastorFeatures {
         let lvm = env::var("ENABLE_LVM").as_deref() == Ok("true");
         let snapshot_rebuild =
             env::var("ENABLE_SNAPSHOT_REBUILD").as_deref() == Ok("true");
-
+        let rdma_capable_io_engine =
+            env::var("ENABLE_RDMA").as_deref() == Ok("true");
         MayastorFeatures {
             asymmetric_namespace_access: ana,
             logical_volume_manager: lvm,
             snapshot_rebuild,
+            rdma_capable_io_engine,
         }
     }
     /// Get all the supported and enabled features.

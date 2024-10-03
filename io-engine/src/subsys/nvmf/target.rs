@@ -104,7 +104,10 @@ impl Target {
             tgt: NonNull::dangling(),
             poll_group_count: 0,
             next_state: TargetState::Init,
-            rdma: MayastorEnvironment::global_or_default().rdma(),
+            // If mayastor args/env requests this to be true then it'll
+            // be set to true after ensuring rdma transport is created and
+            // listener is enabled.
+            rdma: false,
         }
     }
 
@@ -284,16 +287,22 @@ impl Target {
             trid_replica.trsvcid.as_str(),
         );
 
-        if self.rdma {
+        if MayastorEnvironment::global_or_default().rdma() {
             // listen RDMA also.
-            let _ = self.listen_rdma().map_err(|e| {
-                warn!(
+            let _ = self
+                .listen_rdma()
+                .map(|_| {
+                    self.rdma = true;
+                })
+                .map_err(|e| {
+                    warn!(
                         "failed to listen rdma on address. err: {e}:\
                         The target will however keep running with \
                         only tcp listener, with performance expectations of tcp"
                     );
-            });
+                });
         }
+
         self.next_state();
         Ok(())
     }
