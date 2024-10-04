@@ -77,7 +77,6 @@ pub async fn create_and_add_transports(add_rdma: bool) -> Result<(), Error> {
         });
 
         if let Err(e) = ret {
-            // XXX: How to reset Target.rdma = false
             // todo: add event mechanism for Target and Nvmfsubsystem
             warn!(
                 "RDMA enablement failed {e}.\
