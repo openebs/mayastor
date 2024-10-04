@@ -216,43 +216,13 @@ pub async fn acquire_subsystem_lock<'a>(
     }
 }
 
-macro_rules! default_ip {
-    () => {
-        "0.0.0.0"
-    };
-}
-
-macro_rules! default_port {
-    () => {
-        10124
-    };
-}
-
-/// Default server port
-pub fn default_port() -> u16 {
-    default_port!()
-}
-
-/// Default endpoint - ip:port
-pub fn default_endpoint_str() -> &'static str {
-    concat!(default_ip!(), ":", default_port!())
-}
-
-/// Default endpoint - ip:port
-pub fn default_endpoint() -> std::net::SocketAddr {
-    default_endpoint_str()
-        .parse()
-        .expect("Expected a valid endpoint")
-}
-
 /// If endpoint is missing a port number then add the default one.
-pub fn endpoint(endpoint: String) -> std::net::SocketAddr {
+pub fn endpoint_from_str(endpoint: &str, port: u16) -> std::net::SocketAddr {
     (if endpoint.contains(':') {
-        endpoint
+        endpoint.parse()
     } else {
-        format!("{}:{}", endpoint, default_port())
+        format!("{}:{}", endpoint, port).parse()
     })
-    .parse()
     .expect("Invalid gRPC endpoint")
 }
 

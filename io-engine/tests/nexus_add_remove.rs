@@ -250,7 +250,6 @@ async fn nexus_add_remove() {
         log_components: vec!["all".into()],
         reactor_mask: "0x3".to_string(),
         no_pci: true,
-        grpc_endpoint: "0.0.0.0".to_string(),
         ..Default::default()
     });
 
