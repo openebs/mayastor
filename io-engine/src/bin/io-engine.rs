@@ -58,7 +58,7 @@ macro_rules! print_feature {
 
 io_engine::CPS_INIT!();
 fn start_tokio_runtime(args: &MayastorCliArgs) {
-    let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
+    let grpc_socket_addr = args.grpc_endpoint();
     let registration_addr = args.registration_endpoint.clone();
     let rpc_address = args.rpc_address.clone();
     let api_versions = args.api_versions.clone();
@@ -155,7 +155,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                 grpc::MayastorGrpcServer::run(
                     &node_name,
                     &node_nqn,
-                    grpc_address,
+                    grpc_socket_addr,
                     rpc_address,
                     api_versions.clone(),
                 )
@@ -166,7 +166,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                 Registration::init(
                     &node_name,
                     &node_nqn,
-                    &grpc_address.to_string(),
+                    &grpc_socket_addr.to_string(),
                     registration_addr,
                     api_versions,
                 );

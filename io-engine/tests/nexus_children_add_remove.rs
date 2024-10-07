@@ -35,7 +35,6 @@ pub fn mayastor() -> &'static MayastorTest<'static> {
         MayastorTest::new(MayastorCliArgs {
             reactor_mask: "0x2".to_string(),
             no_pci: true,
-            grpc_endpoint: "0.0.0.0".to_string(),
             ..Default::default()
         })
     })
