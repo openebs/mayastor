@@ -57,7 +57,10 @@ impl WithinRange<u64> for std::ops::Range<u64> {
 /// Shutdown all pending snapshot rebuilds.
 pub(crate) async fn shutdown_snapshot_rebuilds() {
     let jobs = SnapshotRebuildJob::list().into_iter();
-    for recv in jobs.map(|job| job.force_stop()).collect::<Vec<_>>() {
+    for recv in jobs
+        .flat_map(|job| job.force_stop().left())
+        .collect::<Vec<_>>()
+    {
         recv.await.ok();
     }
 }

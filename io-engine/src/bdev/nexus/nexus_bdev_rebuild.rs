@@ -247,15 +247,18 @@ impl<'n> Nexus<'n> {
     async fn terminate_rebuild(&self, child_uri: &str) {
         // If a rebuild job is not found that's ok
         // as we were just going to remove it anyway.
-        if let Ok(rj) = self.rebuild_job_mut(child_uri) {
-            let ch = rj.force_stop();
-            if let Err(e) = ch.await {
-                error!(
-                    "Failed to wait on rebuild job for child {child_uri} \
+        let Ok(rj) = self.rebuild_job_mut(child_uri) else {
+            return;
+        };
+        let either::Either::Left(ch) = rj.force_stop() else {
+            return;
+        };
+        if let Err(e) = ch.await {
+            error!(
+                "Failed to wait on rebuild job for child {child_uri} \
                     to terminate with error {}",
-                    e.verbose()
-                );
-            }
+                e.verbose()
+            );
         }
     }
 
@@ -355,6 +358,9 @@ impl<'n> Nexus<'n> {
 
         // wait for the jobs to complete terminating
         for job in terminated_jobs {
+            let either::Either::Left(job) = job else {
+                continue;
+            };
             if let Err(e) = job.await {
                 error!(
                     "{:?}: error when waiting for the rebuild job \

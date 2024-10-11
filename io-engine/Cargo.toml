@@ -74,7 +74,7 @@ libc = "0.2.149"
 log = "0.4.20"
 md5 = "0.7.0"
 merge = "0.1.0"
-nix = { version = "0.27.1", default-features = false, features = [ "hostname", "net", "socket", "ioctl" ] }
+nix = { version = "0.27.1", default-features = false, features = ["hostname", "net", "socket", "ioctl"] }
 once_cell = "1.18.0"
 parking_lot = "0.12.1"
 pin-utils = "0.1.0"
@@ -102,9 +102,10 @@ async-process = { version = "1.8.1" }
 rstack = { version = "0.3.3" }
 tokio-stream = "0.1.14"
 rustls = "0.21.12"
+either = "1.9.0"
 
 devinfo = { path = "../utils/dependencies/devinfo" }
-jsonrpc = { path = "../jsonrpc"}
+jsonrpc = { path = "../jsonrpc" }
 io-engine-api = { path = "../utils/dependencies/apis/io-engine" }
 spdk-rs = { path = "../spdk-rs" }
 sysfs = { path = "../sysfs" }

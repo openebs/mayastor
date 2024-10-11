@@ -163,13 +163,17 @@ impl RebuildJob {
 
     /// Forcefully stops the job, overriding any pending client operation
     /// returns an async channel which can be used to await for termination.
-    pub(crate) fn force_stop(&self) -> oneshot::Receiver<RebuildState> {
+    pub(crate) fn force_stop(
+        &self,
+    ) -> either::Either<oneshot::Receiver<RebuildState>, RebuildState> {
         self.force_terminate(RebuildOperation::Stop)
     }
 
     /// Forcefully fails the job, overriding any pending client operation
     /// returns an async channel which can be used to await for termination.
-    pub(crate) fn force_fail(&self) -> oneshot::Receiver<RebuildState> {
+    pub(crate) fn force_fail(
+        &self,
+    ) -> either::Either<oneshot::Receiver<RebuildState>, RebuildState> {
         self.force_terminate(RebuildOperation::Fail)
     }
 
@@ -179,10 +183,13 @@ impl RebuildJob {
     fn force_terminate(
         &self,
         op: RebuildOperation,
-    ) -> oneshot::Receiver<RebuildState> {
+    ) -> either::Either<oneshot::Receiver<RebuildState>, RebuildState> {
         self.exec_internal_op(op).ok();
-        self.add_completion_listener()
-            .unwrap_or_else(|_| oneshot::channel().1)
+
+        match self.add_completion_listener() {
+            Ok(chan) => either::Either::Left(chan),
+            Err(_) => either::Either::Right(self.state()),
+        }
     }
 
     /// Get the rebuild stats.

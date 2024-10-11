@@ -110,7 +110,10 @@ impl SnapshotRebuildRpc for SnapshotRebuildService {
             let Ok(job) = SnapshotRebuildJob::lookup(&args.uuid) else {
                 return Err(tonic::Status::not_found(""));
             };
-            let rx = job.force_stop().await.ok();
+            let rx = match job.force_stop() {
+                either::Either::Left(chan) => chan.await,
+                either::Either::Right(stopped) => Ok(stopped),
+            };
             info!("Snapshot Rebuild stopped: {rx:?}");
             job.destroy();
             Ok(())
