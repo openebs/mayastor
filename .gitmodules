@@ -1,6 +1,6 @@
 [submodule "spdk-rs"]
 	path = spdk-rs
-	url = https://github.com/openebs/spdk-rs
+	url = ../spdk-rs.git
 	branch = develop
 [submodule "utils/dependencies"]
 	path = utils/dependencies

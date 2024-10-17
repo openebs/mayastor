@@ -1152,10 +1152,11 @@ impl<'n> Nexus<'n> {
         // Cancel rebuild job for this child, if any.
         if let Some(job) = child.rebuild_job() {
             debug!("{self:?}: retire: stopping rebuild job...");
-            let terminated = job.force_fail();
-            Reactors::master().send_future(async move {
-                terminated.await.ok();
-            });
+            if let either::Either::Left(terminated) = job.force_fail() {
+                Reactors::master().send_future(async move {
+                    terminated.await.ok();
+                });
+            }
         }
 
         debug!("{child:?}: retire: enqueuing device '{dev}' to retire");

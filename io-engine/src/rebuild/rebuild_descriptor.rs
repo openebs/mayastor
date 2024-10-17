@@ -48,9 +48,11 @@ pub(super) struct RebuildDescriptor {
     /// Pre-opened descriptor for the source block device.
     #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) src_descriptor: Box<dyn BlockDeviceDescriptor>,
+    pub(super) src_handle: Box<dyn BlockDeviceHandle>,
     /// Pre-opened descriptor for destination block device.
     #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
+    pub(super) dst_handle: Box<dyn BlockDeviceHandle>,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
 }
@@ -90,9 +92,8 @@ impl RebuildDescriptor {
             });
         }
 
-        let source_hdl = RebuildDescriptor::io_handle(&*src_descriptor).await?;
-        let destination_hdl =
-            RebuildDescriptor::io_handle(&*dst_descriptor).await?;
+        let src_handle = RebuildDescriptor::io_handle(&*src_descriptor).await?;
+        let dst_handle = RebuildDescriptor::io_handle(&*dst_descriptor).await?;
 
         let range = match range {
             None => {
@@ -105,8 +106,8 @@ impl RebuildDescriptor {
         };
 
         if !Self::validate(
-            source_hdl.get_device(),
-            destination_hdl.get_device(),
+            src_handle.get_device(),
+            dst_handle.get_device(),
             &range,
         ) {
             return Err(RebuildError::InvalidSrcDstRange {});
@@ -123,7 +124,9 @@ impl RebuildDescriptor {
             block_size,
             segment_size_blks,
             src_descriptor,
+            src_handle,
             dst_descriptor,
+            dst_handle,
             start_time: Utc::now(),
         })
     }
@@ -173,18 +176,14 @@ impl RebuildDescriptor {
 
     /// Get a `BlockDeviceHandle` for the source.
     #[inline(always)]
-    pub(super) async fn src_io_handle(
-        &self,
-    ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
-        Self::io_handle(&*self.src_descriptor).await
+    pub(super) fn src_io_handle(&self) -> &dyn BlockDeviceHandle {
+        self.src_handle.as_ref()
     }
 
     /// Get a `BlockDeviceHandle` for the destination.
     #[inline(always)]
-    pub(super) async fn dst_io_handle(
-        &self,
-    ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
-        Self::io_handle(&*self.dst_descriptor).await
+    pub(super) fn dst_io_handle(&self) -> &dyn BlockDeviceHandle {
+        self.dst_handle.as_ref()
     }
 
     /// Get a `BlockDeviceHandle` for the given block device descriptor.
@@ -231,7 +230,6 @@ impl RebuildDescriptor {
     ) -> Result<bool, RebuildError> {
         match self
             .src_io_handle()
-            .await?
             .readv_blocks_async(
                 iovs,
                 offset_blk,
@@ -269,7 +267,6 @@ impl RebuildDescriptor {
         iovs: &[IoVec],
     ) -> Result<(), RebuildError> {
         self.dst_io_handle()
-            .await?
             .writev_blocks_async(
                 iovs,
                 offset_blk,
@@ -291,7 +288,6 @@ impl RebuildDescriptor {
     ) -> Result<(), RebuildError> {
         // Read the source again.
         self.src_io_handle()
-            .await?
             .readv_blocks_async(
                 iovs,
                 offset_blk,
@@ -306,7 +302,6 @@ impl RebuildDescriptor {
 
         match self
             .dst_io_handle()
-            .await?
             .comparev_blocks_async(
                 iovs,
                 offset_blk,
