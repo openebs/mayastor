@@ -40,8 +40,9 @@ pub enum NvmeAerInfoNvmCommandSet {
 
 /// Check if the Completion Queue Entry indicates abnormal termination of
 /// request due to any of the following conditions:
-///   - Any media specific errors that occur in the NVM or data integrity type
-///     errors.
+///   - An Status Code Type(SCT) of media specific errors that occur in the NVM
+///     or data integrity type errors, AND a Status Code(SC) value pertaining to
+///     one of the below:
 ///   - The command was aborted due to an end-to-end guard check failure.
 ///   - The command was aborted due to an end-to-end application tag check
 ///     failure.
@@ -59,9 +60,9 @@ pub(crate) fn nvme_cpl_is_pi_error(cpl: *const spdk_nvme_cpl) -> bool {
     }
 
     sct == NvmeStatusCodeType::MediaError as u16
-        || sc == NvmeMediaErrorStatusCode::Guard as u16
-        || sc == NvmeMediaErrorStatusCode::ApplicationTag as u16
-        || sc == NvmeMediaErrorStatusCode::ReferenceTag as u16
+        && (sc == NvmeMediaErrorStatusCode::Guard as u16
+            || sc == NvmeMediaErrorStatusCode::ApplicationTag as u16
+            || sc == NvmeMediaErrorStatusCode::ReferenceTag as u16)
 }
 
 #[inline]
