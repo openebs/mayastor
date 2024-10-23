@@ -3,6 +3,7 @@
 , tag ? ""
 , img_org ? ""
 , product_prefix ? ""
+, rustFlags ? ""
 }:
 
 let
@@ -10,7 +11,7 @@ let
   pkgs = import sources.nixpkgs {
     overlays = [
       (_: _: { inherit sources; })
-      (import ./nix/overlay.nix { inherit img_tag tag img_org product_prefix; })
+      (import ./nix/overlay.nix { inherit img_tag tag img_org product_prefix rustFlags; })
     ];
     inherit crossSystem;
   };
