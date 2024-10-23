@@ -29,6 +29,7 @@
 , systemdMinimal
 , rdma-core
 , cargoBuildFlags ? [ ]
+, rustFlags
 }:
 let
   version = versions.version;
@@ -106,12 +107,14 @@ in
     cargoBuildFlags = "--bin io-engine --bin io-engine-client --bin casperf";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
+    ${if rustFlags == "" then null else "RUSTFLAGS"} = builtins.split " " rustFlags;
     SPDK_ROOT_DIR = "${libspdk}";
   });
   debug = rustPlatform.buildRustPackage (buildProps // {
     cargoBuildFlags = "--workspace --bins --exclude io-engine-bench";
     buildType = "debug";
     buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
+    ${if rustFlags == "" then null else "RUSTFLAGS"} = builtins.split " " rustFlags;
     SPDK_ROOT_DIR = "${libspdk-dev}";
   });
 }
