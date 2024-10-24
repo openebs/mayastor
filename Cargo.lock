@@ -666,6 +666,8 @@ dependencies = [
  "ipnetwork",
  "once_cell",
  "serde",
+ "strum",
+ "strum_macros",
  "tokio",
  "tracing",
 ]

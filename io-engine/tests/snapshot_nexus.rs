@@ -680,7 +680,7 @@ async fn test_snapshot_ancestor_usage() {
      * should now own all new data.
      */
     let nqn = format!("{NVME_NQN_PREFIX}:{}", nexus_name());
-    nvme_connect("127.0.0.1", &nqn, true);
+    nvme_connect("127.0.0.1", &nqn, "tcp", true);
 
     let (s, r) = oneshot::channel::<()>();
     tokio::spawn(async move {

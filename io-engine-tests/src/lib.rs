@@ -8,6 +8,7 @@ use std::{io, io::Write, process::Command, time::Duration};
 
 use crossbeam::channel::{after, select, unbounded};
 use once_cell::sync::OnceCell;
+use regex::Regex;
 use run_script::{self, ScriptOptions};
 use url::{ParseError, Url};
 
@@ -35,6 +36,8 @@ pub mod replica;
 pub mod snapshot;
 pub mod test;
 pub mod test_task;
+
+use cli_tools::run_command_args;
 
 pub use compose::MayastorTest;
 
@@ -549,6 +552,84 @@ pub fn reactor_run_millis(milliseconds: u64) {
     });
     reactor_poll!(r);
 }
+
+// We try to figure out the net interface that is being used to connect
+// to internet(public IP). Then use that interface name to setup rdma rxe device.
+//
+// # host we want to "reach"
+// host=google.com
+//
+// # get the ip of that host (works with dns and /etc/hosts. In case we get
+// # multiple IP addresses, we just want one of them
+// host_ip=$(getent ahosts "$host" | awk '{print $1; exit}')
+//
+// # only list the interface used to reach a specific host/IP. We only want the part
+// # between dev and the remainder (use grep for that)
+// ip route get "$host_ip" | grep -Po '(?<=(dev ))(\S+)'
+pub fn setup_rdma_rxe_device() -> String {
+        let test_host = "google.com";
+        let ns_entries = run_command_args(
+            "getent",
+            vec!["ahosts", test_host],
+            Some("get ip of test host"),
+        )
+        .unwrap();
+    
+        let test_host_ip = ns_entries
+            .1
+            .first()
+            .unwrap()
+            .to_string_lossy()
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned();
+    
+        let ent = &run_command_args(
+            "ip",
+            vec!["route", "get", test_host_ip.as_str()],
+            Some("get routing entry"),
+        )
+        .unwrap()
+        .1[0];
+    
+        // match/grep the interface name
+        let pattern = r"dev (\S+)";
+        let re = Regex::new(pattern).unwrap();
+    
+        let iface = re
+            .captures(ent.to_str().unwrap())
+            .unwrap()
+            .get(1)
+            .expect("interface not found")
+            .as_str();
+        println!("Using interface {} to create rdma rxe device", iface);
+    
+        // now try to install rdma_rxe module and create rxe device.
+        // todo: More dynamic checks for module may be needed depending on platform.
+        // Assume linux-modules-extra-$(uname -r) is installed.
+        let _ = run_command_args(
+            "modprobe",
+            vec!["rdma_rxe"],
+            Some("install rdma_rxe kernel module"),
+        );
+        let _ = run_command_args(
+            "rdma",
+            vec!["link", "add", "rxe0", "type", "rxe", "netdev", iface],
+            Some("Create rxe device"),
+        );
+    
+        iface.to_string()
+    }
+    
+    pub fn delete_rdma_rxe_device() {
+        let _ = run_command_args(
+            "rdma",
+            vec!["link", "delete", "rxe0"],
+            Some("Delete rxe device"),
+        )
+        .expect("rxe device delete");
+    }    
 
 pub fn composer_init() {
     std::fs::create_dir_all("/var/run/dpdk").ok();

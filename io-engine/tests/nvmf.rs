@@ -1,5 +1,7 @@
+use std::time::Duration;
 use io_engine::{
     bdev_api::bdev_create,
+    constants::NVME_NQN_PREFIX,
     core::{
         mayastor_env_stop,
         MayastorCliArgs,
@@ -10,20 +12,72 @@ use io_engine::{
     subsys::{NvmfSubsystem, SubType},
 };
 
+use io_engine_tests::{delete_rdma_rxe_device, setup_rdma_rxe_device};
+
 pub mod common;
 use common::compose::{
+    rpc::v1::{
+        nexus::{
+            CreateNexusRequest,
+            PublishNexusRequest,
+        },
+        pool::CreatePoolRequest,
+        replica::CreateReplicaRequest,
+        GrpcConnect as v1GrpcConnect,
+        RpcHandle,
+    },
     rpc::v0::{
-        mayastor::{BdevShareRequest, BdevUri, CreateReply},
+        mayastor::{BdevShareRequest, BdevUri, CreateReply, ShareProtocolNexus},
         GrpcConnect,
     },
     Binary,
     Builder,
     ComposeTest,
+    NetworkMode,
 };
+use common::nvme::{nvme_connect, nvme_disconnect_nqn};
 use regex::Regex;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
+
+fn nexus_uuid() -> String {
+    "cdc2a7db-3ac3-403a-af80-7fadc1581c47".to_string()
+}
+fn nexus_name() -> String {
+    "nexus0".to_string()
+}
+fn repl_uuid() -> String {
+    "65acdaac-14c4-41d8-a55e-d03bfd7185a4".to_string()
+}
+fn repl_name() -> String {
+    "repl0".to_string()
+}
+fn pool_uuid() -> String {
+    "6e3c062c-293b-46e6-8ab3-ff13c1643437".to_string()
+}
+fn pool_name() -> String {
+    "tpool".to_string()
+}
+
+pub async fn create_nexus(h: &mut RpcHandle, children: Vec<String>) {
+    h.nexus
+        .create_nexus(CreateNexusRequest {
+            name: nexus_name(),
+            uuid: nexus_uuid(),
+            size: 60 * 1024 * 1024,
+            min_cntl_id: 1,
+            max_cntl_id: 1,
+            resv_key: 1,
+            preempt_key: 0,
+            children,
+            nexus_info_key: nexus_name(),
+            resv_type: None,
+            preempt_policy: 0,
+        })
+        .await
+        .unwrap();
+}
 
 #[common::spdk_test]
 fn nvmf_target() {
@@ -195,3 +249,84 @@ async fn nvmf_set_target_interface() {
     // test_fail("10.15.0.0/16", vec!["-T", "mac:123"]).await;
     // test_fail("10.15.0.0/16", vec!["-T", "ip:hello"]).await;
 }
+
+#[tokio::test]
+async fn test_rdma_target() {
+    common::composer_init();
+
+    let iface = setup_rdma_rxe_device();
+    let test = Builder::new()
+        .name("cargo-test")
+        .network_mode(NetworkMode::Host)
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec!["-l", "1,2", "--enable-rdma", "-T", iface.as_str()]).with_privileged(Some(true)),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = v1GrpcConnect::new(&test);
+    let mut hdl = conn.grpc_handle("ms_0").await.unwrap();
+    println!("ms_0 grpc endpoint {:?}", hdl.endpoint);
+
+    hdl.pool
+        .create_pool(CreatePoolRequest {
+            name: pool_name(),
+            uuid: Some(pool_uuid()),
+            pooltype: 0,
+            disks: vec!["malloc:///disk0?size_mb=100".into()],
+            cluster_size: None,
+            md_args: None,
+        })
+        .await
+        .unwrap();
+
+    hdl.replica
+        .create_replica(CreateReplicaRequest {
+            name: repl_name(),
+            uuid: repl_uuid(),
+            pooluuid: pool_uuid(),
+            size: 80 * 1024 * 1024,
+            thin: false,
+            share: 1,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let child0 = format!("bdev:///{}", repl_name());
+    create_nexus(&mut hdl, vec![child0.clone()]).await;
+    let device_uri = hdl
+        .nexus
+        .publish_nexus(PublishNexusRequest {
+            uuid: nexus_uuid(),
+            key: "".to_string(),
+            share: ShareProtocolNexus::NexusNvmf as i32,
+            ..Default::default()
+        })
+        .await
+        .expect("Failed to publish nexus")
+        .into_inner()
+        .nexus
+        .unwrap()
+        .device_uri;
+
+    let url =  url::Url::parse(device_uri.as_str()).unwrap();
+    assert!(url.scheme() == "nvmf+rdma+tcp");
+
+    let host = url.host_str().unwrap();
+    let nqn = format!("{NVME_NQN_PREFIX}:{}", nexus_name());
+    let conn_status = nvme_connect(host, &nqn, "rdma", true);
+    assert!(conn_status.success());
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    nvme_disconnect_nqn(&nqn);
+    // Explicitly destroy this test's containers so that rxe device can be deleted.
+    test.down().await;
+    delete_rdma_rxe_device();
+}
+

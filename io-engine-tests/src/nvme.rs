@@ -15,7 +15,7 @@ pub struct NmveConnectGuard {
 
 impl NmveConnectGuard {
     pub fn connect(target_addr: &str, nqn: &str) -> Self {
-        nvme_connect(target_addr, nqn, true);
+        nvme_connect(target_addr, nqn, "tcp", true);
 
         Self {
             nqn: nqn.to_string(),
@@ -85,11 +85,12 @@ pub fn nvme_discover(target_addr: &str) -> Vec<BTreeMap<String, String>> {
 pub fn nvme_connect(
     target_addr: &str,
     nqn: &str,
+    transport: &str,
     must_succeed: bool,
 ) -> ExitStatus {
     let status = Command::new("nvme")
         .args(["connect"])
-        .args(["-t", "tcp"])
+        .args(["-t", transport])
         .args(["-a", target_addr])
         .args(["-s", "8420"])
         .args(["-c", "1"])

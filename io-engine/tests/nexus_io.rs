@@ -200,12 +200,12 @@ async fn nexus_io_multipath() {
         .unwrap();
 
     let nqn = format!("{HOSTNQN}:nexus-{NEXUS_UUID}");
-    nvme_connect("127.0.0.1", &nqn, true);
+    nvme_connect("127.0.0.1", &nqn, "tcp", true);
 
     // The first attempt will fail with "Duplicate cntlid x with y" error from
     // kernel
     for i in 0 .. 2 {
-        let status_c0 = nvme_connect(&ip0.to_string(), &nqn, false);
+        let status_c0 = nvme_connect(&ip0.to_string(), &nqn, "tcp", false);
         if i == 0 && status_c0.success() {
             break;
         }
@@ -270,7 +270,7 @@ async fn nexus_io_multipath() {
 
     // Connect to remote replica to check key registered
     let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
-    nvme_connect(&ip0.to_string(), &rep_nqn, true);
+    nvme_connect(&ip0.to_string(), &rep_nqn, "tcp", true);
 
     let rep_dev = get_mayastor_nvme_device();
 
@@ -404,7 +404,7 @@ async fn nexus_io_resv_acquire() {
 
     // Connect to remote replica to check key registered
     let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
-    nvme_connect(&ip0.to_string(), &rep_nqn, true);
+    nvme_connect(&ip0.to_string(), &rep_nqn, "tcp", true);
 
     let rep_dev = get_mayastor_nvme_device();
 
@@ -601,7 +601,7 @@ async fn nexus_io_resv_preempt() {
     // Connect to remote replica to check key registered
     let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
 
-    nvme_connect(&ip0.to_string(), &rep_nqn, true);
+    nvme_connect(&ip0.to_string(), &rep_nqn, "tcp", true);
 
     let rep_dev = get_mayastor_nvme_device();
 
@@ -748,7 +748,7 @@ async fn nexus_io_resv_preempt() {
         .await
         .unwrap();
 
-    nvme_connect(&ip0.to_string(), &rep_nqn, true);
+    nvme_connect(&ip0.to_string(), &rep_nqn, "tcp", true);
     let rep_dev = get_mayastor_nvme_device();
 
     // After restart the reservations should still be in place!
@@ -899,7 +899,7 @@ async fn nexus_io_resv_preempt_tabled() {
         // Connect to remote replica to check key registered
         let rep_nqn = format!("{HOSTNQN}:{REPL_UUID}");
 
-        nvme_connect(&ip0.to_string(), &rep_nqn, true);
+        nvme_connect(&ip0.to_string(), &rep_nqn, "tcp", true);
 
         let rep_dev = get_mayastor_nvme_device();
 
