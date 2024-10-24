@@ -4,6 +4,7 @@
 [![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fdevelop)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
+[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B39852%2Fgit%40github.com%3Aopenebs%2Fmayastor.git.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B39852%2Fgit%40github.com%3Aopenebs%2Fmayastor.git?ref=badge_shield&issueType=license)
 
 ## Table of contents
 
