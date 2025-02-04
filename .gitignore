@@ -41,5 +41,6 @@ ansible-hosts
 /test/python/snapshot_pb2_grpc.py
 /test/python/venv/*
 /package.json
+/*-xunit-report.xml
 /rust-toolchain.toml
 /test/python/reports
