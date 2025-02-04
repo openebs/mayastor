@@ -18,7 +18,7 @@ cc = "1.1.31"
 glob = "0.3.1"
 libc = "0.2"
 snafu = "0.8.5"
-url = "2.5.2"
+url = "2.5.4"
 
 [dependencies.mio]
 package = "mio"
