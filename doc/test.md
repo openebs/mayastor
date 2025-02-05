@@ -40,7 +40,7 @@ RUST_LOG=TRACE cargo test --features=io-engine-testing -- --test-threads 1 --noc
 
 ## Testing your own SPDK version
 
-To test your custom SPDK version please refere to the [spdk-rs documentation](https://github.com/openebs/spdk-rs/blob/develop/README.md#custom-spdk)
+To test your custom SPDK version please refer to the [spdk-rs documentation](https://github.com/openebs/spdk-rs/blob/develop/README.md#custom-spdk)
 
 ## Using PCIe NVMe devices in cargo tests while developing
 

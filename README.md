@@ -196,6 +196,7 @@ $ io-engine-client pool destroy tpool
 - [Testing](./doc/contributor.md#testing)
 - [Building](./doc/build-all.md)
 - [CSI Workflow](./doc/csi.md)
+- [Design Docs](./doc/design/)
 
 ## Features
 
