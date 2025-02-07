@@ -1,25 +1,17 @@
-# Mayastor
+# OpenEBS - Mayastor
 
+[![CNCF Status](https://img.shields.io/badge/cncf%20status-sandbox-blue.svg)](https://www.cncf.io/projects/openebs/)
+[![LICENSE](https://img.shields.io/github/license/openebs/openebs.svg)](./LICENSE)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Fopenebs%2Fmayastor.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Fopenebs%2Fmayastor?ref=badge_shield&issueType=license)
 [![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9640/badge)](https://www.bestpractices.dev/projects/9640)
 [![Slack](https://img.shields.io/badge/chat-slack-ff1493.svg?style=flat-square)](https://kubernetes.slack.com/messages/openebs/)
 [![Community Meetings](https://img.shields.io/badge/Community-Meetings-blue)](https://us05web.zoom.us/j/87535654586?pwd=CigbXigJPn38USc6Vuzt7qSVFoO79X.1)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
+[![CLOMonitor](https://img.shields.io/endpoint?url=https://clomonitor.io/api/projects/cncf/openebs/badge)](https://clomonitor.io/projects/cncf/openebs)
+[![Artifact HUB](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/openebs)](https://artifacthub.io/packages/helm/openebs/openebs)
 
-## Table of contents
-
----
-
-- [Quickly deploy it on K8s and get started](https://mayastor.gitbook.io)
-  - [Deploying on microk8s](/doc/microk8s.md)
-- [High-level overview](#overview)
-  - [The Nexus CAS module](#Nexus)
-  - [Local storage](#local-storage)
-  - [Exporting a Nexus](#exporting-the-nexus)
-- [Building from source](/doc/build.md)
-- [Examples of the Nexus module](/doc/mcli.md)
-- [Frequently asked questions](/doc/FAQ.md)
+## Overview
 
 <p align="justify">
 <strong>Mayastor</strong> is a cloud-native declarative data plane written in <strong>Rust</strong>.
@@ -30,12 +22,9 @@ so that individual teams stay in control.
 We also try to be as unopinionated as possible. What this means is that we try to work with the existing storage systems
 you might already have and unify them as abstract resources instead of swapping them out whenever the resources are local
 or remote.
-<br>
-<br>
-
 </p>
 
-Some targeted use cases are:
+## Why Mayastor?
 
 - Low latency workloads for converged and segregated storage by leveraging NVMe/NVMe over Fabrics (NVMe-oF)
 - Micro-VM based containers like [Firecracker microVMs](https://github.com/firecracker-microvm/firecracker) and
@@ -44,13 +33,7 @@ Some targeted use cases are:
 - Storage unification to lift barriers so that you can start deploying cloud native apps on your existing storage
   without painful data gravity barriers that prevent progress and innovation
 
-## User Documentation
-
----
-
-The official user documentation for the Mayastor Project is published at: [OpenEBS Replicated Storage](https://openebs.io/docs/concepts/data-engines/replicated-storage)
-
-## Overview
+## Architecture
 
 ![OpenEBS Mayastor](./doc/img/overview.drawio.png)
 
@@ -61,7 +44,7 @@ At a high-level, Mayastor consists of two major components.
 - A microservices patterned control plane, centered around a core agent and a RESTful API.
   This is extended by a dedicated operator responsible for managing the life cycle of "Disk Pools"
   (an abstraction for devices supplying the cluster with persistent backing storage) and a CSI compliant
-  external provisioner (controller). \
+  external provisioner (controller).
 
   Source code for the control plane components is located in the [controller repository](https://github.com/openebs/mayastor-control-plane). \
   The helm chart as well as other k8s specific extensions (ex: kubectl-plugin) are located in the [extensions repository](https://github.com/openebs/mayastor-extensions).
@@ -75,7 +58,7 @@ At a high-level, Mayastor consists of two major components.
 - Each node you wish to use for storage or storage services will have to run an I/O Engine instance. The Mayastor data-plane (i/o engine) itself has
   two major components: the volume target (nexus) and a local storage pools which can be carved out into logical volumes (replicas), which in turn can be shared to other i/o engines via NVMe-oF.
 
-## Volume Target / Nexus
+### **Volume Target / Nexus**
 
 <p align="justify">
 The Nexus is responsible for attaching to your storage resources and making it available to the host that is
@@ -89,7 +72,7 @@ migration projects, which are always painful and complicated. In reality, the in
 relatively small, but today it is not possible for individual teams to handle their own storage needs.
 The Nexus provides the abstraction over the resources such that the developer teams stay in control.
 
-The reason we think this can work is because applications have changed, and the way they are built allows us to rethink
+The reason we think this can work is that applications have changed, and the way they are built allows us to rethink
 they way we do things. Moreover, due to hardware [changes](https://searchstorage.techtarget.com/tip/NVMe-performance-challenges-expose-the-CPU-chokepoint)
 we in fact are forced to think about it.
 
@@ -98,7 +81,6 @@ a single device to a protocol standard protocol. These storage URIs are managed 
 track of what resources belong to what Nexus instance and subsequently to what PVC.
 
 You can also directly use the nexus from within your application code. For example:
-
 </p>
 
 ```rust
@@ -141,8 +123,7 @@ buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
 ```
 
 <p align="justify">
-
-We think this can help a lot of database projects as well, where they typically have all the smarts in their database engine
+This can help a lot of database projects as well, where they typically have all the smarts in their database engine
 and they want the most simple (but fast) storage device. For a more elaborate example see some of the tests in io-engine/tests.
 
 To communicate with the children, the Nexus uses industry standard protocols. The Nexus supports direct access to local
@@ -155,8 +136,6 @@ store copies of your data within different cloud systems. One of the other ideas
 of a S3 bucket such that you can create PVCs from [Minio](https://min.io/), AWS or any other compatible S3 bucket. This
 simplifies the replication model for the Nexus itself somewhat but creates a bit more on the buffering side of things.
 What model fits best for you? You get to decide!
-
-<br>
 </p>
 
 ## Local storage
@@ -171,17 +150,12 @@ except for the fact that it is not local anymore.
 
 Similarly, if you do not want to use anything other than local storage, you can still use Mayastor to provide you with
 additional functionality that otherwise would require you setup kernel specific features like LVM for example.
-<br>
-
-</p>
 
 ## Exporting the Nexus
 
 <p align="justify">
 The primary focus of development is using NVMe as a transport protocol. The Nexus uses
 NVMe-oF to replicate a volume's data to multiple devices on multiple nodes (if required).
-
-<br>
 </p>
 
 ## Client
@@ -215,22 +189,48 @@ No replicas have been created
 $ io-engine-client pool destroy tpool
 ```
 
+## Documents
+
+- [Prerequisites](./doc/run.md#hard-requirements)
+- [Developer Docs](./doc/contributor.md)
+- [Testing](./doc/contributor.md#testing)
+- [Building](./doc/build-all.md)
+- [CSI Workflow](./doc/csi.md)
+
+## Features
+
+- [x] Access Modes
+  - [x] ReadWriteOnce
+  - ~~ReadOnlyMany~~
+  - [ ] ReadWriteMany
+    - [ ] Block
+    - ~~Filesystem~~
+- [x] Volume modes
+  - [x] `Filesystem` mode
+  - [x] `Block` mode
+- [x] Supports fsTypes: `ext4`, `btrfs`, `xfs`
+- [x] [Monitoring](https://openebs.io/docs/user-guides/replicated-storage-user-guide/replicated-pv-mayastor/advanced-operations/monitoring)
+- [x] Snapshot
+  - [x] [Create](https://openebs.io/docs/user-guides/replicated-storage-user-guide/replicated-pv-mayastor/advanced-operations/volume-snapshots)
+  - [x] [Restore](https://openebs.io/docs/user-guides/replicated-storage-user-guide/replicated-pv-mayastor/advanced-operations/snapshot-restore)
+- [ ] Clone
+- [x] [Volume Resize](https://openebs.io/docs/user-guides/replicated-storage-user-guide/replicated-pv-mayastor/advanced-operations/re-resize)
+- [x] [Backup/Restore(FileSystem)](https://openebs.io/docs/Solutioning/backup-and-restore/velerobrfs)
+- [x] [Backup/Restore(Raw Block)](https://openebs.io/docs/Solutioning/backup-and-restore/velerobrrbv)
+
 ## Links
 
 - [Our bindings to spdk in the spdk-rs crate](https://github.com/openebs/spdk-rs)
 - [Our vhost-user implementation](https://github.com/openebs/vhost-user)
 
-## License
+## Dev Activity dashboard
 
-Mayastor is developed under Apache 2.0 license at the project level. Some components of the project are derived from
-other open source projects and are distributed under their respective licenses.
+![Alt](https://repobeats.axiom.co/api/embed/d990adda232a580d4c0fd9b98d6557079bb3bf4a.svg "Repobeats analytics image")
 
-`http://www.apache.org/licenses/LICENSE-2.0`
-
-### Contributions
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for
-inclusion in Mayastor by you, as defined in the Apache-2.0 license, licensed as above,
-without any additional terms or conditions.
+## License compliance
 
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Fopenebs%2Fmayastor.svg?type=large&issueType=license)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Fopenebs%2Fmayastor?ref=badge_large&issueType=license)
+
+## OpenEBS is a [CNCF Sandbox Project](https://www.cncf.io/projects/openebs)
+
+![OpenEBS is a CNCF Sandbox Project](https://github.com/cncf/artwork/blob/main/other/cncf/horizontal/color/cncf-color.png)
