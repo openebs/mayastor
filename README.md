@@ -226,7 +226,7 @@ $ io-engine-client pool destroy tpool
 
 ## Dev Activity dashboard
 
-![Alt](https://repobeats.axiom.co/api/embed/d990adda232a580d4c0fd9b98d6557079bb3bf4a.svg "Repobeats analytics image")
+![Alt](https://repobeats.axiom.co/api/embed/6e885b7f40d754b40b3ad3767e88c5b4ae8d12e1.svg "Repobeats analytics image")
 
 ## License compliance
 
