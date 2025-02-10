@@ -31,6 +31,7 @@ jobs:
       - name: Setup Test Pre-Requisites
         run: |
           sudo sysctl -w vm.nr_hugepages=3584
+          sudo apt-get update
           sudo apt-get install linux-modules-extra-$(uname -r)
           for module in nvme_tcp nbd nvme_rdma; do
             sudo modprobe $module
