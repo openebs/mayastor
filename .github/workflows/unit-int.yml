@@ -31,6 +31,9 @@ jobs:
       - name: Setup Test Pre-Requisites
         run: |
           sudo sysctl -w vm.nr_hugepages=3584
+          sudo debconf-communicate <<< "set man-db/auto-update false" || true
+          sudo dpkg-reconfigure man-db || true
+          ulimit -c unlimited
           sudo apt-get update
           sudo apt-get install linux-modules-extra-$(uname -r)
           for module in nvme_tcp nbd nvme_rdma; do
@@ -41,11 +44,11 @@ jobs:
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/cargo-test.sh"
+      - name: Check Coredumps
+        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/clean-cargo-tests.sh"
-      - name: Check Coredumps
-        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
       - name: Run JS Grpc Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
@@ -72,11 +75,11 @@ jobs:
         with:
           name: ci-report-int
           path: ./ci-report/ci-report.tar.gz
+      - name: Check Coredumps
+        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/clean-cargo-tests.sh"
-      - name: Check Coredumps
-        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
 # debugging
       # - name: Setup tmate session
       #   if: ${{ failure() }}
