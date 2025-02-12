@@ -44,3 +44,4 @@ ansible-hosts
 /*-xunit-report.xml
 /rust-toolchain.toml
 /test/python/reports
+/ci-report/
