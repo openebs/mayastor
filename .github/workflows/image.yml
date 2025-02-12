@@ -13,7 +13,7 @@ env:
   CI: 1
 
 jobs:
-  image-build-test:
+  image-build-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

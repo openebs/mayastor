@@ -29,6 +29,7 @@ jobs:
       - name: Setup Test Pre-Requisites
         run: |
           sudo sysctl -w vm.nr_hugepages=2560
+          sudo apt-get update
           sudo apt-get install linux-modules-extra-$(uname -r)
           for module in nvme_tcp nbd nvme_rdma; do
             sudo modprobe $module
@@ -41,7 +42,7 @@ jobs:
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/pytest-tests.sh"
-      - name: Test Report
+      - name: Pytest BDD Report
         if: always()
         uses: pmeier/pytest-results-action@main
         with:
@@ -50,6 +51,18 @@ jobs:
           display-options: a
           fail-on-empty: true
           title: Test results
+      - run: |
+          if [ -d test/python/reports ]; then
+            mkdir -p ci-report
+            mv test/python/reports ci-report/python
+          fi
+          nix-shell --run "./scripts/ci-report.sh"
+        if: failure()
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ci-report-bdd
+          path: ./ci-report/ci-report.tar.gz
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit"
