@@ -261,6 +261,7 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
             cluster_size,
             md_args: Some(v1rpc::pool::PoolMetadataArgs { md_resv_ratio }),
+            encryption: None,
         })
         .await
         .context(GrpcStatus)?;
@@ -333,6 +334,7 @@ async fn import(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             uuid: uuid.map(ToString::to_string),
             disks: disks_list,
             pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
+            encryption: None,
         })
         .await
         .context(GrpcStatus)?;

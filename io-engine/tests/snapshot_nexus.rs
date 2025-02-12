@@ -129,6 +129,7 @@ async fn launch_instance(create_replicas: bool) -> (ComposeTest, Vec<String>) {
             disks: vec!["malloc:///disk0?size_mb=128".into()],
             cluster_size: None,
             md_args: None,
+            encryption: None,
         })
         .await
         .unwrap();

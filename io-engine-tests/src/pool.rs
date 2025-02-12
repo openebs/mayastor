@@ -195,6 +195,7 @@ impl PoolBuilderRpc {
                 disks: vec![self.bdev.as_ref().unwrap().clone()],
                 cluster_size: None,
                 md_args: None,
+                encryption: None,
             })
             .await
             .map(|r| r.into_inner())
