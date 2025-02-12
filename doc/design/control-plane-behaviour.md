@@ -80,7 +80,7 @@ decision accordingly. An in-memory registry is used to store such information.
 
 Because the registry is stored in memory, it is volatile - meaning all information is lost if the service is restarted.
 As a consequence critical information must be backed up to a highly available persistent store (for more detailed
-information see [persistent-store.md](./persistent-store.md)).
+information see [persistent-store.md](./control-plane.md#persistent-store-kvstore-for-configuration-data)).
 
 The types of data that need persisting broadly fall into 3 categories:
 

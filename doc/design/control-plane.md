@@ -214,6 +214,56 @@ sequenceDiagram
 
 <br>
 
+### Internal Communication
+
+<br>
+
+```mermaid
+graph LR;
+  subgraph Agents[" "]
+    HACluster["HA Cluster Agent"]
+    Core["Core Agent"]
+    REST
+  end
+
+  subgraph StorageNode["Storage Node"]
+    subgraph DataPlane["I/O Engine"]
+      Nexus
+      Replicas
+      Pools
+    end
+  end
+
+  subgraph AppNode["Application Node"]
+    HANode["HA Node Agent"]
+    CSINode["CSI Node Plugin"]
+  end
+
+  REST["Rest Server"] -->|gRPC| Core
+  Core <-->|gRPC| DataPlane
+  HACluster <-->|gRPC| HANode
+  HACluster -->|gRPC| Core
+  HANode -.->|UNIX Socket| CSINode
+  CSIController -->|HTTP/REST| REST
+```
+
+<br>
+
+As shown, there's many p2p connections between the different services.
+
+The control-plane agents talk to each other via [gRPC] using well-defined APIs consisting of different service definitions.
+As we're using [gRPC], API is described in [protobuf] which is the default definition language for `gRPC`.
+
+Here's a table containing all protobuf definitions for mayastor:
+
+| API        | Protobuf Definitions                                                                             |
+|------------|--------------------------------------------------------------------------------------------------|
+| I/O Engine | <https://github.com/openebs/mayastor-dependencies/tree/HEAD/apis/io-engine/protobuf/v1>          |
+| Agents     | <https://github.com/openebs/mayastor-control-plane/tree/HEAD/control-plane/grpc/proto/v1>        |
+| Events     | <https://github.com/openebs/mayastor-dependencies/blob/HEAD/apis/events/protobuf/v1/event.proto> |
+
+<br>
+
 ## Reconcilers
 
 Reconcilers implement the logic that drives the desired state to the actual state. In principle it's the same model as the operator framework provided by K8s, however as mentioned, it's tailored towards storage rather than stateless containers.
@@ -334,9 +384,10 @@ The value add is not the ANA feature itself, rather what you do with it.
 
 ## NATS & Fault management
 
-We used to use NATS as a message bus within mayastor as a whole, but as since switched for gRPC for p2p communications. \
-We will continue to use NATS for async notifications. Async in the sense that we send a message, but we do NOT wait for a reply. This mechanism does not
- do any form of "consensus," retries, and the likes. Information transported over NATS will typically be error telemetry that is used to diagnose problems. No work has started yet on this subject.
+We used to use [NATS] as a message bus within mayastor as a whole, but later switched to [gRPC] for p2p communications. \
+As of today, we use [NATS] for [events](./events.md) as async notifications via the [Publish/Subscribe Model](https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern). Our current mechanism does not do any form of "consensus," retries, and the likes. Information transported over NATS will typically be error telemetry that is used to diagnose problems.
+
+> NOTE: We only have 1 event subscriber at the moment, which is the call-home stats aggregator.
 
 At a high level, error detectors are placed in code parts where makes sense; for example, consider the following:
 
@@ -391,7 +442,7 @@ err.io.nvme.transport.* = {}
 err.io.nexus.* = {}
 ```
 
-Subscribes to these events will keep track of payloads and apply corrective actions. In its most simplistic form, it results in a model where one can
+Subscribers to these events will keep track of payloads and apply corrective actions. In its most simplistic form, it results in a model where one can
 define a per class for error an action that needs to be taken. This error handling can be applied to IO but also agents.
 
 The content of the event can vary, containing some general metadata fields, as well as event specific information.
@@ -411,21 +462,22 @@ message EventMessage {
 }
 ```
 
+Read more about eventing [here](./events.md).
 An up to date API of the event format can be fetched
- [here](https://github.com/openebs/mayastor-dependencies/blob/develop/apis/events/protobuf/v1/event.proto).
+ [here](https://github.com/openebs/mayastor-dependencies/blob/HEAD/apis/events/protobuf/v1/event.proto).
 
-## Distributed Tracing
+## Tracing and Telemetry
 
 Tracing means different things at different levels. In this case, we are referring to tracing component boundary tracing.
 
-Tracing is by default implemented using open telemetry and, by default, we have provided a subscriber for jaeger. From jaeger, the information can be
-forwarded to, Elastic Search, Cassandra, Kafka, or whatever. In order to achieve full tracing support, all the gRPC requests and replies should add
-HTTP headers such that we can easily tie them together in whatever tooling is used. This is standard practice but requires a significant amount of work.
-The key reason is to ensure that all requests and responses pass along the headers, from REST to the scheduling pipeline.
+Tracing is implemented using open telemetry and, by default, we have provided a subscriber for [Jaeger]. From [Jaeger], the information can be
+forwarded to, Elastic Search, Cassandra, Kafka, etc. In order to achieve full tracing support, all the [gRPC] requests and replies should add
+`HTTP` headers such that we can easily tie them together in whatever tooling is used. This is standard practice but requires a significant amount of work.
+The key reason is to ensure that all requests and responses pass along the headers, from `REST` to the scheduling pipeline.
 
-We also need to support several types of transport and serialization mechanisms. For example, HTTP/1.1 REST requests to HTTP/2 gRCP request to
+We also need to support several types of transport and serialization mechanisms. For example, `HTTP/1.1 REST` requests to `HTTP/2 gRPC` request to
  a KV store operation to etcd. For this, we will use [Tower]. \
-[Tower] provides a not-so-easy to use an abstraction of Request to Response mapping.
+[Tower] provides a not-so-easy to use interface/abstraction of request to response mapping.
 
 ```rust
 pub trait Service<Request> {
@@ -447,9 +499,9 @@ The provided services can then be layered with additional functions that add the
 
 ```rust
 pub trait Layer<S> {
-    /// The service for which we want to insert a new layer
+    /// The service for which we want to insert a new layer.
     type Service;
-    /// the implementation of the layer itself
+    /// the implementation of the layer itself.
     fn layer(&self, inner: S) -> Self::Service;
 }
 ```
@@ -458,18 +510,63 @@ An example where a `REST` client sets the open tracing key/values on the request
 
 ```rust
 let layer = TraceLayer::new_for_http().make_span_with(|request: &Request<Body>| {
-    tracing::debug_span!(
-        "HTTP",
-        http.method = %request.method(),
-        http.url = %request.uri(),
-        http.status_code = tracing::field::Empty,
-        // otel is a mandatory key/value
-        otel.name = %format!("HTTP {}", request.method()),
-        otel.kind = %SpanKind::Client,
-        otel.status_code = tracing::field::Empty,
-    )
+  tracing::debug_span!(
+    "HTTP",
+    http.method = %request.method(),
+    http.url = %request.uri(),
+    http.status_code = tracing::field::Empty,
+    // otel is a mandatory key/value
+    otel.name = %format!("HTTP {}", request.method()),
+    otel.kind = %SpanKind::Client,
+    otel.status_code = tracing::field::Empty,
+  )
 })
 ```
+
+On the server-side we extract the trace id from the `HTTP` headers, and we inject it on the next call stack, which means it also gets eventually
+injected in the next transport hop. Specifically for `REST`, this means we inject it on the inter-service `gRPC`. Again, we use the same `Service`
+trait!
+
+```rust
+impl tower::Service<TonicClientRequest> for OpenTelClientService<Channel> {
+    ...
+
+    fn call(&mut self, mut request: TonicClientRequest) -> Self::Future {
+        let tracer = global::tracer("grpc-client");
+        let context = tracing::Span::current().context();
+        ...
+
+        let context = context.with_span(span);
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&context, &mut HeaderInjector(request.headers_mut()))
+        });
+        trace_http_service_call(&mut self.service, request, context)
+    }
+}
+```
+
+How do these traces get sent to [Jaeger] (or any other telemetry sink)? We setup an opentelemetry exporter on **every** service which is receiving and/or sending the tracing id's:
+
+```rust
+opentelemetry_otlp::new_pipeline()
+  .tracing()
+  .with_exporter(
+      opentelemetry_otlp::new_exporter().tonic().with_endpoint(endpoint)
+  )
+  .with_trace_config(
+      sdktrace::Config::default().with_resource(Resource::new(tracing_tags))
+  )
+  .install_batch(opentelemetry_sdk::runtime::TokioCurrentThread)
+  .expect("Should be able to initialise the exporter");
+```
+
+<br>
+
+Here's how a 2-replica volume creation can be traced via [Jaeger]:
+
+![alt text](../img/jaeger.png)
+
+> _NOTE_: In this example the client did not use tracing/telemetry which is why you can only see from the rest-server onwards
 
 [MOAC]: https://github.com/openebs/moac
 [K8s]: https://kubernetes.io/
@@ -478,3 +575,7 @@ let layer = TraceLayer::new_for_http().make_span_with(|request: &Request<Body>| 
 [CAS]: https://openebs.io/docs/2.12.x/concepts/cas
 [Tower]: https://docs.rs/tower/latest/tower/
 [etcd]: https://etcd.io/
+[Jaeger]: https://www.jaegertracing.io/
+[NATS]: https://nats.io/
+[gRPC]: https://grpc.io/
+[protobuf]: https://protobuf.dev/

@@ -52,6 +52,7 @@ fi
 
 # Iterate over new coredumps and print a summary and stack for each
 echo "Looking for new coredumps ..."
+PAGER= coredumpctl list --since="$since" || true
 echo
 coredump_pids=$(coredumpctl list --json=short --since="$since" | jq '.[] | select(.exe | endswith("sshd") or endswith("udisksd") | not) | .pid')
 coredump_count=0
@@ -67,4 +68,3 @@ if [ "$coredump_count" -gt 0 ]; then
   exit 1
 fi
 echo
-echo "No new coredumps"
