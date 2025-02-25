@@ -1,0 +1,13 @@
+name: ARM CI
+on:
+  push:
+    branches:
+      - cncf-arm
+
+jobs:
+  arm-check:
+    runs-on: oracle-16cpu-64gb-arm64
+    steps:
+      - uses: DeterminateSystems/nix-installer-action@v16
+        with:
+          kvm: false

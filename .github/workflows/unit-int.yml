@@ -9,13 +9,15 @@ env:
 
 jobs:
   int-tests:
-    runs-on: ubuntu-latest-16-cores
+    runs-on: oracle-16cpu-64gb-arm64
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'recursive'
       - uses: DeterminateSystems/nix-installer-action@v14
+        with:
+          kvm: false
       - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Pre-populate nix-shell
         run: |
