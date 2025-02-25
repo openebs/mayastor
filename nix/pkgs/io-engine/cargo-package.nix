@@ -28,6 +28,7 @@
 , versions
 , systemdMinimal
 , rdma-core
+, keyutils
 , cargoBuildFlags ? [ ]
 , pname ? "io-engine"
 , rustFlags
@@ -91,6 +92,7 @@ let
       systemdMinimal.dev
       utillinux.dev
       rdma-core
+      keyutils
     ];
     cargoLock = {
       lockFile = ../../../Cargo.lock;
