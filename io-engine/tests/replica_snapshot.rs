@@ -97,6 +97,8 @@ async fn replica_snapshot() {
                 cluster_size: None,
                 md_args: None,
                 backend: PoolBackend::Lvs,
+                enc_key: None,
+                crypto_vbdev_name: None,
             })
             .await
             .unwrap();

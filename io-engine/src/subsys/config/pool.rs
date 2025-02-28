@@ -159,9 +159,11 @@ struct Pool {
     #[serde(skip_serializing)]
     replicas: Option<Vec<Replica>>,
     backend: PoolBackend,
+    /// Is the pool enrypted.
+    encrypted: bool,
 }
 
-/// Convert a Pool into a gRPC request payload
+/// Convert a Pool into a gRPC request payload.
 impl From<&Pool> for PoolArgs {
     fn from(pool: &Pool) -> Self {
         Self {
@@ -171,6 +173,12 @@ impl From<&Pool> for PoolArgs {
             cluster_size: None,
             md_args: None,
             backend: pool.backend,
+            enc_key: None,
+            crypto_vbdev_name: if pool.encrypted {
+                Some(format!("crypto_{}", pool.name))
+            } else {
+                None
+            },
         }
     }
 }
@@ -186,6 +194,8 @@ impl From<LvsBdev> for Pool {
                 .unwrap_or_else(|| base.name().to_string())],
             replicas: None,
             backend: PoolBackend::Lvs,
+            // XXX: Check how we use this and set correctly.
+            encrypted: false,
         }
     }
 }

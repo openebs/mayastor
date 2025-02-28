@@ -136,6 +136,8 @@ async fn create_lvs(args: &CliArgs) -> Lvs {
             md_resv_ratio: args.md_resv_ratio,
         }),
         backend: Default::default(),
+        enc_key: None,
+        crypto_vbdev_name: None,
     };
 
     Lvs::create_or_import(lvs_args.clone()).await.unwrap()
