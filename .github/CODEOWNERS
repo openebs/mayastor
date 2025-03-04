@@ -1,5 +1,5 @@
 # Default code owners
-*                           @openebs/mayastor-approvers @openebs/org-maintainers
+*                           @openebs/mayastor-approvers
 
 # CODEOWNERS file owners
 /.github/CODEOWNERS         @openebs/org-maintainers
