@@ -20,7 +20,10 @@ use url::Url;
 use super::{BsError, ImportErrorReason, Lvol, LvsError, LvsIter, PropName, PropValue};
 
 use crate::{
-    bdev::{uri, PtplFileOps},
+    bdev::{
+        crypto::{create_crypto_vbdev_on_base_bdev, destroy_crypto_vbdev},
+        uri, PtplFileOps,
+    },
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType, NvmfShareProps,
@@ -316,11 +319,19 @@ impl Lvs {
             name: args.name.clone(),
         })?;
 
+        // If we are requesting for an encrypted pool, then we should match existing pool(if any)
+        // by pool's bdev name as crypto bdev name.
+        let pool_bdev_name = if let Some(c) = args.crypto_vbdev_name.as_ref() {
+            c
+        } else {
+            &parsed.get_name()
+        };
+
         // At any point two pools with the same name should
         // not exists so returning error
         if let Some(pool) = Self::lookup(&args.name) {
             let pool_name = pool.base_bdev().name().to_string();
-            return if pool_name.as_str() == parsed.get_name() {
+            return if pool_name.as_str() == pool_bdev_name {
                 Err(LvsError::Import {
                     source: BsError::VolAlreadyExists {},
                     name: args.name.clone(),
@@ -353,7 +364,35 @@ impl Lvs {
             Ok(name) => Ok(name),
         }?;
 
-        let pool = Self::import(&args.name, &bdev).await?;
+        if let Some(ref cname) = args.crypto_vbdev_name {
+            // Only if bdev doesn't exist. e.g. direct import path.
+            if UntypedBdev::lookup_by_name(cname).is_none() {
+                if let Some(e) = args.enc_key {
+                    match create_crypto_vbdev_on_base_bdev(cname, &bdev, &e) {
+                        Ok(_) => {}
+                        Err(berr) => {
+                            let _ = parsed.destroy().await.map_err(|e| {
+                                    error!(
+                                        "failed to delete base_bdev {bdev} after failed crypto vbdev creation. {e:?}"
+                                    );
+                                });
+                            return Err(LvsError::PoolCreate {
+                                source: BsError::LvsCryptoVbdev {
+                                    source: match berr {
+                                        BdevError::CreateBdevFailed { source, .. } => source,
+                                        _ => Errno::EINVAL,
+                                    },
+                                },
+                                name: args.name.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let bsdev_name = args.crypto_vbdev_name.as_ref().unwrap_or(&bdev);
+        let pool = Self::import(&args.name, bsdev_name).await?;
         // Try to destroy the pending snapshots without catching
         // the error.
         Lvol::destroy_pending_discarded_snapshot().await;
@@ -400,7 +439,11 @@ impl Lvs {
         let bdev = args.disks[0].clone();
 
         let pool_name = args.name.clone().into_cstring();
-        let bdev_name = bdev.into_cstring();
+        let bdev_name = if let Some(ref c) = args.crypto_vbdev_name {
+            c.clone().into_cstring()
+        } else {
+            bdev.into_cstring()
+        };
 
         let cluster_size = if let Some(cluster_size) = args.cluster_size {
             if cluster_size % ROUND_TO_MB == 0 {
@@ -496,8 +539,14 @@ impl Lvs {
         let disk = Self::parse_disk(args.disks.clone())?;
 
         info!(
-            "Creating or importing lvs '{}' from '{}'...",
-            args.name, disk
+            "Creating or importing {enc} lvs '{}' from '{}'...",
+            args.name,
+            disk,
+            enc = if args.crypto_vbdev_name.is_some() {
+                "encrypted"
+            } else {
+                "non-encrypted"
+            }
         );
 
         let bdev_ops = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
@@ -505,8 +554,16 @@ impl Lvs {
             name: args.name.clone(),
         })?;
 
+        // If we are requesting for an encrypted pool, then we should lookup existing pool(if any)
+        // by pool's bdev name as crypto bdev name.
+        let pool_bdev_name = if let Some(c) = args.crypto_vbdev_name.as_ref() {
+            c
+        } else {
+            &bdev_ops.get_name()
+        };
+
         if let Some(pool) = Self::lookup(&args.name) {
-            return if pool.base_bdev().name() == bdev_ops.get_name() {
+            return if pool.base_bdev().name() == pool_bdev_name {
                 Err(LvsError::PoolCreate {
                     source: BsError::VolAlreadyExists {},
                     name: args.name.clone(),
@@ -518,7 +575,6 @@ impl Lvs {
                 })
             };
         }
-
         // Create the underlying ndev.
         let bdev_name = match bdev_ops.create().await {
             Err(e) => match e {
@@ -538,6 +594,31 @@ impl Lvs {
             Ok(name) => Ok(name),
         }?;
 
+        // Create crypto bdev now if required.
+        if let Some(ref cname) = args.crypto_vbdev_name {
+            if let Some(ref e) = args.enc_key {
+                match create_crypto_vbdev_on_base_bdev(cname, &bdev_name, e) {
+                    Ok(_) => {}
+                    Err(berr) => {
+                        let _ = bdev_ops.destroy().await.map_err(|e| {
+                                error!(
+                                    "failed to delete base_bdev {bdev_name} after failed crypto vbdev creation. {e:?}"
+                                );
+                            });
+                        return Err(LvsError::PoolCreate {
+                            source: BsError::LvsCryptoVbdev {
+                                source: match berr {
+                                    BdevError::CreateBdevFailed { source, .. } => source,
+                                    _ => Errno::EINVAL,
+                                },
+                            },
+                            name: args.name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
         match Self::import_from_args(args.clone()).await {
             Ok(pool) => Ok(pool),
             // try to create the pool
@@ -545,6 +626,7 @@ impl Lvs {
                 source: BsError::CannotImportLvs {},
                 ..
             }) => {
+                let cbdev_name: Option<String> = args.crypto_vbdev_name.clone();
                 match Self::create_from_args_inner(PoolArgs {
                     disks: vec![bdev_name.clone()],
                     ..args
@@ -552,6 +634,15 @@ impl Lvs {
                 .await
                 {
                     Err(create) => {
+                        // destroy crypto vbdev first.
+                        if let Some(c) = cbdev_name.as_ref() {
+                            let _ = destroy_crypto_vbdev(c.clone()).await.map_err(|e| {
+                                error!(
+                                    "failed to delete crypto vbdev {c} after failed pool creation. {e}"
+                                );
+                            });
+                        }
+
                         let _ = bdev_ops.destroy().await.map_err(|_e| {
                             // we failed to delete the base_bdev be loud about it
                             // there is not much we can do about it here, likely
@@ -664,7 +755,7 @@ impl Lvs {
         // when destroying a pool unshare all volumes
         self.unshare_all().await;
 
-        let base_bdev = self.base_bdev();
+        let mut base_bdev = self.base_bdev();
 
         let evt = self.event(EventAction::Delete);
 
@@ -677,16 +768,44 @@ impl Lvs {
                 name: pool.clone(),
             })?;
 
-        info!("{}: lvs destroyed successfully", self_str);
+        info!(
+            "{}: lvs destroyed successfully. base_bdev: {base_bdev:?}",
+            self_str
+        );
 
         evt.generate();
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap())
-            .await
-            .map_err(|e| LvsError::Destroy {
+        // If the base_bdev is a crypto vbdev then we need to destroy both - the crypto vbdev and it's base.
+        if base_bdev.driver() == "crypto" {
+            let cbdev = base_bdev.crypto_base_bdev();
+
+            let _ = destroy_crypto_vbdev(base_bdev.name().to_string())
+                .await
+                .map_err(|e| {
+                    error!(
+                        "failed to delete crypto vbdev {:?} after failed pool creation. {e}",
+                        base_bdev.name()
+                    );
+                });
+
+            // A None cbdev here is highly unlikely as the vbdev can't exist in thin air.
+            // If cbdev is somehow None anyway, then the following bdev_destroy will likely
+            // fail, and we can let it.
+            if let Some(c) = cbdev {
+                base_bdev = Bdev::new(c);
+            }
+        }
+        trace!(
+            "Deleting bdev {}, uri {:?}",
+            base_bdev.name(),
+            base_bdev.bdev_uri_original_str()
+        );
+        if let Some(u) = base_bdev.bdev_uri_original_str() {
+            bdev_destroy(&u).await.map_err(|e| LvsError::Destroy {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
+        }
 
         if let Err(error) = ptpl.destroy() {
             tracing::error!(
