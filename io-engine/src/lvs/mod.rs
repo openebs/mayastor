@@ -220,6 +220,10 @@ impl IPoolProps for Lvs {
             md_used_pages: self.md_used_pages(),
         })
     }
+
+    fn encrypted(&self) -> bool {
+        self.encrypted()
+    }
 }
 
 /// A factory instance which implements LVS specific `PoolFactory`.

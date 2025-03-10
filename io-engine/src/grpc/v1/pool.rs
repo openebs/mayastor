@@ -400,6 +400,7 @@ impl From<&dyn PoolOps> for Pool {
             page_size: value.page_size(),
             disk_capacity: value.disk_capacity(),
             md_info: value.md_props().map(|md| md.into()),
+            encrypted: Some(value.encrypted()),
         }
     }
 }
