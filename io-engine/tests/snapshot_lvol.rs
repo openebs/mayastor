@@ -59,6 +59,8 @@ async fn create_test_pool(pool_name: &str, disk: String, cluster_size: Option<u3
         cluster_size,
         md_args: None,
         backend: PoolBackend::Lvs,
+        enc_key: None,
+        crypto_vbdev_name: None,
     })
     .await
     .expect("Failed to create test pool");

@@ -1,4 +1,5 @@
 use crate::{
+    bdev::crypto::EncryptionKey,
     core::{BdevStater, BdevStats, ToErrno},
     replica_backend::ReplicaOps,
 };
@@ -16,6 +17,8 @@ pub struct PoolArgs {
     pub cluster_size: Option<u32>,
     pub md_args: Option<PoolMetadataArgs>,
     pub backend: PoolBackend,
+    pub enc_key: Option<EncryptionKey>,
+    pub crypto_vbdev_name: Option<String>,
 }
 
 /// Pool metadata args.

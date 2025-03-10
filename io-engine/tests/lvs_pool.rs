@@ -54,6 +54,8 @@ async fn lvs_pool_test() {
         cluster_size: None,
         md_args: None,
         backend: PoolBackend::Lvs,
+        enc_key: None,
+        crypto_vbdev_name: None,
     };
 
     // should succeed to create a pool we can not import
@@ -139,6 +141,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .is_ok());
@@ -171,6 +175,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .unwrap();
@@ -209,6 +215,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .unwrap();
@@ -348,6 +356,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .unwrap();
@@ -370,6 +380,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .unwrap();
@@ -398,6 +410,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .unwrap();
@@ -436,6 +450,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .err()
@@ -454,6 +470,8 @@ async fn lvs_pool_test() {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
         .await
         .unwrap();

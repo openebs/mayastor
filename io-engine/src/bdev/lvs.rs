@@ -34,6 +34,8 @@ use crate::{
     pool_backend::{PoolArgs, PoolBackend},
 };
 
+use super::crypto::EncryptionKey;
+
 /// An lvol specified via URI.
 pub(super) struct Lvol {
     /// Name of the lvol.
@@ -50,6 +52,8 @@ struct Lvs {
     disk: String,
     /// The lvs creation mode.
     mode: LvsMode,
+    // Encryption key - if the lvs is encrypted.
+    key: Option<EncryptionKey>,
 }
 
 impl Debug for Lvol {
@@ -144,6 +148,7 @@ impl TryFrom<String> for Lvs {
             name: uri.path()[1..].into(),
             disk,
             mode,
+            key: None,
         })
     }
 }
@@ -209,6 +214,9 @@ impl Lvs {
             cluster_size: None,
             md_args: None,
             backend: PoolBackend::Lvs,
+            enc_key: self.key.clone(),
+            // XXX: Is this path ever exercised apart from test, or casperf perhaps?
+            crypto_vbdev_name: self.key.as_ref().map(|_| format!("crypto_{}", self.name)),
         };
         match &self.mode {
             LvsMode::Create => match crate::lvs::Lvs::import_from_args(args.clone()).await {

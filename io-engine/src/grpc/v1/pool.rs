@@ -1,5 +1,6 @@
 pub use crate::pool_backend::FindPoolArgs as PoolIdProbe;
 use crate::{
+    bdev::crypto::{Cipher, EncryptionKey as PoolEncKey},
     core::{NvmfShareProps, ProtectedSubsystems, Protocol, ResourceLockGuard, ResourceLockManager},
     grpc::{acquire_subsystem_lock, GrpcClientContext, GrpcResult, RWLock, RWSerializer},
     lvs::{BsError, LvsError},
@@ -11,9 +12,17 @@ use crate::{
 use ::function_name::named;
 use futures::FutureExt;
 use io_engine_api::v1::{
-    pool::*, replica::destroy_replica_request, snapshot::destroy_snapshot_request,
+    common::{create_pool_request, import_pool_request, Cipher as GrpcCipher, EncryptionData},
+    pool::*,
+    replica::destroy_replica_request,
+    snapshot::destroy_snapshot_request,
 };
-use std::{convert::TryFrom, fmt::Debug, ops::Deref, panic::AssertUnwindSafe};
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt::Debug,
+    ops::Deref,
+    panic::AssertUnwindSafe,
+};
 use tonic::{Request, Status};
 
 impl From<DestroyPoolRequest> for FindPoolArgs {
@@ -126,6 +135,37 @@ impl RWLock for PoolService {
     }
 }
 
+impl TryFrom<EncryptionData> for PoolEncKey {
+    type Error = LvsError;
+    fn try_from(msg: EncryptionData) -> Result<Self, Self::Error> {
+        let key = if let Some(k) = msg.key {
+            k
+        } else {
+            return Err(LvsError::Invalid {
+                source: BsError::InvalidArgument {},
+                msg: "invalid argument, missing key".to_string(),
+            });
+        };
+
+        let arg_cipher = msg.cipher;
+        let ctype: Cipher = GrpcCipher::try_from(arg_cipher)
+            .map_err(|_| LvsError::Invalid {
+                source: BsError::InvalidArgument {},
+                msg: format!("invalid cipher provided: {}", arg_cipher),
+            })?
+            .into();
+
+        Ok(Self {
+            cipher: ctype,
+            key_name: key.key_name,
+            key: String::from_utf8_lossy(&key.key).to_string(),
+            key_len: key.key_length,
+            key2: key.key2.map(|k2| String::from_utf8_lossy(&k2).to_string()),
+            key2_len: key.key2_length,
+        })
+    }
+}
+
 impl TryFrom<CreatePoolRequest> for PoolArgs {
     type Error = LvsError;
     fn try_from(args: CreatePoolRequest) -> Result<Self, Self::Error> {
@@ -149,13 +189,24 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             }
         }
 
+        let enc_key = match args.encryption.clone() {
+            Some(create_pool_request::Encryption::Data(kd)) => kd.try_into().ok(),
+            Some(create_pool_request::Encryption::Secret(_ks)) => None,
+            _ => None,
+        };
+
         Ok(Self {
-            name: args.name,
-            disks: args.disks,
-            uuid: args.uuid,
+            name: args.name.clone(),
+            disks: args.disks.clone(),
+            uuid: args.uuid.clone(),
             cluster_size: args.cluster_size,
             md_args: args.md_args.map(|md| md.into()),
             backend: backend.into(),
+            enc_key,
+            crypto_vbdev_name: args
+                .encryption
+                .as_ref()
+                .map(|_| format!("crypto_{}", args.name)),
         })
     }
 }
@@ -226,13 +277,24 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             }
         }
 
+        let enc_key = match args.encryption.clone() {
+            Some(import_pool_request::Encryption::Data(kd)) => PoolEncKey::try_from(kd).ok(),
+            Some(import_pool_request::Encryption::Secret(_ks)) => None,
+            _ => None,
+        };
+
         Ok(Self {
-            name: args.name,
-            disks: args.disks,
-            uuid: args.uuid,
+            name: args.name.clone(),
+            disks: args.disks.clone(),
+            uuid: args.uuid.clone(),
             cluster_size: None,
             md_args: None,
             backend: backend.into(),
+            enc_key,
+            crypto_vbdev_name: args
+                .encryption
+                .as_ref()
+                .map(|_| format!("crypto_{}", args.name)),
         })
     }
 }

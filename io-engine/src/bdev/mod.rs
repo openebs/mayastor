@@ -10,6 +10,7 @@ pub(crate) mod dev;
 use crate::core::{MayastorEnvironment, PtplProps};
 pub(crate) use dev::uri;
 
+pub mod crypto;
 pub(crate) mod device;
 mod ftl;
 mod loopback;

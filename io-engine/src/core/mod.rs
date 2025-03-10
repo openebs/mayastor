@@ -273,6 +273,10 @@ pub enum CoreError {
     WipeFailed {
         source: wiper::Error,
     },
+    #[snafu(display("Failed to init crypto module: {reason}"))]
+    InitCryptoModule {
+        reason: String,
+    },
 }
 
 /// Represent error as Errno value.
@@ -318,6 +322,7 @@ impl ToErrno for CoreError {
             Self::Ptpl { .. } => Errno::EIO,
             Self::SnapshotCreate { source, .. } => source,
             Self::WipeFailed { .. } => Errno::EIO,
+            Self::InitCryptoModule { .. } => Errno::EINVAL,
         }
     }
 }

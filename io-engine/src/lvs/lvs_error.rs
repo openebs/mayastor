@@ -49,6 +49,8 @@ pub enum BsError {
     OutOfMetadata {},
     #[snafu(display(": capacity overflow"))]
     CapacityOverflow {},
+    #[snafu(display(": crypto vbdev error"))]
+    LvsCryptoVbdev {},
 }
 
 impl BsError {
@@ -101,6 +103,7 @@ impl ToErrno for BsError {
             Self::NoSpace {} => Errno::ENOSPC,
             Self::OutOfMetadata {} => Errno::EMFILE,
             Self::CapacityOverflow {} => Errno::EOVERFLOW,
+            Self::LvsCryptoVbdev {} => Errno::EINVAL,
         }
     }
 }

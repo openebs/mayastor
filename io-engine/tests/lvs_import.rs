@@ -56,6 +56,8 @@ async fn lvs_import_many_volume() {
             cluster_size: None,
             md_args: None,
             backend: Default::default(),
+            enc_key: None,
+            crypto_vbdev_name: None,
         };
 
         // Create LVS.
