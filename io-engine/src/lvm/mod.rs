@@ -321,6 +321,10 @@ impl IPoolProps for VolumeGroup {
     fn md_props(&self) -> Option<PoolMetadataInfo> {
         None
     }
+
+    fn encrypted(&self) -> bool {
+        false
+    }
 }
 
 /// A factory instance which implements LVM specific `PoolFactory`.

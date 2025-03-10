@@ -178,6 +178,12 @@ impl Lvs {
         Bdev::checked_from_ptr(p).unwrap()
     }
 
+    /// Is the Lvs/pool encrypted.
+    pub fn encrypted(&self) -> bool {
+        let b = self.base_bdev();
+        b.driver() == "crypto"
+    }
+
     /// Returns blobstore cluster size.
     pub fn blob_cluster_size(&self) -> u64 {
         let blobs = self.blob_store();

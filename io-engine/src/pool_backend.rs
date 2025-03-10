@@ -222,6 +222,7 @@ pub trait IPoolProps {
     fn used(&self) -> u64;
     fn committed(&self) -> u64;
     fn md_props(&self) -> Option<PoolMetadataInfo>;
+    fn encrypted(&self) -> bool;
 }
 
 /// A pool factory helper.
