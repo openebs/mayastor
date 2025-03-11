@@ -159,7 +159,7 @@ struct Pool {
     #[serde(skip_serializing)]
     replicas: Option<Vec<Replica>>,
     backend: PoolBackend,
-    /// Is the pool enrypted.
+    /// Is the pool encrypted.
     encrypted: bool,
 }
 

@@ -130,7 +130,8 @@ pub fn subcommands() -> Command {
                 .short('e')
                 .long("xts-key")
                 .help("encryption key2 required for AES_XTS")
-                .required_if_eq("cipher", "AES_XTS"),
+                .required_if_eq("cipher", "AES_XTS")
+                .required(false),
         );
 
     let destroy = Command::new("destroy")
