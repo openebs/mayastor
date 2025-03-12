@@ -21,6 +21,17 @@ pub struct PoolArgs {
     pub crypto_vbdev_name: Option<String>,
 }
 
+impl PoolArgs {
+    pub fn with_encryption(mut self, encryption_args: Option<EncryptionKey>) -> Self {
+        self.crypto_vbdev_name = encryption_args
+            .as_ref()
+            .map(|_| format!("crypto_{}", self.name));
+        self.enc_key = encryption_args;
+
+        self
+    }
+}
+
 /// Pool metadata args.
 #[derive(Clone, Debug, Default)]
 pub struct PoolMetadataArgs {

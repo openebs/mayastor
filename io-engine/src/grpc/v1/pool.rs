@@ -17,6 +17,7 @@ use io_engine_api::v1::{
     replica::destroy_replica_request,
     snapshot::destroy_snapshot_request,
 };
+use secret_provider::secret_data;
 use std::{
     convert::{TryFrom, TryInto},
     fmt::Debug,
@@ -24,6 +25,15 @@ use std::{
     panic::AssertUnwindSafe,
 };
 use tonic::{Request, Status};
+
+pub type PoolCreateEncryptionParams = create_pool_request::Encryption;
+pub type PoolImportEncryptionParams = import_pool_request::Encryption;
+
+enum PoolEncryptionParams {
+    Create(PoolCreateEncryptionParams),
+    Import(PoolImportEncryptionParams),
+    NoEncryptionParams,
+}
 
 impl From<DestroyPoolRequest> for FindPoolArgs {
     fn from(value: DestroyPoolRequest) -> Self {
@@ -55,6 +65,48 @@ impl From<GrowPoolRequest> for FindPoolArgs {
     fn from(value: GrowPoolRequest) -> Self {
         Self::name_uuid(value.name, &value.uuid)
     }
+}
+
+/// Helper routine to extract Encryption params from the Create or Import pool request.
+async fn util_fetch_secret_params(
+    params: &PoolEncryptionParams,
+) -> Result<Option<PoolEncKey>, Status> {
+    let enc_key = match params {
+        PoolEncryptionParams::Create(enc_arg) => {
+            match enc_arg.clone() {
+                // Would have been nice to deduplicate the code if we could call secret_data using a
+                // trait object returned by library. But it doesn't seem to work here because the
+                // library call having generic type in definition isn't allowing that.
+                create_pool_request::Encryption::Data(ckd) => Some(
+                    ckd.try_into()
+                        .map_err(|e: LvsError| Status::invalid_argument(e.to_string()))?,
+                ),
+                create_pool_request::Encryption::Secret(cks) => {
+                    let secret_params = secret_data(cks.secret.as_str())
+                        .await
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                    trace!("[create pool] Received encryption params: {secret_params:?}");
+                    Some(secret_params)
+                }
+            }
+        }
+        PoolEncryptionParams::Import(enc_arg) => match enc_arg.clone() {
+            import_pool_request::Encryption::Data(ikd) => Some(
+                ikd.try_into()
+                    .map_err(|e: LvsError| Status::invalid_argument(e.to_string()))?,
+            ),
+            import_pool_request::Encryption::Secret(iks) => {
+                let secret_params = secret_data(iks.secret.as_str())
+                    .await
+                    .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                trace!("[import pool] Received encryption params: {secret_params:?}");
+                Some(secret_params)
+            }
+        },
+        PoolEncryptionParams::NoEncryptionParams => None,
+    };
+
+    Ok(enc_key)
 }
 
 /// RPC service for mayastor pool operations
@@ -189,12 +241,6 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             }
         }
 
-        let enc_key = match args.encryption.clone() {
-            Some(create_pool_request::Encryption::Data(kd)) => kd.try_into().ok(),
-            Some(create_pool_request::Encryption::Secret(_ks)) => None,
-            _ => None,
-        };
-
         Ok(Self {
             name: args.name.clone(),
             disks: args.disks.clone(),
@@ -202,11 +248,8 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             cluster_size: args.cluster_size,
             md_args: args.md_args.map(|md| md.into()),
             backend: backend.into(),
-            enc_key,
-            crypto_vbdev_name: args
-                .encryption
-                .as_ref()
-                .map(|_| format!("crypto_{}", args.name)),
+            enc_key: None,
+            crypto_vbdev_name: None,
         })
     }
 }
@@ -525,16 +568,24 @@ impl GrpcPoolFactory {
 impl PoolRpc for PoolService {
     #[named]
     async fn create_pool(&self, request: Request<CreatePoolRequest>) -> GrpcResult<Pool> {
+        // Check if the pool is required to be encrypted, and fetch the required
+        // encryption parameters from specified source.
+        let enc_arg = match request.get_ref().encryption {
+            Some(ref e) => PoolEncryptionParams::Create(e.clone()),
+            _ => PoolEncryptionParams::NoEncryptionParams,
+        };
+        let enc_key = util_fetch_secret_params(&enc_arg).await?;
+
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-
                     let factory =
                         GrpcPoolFactory::new(PoolBackend::try_from(request.get_ref().pooltype)?)?;
+
                     factory
-                        .create(PoolArgs::try_from(request.into_inner())?)
+                        .create(PoolArgs::try_from(request.into_inner())?.with_encryption(enc_key))
                         .await
                 })
             },
@@ -576,16 +627,24 @@ impl PoolRpc for PoolService {
 
     #[named]
     async fn import_pool(&self, request: Request<ImportPoolRequest>) -> GrpcResult<Pool> {
+        // If the pool to be imported is encrypted, fetch the required
+        // encryption parameters from specified source.
+        let enc_arg = match request.get_ref().encryption {
+            Some(ref e) => PoolEncryptionParams::Import(e.clone()),
+            _ => PoolEncryptionParams::NoEncryptionParams,
+        };
+        let enc_key = util_fetch_secret_params(&enc_arg).await?;
+
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-
                     let factory =
                         GrpcPoolFactory::new(PoolBackend::try_from(request.get_ref().pooltype)?)?;
+
                     factory
-                        .import(PoolArgs::try_from(request.into_inner())?)
+                        .import(PoolArgs::try_from(request.into_inner())?.with_encryption(enc_key))
                         .await
                 })
             },

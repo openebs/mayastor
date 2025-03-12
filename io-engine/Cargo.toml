@@ -114,6 +114,7 @@ sysfs = { path = "../sysfs" }
 version-info = { path = "../utils/dependencies/version-info", features = ["deps-logs-head"] }
 events-api = { path = "../utils/dependencies/apis/events" }
 event-publisher = { path = "../utils/dependencies/event-publisher" }
+secret-provider = { path = "../utils/dependencies/secret-provider" }
 tracing-filter = { path = "../utils/dependencies/tracing-filter" }
 
 [dependencies.serde]
