@@ -97,6 +97,13 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         warn!("RDMA is requested to be enabled for Mayastor NVMEoF target");
     }
 
+    // Use as-is basis for diskpool encryption since the spdk build is enabled
+    // --with-crypto.
+    // TODO: Once dpdk crypto modules are supported, we'll provide a switch
+    // later on to control the behaviour of choosing to use accel_sw based
+    // encryption if dpdk module(fips) isn't usable on platform.
+    env::set_var("ENABLE_DISKPOOL_ENCRYPTION", "true");
+
     unsafe {
         spdk_rs::libspdk::spdk_blob_enable_cluster_unmap(args.bs_cluster_unmap);
     }
