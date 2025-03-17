@@ -394,6 +394,8 @@ pub struct MayastorFeatures {
     pub snapshot_rebuild: bool,
     /// When set to true, the io-engine instance supports RDMA transport.
     pub rdma_capable_io_engine: bool,
+    /// Diskpool encryption capability.
+    pub diskpool_encryption: bool,
 }
 impl MayastorFeatures {
     /// Check if LVM feature is enabled.
