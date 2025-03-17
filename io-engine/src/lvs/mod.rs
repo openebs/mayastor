@@ -1,7 +1,7 @@
 use crate::{
     bdev::PtplFileOps,
     core::{
-        snapshot::SnapshotDescriptor, CloneParams, LogicalVolume, Protocol, PtplProps, Share,
+        snapshot::SnapshotDescriptor, Bdev, CloneParams, LogicalVolume, Protocol, PtplProps, Share,
         SnapshotParams, UpdateProps,
     },
     pool_backend::{
@@ -186,7 +186,14 @@ impl IPoolProps for Lvs {
     }
 
     fn disks(&self) -> Vec<String> {
-        vec![self.base_bdev().bdev_uri_str().unwrap_or_else(|| "".into())]
+        // Calling crypto_base_bdev() on non crypto bdev returns None.
+        let disk_bdev = self
+            .base_bdev()
+            .crypto_base_bdev()
+            .map(Bdev::new)
+            .unwrap_or_else(|| self.base_bdev());
+
+        vec![disk_bdev.bdev_uri_str().unwrap_or_else(|| "".into())]
     }
 
     fn disk_capacity(&self) -> u64 {
