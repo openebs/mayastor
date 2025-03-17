@@ -664,6 +664,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                         md_usage,
                         p.disks.join(" "),
                         ctx.units(disk_cap),
+                        p.encrypted.unwrap_or_default().to_string(),
                     ]
                 })
                 .collect();
@@ -683,6 +684,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     "MD_USED%",
                     "DISKS",
                     "DISK_CAPACITY",
+                    "ENCRYPTED",
                 ],
                 table,
             );
