@@ -64,7 +64,7 @@ pub enum Cipher {
     AesXts,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 /// A struct that represents the parameters required to create a key.
 pub struct EncryptionKey {
     pub cipher: Cipher,
