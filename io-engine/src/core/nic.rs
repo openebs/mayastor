@@ -128,6 +128,17 @@ impl Interface {
         }
     }
 
+    /// Get the available ip address.
+    pub(crate) fn ip(&self) -> Option<std::net::IpAddr> {
+        if let Some(ipv4) = self.inet.addr {
+            return Some(std::net::IpAddr::V4(ipv4));
+        }
+        if let Some(ipv6) = self.inet6.addr {
+            return Some(std::net::IpAddr::V6(ipv6));
+        }
+        None
+    }
+
     /// Tests if the interface belongs to the given subnet.
     pub fn ipv4_subnet_eq(&self, net_addr: Ipv4Addr, net_mask: u32) -> bool {
         let (addr, mask) = match (self.inet.addr, self.inet.netmask) {

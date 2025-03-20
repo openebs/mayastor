@@ -1,6 +1,7 @@
 use std::{
     ffi::CString,
     fmt::{Debug, Display, Formatter},
+    net::IpAddr,
     ops::{Deref, DerefMut},
 };
 
@@ -13,7 +14,7 @@ use spdk_rs::{
     libspdk::{
         spdk_nvme_transport_id, spdk_nvmf_tgt_add_transport, spdk_nvmf_transport_create,
         SPDK_NVME_TRANSPORT_RDMA, SPDK_NVME_TRANSPORT_TCP, SPDK_NVMF_ADRFAM_IPV4,
-        SPDK_NVMF_TRSVCID_MAX_LEN,
+        SPDK_NVMF_ADRFAM_IPV6, SPDK_NVMF_TRSVCID_MAX_LEN,
     },
 };
 
@@ -112,7 +113,7 @@ impl DerefMut for TransportId {
 
 impl TransportId {
     pub fn new(port: u16, transport: NvmfTgtTransport) -> Self {
-        let address = get_ipv4_address().unwrap();
+        let address = get_ip_address().unwrap();
         let (xprt_type, xprt_cstr) = match transport {
             NvmfTgtTransport::Tcp => (SPDK_NVME_TRANSPORT_TCP, &TCP_TRANSPORT),
             NvmfTgtTransport::Rdma => (SPDK_NVME_TRANSPORT_RDMA, &RDMA_TRANSPORT),
@@ -120,7 +121,10 @@ impl TransportId {
 
         let mut trid = spdk_nvme_transport_id {
             trtype: xprt_type,
-            adrfam: SPDK_NVMF_ADRFAM_IPV4,
+            adrfam: match address {
+                IpAddr::V4(_) => SPDK_NVMF_ADRFAM_IPV4,
+                IpAddr::V6(_) => SPDK_NVMF_ADRFAM_IPV6,
+            },
             ..Default::default()
         };
 
@@ -128,7 +132,7 @@ impl TransportId {
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
 
         copy_cstr_with_null(xprt_cstr, &mut trid.trstring);
-        copy_str_with_null(&address, &mut trid.traddr);
+        copy_str_with_null(&address.to_string(), &mut trid.traddr);
         copy_str_with_null(&port, &mut trid.trsvcid);
 
         Self(trid)
@@ -170,7 +174,7 @@ impl Debug for TransportId {
     }
 }
 
-pub(crate) fn get_ipv4_address() -> Result<String, Error> {
+pub(crate) fn get_ip_address() -> Result<std::net::IpAddr, Error> {
     match MayastorEnvironment::get_nvmf_tgt_ip() {
         Ok(val) => Ok(val),
         Err(msg) => Err(Error::CreateTarget { msg }),

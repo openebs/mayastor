@@ -24,7 +24,7 @@ use crate::{
         nvmf::{
             poll_groups::PollGroup,
             subsystem::NvmfSubsystem,
-            transport::{self, get_ipv4_address, TransportId},
+            transport::{self, get_ip_address, TransportId},
             Error, NVMF_PGS,
         },
         Config,
@@ -251,7 +251,7 @@ impl Target {
         }
         info!(
             "nvmf target listening(tcp) on {}:({},{})",
-            get_ipv4_address().unwrap(),
+            get_ip_address().unwrap(),
             trid_nexus.trsvcid.as_str(),
             trid_replica.trsvcid.as_str(),
         );
@@ -316,7 +316,7 @@ impl Target {
         }
         info!(
             "nvmf target listening(rdma) on {}:({},{})",
-            get_ipv4_address().unwrap(),
+            get_ip_address().unwrap(),
             trid_nexus.trsvcid.as_str(),
             trid_replica.trsvcid.as_str(),
         );
