@@ -1,7 +1,6 @@
 use std::{
     env,
     ffi::CString,
-    net::Ipv4Addr,
     os::raw::{c_char, c_void},
     pin::Pin,
     str::FromStr,
@@ -19,6 +18,7 @@ use futures::{channel::oneshot, future};
 use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
+use std::net::Ipv6Addr;
 use tokio::runtime::Builder;
 use version_info::{package_description, version_info_str};
 
@@ -790,8 +790,8 @@ impl MayastorEnvironment {
     }
 
     /// Returns NVMF target's IP address.
-    pub(crate) fn get_nvmf_tgt_ip() -> Result<String, String> {
-        static TGT_IP: OnceCell<String> = OnceCell::new();
+    pub(crate) fn get_nvmf_tgt_ip() -> Result<std::net::IpAddr, String> {
+        static TGT_IP: OnceCell<std::net::IpAddr> = OnceCell::new();
         TGT_IP
             .get_or_try_init(|| match Self::global_or_default().nvmf_tgt_interface {
                 Some(ref iface) => Self::detect_nvmf_tgt_iface_ip(iface),
@@ -807,12 +807,8 @@ impl MayastorEnvironment {
 
     /// Detects IP address for NVMF target by the interface specified in CLI
     /// arguments.
-    fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<String, String> {
-        info!(
-            "Detecting IP address for NVMF target network interface \
-                specified as '{}' ...",
-            iface
-        );
+    fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<std::net::IpAddr, String> {
+        info!("Detecting IP address for NVMF target network interface specified as '{iface}' ...");
 
         let (cls, name) = match iface.split_once(':') {
             Some(p) => p,
@@ -858,18 +854,17 @@ impl MayastorEnvironment {
             iface, res
         );
 
-        if res.inet.addr.is_none() {
-            return Err(format!(
-                "Network interface '{}' has no IPv4 address configured",
+        match res.ip() {
+            Some(ip) => Ok(ip),
+            None => Err(format!(
+                "Network interface '{}' has no IP address configured",
                 res.name
-            ));
+            )),
         }
-
-        Ok(res.inet.addr.unwrap().to_string())
     }
 
     /// Detects pod IP address.
-    fn detect_pod_ip() -> Result<String, String> {
+    fn detect_pod_ip() -> Result<std::net::IpAddr, String> {
         match env::var("MY_POD_IP") {
             Ok(val) => {
                 info!(
@@ -877,16 +872,15 @@ impl MayastorEnvironment {
                         for NVMF target network interface"
                 );
 
-                if val.parse::<Ipv4Addr>().is_ok() {
-                    Ok(val)
-                } else {
-                    Err(format!(
+                match val.parse::<std::net::IpAddr>() {
+                    Ok(ip) => Ok(ip),
+                    Err(error) => Err(format!(
                         "MY_POD_IP environment variable is set to an \
-                            invalid IPv4 address: '{val}'"
-                    ))
+                            invalid IPvX address: '{val}': {error}"
+                    )),
                 }
             }
-            Err(_) => Ok("127.0.0.1".to_owned()),
+            Err(_) => Ok(std::net::IpAddr::V6(Ipv6Addr::LOCALHOST)),
         }
     }
 
