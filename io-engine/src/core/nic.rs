@@ -1,5 +1,6 @@
 use core::default::Default;
 use nix::ifaddrs::getifaddrs;
+
 use std::{
     collections::BTreeMap,
     fmt,
@@ -139,33 +140,51 @@ impl Interface {
         None
     }
 
-    /// Tests if the interface belongs to the given subnet.
-    pub fn ipv4_subnet_eq(&self, net_addr: Ipv4Addr, net_mask: u32) -> bool {
-        let (addr, mask) = match (self.inet.addr, self.inet.netmask) {
-            (Some(addr), Some(mask)) => (addr, mask),
-            _ => return false,
-        };
+    /// Check if the given ip matches ours.
+    pub(crate) fn ip_match(&self, ip: std::net::IpAddr) -> bool {
+        match ip {
+            std::net::IpAddr::V4(ip) => Some(ip) == self.inet.addr,
+            std::net::IpAddr::V6(ip) => Some(ip) == self.inet6.addr,
+        }
+    }
 
-        let mask = u32::from_be(ipv4addr_to_libc(mask).s_addr);
-        if mask != net_mask {
-            return false;
+    /// Tests if the interface belongs to the given subnet.
+    pub fn ip_subnet_eq(&self, net_addr: std::net::IpAddr, net_mask: u128) -> bool {
+        if let Some((addr, mask)) = match (self.inet.addr, self.inet.netmask) {
+            (Some(addr), Some(mask)) => Some((addr, mask)),
+            _ => None,
+        } {
+            let mask = mask.to_bits();
+            if mask as u128 != net_mask {
+                return false;
+            }
+
+            let addr = addr.to_bits();
+            let subnet = addr & mask;
+
+            if Ipv4Addr::from(subnet) == net_addr {
+                return true;
+            }
         }
 
-        let addr = u32::from_be(ipv4addr_to_libc(addr).s_addr);
-        let subnet = addr & mask;
+        if let Some((addr, mask)) = match (self.inet6.addr, self.inet6.netmask) {
+            (Some(addr), Some(mask)) => Some((addr, mask)),
+            _ => None,
+        } {
+            let mask = mask.to_bits();
+            if mask != net_mask {
+                return false;
+            }
 
-        Ipv4Addr::from(subnet) == net_addr
-    }
-}
-fn ipv4addr_to_libc(addr: Ipv4Addr) -> libc::in_addr {
-    let octets = addr.octets();
-    libc::in_addr {
-        s_addr: u32::to_be(
-            ((octets[0] as u32) << 24)
-                | ((octets[1] as u32) << 16)
-                | ((octets[2] as u32) << 8)
-                | (octets[3] as u32),
-        ),
+            let addr = addr.to_bits();
+            let subnet = addr & mask;
+
+            if Ipv6Addr::from(subnet) == net_addr {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -223,30 +242,42 @@ pub fn find_all_nics() -> Vec<Interface> {
 }
 
 /// Utility to parse an IPv4 address string into a nix's Ipv4Addr.
-pub fn parse_ipv4(addr: &str) -> Result<Ipv4Addr, String> {
-    addr.parse::<Ipv4Addr>().map_err(|e| e.to_string())
+pub fn parse_ip(addr: &str) -> Result<std::net::IpAddr, String> {
+    addr.parse::<std::net::IpAddr>().map_err(|e| e.to_string())
 }
 
-/// Utility to parse an IPv4 subnet string into a nix's Ipv4Addr.
-pub fn parse_ipv4_subnet(addr_str: &str) -> Result<(Ipv4Addr, u32), String> {
+/// Utility to parse an IPvX subnet string into a nix's IpvXAddr.
+pub fn parse_ip_subnet(addr_str: &str) -> Result<(std::net::IpAddr, u128), String> {
     let (addr, bits) = match addr_str.split_once('/') {
         Some(p) => p,
         None => return Err(format!("Invalid subnet: '{addr_str}'")),
     };
 
-    let addr = parse_ipv4(addr)?;
-    let addr = u32::from_be(ipv4addr_to_libc(addr).s_addr);
-
     let bits = bits
         .parse::<u32>()
         .map_err(|e| format!("Invalid subnet '{addr_str}': {e}"))?;
 
-    if bits > 32 {
-        return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
+    match parse_ip(addr)? {
+        std::net::IpAddr::V4(v4) => {
+            if bits > 32 {
+                return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
+            }
+            let addr = v4.to_bits();
+            let mask = !0 << (32 - bits);
+            let subnet = addr & mask;
+
+            Ok((std::net::IpAddr::V4(Ipv4Addr::from(subnet)), mask as u128))
+        }
+        std::net::IpAddr::V6(v6) => {
+            if bits > 128 {
+                return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
+            }
+
+            let addr = v6.to_bits();
+            let mask = !0 << (128 - bits);
+            let subnet = addr & mask;
+
+            Ok((std::net::IpAddr::V6(Ipv6Addr::from(subnet)), mask))
+        }
     }
-
-    let mask = !0 << (32 - bits);
-
-    let subnet = addr & mask;
-    Ok((Ipv4Addr::from(subnet), mask))
 }

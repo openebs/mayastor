@@ -822,37 +822,29 @@ impl MayastorEnvironment {
                 Box::new(move |n| n.mac == mac)
             }
             "ip" => {
-                let addr = Some(nic::parse_ipv4(name)?);
-                Box::new(move |n| n.inet.addr == addr)
+                let addr = nic::parse_ip(name)?;
+                Box::new(move |n| n.ip_match(addr))
             }
             "subnet" => {
-                let (subnet, mask) = nic::parse_ipv4_subnet(name)?;
-                Box::new(move |n| n.ipv4_subnet_eq(subnet, mask))
+                let (subnet, mask) = nic::parse_ip_subnet(name)?;
+                Box::new(move |n| n.ip_subnet_eq(subnet, mask))
             }
             _ => {
-                return Err(format!("Invalid NVMF target interface: '{iface}'",));
+                return Err(format!("Invalid NVMF target interface: '{iface}'"));
             }
         };
 
         let mut nics: Vec<_> = nic::find_all_nics().into_iter().filter(pred).collect();
 
-        if nics.is_empty() {
-            return Err(format!("Network interface matching '{iface}' not found",));
-        }
+        let res = match nics.pop() {
+            None => Err(format!("Network interface matching '{iface}' not found")),
+            Some(_) if !nics.is_empty() => Err(format!(
+                "Multiple network interfaces that match '{iface}' are found"
+            )),
+            Some(nic) => Ok(nic),
+        }?;
 
-        if nics.len() > 1 {
-            return Err(format!(
-                "Multiple network interfaces that \
-                match '{iface}' are found",
-            ));
-        }
-
-        let res = nics.pop().unwrap();
-
-        info!(
-            "NVMF target network interface '{}' matches to {}",
-            iface, res
-        );
+        info!("NVMF target network interface '{iface}' matches to {res}");
 
         match res.ip() {
             Some(ip) => Ok(ip),
