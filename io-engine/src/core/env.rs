@@ -817,38 +817,52 @@ impl MayastorEnvironment {
             None => ("name", iface),
         };
 
-        let pred: Box<dyn Fn(&nic::Interface) -> bool> = match cls {
-            "name" => Box::new(|n| n.name == name),
+        let map_ok = |filter: bool, n: nic::Interface| -> Option<nic::Interface> {
+            if filter {
+                Some(n)
+            } else {
+                None
+            }
+        };
+
+        let pred: Box<dyn FnMut(nic::Interface) -> Option<nic::Interface>> = match cls {
+            "name" => Box::new(|n| map_ok(n.name == name, n)),
             "mac" => {
                 let mac = Some(name.parse::<nic::MacAddr>()?);
-                Box::new(move |n| n.mac == mac)
+                Box::new(move |n| map_ok(n.mac == mac, n))
             }
             "ip" => {
                 let addr = nic::parse_ip(name)?;
-                Box::new(move |n| n.ip_match(addr))
+                Box::new(move |n| n.matched_ip_kind(addr))
             }
             "subnet" => {
                 let (subnet, mask) = nic::parse_ip_subnet(name)?;
-                Box::new(move |n| n.ip_subnet_eq(subnet, mask))
+                Box::new(move |n| n.matched_subnet_kind(subnet, mask))
             }
             _ => {
                 return Err(format!("Invalid NVMF target interface: '{iface}'"));
             }
         };
 
-        let mut nics: Vec<_> = nic::find_all_nics().into_iter().filter(pred).collect();
+        let mut nics: Vec<_> = nic::find_all_nics().into_iter().filter_map(pred).collect();
 
-        let res = match nics.pop() {
+        // In case of matching by name, mac or subnet, the adapter may have multiple ips, and
+        // in this case how to prioritize them?
+        // For now, we can at least match ipv4 or ipv6 to match the grpc.
+        let env = MayastorEnvironment::global_or_default();
+        let grpc = env.grpc_endpoint.expect("Should always be set");
+        nics.sort_by(|a, b| a.sort(b, grpc.is_ipv4()));
+
+        let res: nic::Interface = match nics.pop() {
             None => Err(format!("Network interface matching '{iface}' not found")),
-            Some(_) if !nics.is_empty() => Err(format!(
-                "Multiple network interfaces that match '{iface}' are found"
-            )),
             Some(nic) => Ok(nic),
         }?;
 
         info!("NVMF target network interface '{iface}' matches to {res}");
 
-        match res.ip() {
+        // let ip = res.ip(grpc.is_ipv4());
+
+        match res.ip(grpc.is_ipv4()) {
             Some(ip) => Ok(ip),
             None => Err(format!(
                 "Network interface '{}' has no IP address configured",
