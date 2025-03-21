@@ -1,7 +1,6 @@
 use std::{
     ffi::CString,
     fmt::{Debug, Display, Formatter},
-    net::IpAddr,
     ops::{Deref, DerefMut},
 };
 
@@ -19,7 +18,7 @@ use spdk_rs::{
 };
 
 use crate::{
-    core::MayastorEnvironment,
+    core::{MayastorEnvironment, SIpAddr},
     ffihelper::{cb_arg, done_errno_cb, AsStr, ErrnoResult, FfiResult},
     subsys::{
         config::opts::NvmfTgtTransport,
@@ -122,8 +121,8 @@ impl TransportId {
         let mut trid = spdk_nvme_transport_id {
             trtype: xprt_type,
             adrfam: match address {
-                IpAddr::V4(_) => SPDK_NVMF_ADRFAM_IPV4,
-                IpAddr::V6(_) => SPDK_NVMF_ADRFAM_IPV6,
+                SIpAddr::V4(_) => SPDK_NVMF_ADRFAM_IPV4,
+                SIpAddr::V6(_, _) => SPDK_NVMF_ADRFAM_IPV6,
             },
             ..Default::default()
         };
@@ -131,8 +130,12 @@ impl TransportId {
         let port = format!("{port}");
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
 
+        // todo: handle scope_id when supported by posix socket where currently
+        //  get_addr_str returns ip without the %scope_id.
+        let address = address.ip().to_string();
+
         copy_cstr_with_null(xprt_cstr, &mut trid.trstring);
-        copy_str_with_null(&address.to_string(), &mut trid.traddr);
+        copy_str_with_null(&address, &mut trid.traddr);
         copy_str_with_null(&port, &mut trid.trsvcid);
 
         Self(trid)
@@ -152,14 +155,16 @@ impl Display for TransportId {
             "RDMA" => "+rdma+tcp".to_string(),
             _else => "".to_string(),
         };
-
-        write!(
-            f,
-            "nvmf{}://{}:{}",
-            trstring,
-            self.0.traddr.as_str(),
-            self.0.trsvcid.as_str()
-        )
+        let traddr = self.0.traddr.as_str();
+        let trsvcid = self.0.trsvcid.as_str();
+        match self.0.adrfam {
+            SPDK_NVMF_ADRFAM_IPV6 => {
+                write!(f, "nvmf{trstring}://[{traddr}]:{trsvcid}")
+            }
+            _ => {
+                write!(f, "nvmf{trstring}://{traddr}:{trsvcid}")
+            }
+        }
     }
 }
 
@@ -174,7 +179,7 @@ impl Debug for TransportId {
     }
 }
 
-pub(crate) fn get_ip_address() -> Result<std::net::IpAddr, Error> {
+pub(crate) fn get_ip_address() -> Result<crate::core::SIpAddr, Error> {
     match MayastorEnvironment::get_nvmf_tgt_ip() {
         Ok(val) => Ok(val),
         Err(msg) => Err(Error::CreateTarget { msg }),

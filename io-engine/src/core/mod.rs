@@ -24,6 +24,7 @@ pub use env::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, GLOBAL_RC
 pub use handle::{BdevHandle, UntypedBdevHandle};
 pub use io_device::IoDevice;
 pub use logical_volume::LogicalVolume;
+pub use nic::SIpAddr;
 pub use reactor::{reactor_monitor_loop, Reactor, ReactorState, Reactors, REACTOR_LIST};
 
 pub use lock::{
