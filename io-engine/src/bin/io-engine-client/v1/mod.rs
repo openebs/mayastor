@@ -29,7 +29,7 @@ pub(super) async fn main_() -> crate::Result<()> {
                 .short('b')
                 .long("bind")
                 .env("MY_POD_IP")
-                .default_value("http://127.0.0.1:10124")
+                .default_value("http://127.0.0.1")
                 .value_name("HOST")
                 .help("The URI of mayastor instance")
                 .global(true),

@@ -135,7 +135,10 @@ impl Context {
             .unwrap_or('b');
         // Ensure the provided host is defaulted & normalized to what we expect.
         let host = if let Some(host) = matches.get_one::<String>("bind") {
-            let uri = host.parse::<Uri>().context(InvalidUri)?;
+            let uri = match host.parse::<Uri>().context(InvalidUri) {
+                Ok(uri) => Ok(uri),
+                Err(error) => format!("[{host}]").parse::<Uri>().map_err(|_| error),
+            }?;
             let mut parts = uri.into_parts();
             if parts.scheme.is_none() {
                 parts.scheme = Scheme::from_str("http").ok();
