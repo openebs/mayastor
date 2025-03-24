@@ -724,6 +724,10 @@ impl LogicalVolume for Lvol {
     fn nvmf_allowed_hosts(&self) -> Vec<String> {
         self.allowed_hosts()
     }
+
+    fn encrypted(&self) -> bool {
+        self.lvs().encrypted()
+    }
 }
 
 /// LvsLvol Trait Implementation for Lvol for Volume Specific Interface.

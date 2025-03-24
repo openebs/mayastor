@@ -50,6 +50,8 @@ pub trait LogicalVolume: std::fmt::Debug {
     fn bdev_share_uri(&self) -> Option<String>;
     /// Return the NVMf allowed hosts of this Logical Volume.
     fn nvmf_allowed_hosts(&self) -> Vec<String>;
+    /// Returns true if this replica is encrypted.
+    fn encrypted(&self) -> bool;
 }
 
 /// Lvol space usage.
