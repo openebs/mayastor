@@ -1,7 +1,6 @@
 use std::{
     env,
     ffi::CString,
-    net::Ipv4Addr,
     os::raw::{c_char, c_void},
     pin::Pin,
     str::FromStr,
@@ -39,6 +38,7 @@ use crate::{
     constants::NVME_NQN_PREFIX,
     core::{
         nic,
+        nic::SIpAddr,
         reactor::{Reactor, ReactorState, Reactors},
         Cores, MayastorFeatures, Mthread,
     },
@@ -101,6 +101,30 @@ fn parse_crdt(src: &str) -> Result<[u16; TARGET_CRDT_LEN], String> {
     }
 }
 
+/// Parses a grpc ip as a socket address.
+/// The port is ignored but we use the socket to keep the scope ip, which can be specified
+/// like so: `fe80::779c:c5ea:e9c5:2cc4%2`.
+/// # Warning
+/// Scope Ids are disabled for now as spdk posix sock seems to not format the traddr correctly
+/// when the endpoint has a scope id.
+fn parse_grpc_ip(src: &str) -> Result<SIpAddr, String> {
+    let (ip, scope_ip) = match src.split_once('%') {
+        Some(p) => p,
+        None => (src, ""),
+    };
+
+    match ip.parse::<std::net::IpAddr>() {
+        Ok(ip) => match ip {
+            std::net::IpAddr::V4(ip) => Ok(SIpAddr::from(ip)),
+            std::net::IpAddr::V6(ip) if scope_ip.is_empty() => Ok(SIpAddr::from(ip)),
+            std::net::IpAddr::V6(_) => Err(format!(
+                "Ip '{src}' has a scope_id '{scope_ip}' which is not currently supported"
+            )),
+        },
+        Err(error) => Err(format!("Invalid ip '{src}': {error}")),
+    }
+}
+
 #[derive(Debug, Clone, Parser)]
 #[clap(
     name = package_description!(),
@@ -112,9 +136,9 @@ pub struct MayastorCliArgs {
     #[deprecated = "Use grpc_ip and grpc_port instead"]
     /// IP address and port (optional) for the gRPC server to listen on.
     pub deprecated_grpc_endpoint: Option<String>,
-    #[clap(long, default_value_t = std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED))]
+    #[clap(long, value_parser = parse_grpc_ip, default_value_t = std::net::Ipv6Addr::UNSPECIFIED.into())]
     /// IP address for the gRPC server to listen on.
-    pub grpc_ip: std::net::IpAddr,
+    pub grpc_ip: SIpAddr,
     #[clap(long, default_value_t = 10124)]
     /// Port for the gRPC server to listen on.
     pub grpc_port: u16,
@@ -291,7 +315,7 @@ impl Default for MayastorCliArgs {
         #[allow(deprecated)]
         Self {
             deprecated_grpc_endpoint: None,
-            grpc_ip: std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED),
+            grpc_ip: std::net::Ipv6Addr::UNSPECIFIED.into(),
             grpc_port: 10124,
             ps_endpoint: None,
             ps_timeout: Duration::from_secs(10),
@@ -342,7 +366,8 @@ impl MayastorCliArgs {
         if let Some(deprecated_endpoint) = &self.deprecated_grpc_endpoint {
             grpc::endpoint_from_str(deprecated_endpoint, self.grpc_port)
         } else {
-            std::net::SocketAddr::new(self.grpc_ip, self.grpc_port)
+            // todo: scope ids are not properly supported on SPDK
+            std::net::SocketAddr::new(self.grpc_ip.ip(), self.grpc_port)
         }
     }
 }
@@ -792,8 +817,8 @@ impl MayastorEnvironment {
     }
 
     /// Returns NVMF target's IP address.
-    pub(crate) fn get_nvmf_tgt_ip() -> Result<String, String> {
-        static TGT_IP: OnceCell<String> = OnceCell::new();
+    pub(crate) fn get_nvmf_tgt_ip() -> Result<SIpAddr, String> {
+        static TGT_IP: OnceCell<SIpAddr> = OnceCell::new();
         TGT_IP
             .get_or_try_init(|| match Self::global_or_default().nvmf_tgt_interface {
                 Some(ref iface) => Self::detect_nvmf_tgt_iface_ip(iface),
@@ -809,86 +834,90 @@ impl MayastorEnvironment {
 
     /// Detects IP address for NVMF target by the interface specified in CLI
     /// arguments.
-    fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<String, String> {
-        info!(
-            "Detecting IP address for NVMF target network interface \
-                specified as '{}' ...",
-            iface
-        );
+    fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<SIpAddr, String> {
+        // In case of matching by name, mac or subnet, the adapter may have multiple ips, and
+        // in this case how to prioritize them?
+        // For now, we can at least match ipv4 or ipv6 to match the grpc.
+        let env = MayastorEnvironment::global_or_default();
+        let prefer_ipv4 = Self::prefer_ipv4(env.grpc_endpoint.expect("Should always be set"));
+        info!("Detecting IP address (prefer ipv4: {prefer_ipv4}) for NVMF target network interface specified as '{iface}' ...");
 
         let (cls, name) = match iface.split_once(':') {
             Some(p) => p,
             None => ("name", iface),
         };
 
-        let pred: Box<dyn Fn(&nic::Interface) -> bool> = match cls {
-            "name" => Box::new(|n| n.name == name),
-            "mac" => {
-                let mac = Some(name.parse::<nic::MacAddr>()?);
-                Box::new(move |n| n.mac == mac)
-            }
-            "ip" => {
-                let addr = Some(nic::parse_ipv4(name)?);
-                Box::new(move |n| n.inet.addr == addr)
-            }
-            "subnet" => {
-                let (subnet, mask) = nic::parse_ipv4_subnet(name)?;
-                Box::new(move |n| n.ipv4_subnet_eq(subnet, mask))
-            }
-            _ => {
-                return Err(format!("Invalid NVMF target interface: '{iface}'",));
+        let map_ok = |filter: bool, n: nic::Interface| -> Option<nic::Interface> {
+            if filter {
+                Some(n)
+            } else {
+                None
             }
         };
 
-        let mut nics: Vec<_> = nic::find_all_nics().into_iter().filter(pred).collect();
+        let pred: Box<dyn FnMut(nic::Interface) -> Option<nic::Interface>> = match cls {
+            "name" => Box::new(|n| map_ok(n.name == name, n)),
+            "mac" => {
+                let mac = Some(name.parse::<nic::MacAddr>()?);
+                Box::new(move |n| map_ok(n.mac == mac, n))
+            }
+            "ip" => {
+                let addr = nic::parse_ip(name)?;
+                Box::new(move |n| n.matched_ip_kind(addr))
+            }
+            "subnet" => {
+                let (subnet, mask) = nic::parse_ip_subnet(name)?;
+                Box::new(move |n| n.matched_subnet_kind(subnet, mask))
+            }
+            _ => {
+                return Err(format!("Invalid NVMF target interface: '{iface}'"));
+            }
+        };
 
-        if nics.is_empty() {
-            return Err(format!("Network interface matching '{iface}' not found",));
-        }
+        let mut nics: Vec<_> = nic::find_all_nics().into_iter().filter_map(pred).collect();
+        nics.sort_by(|a, b| a.sort(b, prefer_ipv4));
 
-        if nics.len() > 1 {
-            return Err(format!(
-                "Multiple network interfaces that \
-                match '{iface}' are found",
-            ));
-        }
+        let res: nic::Interface = match nics.pop() {
+            None => Err(format!("Network interface matching '{iface}' not found")),
+            Some(nic) => Ok(nic),
+        }?;
 
-        let res = nics.pop().unwrap();
+        info!("NVMF target network interface '{iface}' matches to {res}");
 
-        info!(
-            "NVMF target network interface '{}' matches to {}",
-            iface, res
-        );
-
-        if res.inet.addr.is_none() {
-            return Err(format!(
-                "Network interface '{}' has no IPv4 address configured",
+        match res.ip(prefer_ipv4) {
+            Some(ip) => Ok(ip),
+            None => Err(format!(
+                "Network interface '{}' has no IP address configured",
                 res.name
-            ));
+            )),
         }
+    }
 
-        Ok(res.inet.addr.unwrap().to_string())
+    fn prefer_ipv4(grpc: std::net::SocketAddr) -> bool {
+        match grpc {
+            std::net::SocketAddr::V4(_) => true,
+            std::net::SocketAddr::V6(socket) if socket.ip().is_unspecified() => true,
+            std::net::SocketAddr::V6(_) => false,
+        }
     }
 
     /// Detects pod IP address.
-    fn detect_pod_ip() -> Result<String, String> {
+    fn detect_pod_ip() -> Result<SIpAddr, String> {
         match env::var("MY_POD_IP") {
             Ok(val) => {
                 info!(
                     "Using 'MY_POD_IP' environment variable for IP address \
                         for NVMF target network interface"
                 );
-
-                if val.parse::<Ipv4Addr>().is_ok() {
-                    Ok(val)
+                Ok(parse_grpc_ip(&val)?)
+            }
+            Err(_) => {
+                if Self::prefer_ipv4(Self::global_or_default().grpc_endpoint.unwrap()) {
+                    Ok(std::net::Ipv4Addr::LOCALHOST.into())
                 } else {
-                    Err(format!(
-                        "MY_POD_IP environment variable is set to an \
-                            invalid IPv4 address: '{val}'"
-                    ))
+                    Ok(std::net::Ipv6Addr::LOCALHOST.into())
                 }
             }
-            Err(_) => Ok("127.0.0.1".to_owned()),
         }
     }
 

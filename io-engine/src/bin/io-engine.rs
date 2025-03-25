@@ -159,6 +159,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                 Registration::init(
                     &node_name,
                     &node_nqn,
+                    // todo: handle scope ids?
                     &grpc_socket_addr.to_string(),
                     registration_addr,
                     api_versions,

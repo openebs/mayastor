@@ -13,12 +13,12 @@ use spdk_rs::{
     libspdk::{
         spdk_nvme_transport_id, spdk_nvmf_tgt_add_transport, spdk_nvmf_transport_create,
         SPDK_NVME_TRANSPORT_RDMA, SPDK_NVME_TRANSPORT_TCP, SPDK_NVMF_ADRFAM_IPV4,
-        SPDK_NVMF_TRSVCID_MAX_LEN,
+        SPDK_NVMF_ADRFAM_IPV6, SPDK_NVMF_TRSVCID_MAX_LEN,
     },
 };
 
 use crate::{
-    core::MayastorEnvironment,
+    core::{MayastorEnvironment, SIpAddr},
     ffihelper::{cb_arg, done_errno_cb, AsStr, ErrnoResult, FfiResult},
     subsys::{
         config::opts::NvmfTgtTransport,
@@ -112,7 +112,7 @@ impl DerefMut for TransportId {
 
 impl TransportId {
     pub fn new(port: u16, transport: NvmfTgtTransport) -> Self {
-        let address = get_ipv4_address().unwrap();
+        let address = get_ip_address().unwrap();
         let (xprt_type, xprt_cstr) = match transport {
             NvmfTgtTransport::Tcp => (SPDK_NVME_TRANSPORT_TCP, &TCP_TRANSPORT),
             NvmfTgtTransport::Rdma => (SPDK_NVME_TRANSPORT_RDMA, &RDMA_TRANSPORT),
@@ -120,12 +120,19 @@ impl TransportId {
 
         let mut trid = spdk_nvme_transport_id {
             trtype: xprt_type,
-            adrfam: SPDK_NVMF_ADRFAM_IPV4,
+            adrfam: match address {
+                SIpAddr::V4(_) => SPDK_NVMF_ADRFAM_IPV4,
+                SIpAddr::V6(_, _) => SPDK_NVMF_ADRFAM_IPV6,
+            },
             ..Default::default()
         };
 
         let port = format!("{port}");
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
+
+        // todo: handle scope_id when supported by posix socket where currently
+        //  get_addr_str returns ip without the %scope_id.
+        let address = address.ip().to_string();
 
         copy_cstr_with_null(xprt_cstr, &mut trid.trstring);
         copy_str_with_null(&address, &mut trid.traddr);
@@ -148,14 +155,16 @@ impl Display for TransportId {
             "RDMA" => "+rdma+tcp".to_string(),
             _else => "".to_string(),
         };
-
-        write!(
-            f,
-            "nvmf{}://{}:{}",
-            trstring,
-            self.0.traddr.as_str(),
-            self.0.trsvcid.as_str()
-        )
+        let traddr = self.0.traddr.as_str();
+        let trsvcid = self.0.trsvcid.as_str();
+        match self.0.adrfam {
+            SPDK_NVMF_ADRFAM_IPV6 => {
+                write!(f, "nvmf{trstring}://[{traddr}]:{trsvcid}")
+            }
+            _ => {
+                write!(f, "nvmf{trstring}://{traddr}:{trsvcid}")
+            }
+        }
     }
 }
 
@@ -170,7 +179,7 @@ impl Debug for TransportId {
     }
 }
 
-pub(crate) fn get_ipv4_address() -> Result<String, Error> {
+pub(crate) fn get_ip_address() -> Result<crate::core::SIpAddr, Error> {
     match MayastorEnvironment::get_nvmf_tgt_ip() {
         Ok(val) => Ok(val),
         Err(msg) => Err(Error::CreateTarget { msg }),
