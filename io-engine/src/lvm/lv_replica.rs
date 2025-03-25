@@ -855,6 +855,11 @@ impl crate::core::LogicalVolume for LogicalVolume {
     fn nvmf_allowed_hosts(&self) -> Vec<String> {
         self.allowed_hosts().cloned().unwrap_or_default()
     }
+
+    fn encrypted(&self) -> bool {
+        // until we support lvm backend with encryption
+        false
+    }
 }
 
 #[async_trait::async_trait(?Send)]

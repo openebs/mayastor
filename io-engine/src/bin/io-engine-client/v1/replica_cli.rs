@@ -351,6 +351,7 @@ async fn replica_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<(
                             .allocated_bytes_snapshot_from_clone
                             .unwrap_or_default()
                             .to_string(),
+                        r.encrypted.unwrap_or_default().to_string(),
                     ]
                 })
                 .collect();
@@ -369,6 +370,7 @@ async fn replica_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<(
                     "IS_CLONE",
                     "SNAP_ANCESTOR_SIZE",
                     "CLONE_SNAP_ANCESTOR_SIZE",
+                    "ENCRYPTED",
                 ],
                 table,
             );

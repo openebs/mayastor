@@ -150,6 +150,7 @@ impl From<&dyn ReplicaOps> for Replica {
             pooluuid: l.pool_uuid(),
             snapshot_uuid: l.snapshot_uuid(),
             entity_id: l.entity_id(),
+            encrypted: Some(l.encrypted()),
         }
     }
 }
