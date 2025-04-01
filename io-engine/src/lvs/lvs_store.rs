@@ -783,7 +783,7 @@ impl Lvs {
                 .await
                 .map_err(|e| {
                     error!(
-                        "failed to delete crypto vbdev {:?} after failed pool creation. {e}",
+                        "failed to delete crypto vbdev {:?} during pool destroy. {e}",
                         base_bdev.name()
                     );
                 });

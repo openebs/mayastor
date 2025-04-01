@@ -68,6 +68,7 @@ pub enum Cipher {
 /// A struct that represents the parameters required to create a key.
 pub struct EncryptionKey {
     pub cipher: Cipher,
+    #[serde(default)]
     pub key_name: String,
     pub key: String,
     pub key_len: u32,
