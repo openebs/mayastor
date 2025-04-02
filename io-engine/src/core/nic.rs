@@ -1,12 +1,70 @@
 use core::default::Default;
 use nix::ifaddrs::getifaddrs;
+
 use std::{
-    collections::BTreeMap,
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
     net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
 };
+
+/// An IpAddr wrapper which provides handy convertion methods as well as starting to
+/// support exposing the scope id out of the ipv6 address.
+#[derive(Copy, Clone, Debug)]
+pub enum SIpAddr {
+    V4(Ipv4Addr),
+    V6(Ipv6Addr, u32),
+}
+impl Display for SIpAddr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            SIpAddr::V4(ip) => write!(f, "{ip}"),
+            SIpAddr::V6(ip, scope_id) if scope_id != &0 => {
+                write!(f, "{ip}%{scope_id}")
+            }
+            SIpAddr::V6(ip, _) => write!(f, "{ip}"),
+        }
+    }
+}
+
+impl SIpAddr {
+    /// Get the [`std::net::IpAddr`] of `Self`.
+    pub(crate) fn ip(&self) -> std::net::IpAddr {
+        match self {
+            SIpAddr::V4(ip) => (*ip).into(),
+            SIpAddr::V6(ip, _) => (*ip).into(),
+        }
+    }
+}
+
+impl From<std::net::SocketAddr> for SIpAddr {
+    fn from(value: std::net::SocketAddr) -> Self {
+        match value {
+            std::net::SocketAddr::V4(socket) => socket.into(),
+            std::net::SocketAddr::V6(socket) => socket.into(),
+        }
+    }
+}
+impl From<std::net::SocketAddrV4> for SIpAddr {
+    fn from(socket: std::net::SocketAddrV4) -> Self {
+        Self::V4(*socket.ip())
+    }
+}
+impl From<std::net::SocketAddrV6> for SIpAddr {
+    fn from(socket: std::net::SocketAddrV6) -> Self {
+        Self::V6(*socket.ip(), socket.scope_id())
+    }
+}
+impl From<Ipv6Addr> for SIpAddr {
+    fn from(ip: Ipv6Addr) -> Self {
+        Self::V6(ip, 0)
+    }
+}
+impl From<Ipv4Addr> for SIpAddr {
+    fn from(ip: Ipv4Addr) -> Self {
+        Self::V4(ip)
+    }
+}
 
 /// Formats an option value.
 fn fmt_opt<T: ToString>(addr: &Option<T>) -> String {
@@ -112,9 +170,9 @@ pub struct Interface {
     /// Name of the network interface.
     pub name: String,
     /// IPv4 network address and netmask of this interface.
-    pub inet: InetConfig<Ipv4Addr>,
+    pub inet: InetConfig<std::net::SocketAddrV4>,
     /// IPv6 network address and netmask of this interface.
-    pub inet6: InetConfig<Ipv6Addr>,
+    pub inet6: InetConfig<std::net::SocketAddrV6>,
     /// MAC address of this interface.
     pub mac: Option<MacAddr>,
 }
@@ -128,33 +186,131 @@ impl Interface {
         }
     }
 
-    /// Tests if the interface belongs to the given subnet.
-    pub fn ipv4_subnet_eq(&self, net_addr: Ipv4Addr, net_mask: u32) -> bool {
-        let (addr, mask) = match (self.inet.addr, self.inet.netmask) {
-            (Some(addr), Some(mask)) => (addr, mask),
-            _ => return false,
+    /// Get the available ip address.
+    pub(crate) fn ip(&self, prefer_ipv4: bool) -> Option<SIpAddr> {
+        let (first, second) = if prefer_ipv4 {
+            (
+                self.inet.addr.map(Into::into),
+                self.inet6.addr.map(Into::into),
+            )
+        } else {
+            (
+                self.inet6.addr.map(Into::into),
+                self.inet.addr.map(Into::into),
+            )
         };
 
-        let mask = u32::from_be(ipv4addr_to_libc(mask).s_addr);
-        if mask != net_mask {
-            return false;
+        first.or(second)
+    }
+
+    /// Check if the given ip matches ours and if so dispose of the other kind of ip.
+    pub(crate) fn matched_ip_kind(mut self, ip: std::net::IpAddr) -> Option<Self> {
+        if match ip {
+            std::net::IpAddr::V4(ip) => {
+                self.inet6.addr = None;
+                self.inet6.netmask = None;
+                Some(&ip) == self.inet.addr.as_ref().map(|a| a.ip())
+            }
+            std::net::IpAddr::V6(ip) => {
+                self.inet.addr = None;
+                self.inet.netmask = None;
+                Some(&ip) == self.inet6.addr.as_ref().map(|a| a.ip())
+            }
+        } {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    /// Sort interfaces depending on ip v4/v6 preference and ipv6 types
+    pub(crate) fn sort(&self, other: &Self, prefer_ipv4: bool) -> std::cmp::Ordering {
+        if prefer_ipv4 {
+            return self.inet.addr.is_some().cmp(&other.inet.addr.is_some());
+        }
+        if self.inet6.addr.is_some() != other.inet6.addr.is_some() {
+            // prefer ipv6
+            return self.inet6.addr.is_some().cmp(&other.inet6.addr.is_some());
+        }
+        fn is_unique_local(ip: &Ipv6Addr) -> bool {
+            (ip.segments()[0] & 0xfe00) == 0xfc00
+        }
+        fn is_unicast_link_local(ip: &Ipv6Addr) -> bool {
+            (ip.segments()[0] & 0xffc0) == 0xfe80
+        }
+        match (self.inet6.addr, other.inet6.addr) {
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(a), Some(b)) => {
+                let a = a.ip();
+                let b = b.ip();
+                // prefer unique local addresses
+                if is_unique_local(a) != is_unique_local(b) {
+                    return is_unique_local(a).cmp(&is_unique_local(b));
+                }
+                // prefer link local
+                if is_unicast_link_local(a) != is_unicast_link_local(b) {
+                    return is_unicast_link_local(a).cmp(&is_unicast_link_local(b));
+                }
+                // prefer not unspecified
+                if a.is_unspecified() != b.is_unspecified() {
+                    return b.is_unspecified().cmp(&a.is_unspecified());
+                }
+                // prefer not multicast
+                if a.is_multicast() != b.is_multicast() {
+                    return b.is_multicast().cmp(&a.is_multicast());
+                }
+                std::cmp::Ordering::Equal
+            }
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    }
+
+    /// Check if the given interface matches ours and if so dispose of the other kind of ip.
+    pub fn matched_subnet_kind(
+        mut self,
+        net_addr: std::net::IpAddr,
+        net_mask: u128,
+    ) -> Option<Self> {
+        if let Some((addr, mask)) = match (self.inet.addr, self.inet.netmask) {
+            (Some(addr), Some(mask)) if net_addr.is_ipv4() => Some((addr, mask)),
+            _ => None,
+        } {
+            let mask = mask.ip().to_bits();
+            if mask as u128 != net_mask {
+                return None;
+            }
+
+            let addr = addr.ip().to_bits();
+            let subnet = addr & mask;
+
+            if Ipv4Addr::from(subnet) == net_addr {
+                self.inet6.addr = None;
+                self.inet6.netmask = None;
+                return Some(self);
+            }
         }
 
-        let addr = u32::from_be(ipv4addr_to_libc(addr).s_addr);
-        let subnet = addr & mask;
+        if let Some((addr, mask)) = match (self.inet6.addr, self.inet6.netmask) {
+            (Some(addr), Some(mask)) if net_addr.is_ipv6() => Some((addr, mask)),
+            _ => None,
+        } {
+            let mask = mask.ip().to_bits();
+            if mask != net_mask {
+                return None;
+            }
 
-        Ipv4Addr::from(subnet) == net_addr
-    }
-}
-fn ipv4addr_to_libc(addr: Ipv4Addr) -> libc::in_addr {
-    let octets = addr.octets();
-    libc::in_addr {
-        s_addr: u32::to_be(
-            ((octets[0] as u32) << 24)
-                | ((octets[1] as u32) << 16)
-                | ((octets[2] as u32) << 8)
-                | (octets[3] as u32),
-        ),
+            let addr = addr.ip().to_bits();
+            let subnet = addr & mask;
+
+            if Ipv6Addr::from(subnet) == net_addr {
+                self.inet.addr = None;
+                self.inet.netmask = None;
+                return Some(self);
+            }
+        }
+
+        None
     }
 }
 
@@ -180,18 +336,20 @@ impl fmt::Display for Interface {
 
 /// Lists all network interfaces found on the system.
 pub fn find_all_nics() -> Vec<Interface> {
-    let mut nics = BTreeMap::<String, Interface>::new();
+    let mut nics = vec![];
 
     for addr in getifaddrs().unwrap() {
-        let nic = nics
-            .entry(addr.interface_name)
-            .or_insert_with_key(|k| Interface::new(k));
+        let mut nic = Interface::new(&addr.interface_name);
         if let Some(sock) = addr.address {
             if let Some(sock) = sock.as_sockaddr_in() {
-                nic.inet.addr = Some(sock.ip());
+                nic.inet.addr = Some((*sock).into());
             }
             if let Some(sock) = sock.as_sockaddr_in6() {
-                nic.inet6.addr = Some(sock.ip());
+                // Not supported for now!
+                if sock.scope_id() > 0 {
+                    continue;
+                }
+                nic.inet6.addr = Some((*sock).into());
             }
             if let Some(link) = sock.as_link_addr() {
                 nic.mac = link.addr().map(MacAddr::new);
@@ -200,42 +358,58 @@ pub fn find_all_nics() -> Vec<Interface> {
 
         if let Some(sock) = addr.netmask {
             if let Some(sock) = sock.as_sockaddr_in() {
-                nic.inet.netmask = Some(sock.ip());
+                nic.inet.netmask = Some((*sock).into());
             }
             if let Some(sock) = sock.as_sockaddr_in6() {
-                nic.inet6.netmask = Some(sock.ip());
+                nic.inet6.netmask = Some((*sock).into());
             }
+        }
+        // Skip interfaces without ip's.
+        if nic.inet.addr.is_some() || nic.inet6.addr.is_some() {
+            nics.push(nic);
         }
     }
 
-    nics.into_values().collect()
+    nics
 }
 
 /// Utility to parse an IPv4 address string into a nix's Ipv4Addr.
-pub fn parse_ipv4(addr: &str) -> Result<Ipv4Addr, String> {
-    addr.parse::<Ipv4Addr>().map_err(|e| e.to_string())
+pub fn parse_ip(addr: &str) -> Result<std::net::IpAddr, String> {
+    addr.parse::<std::net::IpAddr>().map_err(|e| e.to_string())
 }
 
-/// Utility to parse an IPv4 subnet string into a nix's Ipv4Addr.
-pub fn parse_ipv4_subnet(addr_str: &str) -> Result<(Ipv4Addr, u32), String> {
+/// Utility to parse an IPvX subnet string into a nix's IpvXAddr.
+pub fn parse_ip_subnet(addr_str: &str) -> Result<(std::net::IpAddr, u128), String> {
     let (addr, bits) = match addr_str.split_once('/') {
         Some(p) => p,
         None => return Err(format!("Invalid subnet: '{addr_str}'")),
     };
 
-    let addr = parse_ipv4(addr)?;
-    let addr = u32::from_be(ipv4addr_to_libc(addr).s_addr);
-
     let bits = bits
         .parse::<u32>()
         .map_err(|e| format!("Invalid subnet '{addr_str}': {e}"))?;
 
-    if bits > 32 {
-        return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
+    match parse_ip(addr)? {
+        std::net::IpAddr::V4(v4) => {
+            if bits > 32 {
+                return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
+            }
+            let addr = v4.to_bits();
+            let mask = !0 << (32 - bits);
+            let subnet = addr & mask;
+
+            Ok((std::net::IpAddr::V4(Ipv4Addr::from(subnet)), mask as u128))
+        }
+        std::net::IpAddr::V6(v6) => {
+            if bits > 128 {
+                return Err(format!("Invalid subnet '{addr_str}': suffix too large"));
+            }
+
+            let addr = v6.to_bits();
+            let mask = !0 << (128 - bits);
+            let subnet = addr & mask;
+
+            Ok((std::net::IpAddr::V6(Ipv6Addr::from(subnet)), mask))
+        }
     }
-
-    let mask = !0 << (32 - bits);
-
-    let subnet = addr & mask;
-    Ok((Ipv4Addr::from(subnet), mask))
 }
