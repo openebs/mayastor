@@ -64,7 +64,7 @@ pub enum Cipher {
     AesXts,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 /// A struct that represents the parameters required to create a key.
 pub struct EncryptionKey {
     pub cipher: Cipher,
@@ -74,6 +74,15 @@ pub struct EncryptionKey {
     pub key_len: u32,
     pub key2: Option<String>,
     pub key2_len: Option<u32>,
+}
+
+impl Debug for EncryptionKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EncryptionKey")
+            .field("cipher", &self.cipher)
+            .field("key_name", &self.key_name)
+            .finish()
+    }
 }
 
 impl Debug for Crypto {
@@ -217,7 +226,7 @@ pub async fn destroy_crypto_vbdev(vbdev_name: String) -> Result<(), BdevError> {
     let (s, r) = pair::<i32>();
     unsafe {
         delete_crypto_disk(
-            vbdev_name.as_ptr() as *mut std::os::raw::c_char,
+            vbdev_name.clone().into_cstring().as_ptr() as *mut std::os::raw::c_char,
             Some(crypto_vbdev_op_cb),
             cb_arg(s),
         );

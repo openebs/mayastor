@@ -686,7 +686,11 @@ impl Lvs {
                 name: pool.clone(),
             })?;
 
-        info!("{}: lvs exported successfully", self_str);
+        info!(
+            "{}: lvs exported successfully. base bdev: {}",
+            self_str,
+            base_bdev.name()
+        );
 
         // If the base_bdev is a crypto vbdev then we need to destroy both - the crypto vbdev and it's base.
         if base_bdev.driver() == "crypto" {
