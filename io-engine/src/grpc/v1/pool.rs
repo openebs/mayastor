@@ -82,10 +82,12 @@ async fn util_fetch_secret_params(
                         .map_err(|e: LvsError| Status::invalid_argument(e.to_string()))?,
                 ),
                 create_pool_request::Encryption::Secret(cks) => {
-                    let secret_params = secret_data(cks.secret.as_str())
+                    let mut secret_params: PoolEncKey = secret_data(cks.secret.as_str())
                         .await
                         .map_err(|e| Status::invalid_argument(e.to_string()))?;
                     trace!("[create pool] Received encryption params: {secret_params:?}");
+                    // Use secret name as key name.
+                    secret_params.key_name = cks.secret.to_string();
                     Some(secret_params)
                 }
             }
@@ -96,10 +98,12 @@ async fn util_fetch_secret_params(
                     .map_err(|e: LvsError| Status::invalid_argument(e.to_string()))?,
             ),
             import_pool_request::Encryption::Secret(iks) => {
-                let secret_params = secret_data(iks.secret.as_str())
+                let mut secret_params: PoolEncKey = secret_data(iks.secret.as_str())
                     .await
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
                 trace!("[import pool] Received encryption params: {secret_params:?}");
+                // Use secret file name as key name.
+                secret_params.key_name = iks.secret.to_string();
                 Some(secret_params)
             }
         },
