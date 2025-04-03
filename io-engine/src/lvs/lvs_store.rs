@@ -672,7 +672,7 @@ impl Lvs {
         info!("{}: exporting lvs...", self_str);
 
         let pool = self.name().to_string();
-        let base_bdev = self.base_bdev();
+        let mut base_bdev = self.base_bdev();
         let (s, r) = pair::<i32>();
 
         self.unshare_all().await;
@@ -688,12 +688,35 @@ impl Lvs {
 
         info!("{}: lvs exported successfully", self_str);
 
-        bdev_destroy(&base_bdev.bdev_uri_original_str().unwrap_or_default())
-            .await
-            .map_err(|e| LvsError::Destroy {
+        // If the base_bdev is a crypto vbdev then we need to destroy both - the crypto vbdev and it's base.
+        if base_bdev.driver() == "crypto" {
+            let cbdev = base_bdev.crypto_base_bdev();
+
+            if let Err(e) = destroy_crypto_vbdev(base_bdev.name().to_string()).await {
+                error!(
+                    "failed to delete crypto vbdev {:?} during lvs export. {e}",
+                    base_bdev.name()
+                );
+            }
+
+            // A None cbdev here is highly unlikely as the vbdev can't exist in thin air.
+            // If cbdev is somehow None anyway, then the following bdev_destroy will likely
+            // fail, and we can let it.
+            if let Some(c) = cbdev {
+                base_bdev = Bdev::new(c);
+            }
+        }
+        trace!(
+            "Deleting bdev {}, uri {:?}",
+            base_bdev.name(),
+            base_bdev.bdev_uri_original_str()
+        );
+        if let Some(u) = base_bdev.bdev_uri_original_str() {
+            bdev_destroy(&u).await.map_err(|e| LvsError::Destroy {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
+        }
 
         Ok(())
     }
