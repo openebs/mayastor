@@ -24,7 +24,7 @@ use spdk_rs::{
         accel_dpdk_cryptodev_enable, accel_dpdk_cryptodev_set_driver, create_crypto_disk,
         create_crypto_opts_by_name, delete_crypto_disk, spdk_accel_assign_opc,
         spdk_accel_crypto_key, spdk_accel_crypto_key_create, spdk_accel_crypto_key_create_param,
-        spdk_accel_crypto_key_get,
+        spdk_accel_crypto_key_destroy, spdk_accel_crypto_key_get,
     },
 };
 use std::{
@@ -37,6 +37,91 @@ use crate::{
     core::CoreError,
     ffihelper::{cb_arg, pair, FfiResult},
 };
+
+use once_cell::sync::Lazy;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::RwLock,
+};
+
+/// Global synchronized HashMap (Crypto Key -> Set of crypto vbdevs).
+/// Since this doesn't lie in IO path, not using per-bucket locks in hashmap.
+static KEY_CRYPTO_VBDEV_MAP: Lazy<RwLock<HashMap<String, HashSet<String>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// Adds a dependency ('crypto_vbdev_name' uses 'key_name')
+fn add_key_user(
+    key_params: &EncryptionKey,
+    crypto_vbdev_name: String,
+) -> Result<*mut spdk_accel_crypto_key, BdevError> {
+    let mut map = KEY_CRYPTO_VBDEV_MAP.write().unwrap();
+
+    // Create the key first.
+    let key = create_crypto_key(key_params)?;
+
+    map.entry(key_params.key_name.clone())
+        .or_default()
+        .insert(crypto_vbdev_name);
+    Ok(key)
+}
+
+/// Removes a dependency ('crypto_vbdev_name' stops using 'key_name')
+fn remove_key_user(key_name: &str, crypto_vbdev_name: String) {
+    let mut map = KEY_CRYPTO_VBDEV_MAP.write().unwrap();
+    if let Some(users) = map.get_mut(key_name) {
+        users.remove(&crypto_vbdev_name);
+        // Clean up empty sets immediately
+        if users.is_empty() {
+            // delete the key in spdk.
+            unsafe {
+                let key = spdk_accel_crypto_key_get(
+                    key_name.to_string().into_cstring().as_ptr() as *mut c_char
+                );
+                if key.is_null() {
+                    warn!("Non-existent key in SPDK.");
+                } else {
+                    let err = spdk_accel_crypto_key_destroy(key);
+                    if err != 0 {
+                        error!("Failed to destroy spdk accel crypto key: {err}");
+                        // Return and don't remove from the map yet.
+                        return;
+                    }
+                }
+            }
+            map.remove(key_name);
+        }
+    }
+}
+
+/// Gets all crypto vbdev names using a given key_name.
+fn get_users_of(key_name: &str) -> Option<HashSet<String>> {
+    let map = KEY_CRYPTO_VBDEV_MAP.read().unwrap();
+    // Clone or return ref perhaps?
+    map.get(key_name).cloned()
+}
+
+/// Reverse lookup: O(n * m)
+/// Finds which hash key contains a particular crypto vbdev name (scans the map). Should be
+/// ok to bear this cost as there won't be exhorbitant number of pool or keys per io-engine.
+fn find_key_for_crypto_vbdev(crypto_vbdev_name: &str) -> Option<String> {
+    let map = KEY_CRYPTO_VBDEV_MAP.read().unwrap();
+    map.iter().find_map(|(key, users)| {
+        if users.contains(crypto_vbdev_name) {
+            Some(key.to_owned())
+        } else {
+            None
+        }
+    })
+}
+
+/// Purges all key entries that have no crypto vbdev users left. This will not be usually
+/// needed because remove call is taking care of deleting the key entry upon removal of
+/// last crypto vbdev user.
+#[allow(dead_code)]
+fn purge_empty_keys() {
+    let mut map = KEY_CRYPTO_VBDEV_MAP.write().unwrap();
+    map.retain(|_, users| !users.is_empty());
+}
 
 /// Representation of a crypto vbdev to be created in SPDK.
 /// TODO: Currently we don't fit crypto vbdev into the uri based bdev management
@@ -200,6 +285,12 @@ fn create_crypto_key(key_params: &EncryptionKey) -> Result<*mut spdk_accel_crypt
     };
 
     unsafe {
+        // Check if the key with this name exists. If it does, then we reuse that.
+        let existing_key = spdk_accel_crypto_key_get(create_key_params.key_name);
+        if !existing_key.is_null() {
+            info!("Key {:?} exists already, reusing it.", key_params.key_name);
+            return Ok(existing_key);
+        };
         let ret = spdk_accel_crypto_key_create(&create_key_params);
         if ret != 0 {
             Err(BdevError::CreateBdevFailed {
@@ -222,7 +313,10 @@ extern "C" fn crypto_vbdev_op_cb(arg: *mut std::os::raw::c_void, errno: i32) {
 }
 
 /// Destroy a crypto vbdev.
-pub async fn destroy_crypto_vbdev(vbdev_name: String) -> Result<(), BdevError> {
+pub async fn destroy_crypto_vbdev(
+    vbdev_name: String,
+    key_name: Option<String>,
+) -> Result<(), BdevError> {
     let (s, r) = pair::<i32>();
     unsafe {
         delete_crypto_disk(
@@ -232,14 +326,34 @@ pub async fn destroy_crypto_vbdev(vbdev_name: String) -> Result<(), BdevError> {
         );
     }
 
-    r.await
+    let ret = r
+        .await
         .expect("callback gone while deleting crypto disk")
         .to_result(|e| BdevError::DestroyBdevFailed {
             source: Errno::from_raw(e),
             name: vbdev_name.to_string(),
-        })?;
+        });
+    if let Err(e) = ret {
+        match e {
+            BdevError::BdevNotFound { .. } => {}
+            _else => return Err(_else),
+        }
+    }
 
     info!("crypto vbdev {vbdev_name} destroyed successfully");
+
+    let key_name = match key_name.or_else(|| find_key_for_crypto_vbdev(&vbdev_name)) {
+        Some(k) => k,
+        None => {
+            warn!("Mapped key not found for {vbdev_name}");
+            return Ok(());
+        }
+    };
+
+    remove_key_user(key_name.as_str(), vbdev_name);
+    if let Some(users) = get_users_of(key_name.as_str()) {
+        trace!("[remove] Remaining key users {key_name}: {users:?}");
+    }
     Ok(())
 }
 /// The primary function to create a crypto vbdev in spdk.
@@ -248,8 +362,14 @@ pub fn create_crypto_vbdev_on_base_bdev(
     base_bdev_name: &str,
     key_params: &EncryptionKey,
 ) -> Result<(), BdevError> {
-    // Create the key.
-    let key = create_crypto_key(key_params)?;
+    // Create the key and add to the map.
+    let key = add_key_user(key_params, crypto_vbdev_name.to_string())?;
+    if let Some(users) = get_users_of(key_params.key_name.as_str()) {
+        trace!(
+            "[add] updated key users {:?}: {users:?}",
+            key_params.key_name
+        );
+    }
 
     // Setup the crypto opts using the key now.
     let crypto_opts_ptr = unsafe {
@@ -257,7 +377,7 @@ pub fn create_crypto_vbdev_on_base_bdev(
             crypto_vbdev_name.into_cstring().as_ptr() as *mut c_char,
             base_bdev_name.into_cstring().as_ptr() as *mut c_char,
             key,
-            true,
+            false,
         )
     };
 
@@ -265,12 +385,12 @@ pub fn create_crypto_vbdev_on_base_bdev(
     let ret = unsafe { create_crypto_disk(crypto_opts_ptr) };
 
     if ret != 0 {
-        Err(BdevError::CreateBdevFailed {
+        return Err(BdevError::CreateBdevFailed {
             source: Errno::from_raw(ret),
             name: crypto_vbdev_name.to_string(),
-        })
-    } else {
-        info!("crypto vbdev {crypto_vbdev_name} created on base bdev {base_bdev_name}");
-        Ok(())
+        });
     }
+    info!("crypto vbdev {crypto_vbdev_name} created on base bdev {base_bdev_name}");
+
+    Ok(())
 }
