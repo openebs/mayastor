@@ -116,6 +116,8 @@ events-api = { path = "../utils/dependencies/apis/events" }
 event-publisher = { path = "../utils/dependencies/event-publisher" }
 secret-provider = { path = "../utils/dependencies/secret-provider" }
 tracing-filter = { path = "../utils/dependencies/tracing-filter" }
+crc = "1.8.1"
+gpt = "4.1.0"
 
 [dependencies.serde]
 features = ["derive"]

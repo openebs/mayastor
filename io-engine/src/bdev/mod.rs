@@ -13,6 +13,7 @@ pub(crate) use dev::uri;
 pub mod crypto;
 pub(crate) mod device;
 mod ftl;
+pub mod gpt_old;
 mod loopback;
 mod lvs;
 mod malloc;
