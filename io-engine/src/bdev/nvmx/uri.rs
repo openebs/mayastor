@@ -161,10 +161,14 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
 
         let hostnqn = parameters.remove("hostnqn");
 
+        let host = host
+            .trim_start_matches("[")
+            .trim_end_matches("]")
+            .to_string();
         Ok(NvmfDeviceTemplate {
             name: url[url::Position::BeforeHost..url::Position::AfterPath].to_string(),
             alias: url.to_string(),
-            host: host.to_string(),
+            host,
             port: url.port().unwrap_or(DEFAULT_NVMF_PORT),
             subnqn: segments[0].to_string(),
             prchk_flags,
