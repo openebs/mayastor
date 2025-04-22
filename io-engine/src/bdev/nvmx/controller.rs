@@ -1102,7 +1102,7 @@ pub(crate) mod options {
 }
 
 pub(crate) mod transport {
-    use std::{ffi::CStr, fmt::Debug};
+    use std::{ffi::CStr, fmt::Debug, str::FromStr};
 
     use spdk_rs::{ffihelper::copy_str_with_null, libspdk::spdk_nvme_transport_id};
 
@@ -1213,6 +1213,9 @@ pub(crate) mod transport {
 
         /// the address to connect to
         pub fn with_traddr(mut self, traddr: &str) -> Self {
+            if std::net::Ipv6Addr::from_str(traddr).is_ok() {
+                self.adrfam = AdressFamily::NvmfAdrfamIpv6;
+            }
             self.traddr = traddr.to_string();
             self
         }
@@ -1232,7 +1235,7 @@ pub(crate) mod transport {
         pub fn build(self) -> NvmeTransportId {
             let trtype = String::from(TransportId::TCP);
             let mut trid = spdk_nvme_transport_id {
-                adrfam: AdressFamily::NvmfAdrfamIpv4 as u32,
+                adrfam: self.adrfam as u32,
                 trtype: TransportId::TCP as u32,
                 ..Default::default()
             };
