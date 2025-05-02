@@ -215,7 +215,7 @@ async fn run_nexus_manage_task(r: Receiver<()>, cfg: NexusManageTask) {
     add_fault_injection(ms_nex.clone(), &inj_r).await.unwrap();
 
     // When nexus fails, I/O should be freezing due to CRD (if enabled).
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // Destroy the nexus, remove injectios and re-create and re-publish the
     // nexus with the same ID.
