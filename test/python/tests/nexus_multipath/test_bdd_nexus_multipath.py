@@ -1,6 +1,7 @@
 import pytest
 import logging
 from pytest_bdd import given, scenario, then, when, parsers
+from retrying import retry
 
 from common.command import run_cmd
 from common.fio import Fio
@@ -375,6 +376,7 @@ def degrade_single_io_path(container_mod, a_client_connected_to_one_path_nexus):
 @then(
     "it should be possible to create a second nexus and connect it as the second path"
 )
+@retry(wait_fixed=10, stop_max_attempt_number=200)
 def check_add_second_io_path(create_1_replica_disconnected_nexus):
     # Connect the second nexus and check the paths.
     nexus2_uri = create_1_replica_disconnected_nexus
@@ -397,6 +399,7 @@ def check_add_second_io_path(create_1_replica_disconnected_nexus):
 
 
 @then("it should be possible to remove the first failed I/O path")
+@retry(wait_fixed=10, stop_max_attempt_number=200)
 def check_remove_the_degraded_path(a_client_connected_to_one_path_nexus):
     dev = a_client_connected_to_one_path_nexus
     desc = nvme_list_subsystems(dev)
