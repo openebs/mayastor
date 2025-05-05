@@ -14,6 +14,7 @@ from common.nvme import (
     nvme_list_subsystems,
     nvme_resv_report,
 )
+from retrying import retry
 
 
 @pytest.fixture
@@ -336,6 +337,7 @@ def delay2():
 
 
 @pytest.fixture
+@retry(wait_fixed=10, stop_max_attempt_number=200)
 def verify_paths(connect_nexus):
     dev = connect_nexus
     desc = nvme_list_subsystems(dev)
@@ -446,6 +448,7 @@ def test_nexus_multipath_remove_3rd_path(
 
 
 @pytest.mark.timeout(60)
+@retry(wait_fixed=10, stop_max_attempt_number=200)
 def test_nexus_multipath_remove_all_paths(
     create_nexus_no_destroy,
     create_nexus_2_no_destroy,

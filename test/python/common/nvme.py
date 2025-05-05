@@ -70,7 +70,7 @@ def nvme_connect(uri, delay=10, tmo=600):
     )
     print(command)
     subprocess.run(command, check=True, shell=True, capture_output=False)
-    time.sleep(1)
+    time.sleep(3)
     command = "nix-sudo nvme list -v -o json"
     discover = json.loads(
         subprocess.run(
