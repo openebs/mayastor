@@ -627,6 +627,7 @@ impl Lvs {
                 ..
             }) => {
                 let cbdev_name: Option<String> = args.crypto_vbdev_name.clone();
+                let key_name = args.enc_key.as_ref().map(|e| e.key_name.clone());
                 match Self::create_from_args_inner(PoolArgs {
                     disks: vec![bdev_name.clone()],
                     ..args
@@ -636,7 +637,7 @@ impl Lvs {
                     Err(create) => {
                         // destroy crypto vbdev first.
                         if let Some(c) = cbdev_name.as_ref() {
-                            let _ = destroy_crypto_vbdev(c.clone()).await.map_err(|e| {
+                            let _ = destroy_crypto_vbdev(c.clone(), key_name).await.map_err(|e| {
                                 error!(
                                     "failed to delete crypto vbdev {c} after failed pool creation. {e}"
                                 );
@@ -696,7 +697,7 @@ impl Lvs {
         if base_bdev.driver() == "crypto" {
             let cbdev = base_bdev.crypto_base_bdev();
 
-            if let Err(e) = destroy_crypto_vbdev(base_bdev.name().to_string()).await {
+            if let Err(e) = destroy_crypto_vbdev(base_bdev.name().to_string(), None).await {
                 error!(
                     "failed to delete crypto vbdev {:?} during lvs export. {e}",
                     base_bdev.name()
@@ -805,8 +806,7 @@ impl Lvs {
         // If the base_bdev is a crypto vbdev then we need to destroy both - the crypto vbdev and it's base.
         if base_bdev.driver() == "crypto" {
             let cbdev = base_bdev.crypto_base_bdev();
-
-            let _ = destroy_crypto_vbdev(base_bdev.name().to_string())
+            let _ = destroy_crypto_vbdev(base_bdev.name().to_string(), None)
                 .await
                 .map_err(|e| {
                     error!(
