@@ -251,6 +251,9 @@ pub struct MayastorCliArgs {
     /// Events message-bus endpoint url.
     #[clap(long)]
     pub events_url: Option<url::Url>,
+    /// Replication factor for the events jetstream.
+    #[clap(long)]
+    pub events_replicas: Option<usize>,
     /// Enables additional nexus I/O channel debugging.
     #[clap(
         long = "enable-channel-dbg",
@@ -345,6 +348,7 @@ impl Default for MayastorCliArgs {
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,
             events_url: None,
+            events_replicas: None,
             enable_nexus_channel_debug: false,
             lvm: false,
             snap_rebuild: false,
