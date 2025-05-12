@@ -10,22 +10,44 @@ env:
 jobs:
   bdd-tests:
     runs-on: ubuntu-latest-16-cores
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'recursive'
+
       - uses: DeterminateSystems/nix-installer-action@v14
+        with:
+          github-token: ''      ## Override the default the token
+
+      - name: Inject github token to nix config
+        run: |
+          cat <<EOF | sudo tee -a /etc/nix/nix.conf
+          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+          trusted-users = root runner
+          EOF
+
+      - name: Restart Nix daemon
+        run: sudo systemctl restart nix-daemon
+
       - uses: DeterminateSystems/magic-nix-cache-action@v8
+
       - name: Pre-populate nix-shell
         run: |
           export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' nix/sources.json -r)
           echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
           nix-shell --run "echo" shell.nix
+
       - name: Handle Rust dependencies caching
         uses: Swatinem/rust-cache@v2
+
       - name: Build binaries
         run: nix-shell --run "cargo build --bins --features=io-engine-testing"
+
       - name: Setup Test Pre-Requisites
         run: |
           sudo sysctl -w vm.nr_hugepages=2560
@@ -39,12 +61,15 @@ jobs:
           done
           # for the coredump check
           sudo apt-get install gdb
+
       - name: Setup VENV
         run: nix-shell --run "./test/python/setup.sh"
+
       - name: Run BDD Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/pytest-tests.sh"
+
       - name: Pytest BDD Report
         if: always()
         uses: pmeier/pytest-results-action@main
@@ -61,13 +86,16 @@ jobs:
           fi
           nix-shell --run "./scripts/ci-report.sh"
         if: failure()
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: ci-report-bdd
           path: ./ci-report/ci-report.tar.gz
+
       - name: Check Coredumps
         run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
+
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit"
