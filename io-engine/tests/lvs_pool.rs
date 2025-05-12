@@ -1,5 +1,6 @@
 use common::MayastorTest;
 use io_engine::{
+    bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
     core::{logical_volume::LogicalVolume, MayastorCliArgs, Protocol, Share, UntypedBdev},
     lvs::{Lvs, LvsLvol, PropName, PropValue},
@@ -14,6 +15,9 @@ static TESTDIR: &str = "/tmp/io-engine-tests";
 static DISKNAME1: &str = "/tmp/io-engine-tests/disk1.img";
 static DISKNAME2: &str = "/tmp/io-engine-tests/disk2.img";
 static DISKNAME3: &str = "/tmp/io-engine-tests/disk3.img";
+static DISK_CRYPTO: &str = "/tmp/io-engine-tests/crypto_disk.img";
+static XTS_KEY: &str = "2b7e151628aed2a6abf7158809cf4f3c";
+static XTS_KEY2: &str = "2b7e151628aed2a6abf7158809cf4f3d";
 
 #[tokio::test]
 async fn lvs_pool_test() {
@@ -25,10 +29,16 @@ async fn lvs_pool_test() {
         .output()
         .expect("failed to execute mkdir");
 
-    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into(), DISKNAME3.into()]);
+    common::delete_file(&[
+        DISKNAME1.into(),
+        DISKNAME2.into(),
+        DISKNAME3.into(),
+        DISK_CRYPTO.into(),
+    ]);
     common::truncate_file(DISKNAME1, 128 * 1024);
     common::truncate_file(DISKNAME2, 128 * 1024);
     common::truncate_file(DISKNAME3, 128 * 1024);
+    common::truncate_file(DISK_CRYPTO, 128 * 1024);
 
     //setup disk3 via loop device using a sector size of 4096.
     let ldev = common::setup_loopdev_file(DISKNAME3, Some(4096));
@@ -482,4 +492,51 @@ async fn lvs_pool_test() {
     common::delete_file(&[DISKNAME2.into()]);
     common::detach_loopdev(ldev.as_str());
     common::delete_file(&[DISKNAME3.into()]);
+
+    // Create an encrypted pool
+    ms.spawn(async {
+        let pool = Lvs::create_or_import(PoolArgs {
+            name: "enc_pool".into(),
+            disks: vec![format!("aio://{DISK_CRYPTO}")],
+            uuid: None,
+            cluster_size: None,
+            md_args: None,
+            backend: PoolBackend::Lvs,
+            enc_key: Some(EncryptionKey {
+                cipher: Cipher::AesXts,
+                key_name: "test_key".into(),
+                key: XTS_KEY.into(),
+                key_len: 128,
+                key2: Some(XTS_KEY2.into()),
+                key2_len: Some(128),
+            }),
+            crypto_vbdev_name: Some("crypto_enc_pool".into()),
+        })
+        .await
+        .unwrap();
+        let pool_base_bdev = pool.base_bdev();
+        assert_eq!(pool_base_bdev.driver(), "crypto");
+        let underlying_bdev = pool_base_bdev.crypto_base_bdev().unwrap();
+        // we internally use diskname as aio bdev name.
+        assert_eq!(underlying_bdev.name(), DISK_CRYPTO);
+
+        // create some replicas on encrypted pool
+        let pool = Lvs::lookup("enc_pool").unwrap();
+        for i in 0..5 {
+            pool.create_lvol(&format!("encvol-{i}"), 8 * 1024 * 1024, None, true, None)
+                .await
+                .unwrap();
+        }
+        assert_eq!(pool.lvols().unwrap().count(), 5);
+        let dest = pool
+            .lvols()
+            .unwrap()
+            .map(|r| r.destroy())
+            .collect::<Vec<_>>();
+        assert_eq!(dest.len(), 5);
+        futures::future::join_all(dest).await;
+        pool.destroy().await.unwrap();
+        common::delete_file(&[DISK_CRYPTO.into()]);
+    })
+    .await;
 }
