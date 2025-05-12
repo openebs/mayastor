@@ -10,41 +10,71 @@ env:
 jobs:
   int-tests:
     runs-on: ubuntu-latest-16-cores
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'recursive'
+
       - uses: cachix/install-nix-action@v31.3.0
+        with:
+          github_access_token: ''
+
+      - name: Inject github token to nix config
+        run: |
+          cat <<EOF | sudo tee -a /etc/nix/nix.conf
+          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+          trusted-users = root runner
+          EOF
+
+      - name: Restart Nix daemon
+        run: sudo systemctl restart nix-daemon
+
+      - uses: cachix/install-nix-action@v31.3.0
+
       - name: Pre-populate nix-shell
         run: |
           export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' nix/sources.json -r)
           echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
           nix-shell --run "echo" shell.nix
+
       - name: Handle Rust dependencies caching
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ startsWith(github.ref_name, 'release/') || github.ref_name == 'develop' }}
+
       - name: Build binaries
         run: nix-shell --run "cargo build --bins --features=io-engine-testing"
+
       - name: Setup Test Pre-Requisites
         run: |
           sudo sysctl -w vm.nr_hugepages=3584
+          sudo debconf-communicate <<< "set man-db/auto-update false" || true
+          sudo dpkg-reconfigure man-db || true
+          ulimit -c unlimited
           sudo apt-get update
           sudo apt-get install linux-modules-extra-$(uname -r)
           for module in nvme_tcp nbd nvme_rdma; do
             sudo modprobe $module
           done
           sudo apt-get install gdb
+
       - name: Run Rust Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/cargo-test.sh"
+
+      - name: Check Coredumps
+        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
+
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/clean-cargo-tests.sh"
-      - name: Check Coredumps
-        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
+
       - name: Run JS Grpc Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
@@ -55,6 +85,7 @@ jobs:
             cat $file >> "ci-report/js/$file"
             echo "</testsuites>" >> "ci-report/js/$file"
           done
+
       - name: Test Report
         if: always()
         uses: pmeier/pytest-results-action@main
@@ -66,16 +97,19 @@ jobs:
           title: Test results
       - run: nix-shell --run "./scripts/ci-report.sh"
         if: failure()
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: ci-report-int
           path: ./ci-report/ci-report.tar.gz
+
+      - name: Check Coredumps
+        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
+
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/clean-cargo-tests.sh"
-      - name: Check Coredumps
-        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
 # debugging
       # - name: Setup tmate session
       #   if: ${{ failure() }}
