@@ -10,8 +10,7 @@ set -eu
 mkdir -p "$ROOT_DIR/ci-report"
 cd "$ROOT_DIR/ci-report"
 
-# Disable until we find how some CI envs are being included
-# journalctl --since="$CI_REPORT_START_DATE" -o short-precise > journalctl.txt
+journalctl --since="$CI_REPORT_START_DATE" -o short-precise | sed -E 's/ghs_[^[:space:]]+/ghs_***/g' > journalctl.txt
 journalctl -k -b0 -o short-precise > dmesg.txt
 lsblk -tfa > lsblk.txt
 $SUDO nvme list -v > nvme.txt
