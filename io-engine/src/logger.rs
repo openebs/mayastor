@@ -508,7 +508,12 @@ impl LogFormat {
 ///
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
-pub fn init_ex(level: &str, format: LogFormat, events_url: Option<url::Url>) {
+pub fn init_ex(
+    level: &str,
+    format: LogFormat,
+    events_url: Option<url::Url>,
+    events_replicas: Option<usize>,
+) {
     // Set up a "logger" that simply translates any "log" messages it receives
     // to trace events. This is for our custom spdk log messages, but also
     // for any other third party crates still using the logging facade.
@@ -532,7 +537,7 @@ pub fn init_ex(level: &str, format: LogFormat, events_url: Option<url::Url>) {
         Some(url) => {
             let events_filter = Targets::new().with_target(EVENTING_TARGET, Level::INFO);
             Some(
-                EventHandle::init_ext(url.to_string(), SERVICE_NAME, spawn)
+                EventHandle::init_ext(url.to_string(), SERVICE_NAME, spawn, events_replicas)
                     .with_filter(events_filter),
             )
         }
@@ -548,5 +553,5 @@ pub fn init_ex(level: &str, format: LogFormat, events_url: Option<url::Url>) {
 }
 
 pub fn init(level: &str) {
-    init_ex(level, Default::default(), None)
+    init_ex(level, Default::default(), None, None)
 }

@@ -253,9 +253,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
     // passed, we will use it regardless.
     if !args.log_components.is_empty() {
-        logger::init_ex("TRACE", log_format, args.events_url.clone());
+        logger::init_ex(
+            "TRACE",
+            log_format,
+            args.events_url.clone(),
+            args.events_replicas,
+        );
     } else {
-        logger::init_ex("INFO", log_format, args.events_url.clone());
+        logger::init_ex(
+            "INFO",
+            log_format,
+            args.events_url.clone(),
+            args.events_replicas,
+        );
     }
 
     info!("{}", fmt_package_info!());
