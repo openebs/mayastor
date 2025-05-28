@@ -14,7 +14,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      - uses: DeterminateSystems/nix-installer-action@v14
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - uses: cachix/install-nix-action@v31.3.0
       - name: Test building the release images
         run: ./scripts/release.sh --skip-publish --build-bins
