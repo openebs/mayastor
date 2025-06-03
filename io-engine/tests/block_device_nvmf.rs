@@ -191,6 +191,9 @@ async fn nvmf_device_events() {
 
     impl DeviceEventListener for TestEventListener {
         fn handle_device_event(&self, event: DeviceEventType, device: &str) {
+            if event == DeviceEventType::AdminQNoticeCtrlFailed {
+                return; // Not interested in this one
+            }
             // Check event type and device name.
             assert_eq!(event, DeviceEventType::DeviceRemoved);
             assert_eq!(
