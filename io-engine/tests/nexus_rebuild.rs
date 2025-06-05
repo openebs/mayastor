@@ -11,7 +11,17 @@ use io_engine::{
 };
 
 pub mod common;
-use common::{compose::MayastorTest, reactor_poll, wait_for_rebuild};
+use common::{
+    compose::{
+        rpc::v1::{nexus::ChildState, GrpcConnect},
+        Binary, Builder, MayastorTest,
+    },
+    nexus::NexusBuilder,
+    pool::PoolBuilder,
+    reactor_poll,
+    replica::ReplicaBuilder,
+    wait_for_rebuild,
+};
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
@@ -28,6 +38,8 @@ static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 // approximate on-disk metadata that will be written to the child by the nexus
 const META_SIZE: u64 = 128 * 1024 * 1024; // 128MiB
 const MAX_CHILDREN: u64 = 16;
+const POOL_SIZE: u64 = 200; // 200MiB;
+const REPL_SIZE: u64 = 50; // 50MiB;
 
 fn get_ms() -> &'static MayastorTest<'static> {
     MAYASTOR.get_or_init(|| {
@@ -428,4 +440,111 @@ async fn rebuild_bdev_partial() {
         device_destroy(dst_uri).await.unwrap();
     })
     .await;
+}
+
+#[tokio::test]
+async fn rebuild_across_mixed_cluster_sizes() {
+    common::composer_init();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "1,2",
+                "-Fcolor,compact,host,nodate",
+            ]),
+        )
+        .add_container_bin(
+            "ms_1",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "3,4",
+                "-Fcolor,compact,host,nodate",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let hdl0 = conn.grpc_handle_shared("ms_0").await.unwrap();
+    let hdl1 = conn.grpc_handle_shared("ms_1").await.unwrap();
+
+    // pool0 will have default cluster size of 4MiB
+    let mut pool0 = PoolBuilder::new(hdl0.clone())
+        .with_name("pool_0")
+        .with_new_uuid()
+        .with_malloc("mem_0", POOL_SIZE);
+
+    let mut pool1 = PoolBuilder::new(hdl1.clone())
+        .with_name("pool_1")
+        .with_new_uuid()
+        .with_malloc("mem_1", POOL_SIZE)
+        .with_cluster_size(33554432); // 32MiB cluster size
+
+    pool0.create().await.unwrap();
+    pool1.create().await.unwrap();
+
+    let mut repl0 = ReplicaBuilder::new(hdl0.clone())
+        .with_pool(&pool0)
+        .with_name("repl_0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE);
+
+    repl0.create().await.unwrap();
+
+    let mut repl1 = ReplicaBuilder::new(hdl1.clone())
+        .with_pool(&pool1)
+        .with_name("repl_1")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+
+    repl1.create().await.unwrap();
+    repl1.share().await.unwrap();
+
+    assert_eq!(
+        repl0
+            .get_replica()
+            .await
+            .unwrap()
+            .usage
+            .unwrap()
+            .cluster_size,
+        4194304
+    );
+    assert_eq!(
+        repl1
+            .get_replica()
+            .await
+            .unwrap()
+            .usage
+            .unwrap()
+            .cluster_size,
+        33554432
+    );
+
+    let mut nex = NexusBuilder::new(hdl0.clone())
+        .with_name("nexus0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_replicas(&[repl0]);
+
+    nex.create().await.unwrap();
+    nex.add_replica(&repl1, false).await.unwrap();
+    assert_eq!(nex.get_nexus().await.unwrap().children.len(), 2);
+    assert!(nex
+        .wait_replica_state(
+            &repl1,
+            ChildState::Online,
+            None,
+            std::time::Duration::from_secs(5)
+        )
+        .await
+        .is_ok());
 }
