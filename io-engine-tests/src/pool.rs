@@ -16,6 +16,7 @@ pub struct PoolBuilderOpts {
     name: Option<String>,
     uuid: Option<String>,
     bdev: Option<String>,
+    cluster_size: Option<u32>,
 }
 
 pub type PoolBuilder = PoolBuilderRpc;
@@ -138,6 +139,11 @@ impl PoolBuilderOpts {
         self.with_bdev(&bdev)
     }
 
+    pub fn with_cluster_size(&mut self, cluster_size: u32) -> &mut Self {
+        self.cluster_size = Some(cluster_size);
+        self
+    }
+
     pub fn name(&self) -> String {
         self.name.as_ref().expect("Pool name must be set").clone()
     }
@@ -183,6 +189,11 @@ impl PoolBuilderRpc {
         self
     }
 
+    pub fn with_cluster_size(mut self, cluster_size: u32) -> Self {
+        self.builder.with_cluster_size(cluster_size);
+        self
+    }
+
     pub async fn create(&mut self) -> Result<Pool, Status> {
         self.rpc()
             .lock()
@@ -193,7 +204,7 @@ impl PoolBuilderRpc {
                 uuid: Some(self.uuid()),
                 pooltype: 0,
                 disks: vec![self.bdev.as_ref().unwrap().clone()],
-                cluster_size: None,
+                cluster_size: self.cluster_size,
                 md_args: None,
                 encryption: None,
             })
@@ -269,7 +280,7 @@ impl PoolBuilderLocal {
             name: self.name(),
             uuid: Some(self.uuid()),
             disks: vec![self.bdev.as_ref().unwrap().clone()],
-            cluster_size: None,
+            cluster_size: self.cluster_size,
             md_args: None,
             backend: Default::default(),
             enc_key: None,
