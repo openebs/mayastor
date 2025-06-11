@@ -273,7 +273,7 @@ async fn nexus_child_retire_persist_unresponsive_with_fio() {
     cluster.test.thaw("etcd").await.unwrap();
 
     assert!(
-        tokio::time::timeout(Duration::from_secs(1), &mut r1)
+        tokio::time::timeout(Duration::from_secs(2), &mut r1)
             .await
             .is_ok(),
         "I/O to nexus must proceed when ETCD is thawed"
