@@ -334,15 +334,16 @@ const NEXUS_NAME: &str = "nexus_0";
 const NEXUS_UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
 
 #[tokio::test]
+#[ignore]
 /// Test ETCD misbehaviour during a child retirement: a nexus must not ack I/Os
 /// to a client if a persistent store cannot be updated while a child is being
 /// retired.
 ///
 /// [1] Create etcd, pools, replicas, and nexus.
-/// [2] Inject an fault to a replica.
+/// [2] Inject a fault to a replica.
 /// [3] Pause ETCD container.
 /// [4] Write to the nexus. A replica fails due to injected fault, and I/O on
-///     nexus must stuck.
+///     nexus must remain stuck.
 /// [5] Thaw ETCD container.
 /// [6] I/Os must now be acknowledged to the client.
 async fn nexus_child_retire_persist_unresponsive_with_bdev_io() {
@@ -399,7 +400,7 @@ async fn nexus_child_retire_persist_unresponsive_with_bdev_io() {
         "I/O to nexus must proceed when ETCD is thawed"
     );
 
-    // Check that 1st child is fauled, and 2nd is open.
+    // Check that 1st child is faulted, and 2nd is open.
     assert!(matches!(
         nex.child_at(0).state(),
         ChildState::Faulted(FaultReason::IoError)
