@@ -48,6 +48,7 @@ let
         PROTOC_INCLUDE = io-engine.PROTOC_INCLUDE;
         ETCD_BIN = "${etcd}/bin/etcd";
         LVM_BINS = "${lvm2.bin}/bin";
+        NVME = "${nvme-cli}/bin/nvme";
       };
 
       shellHook = ''
