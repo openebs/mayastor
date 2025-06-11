@@ -88,8 +88,27 @@ pub fn nvme_connect(
     transport: &str,
     must_succeed: bool,
 ) -> ExitStatus {
-    let status = Command::new("nvme")
-        .args(["connect"])
+    let mut comand = Command::new("nvme");
+    let mut comand = comand.args(["connect"]);
+
+    if !std::path::Path::new("/etc/nvme/hostid").exists()
+        || !std::path::Path::new("/etc/nvme/hostnqn").exists()
+    {
+        match (
+            std::env::var("NVME_HOSTID").ok(),
+            std::env::var("NVME_HOSTNQN").ok(),
+        ) {
+            (Some(hid), Some(hnqn)) => {
+                tracing::warn!("/etc/nvme is not present, using {hid} and {hnqn}");
+                comand = comand.args(["-I", &hid]).args(["-q", &hnqn])
+            }
+            _ => {
+                panic!("/etc/nvme is not present and no env var NVME_HOSTID available")
+            }
+        }
+    }
+
+    let status = comand
         .args(["-t", transport])
         .args(["-a", target_addr])
         .args(["-s", "8420"])

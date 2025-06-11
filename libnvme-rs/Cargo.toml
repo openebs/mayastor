@@ -28,3 +28,7 @@ version = "1.0"
 [dependencies.udev]
 features = ["hwdb", "mio"]
 version = "^0.9.1"
+
+[dependencies.uuid]
+features = ["v4"]
+version = "1.11.0"
