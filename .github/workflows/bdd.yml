@@ -9,7 +9,7 @@ env:
 
 jobs:
   bdd-tests:
-    runs-on: ubuntu-latest-16-cores
+    runs-on: oracle-vm-16cpu-64gb-x86-64
     permissions:
       contents: read
       id-token: write
@@ -38,7 +38,7 @@ jobs:
 
       - name: Pre-populate nix-shell
         run: |
-          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' nix/sources.json -r)
+          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' spdk-rs/nix/sources.json -r)
           echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
           nix-shell --run "echo" shell.nix
 
@@ -61,6 +61,8 @@ jobs:
           done
           # for the coredump check
           sudo apt-get install gdb
+          # Check if nvme config is valid, otherwise apply it
+          sudo ./scripts/nvme-conf.sh --check --apply --overwrite
 
       - name: Setup VENV
         run: nix-shell --run "./test/python/setup.sh"

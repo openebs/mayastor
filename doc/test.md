@@ -38,9 +38,29 @@ RUST_LOG=TRACE cargo test --features=io-engine-testing -- --test-threads 1 --noc
 > _**NOTE**_:
 > The flag --features=io-engine-testing ensures you run tests with features enabled only for testing purposes
 
+Recent linux kernel versions no longer allow for mixing of nvme hostid's with different nvme hostnqn's, so you should
+ensure your system is configured with default values.
+Typically, this happens as long as you install nvme-cli on your host, but you can also ensure this by using our script:
+
+```bash
+sudo ./scripts/nvme-conf.sh --check --apply
+ NVME SYSCONFDIR   : /etc/nvme
+|           exists : true
+|= hostid          : /etc/nvme/hostid
+|           exists : true
+|          content : 7b562a4c-61e8-ef10-a994-047c16834e32
+|= hostnqn         : /etc/nvme/hostnqn
+|           exists : true
+|          content : nqn.2014-08.org.nvmexpress:uuid:7b562a4c-61e8-ef10-a994-047c16834e32
+
+
+INFO: /etc/nvme is valid
+```
+
 ## Testing your own SPDK version
 
-To test your custom SPDK version please refer to the [spdk-rs documentation](https://github.com/openebs/spdk-rs/blob/develop/README.md#custom-spdk)
+To test your custom SPDK version please refer to
+the [spdk-rs documentation](https://github.com/openebs/spdk-rs/blob/develop/README.md#custom-spdk)
 
 ## Using PCIe NVMe devices in cargo tests while developing
 
