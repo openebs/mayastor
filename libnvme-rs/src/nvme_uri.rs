@@ -1,5 +1,4 @@
 use std::{convert::TryFrom, io, os::raw::c_char, time::Duration};
-
 use url::{ParseError, Url};
 
 use mio::{Events, Interest, Poll, Token};
@@ -127,15 +126,28 @@ impl NvmeTarget {
     /// Returns Ok on successful connect
     pub fn connect(&self) -> Result<(), NvmeError> {
         let r = NvmeRoot::new(unsafe { crate::nvme_scan(std::ptr::null()) });
+
+        // Note, if host id and hostnqn are not present in the system, then hostid is generated at
+        // the kernel but becomes sticky and there seems no way of querying it.
         let hostid = NvmeStringWrapper::new(unsafe { crate::nvmf_hostid_from_file() });
+        let hostid_gen = std::ffi::CString::new(uuid::Uuid::new_v4().to_string()).unwrap();
 
         let hostnqn = match self.hostnqn_autogen {
             true => NvmeStringWrapper::new(unsafe { crate::nvmf_hostnqn_generate() }),
             false => NvmeStringWrapper::new(unsafe { crate::nvmf_hostnqn_from_file() }),
         };
 
-        let h =
-            unsafe { crate::nvme_lookup_host(r.as_mut_ptr(), hostnqn.as_ptr(), hostid.as_ptr()) };
+        let h = unsafe {
+            crate::nvme_lookup_host(
+                r.as_mut_ptr(),
+                hostnqn.as_ptr(),
+                if self.hostnqn_autogen {
+                    hostid_gen.as_ptr()
+                } else {
+                    hostid.as_ptr()
+                },
+            )
+        };
         if h.is_null() {
             return Err(NvmeError::LookupHostError { rc: -libc::ENOMEM });
         }

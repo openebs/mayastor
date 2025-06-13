@@ -3,11 +3,23 @@ import subprocess
 import time
 import json
 import re
+import os
 from common.command import run_cmd_async_at
 
 
+def nvme_hostids():
+    args = ""
+    hostid = os.getenv("NVME_HOSTID")
+    if hostid:
+        args = f"{args} -I {hostid}"
+    hostnqn = os.getenv("NVME_HOSTNQN")
+    if hostnqn:
+        args = f"{args} -q {hostnqn}"
+    return args
+
+
 async def nvme_remote_connect_all(remote, host, port):
-    command = f"nix-sudo nvme connect-all -t tcp -s {port} -a {host}"
+    command = f"nix-sudo nvme connect-all -t tcp -s {port} -a {host}{nvme_hostids()}"
     await run_cmd_async_at(remote, command)
 
 
@@ -18,8 +30,8 @@ async def nvme_remote_connect(remote, uri):
     host = u.hostname
     nqn = u.path[1:]
 
-    command = "nix-sudo nvme connect -t tcp -s {0} -a {1} -n {2}".format(
-        port, host, nqn
+    command = "nix-sudo nvme connect -t tcp -s {0} -a {1} -n {2}{3}".format(
+        port, host, nqn, nvme_hostids()
     )
 
     await run_cmd_async_at(remote, command)
@@ -53,7 +65,9 @@ async def nvme_remote_discover(remote, uri):
     port = u.port
     host = u.hostname
 
-    command = "nix-sudo nvme discover -t tcp -s {0} -a {1}".format(port, host)
+    command = "nix-sudo nvme discover -t tcp -s {0} -a {1}{2}".format(
+        port, host, nvme_hostids()
+    )
     output = await run_cmd_async_at(remote, command).stdout
     if not u.path[1:] in str(output.stdout):
         raise ValueError("uri {} is not discovered".format(u.path[1:]))
@@ -65,9 +79,7 @@ def nvme_connect(uri, delay=10, tmo=600):
     host = u.hostname
     nqn = u.path[1:]
 
-    command = (
-        f"nix-sudo nvme connect -t tcp -s {port} -a {host} -n {nqn} -c {delay} -l {tmo}"
-    )
+    command = f"nix-sudo nvme connect -t tcp -s {port} -a {host} -n {nqn} -c {delay} -l {tmo}{nvme_hostids()}"
     print(command)
     subprocess.run(command, check=True, shell=True, capture_output=False)
     time.sleep(3)
@@ -121,7 +133,7 @@ def nvme_find_ctrl(uri):
 
     # Finds correct Device
     devs = list(filter(lambda d: nqn in d.get("SubsystemNQN"), discover.get("Devices")))
-    assert len(devs) is 1, "Multiple devices with the same subnqn"
+    assert len(devs) == 1, "Multiple devices with the same subnqn"
 
     # Find correct Controller
     ctrls = list(
@@ -130,7 +142,7 @@ def nvme_find_ctrl(uri):
             devs[0].get("Controllers"),
         )
     )
-    assert len(ctrls) is 1, "Multiple controllers with the same address"
+    assert len(ctrls) == 1, "Multiple controllers with the same address"
 
     return ctrls[0].get("Controller")
 
@@ -153,7 +165,9 @@ def nvme_discover(uri):
     port = u.port
     host = u.hostname
 
-    command = "nix-sudo nvme discover -t tcp -s {0} -a {1}".format(port, host)
+    command = "nix-sudo nvme discover -t tcp -s {0} -a {1}{2}".format(
+        port, host, nvme_hostids()
+    )
     output = subprocess.run(
         command, check=True, shell=True, capture_output=True, encoding="utf-8"
     )

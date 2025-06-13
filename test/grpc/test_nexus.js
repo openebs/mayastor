@@ -588,7 +588,7 @@ describe('nexus', function () {
     });
 
     it('should discover the nvmf nexus device', (done) => {
-      common.execAsRoot('nvme', ['discover', '-a', externIp, '-s', '8420', '-t', 'tcp', '-q', 'nqn.2014-08.org.nvmexpress.discovery'], (err, stdout) => {
+      common.execAsRoot(common.NVME, ['discover', '-a', externIp, '-s', '8420', '-t', 'tcp', '-q', 'nqn.2014-08.org.nvmexpress.discovery'], (err, stdout) => {
         if (err) {
           done(err);
         } else {

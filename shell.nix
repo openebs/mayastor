@@ -48,6 +48,11 @@ let
         PROTOC_INCLUDE = io-engine.PROTOC_INCLUDE;
         ETCD_BIN = "${etcd}/bin/etcd";
         LVM_BINS = "${lvm2.bin}/bin";
+        NVME = "${nvme-cli}/bin/nvme";
+
+        # Dummy values in case environment does not have /etc/nvme
+        NVME_HOSTID = "03f79caf-dc58-475a-a111-bf0b75214a51";
+        NVME_HOSTNQN = "nqn.2014-08.org.nvmexpress:uuid:03f79caf-dc58-475a-a111-bf0b75214a51";
       };
 
       shellHook = ''

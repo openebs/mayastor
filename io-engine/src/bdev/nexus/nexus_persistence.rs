@@ -211,6 +211,7 @@ impl<'n> Nexus<'n> {
             None => self.uuid().to_string(),
         };
 
+        // these are actually tries, not retries!
         let mut retry = PersistentStore::retries();
         let mut logged = false;
         loop {
