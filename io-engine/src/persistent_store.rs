@@ -5,8 +5,7 @@
 //! the etcd-client crate. This crate has a dependency on the tokio async
 //! runtime.
 use crate::{
-    core,
-    core::Reactor,
+    core::{self, Reactor},
     store::{
         etcd::Etcd,
         store_defs::{
@@ -14,10 +13,10 @@ use crate::{
         },
     },
 };
-use etcd_client::{Compare, TxnOp, TxnResponse};
 use futures::channel::oneshot;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
+use serde::Serialize;
 use serde_json::Value;
 use snafu::ResultExt;
 use std::{future::Future, time::Duration};
@@ -196,18 +195,27 @@ impl PersistentStore {
         })?
     }
 
-    /// Executes a transaction for the given key.
-    pub async fn txn(
+    /// Executes a transaction with Put op for the given key.
+    /// On failure, Get the key value.
+    pub async fn txn_create_execute(
         key: &impl StoreKey,
-        cmps: Vec<Compare>,
-        ops_success: Vec<TxnOp>,
-        ops_failure: Option<Vec<TxnOp>>,
-    ) -> Result<TxnResponse, StoreError> {
+        new_value: &[u8],
+        expected_value: &[u8],
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let key_string = key.to_string();
+
+        info!(
+            "Executing transaction for key {}, value {}, expected value {}.",
+            key_string,
+            String::from_utf8_lossy(new_value),
+            String::from_utf8_lossy(expected_value)
+        );
+
+        let new_value_owned = new_value.to_owned();
+        let expected_value_owned = expected_value.to_owned();
         let rx = Self::execute_store_op(async move {
-            info!("Executing transaction for key {}.", key_string);
             Self::backing_store()
-                .txn_kv(&key_string, cmps, ops_success, ops_failure)
+                .put_kv_cas(&key_string, new_value_owned, expected_value_owned)
                 .await
         });
 
@@ -323,4 +331,9 @@ impl PersistentStore {
         let backing_store = Self::connect_to_backing_store(&PersistentStore::endpoint()).await;
         persistent_store.lock().store = backing_store;
     }
+}
+
+pub fn to_json_byte_vec<T: Serialize>(input: &T) -> Vec<u8> {
+    let val = serde_json::to_value(input).expect("Failed conversion to serde_json value");
+    serde_json::to_vec(&val).expect("Failed conversion to serde_json bytes")
 }

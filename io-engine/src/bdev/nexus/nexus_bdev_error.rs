@@ -176,7 +176,7 @@ pub enum Error {
     InvalidReservation { reservation: u8 },
     #[snafu(display("failed to update share properties {}", name))]
     UpdateShareProperties { source: CoreError, name: String },
-    #[snafu(display("failed to save nexus state {}", name))]
+    #[snafu(display("failed to save nexus state {name}, {source}"))]
     SaveStateFailed { source: StoreError, name: String },
 }
 

@@ -48,7 +48,7 @@ pub use nexus_iter::{
 pub(crate) use nexus_module::{NexusModule, NEXUS_MODULE_NAME};
 pub(crate) use nexus_nbd::{NbdDisk, NbdError};
 pub(crate) use nexus_persistence::PersistOp;
-pub use nexus_persistence::{ChildInfo, NexusInfo};
+pub use nexus_persistence::{ChildInfo, NexusInfo, NexusInfoTxn, PersistentNexusInfo};
 pub(crate) use nexus_share::NexusPtpl;
 
 pub use nexus_bdev_snapshot::{

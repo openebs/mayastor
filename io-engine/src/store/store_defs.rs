@@ -1,7 +1,7 @@
 //! Definition of a trait for a key-value store together with its error codes.
 
 use async_trait::async_trait;
-use etcd_client::{Compare, Error, TxnOp, TxnResponse};
+use etcd_client::Error;
 use serde_json::{Error as SerdeError, Value};
 use snafu::Snafu;
 
@@ -105,13 +105,13 @@ pub trait Store: Sync + Send + Clone {
         value: &V,
     ) -> Result<(), StoreError>;
 
-    async fn txn_kv<K: StoreKey>(
+    /// Put an entry by doing compare-and-swap with expected value.
+    async fn put_kv_cas<K: StoreKey>(
         &mut self,
         key: &K,
-        cmps: Vec<Compare>,
-        ops_success: Vec<TxnOp>,
-        ops_failure: Option<Vec<TxnOp>>,
-    ) -> Result<TxnResponse, StoreError>;
+        new_value: Vec<u8>,
+        expected_value: Vec<u8>,
+    ) -> Result<Option<Vec<u8>>, StoreError>;
 
     /// Get an entry from the store.
     async fn get_kv<K: StoreKey>(&mut self, key: &K) -> Result<Value, StoreError>;

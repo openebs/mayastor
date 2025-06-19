@@ -5,7 +5,7 @@ use crate::store::store_defs::{
     StoreError::MissingEntry, StoreKey, StoreValue, Txn as TxnErr, ValueString,
 };
 use async_trait::async_trait;
-use etcd_client::{Client, Compare, Txn, TxnOp, TxnResponse};
+use etcd_client::{Client, Compare, CompareOp, Error, Txn, TxnOp, TxnOpResponse};
 use serde_json::Value;
 use snafu::ResultExt;
 
@@ -49,23 +49,50 @@ impl Store for Etcd {
         Ok(())
     }
 
-    /// Executes a transaction for the given key. If the compares succeed, then
-    /// ops_success will be executed atomically, otherwise ops_failure will be
-    /// executed atomically.
-    async fn txn_kv<K: StoreKey>(
+    /// Executes a transaction for the given key. If the compare succeed, then
+    /// new_value `Put` will be executed atomically, otherwise the current value
+    /// will be `Get` and returned.
+    async fn put_kv_cas<K: StoreKey>(
         &mut self,
         key: &K,
-        cmps: Vec<Compare>,
-        ops_success: Vec<TxnOp>,
-        ops_failure: Option<Vec<TxnOp>>,
-    ) -> Result<TxnResponse, StoreError> {
-        let fops = ops_failure.map_or(vec![], |v| v);
-        self.0
-            .txn(Txn::new().when(cmps).and_then(ops_success).or_else(fops))
+        new_value: Vec<u8>,
+        expected_value: Vec<u8>,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let cmp = Compare::value(key.to_string(), CompareOp::Equal, expected_value);
+        let put_op = TxnOp::put(key.to_string(), new_value, None);
+        let or_else_op = TxnOp::get(key.to_string(), None);
+
+        let txn_resp = self
+            .0
+            .txn(
+                Txn::new()
+                    .when([cmp])
+                    .and_then([put_op])
+                    .or_else([or_else_op]),
+            )
             .await
             .context(TxnErr {
                 key: key.to_string(),
-            })
+            })?;
+
+        if !txn_resp.succeeded() {
+            if let Some(TxnOpResponse::Get(g)) = &txn_resp.op_responses().first() {
+                if let Some(kv) = g.kvs().first() {
+                    let current_value = kv.value();
+                    return Ok(Some(current_value.to_owned()));
+                }
+            } else {
+                return Err(StoreError::Txn {
+                    key: key.to_string(),
+                    source: Error::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Requested TxnOpResponse::Get not found",
+                    )),
+                });
+            }
+        }
+
+        Ok(None)
     }
 
     /// 'Get' the value for the given key from etcd.
