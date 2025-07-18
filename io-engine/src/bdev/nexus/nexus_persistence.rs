@@ -1,5 +1,10 @@
 use super::{IoMode, Nexus, NexusChild};
-use crate::{persistent_store::PersistentStore, sleep::mayastor_sleep};
+use crate::{
+    persistent_store::{to_json_byte_vec, PersistentStore},
+    sleep::mayastor_sleep,
+    store::store_defs::StoreError,
+};
+use etcd_client::Error as EtcdErr;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -8,10 +13,10 @@ use super::Error;
 /// Information associated with the persisted NexusInfo structure.
 pub struct PersistentNexusInfo {
     /// Structure that is written to the persistent store.
-    inner: NexusInfo,
+    pub inner: NexusInfo,
     /// Key to use to persist the NexusInfo structure.
     /// If `Some` the key has been supplied by the control plane.
-    key: Option<String>,
+    pub key: Option<String>,
 }
 
 impl PersistentNexusInfo {
@@ -31,12 +36,19 @@ impl PersistentNexusInfo {
 
 /// Definition of the nexus information that gets saved in the persistent
 /// store.
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct NexusInfo {
     /// Nexus destroyed successfully.
     pub clean_shutdown: bool,
+    /// Nexus needs to be shutdown.
+    pub do_self_shutdown: bool,
     /// Information about children.
     pub children: Vec<ChildInfo>,
+}
+pub struct NexusInfoTxn<'a> {
+    key_info: &'a mut PersistentNexusInfo,
+    // Expected value for the key.
+    expected: NexusInfo,
 }
 
 /// Definition of the child information that gets saved in the persistent
@@ -96,6 +108,7 @@ impl<'n> Nexus<'n> {
                 // expect the NexusInfo structure to contain default values.
                 assert!(nexus_info.children.is_empty());
                 assert!(!nexus_info.clean_shutdown);
+                assert!(!nexus_info.do_self_shutdown);
                 self.children_iter().for_each(|c| {
                     let child_info = ChildInfo {
                         uuid: NexusChild::uuid(c.uri()).expect("Failed to get child UUID."),
@@ -164,11 +177,40 @@ impl<'n> Nexus<'n> {
 
                 let uuid = NexusChild::uuid(child_uri).expect("Failed to get child UUID.");
 
+                let expected_value = nexus_info.clone();
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
                         c.healthy = *healthy;
                     }
                 });
+
+                let mut txn = NexusInfoTxn {
+                    key_info: &mut persistent_nexus_info,
+                    expected: expected_value,
+                };
+
+                // Try executing the transaction. If the nexus info key's value isn't what we
+                // expect, shutdown this nexus. This can only happen if do_self_shutdown is
+                // found true in etcd for this key, which can only be set by core-agent's
+                // republish path. In this situation, the newly published nexus could've
+                // picked up the replica that we are trying to mark unhealthy here. Shutting
+                // down this nexus here ensures we don't let this IO succeed to other replicas
+                // after marking this one as unhealthy.
+                match self.save_txn(&mut txn).await {
+                    Ok(_) => {
+                        self.set_nexus_io_mode(IoMode::Normal).await;
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        error!(
+                            "{self:?}: failed to update persistent store txn, \
+                            will shutdown the nexus: {e}"
+                        );
+                        self.try_self_shutdown();
+
+                        return Err(e);
+                    }
+                }
             }
             PersistOp::Shutdown => {
                 // Only update the clean shutdown variable. Do not update the
@@ -241,6 +283,84 @@ impl<'n> Nexus<'n> {
             if mayastor_sleep(Duration::from_secs(1)).await.is_err() {
                 error!("{self:?}: failed to wait for sleep");
             }
+        }
+    }
+
+    async fn save_txn(&self, info: &mut NexusInfoTxn<'_>) -> Result<(), Error> {
+        // If a key has been provided, use it to store the NexusInfo; use the
+        // nexus uuid as the key otherwise.
+        let key = match &info.key_info.key {
+            Some(k) => k.clone(),
+            None => self.uuid().to_string(),
+        };
+
+        let mut retry = PersistentStore::retries();
+
+        let new_value = to_json_byte_vec(&info.key_info.inner);
+        let expected_value = to_json_byte_vec(&info.expected);
+        let mut logged = false;
+
+        loop {
+            match PersistentStore::txn_create_execute(&key, &new_value, &expected_value).await {
+                Ok(txn_resp) => {
+                    if let Some(current_value) = txn_resp {
+                        let val = serde_json::from_slice::<NexusInfo>(&current_value).unwrap();
+
+                        // The server had likely received the transaction and executed it, but
+                        // client here saw a timeout. So if the current value is same as what we intended
+                        // to set, then consider success. Don't trust any other value and shutdown.
+                        if current_value == new_value {
+                            info!("value for key {key} already updated: {val:?}");
+                            return Ok(());
+                        }
+
+                        warn!("current state found: key - {key}, value - {val:?}");
+
+                        // This nexus won't be used again but let's still update this field with what's
+                        // found in etcd.
+                        info.key_info.inner_mut().do_self_shutdown = val.do_self_shutdown;
+
+                        return Err(Error::SaveStateFailed {
+                            source: StoreError::Txn {
+                                key: key.clone(),
+                                source: EtcdErr::IoError(std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "Txn CompareOp failed",
+                                )),
+                            },
+                            name: self.name.clone(),
+                        });
+                    } else {
+                        // Don't need to check individual op responses.
+                        debug!(?key, "{self:?}: the state was saved successfully via txn");
+                        return Ok(());
+                    }
+                }
+
+                Err(err) => {
+                    retry -= 1;
+                    if retry == 0 {
+                        return Err(Error::SaveStateFailed {
+                            source: err,
+                            name: self.name.clone(),
+                        });
+                    }
+
+                    if !logged {
+                        error!(
+                            "{self:?}: failed to persist nexus info transaction: {err}\
+                        will silently retry ({retry} left): {err}"
+                        );
+                        logged = true;
+                    }
+
+                    // Allow some time for the connection to the persistent
+                    // store to be re-established before retrying the operation.
+                    if mayastor_sleep(Duration::from_secs(1)).await.is_err() {
+                        error!("{self:?}: failed to wait for sleep");
+                    }
+                }
+            };
         }
     }
 }

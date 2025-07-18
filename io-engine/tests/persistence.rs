@@ -10,7 +10,7 @@ use common::compose::{
     },
     Binary, Builder, ComposeTest, ContainerSpec, MayastorTest,
 };
-use etcd_client::{Client, Compare, CompareOp, PutOptions, TxnOp, TxnOpResponse};
+use etcd_client::Client;
 
 use io_engine::{
     bdev::nexus::{ChildInfo, NexusInfo},
@@ -169,6 +169,17 @@ async fn persist_io_failure() {
         })
         .await
         .expect("Failed to unshare");
+
+    // Let a few etcd state save attempts fail to ensure we're resilient in that part.
+    // As the pause doesn't immediately freeze the container, wait sometime before thawing.
+    test.pause("etcd")
+        .await
+        .expect("Failed to stop the etcd container");
+    // The nexus etcd client has default op timeout of 10secs so keep a good buffer.
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    test.thaw("etcd")
+        .await
+        .expect("Failed to start the etcd container");
 
     // Create and connect NVMF target.
     let target = libnvme_rs::NvmeTarget::try_from(nexus_uri.clone())
@@ -531,10 +542,8 @@ pub(crate) fn uuid(uri: &str) -> String {
 #[tokio::test]
 async fn pstor_txn_api() {
     let dummy_key1 = "dummy_key_1".to_string();
-    let dummy_key2 = "dummy_key_2".to_string();
     let pre_txn_value_k1 = "pre_txn_value_key1".to_string();
     let post_txn_value_k1 = "post_txn_value_key1".to_string();
-    let post_txn_value_k2 = "post_txn_value_key2".to_string();
     common::composer_init();
 
     let _test = Builder::new()
@@ -580,40 +589,14 @@ async fn pstor_txn_api() {
             let expect = serde_json::to_vec(&pre_txn_value_k1).unwrap();
 
             // Transaction - expected to succeed.
-            let cmp = vec![Compare::value(
-                dummy_key1.to_string(),
-                CompareOp::Equal,
-                expect,
-            )];
-            let ops = vec![
-                // Test to validate prev_kv for one of the key modified by transaction.
-                TxnOp::put(
-                    dummy_key1.to_string(),
-                    post_txn_value_k1,
-                    Some(PutOptions::new().with_prev_key()),
-                ),
-                TxnOp::put(dummy_key2.to_string(), post_txn_value_k2, None),
-            ];
-            let txn_resp = PersistentStore::txn(&dummy_key1, cmp.clone(), ops, None)
-                .await
-                .unwrap();
-            assert!(txn_resp.succeeded());
-
-            match &txn_resp.op_responses()[0] {
-                TxnOpResponse::Put(p) => {
-                    let prev_val = p.prev_key().unwrap().value_str().unwrap().trim_matches('"');
-                    assert_eq!(prev_val, pre_txn_value_k1);
-                }
-                _ => unreachable!("Unexpected txnop response"),
-            }
-
-            // A new transaction - expected to fail. Execute fops upon compare failure.
-            let ops = vec![TxnOp::delete(dummy_key1.to_string(), None)];
-            let fops = vec![TxnOp::delete(dummy_key2.to_string(), None)];
-            let txn_resp = PersistentStore::txn(&dummy_key1, cmp, ops, Some(fops))
-                .await
-                .unwrap();
-            assert!(!txn_resp.succeeded());
+            let txn_resp = PersistentStore::txn_create_execute(
+                &dummy_key1,
+                post_txn_value_k1.as_bytes(),
+                &expect,
+            )
+            .await
+            .unwrap();
+            assert!(txn_resp.is_none());
         })
         .await;
 }
