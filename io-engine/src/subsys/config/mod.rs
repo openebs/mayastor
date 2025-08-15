@@ -87,7 +87,7 @@ impl ConfigSubsystem {
         };
 
         unsafe {
-            spdk_json_write_val_raw(w, data.as_ptr() as *const _, data.as_bytes().len() as u64);
+            spdk_json_write_val_raw(w, data.as_ptr() as *const _, data.len() as u64);
         }
     }
 
@@ -217,10 +217,7 @@ impl Config {
             let mut file = fs::File::create(file)?;
             return file.write_all(s.as_bytes());
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "failed to serialize config",
-        ))
+        Err(std::io::Error::other("failed to serialize config"))
     }
 
     /// apply the hybrid configuration that is loaded from YAML. Hybrid in the

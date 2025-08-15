@@ -207,7 +207,7 @@ impl TryFrom<EncryptionData> for PoolEncKey {
         let ctype: Cipher = GrpcCipher::try_from(arg_cipher)
             .map_err(|_| LvsError::Invalid {
                 source: BsError::InvalidArgument {},
-                msg: format!("invalid cipher provided: {}", arg_cipher),
+                msg: format!("invalid cipher provided: {arg_cipher}"),
             })?
             .into();
 
@@ -606,7 +606,7 @@ impl PoolRpc for PoolService {
                     info!("{:?}", request.get_ref());
 
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
-                    pool.destroy().await.map_err(Into::into)
+                    pool.destroy().await
                 })
             },
         )
@@ -622,7 +622,7 @@ impl PoolRpc for PoolService {
                     info!("{:?}", request.get_ref());
 
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
-                    pool.export().await.map_err(Into::into)
+                    pool.export().await
                 })
             },
         )
@@ -720,7 +720,7 @@ impl PoolRpc for PoolService {
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
 
                     let previous_pool = Pool::from(pool.as_ops());
-                    pool.grow().await.map_err(Into::<Status>::into)?;
+                    pool.grow().await?;
                     let current_pool = Pool::from(pool.as_ops());
 
                     if current_pool.capacity == previous_pool.capacity {

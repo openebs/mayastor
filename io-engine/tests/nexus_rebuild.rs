@@ -418,11 +418,7 @@ async fn rebuild_bdev_partial() {
             let state = chan.await.unwrap();
             assert_eq!(state, RebuildState::Completed, "Rebuild should succeed");
             let stats = job.stats().await;
-            assert_eq!(
-                stats.blocks_transferred, dirty_blks,
-                "Test {} failed",
-                index
-            );
+            assert_eq!(stats.blocks_transferred, dirty_blks, "Test {index} failed");
         };
 
         let test_table = vec![

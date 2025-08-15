@@ -54,12 +54,8 @@ impl PoolConfig {
     where
         P: AsRef<Path>,
     {
-        let config = serde_yaml::to_string(&self).map_err(|error| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("serialization error: {error}"),
-            )
-        })?;
+        let config = serde_yaml::to_string(&self)
+            .map_err(|error| std::io::Error::other(format!("serialization error: {error}")))?;
 
         fs::write(&file, config.as_bytes())
     }

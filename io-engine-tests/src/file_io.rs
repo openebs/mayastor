@@ -125,15 +125,12 @@ pub async fn test_write_to_file(
 
         for k in 0..src_buf.len() {
             if src_buf[k] != dst_buf[k] {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!(
-                        "Data validation failed at {}: written {:?}, read {:?}",
-                        pos + k as u64,
-                        src_buf[k],
-                        dst_buf[k]
-                    ),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "Data validation failed at {}: written {:?}, read {:?}",
+                    pos + k as u64,
+                    src_buf[k],
+                    dst_buf[k]
+                )));
             }
         }
 
@@ -170,7 +167,7 @@ pub async fn compare_files(
     path_a: impl AsRef<Path>,
     path_b: impl AsRef<Path>,
 ) -> std::io::Result<()> {
-    use std::io::{Error, ErrorKind};
+    use std::io::Error;
 
     let name_a = path_a.as_ref();
     let name_b = path_b.as_ref();
@@ -201,10 +198,9 @@ pub async fn compare_files(
         let nb = fb.read(&mut buf_b).await?;
 
         if na != nb {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("Size of file {name_a:?} != size of {name_b:?}"),
-            ));
+            return Err(Error::other(format!(
+                "Size of file {name_a:?} != size of {name_b:?}"
+            )));
         }
 
         if na == 0 {
@@ -213,16 +209,13 @@ pub async fn compare_files(
 
         for i in 0..na {
             if buf_a[i] != buf_b[i] {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    format!(
-                        "Miscompare at {pos}: {na:?} {va:#02x} != {nb:?} {vb:#02x}",
-                        na = name_a,
-                        va = buf_a[i],
-                        nb = name_b,
-                        vb = buf_b[i],
-                    ),
-                ));
+                return Err(Error::other(format!(
+                    "Miscompare at {pos}: {na:?} {va:#02x} != {nb:?} {vb:#02x}",
+                    na = name_a,
+                    va = buf_a[i],
+                    nb = name_b,
+                    vb = buf_b[i],
+                )));
             }
             pos += 1;
         }

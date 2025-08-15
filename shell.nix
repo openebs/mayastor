@@ -33,7 +33,7 @@ let
         git
         gnuplot
         kubernetes-helm
-        nodejs-18_x
+        nodejs-slim
         numactl
         pytest_inputs
         udev

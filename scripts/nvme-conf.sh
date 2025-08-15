@@ -134,7 +134,7 @@ if [ "${NVME_SYSCONFDIR_HOSTID_EXISTS:-}" = "true" ] || [ "${NVME_SYSCONFDIR_HOS
 fi
 
 if [ ! -w "$(dirname $NVME_SYSCONFDIR)" ]; then
-  echo "ERROR: Please rerun with enough permissions (ex: sudo $0 $CLI_ARGS" >&2
+  echo "ERROR: Please rerun with enough permissions (ex: sudo $0 $CLI_ARGS)" >&2
   exit 1
 fi
 

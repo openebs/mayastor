@@ -131,7 +131,7 @@ fn extract_json_object(params: &spdk_json_val) -> std::result::Result<String, St
     };
     // find corresponding '}' for the object
     let mut level = 0;
-    for (i, c) in text.chars().enumerate() {
+    for (i, c) in text.char_indices() {
         if c == '{' {
             level += 1;
         } else if c == '}' {

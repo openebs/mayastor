@@ -695,7 +695,7 @@ async fn nvmf_device_readv_test() {
     // with data pattern. We should see all zeroes in the buffer instead of
     // the guard pattern.
     let b = buf_ptr.into_inner();
-    check_buf_pattern(unsafe { &((*b).dma_buf[0]) }, 0);
+    check_buf_pattern(unsafe { &((&(*b).dma_buf)[0]) }, 0);
 
     // Turn placeholder structure into a box to trigger drop() action
     // on handle's resources once the box is dropped.
