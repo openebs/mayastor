@@ -8,7 +8,7 @@ use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
 use spdk_rs::libspdk::{
-    spdk_bdev_update_bs_blockcnt, spdk_blob_store, spdk_bs_free_cluster_count,
+    bdev_aio_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store, spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size, spdk_bs_get_md_len, spdk_bs_get_page_size, spdk_bs_get_used_md,
     spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_opts, spdk_lvol_opts_init,
     spdk_lvol_store, spdk_lvs_grow_live, vbdev_get_lvol_store_by_name,
@@ -874,10 +874,39 @@ impl Lvs {
         Ok(())
     }
 
-    /// Grows the online (live) pool.
+    /// Rescans the bdev and triggers live LVS grow i.e. without closing the blobs and unloading the blobstore.
     #[tracing::instrument(level = "debug", err)]
     pub async fn grow(&self) -> Result<(), LvsError> {
         info!("{self:?}: growing lvs...");
+
+        let cname = self.base_bdev().name().into_cstring();
+        let uri_str = &self.base_bdev().bdev_uri_str().unwrap_or_default();
+        let url = Url::parse(uri_str).map_err(|source| LvsError::InvalidBdev {
+            source: BdevError::UriParseFailed {
+                source,
+                uri: uri_str.to_string(),
+            },
+            name: self.name().to_string(),
+        })?;
+        if url.scheme() != "malloc" {
+            info!(
+                "Attempting to rescan bdev {:?} part of lvs {:?}, uri {:?}",
+                self.base_bdev().name(),
+                self.name(),
+                self.base_bdev().bdev_uri_str().unwrap_or_default()
+            );
+
+            let errno = unsafe { bdev_aio_rescan(cname.as_ptr() as *mut std::os::raw::c_char) };
+
+            if errno != 0 {
+                return Err(LvsError::BdevRescanFailed {
+                    source: BsError::from_i32(errno),
+                    name: self.base_bdev().name().to_string(),
+                });
+            }
+        }
+
+        let capacity_before_grow = self.capacity();
 
         let (s, r) = pair::<i32>();
 
@@ -897,6 +926,12 @@ impl Lvs {
                 source: BsError::from_i32(e),
                 name: self.name().to_string(),
             })?;
+
+        if self.capacity() == capacity_before_grow {
+            return Err(LvsError::BdevNotExtended {
+                name: self.base_bdev().name().to_string(),
+            });
+        }
 
         info!("{self:?}: lvs has been grown successfully");
 

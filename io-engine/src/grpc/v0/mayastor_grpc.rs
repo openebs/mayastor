@@ -251,6 +251,26 @@ impl From<LvsError> for tonic::Status {
             LvsError::WipeFailed { source } => source.into(),
             LvsError::ResourceLockFailed { .. } => Status::aborted(e.to_string()),
             LvsError::MaxExpansionParse { .. } => Status::invalid_argument(e.to_string()),
+            LvsError::BdevRescanFailed { .. } => {
+                let mut status = Status::failed_precondition(e.to_string());
+                status.metadata_mut().insert(
+                    "bdev_rescan_failed",
+                    tonic::metadata::MetadataValue::from(0),
+                );
+                status
+            }
+            LvsError::BdevNotExtended { .. } => {
+                let mut status = Status::failed_precondition(e.to_string());
+                status
+                    .metadata_mut()
+                    .insert("bdev_not_extended", tonic::metadata::MetadataValue::from(0));
+                status
+            }
+            LvsError::Grow { source, .. } => match source.to_errno() {
+                Errno::ENOMEM => Status::resource_exhausted(e.to_string()),
+                Errno::ENOSPC => Status::out_of_range(e.to_string()),
+                _ => Status::internal(e.to_string()),
+            },
             _ => Status::internal(e.verbose()),
         }
     }

@@ -266,6 +266,15 @@ pub enum LvsError {
     MaxExpansionParse {
         msg: String,
     },
+    #[snafu(display("{source}, Failed to rescan bdev {name}"))]
+    BdevRescanFailed {
+        source: BsError,
+        name: String,
+    },
+    #[snafu(display("Failed to extend pool bdev: {name}"))]
+    BdevNotExtended {
+        name: String,
+    },
 }
 
 /// Map CoreError to errno code.
@@ -302,6 +311,8 @@ impl ToErrno for LvsError {
             Self::WipeFailed { .. } => Errno::EINVAL,
             Self::ResourceLockFailed { .. } => Errno::EBUSY,
             Self::MaxExpansionParse { .. } => Errno::EINVAL,
+            Self::BdevRescanFailed { source, .. } => source.to_errno(),
+            Self::BdevNotExtended { .. } => Errno::EOPNOTSUPP,
         }
     }
 }

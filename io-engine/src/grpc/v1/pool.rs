@@ -724,11 +724,9 @@ impl PoolRpc for PoolService {
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
                     pool.grow().await?;
                     let current_pool = Pool::from(pool.as_ops());
-
                     Ok(current_pool)
                 })
             },
