@@ -84,8 +84,7 @@ impl Store for Etcd {
             } else {
                 return Err(StoreError::Txn {
                     key: key.to_string(),
-                    source: Error::IoError(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    source: Error::IoError(std::io::Error::other(
                         "Requested TxnOpResponse::Get not found",
                     )),
                 });

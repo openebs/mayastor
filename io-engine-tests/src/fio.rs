@@ -352,13 +352,10 @@ pub async fn spawn_fio_task(fio: &Fio) -> std::io::Result<()> {
     if fio.exit == 0 {
         Ok(())
     } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "SPDK FIO error: {exit} {err_msg}",
-                exit = fio.exit,
-                err_msg = fio.err_messages.join("\n")
-            ),
-        ))
+        Err(std::io::Error::other(format!(
+            "SPDK FIO error: {exit} {err_msg}",
+            exit = fio.exit,
+            err_msg = fio.err_messages.join("\n")
+        )))
     }
 }

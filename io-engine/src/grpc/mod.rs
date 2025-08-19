@@ -192,7 +192,7 @@ pub fn endpoint_from_str(endpoint: &str, port: u16) -> std::net::SocketAddr {
     (if endpoint.contains(':') {
         endpoint.parse()
     } else {
-        format!("{}:{}", endpoint, port).parse()
+        format!("{endpoint}:{port}").parse()
     })
     .expect("Invalid gRPC endpoint")
 }

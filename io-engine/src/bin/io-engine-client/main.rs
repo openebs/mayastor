@@ -54,10 +54,10 @@ async fn main() {
         }
     };
     if let Err(error) = result {
-        eprintln!("{}", error);
+        eprintln!("{error}");
         use snafu::ErrorCompat;
         if let Some(bt) = ErrorCompat::backtrace(&error) {
-            eprintln!("{:#?}", bt);
+            eprintln!("{bt:#?}");
         }
         std::process::exit(1);
     }

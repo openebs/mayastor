@@ -113,6 +113,7 @@ impl InjectIoCtx {
 
     /// TODO
     #[inline(always)]
+    #[allow(clippy::mut_from_ref)]
     pub fn iovs_mut(&self) -> Option<&mut [IoVec]> {
         unsafe {
             if self.iovs.is_null()

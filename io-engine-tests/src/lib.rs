@@ -588,7 +588,7 @@ pub fn setup_rdma_rxe_device() -> String {
         .get(1)
         .expect("interface not found")
         .as_str();
-    println!("Using interface {} to create rdma rxe device", iface);
+    println!("Using interface {iface} to create rdma rxe device");
 
     // now create the software rdma device.
     let _ = run_command_args(

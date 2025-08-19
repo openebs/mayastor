@@ -124,7 +124,7 @@ impl TryFrom<&Url> for Ftl {
             .decode_utf8()
             .map_err(|e| BdevError::InvalidUri {
                 uri: uri.to_string(),
-                message: format!("Could not percent decode bbdev_uri sub-uri - {}", e),
+                message: format!("Could not percent decode bbdev_uri sub-uri - {e}"),
             })?
             .to_string();
 
@@ -137,7 +137,7 @@ impl TryFrom<&Url> for Ftl {
             .decode_utf8()
             .map_err(|e| BdevError::InvalidUri {
                 uri: uri.to_string(),
-                message: format!("Could not percent decode cbdev_uri sub-uri - {}", e),
+                message: format!("Could not percent decode cbdev_uri sub-uri - {e}"),
             })?
             .to_string();
 

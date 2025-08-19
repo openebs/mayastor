@@ -129,9 +129,7 @@ impl<'n> Nexus<'n> {
         let child_bdev = match device_lookup(&name) {
             Some(child) => {
                 if child.block_len() != self.block_len()
-                    || self
-                        .min_num_blocks()
-                        .map_or(true, |n| n > child.num_blocks())
+                    || self.min_num_blocks().is_none_or(|n| n > child.num_blocks())
                 {
                     if let Err(err) = device_destroy(uri).await {
                         error!(

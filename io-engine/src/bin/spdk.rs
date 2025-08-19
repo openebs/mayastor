@@ -8,7 +8,7 @@ extern crate libc;
 use std::{
     env,
     ffi::{c_void, CString},
-    io::{Error, ErrorKind},
+    io::Error,
     iter::Iterator,
     mem::zeroed,
     os::raw::{c_char, c_int},
@@ -50,7 +50,7 @@ fn main() -> Result<(), std::io::Error> {
             None,       // usage
         ) != spdk_rs::libspdk::SPDK_APP_PARSE_ARGS_SUCCESS
         {
-            return Err(Error::new(ErrorKind::Other, "Parsing arguments failed"));
+            return Err(Error::other("Parsing arguments failed"));
         }
     }
 
@@ -64,10 +64,7 @@ fn main() -> Result<(), std::io::Error> {
         rc
     };
     if rc != 0 {
-        Err(Error::new(
-            ErrorKind::Other,
-            format!("spdk failed with error {rc}"),
-        ))
+        Err(Error::other(format!("spdk failed with error {rc}")))
     } else {
         Ok(())
     }

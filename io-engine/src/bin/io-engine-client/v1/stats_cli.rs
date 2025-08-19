@@ -81,8 +81,7 @@ async fn pool(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             if stats.is_empty() {
                 if let Some(name) = pool_name {
                     ctx.v1(&format!(
-                        "No IoStats found for {}, Check if device exist",
-                        name
+                        "No IoStats found for {name}, Check if device exist"
                     ));
                 } else {
                     ctx.v1("No Pool IoStats found");
@@ -164,8 +163,7 @@ async fn nexus(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             if stats.is_empty() {
                 if let Some(name) = nexus_name {
                     ctx.v1(&format!(
-                        "No IoStats found for {}, Check if device exists",
-                        name
+                        "No IoStats found for {name}, Check if device exists"
                     ));
                 } else {
                     ctx.v1("No Nexus IoStats found");
@@ -247,8 +245,7 @@ async fn replica(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             if stats.is_empty() {
                 if let Some(name) = replica_name {
                     ctx.v1(&format!(
-                        "No IoStats found for {}, Check if device exists",
-                        name
+                        "No IoStats found for {name}, Check if device exists"
                     ));
                 } else {
                     ctx.v1("No Replica IoStats found");

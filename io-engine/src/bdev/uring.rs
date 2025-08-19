@@ -38,7 +38,7 @@ impl TryFrom<&Url> for Uring {
 
         let path_is_blockdev = std::fs::metadata(url.path())
             .ok()
-            .map_or(false, |meta| meta.file_type().is_block_device());
+            .is_some_and(|meta| meta.file_type().is_block_device());
 
         let mut parameters: HashMap<String, String> = url.query_pairs().into_owned().collect();
 

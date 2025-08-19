@@ -323,8 +323,7 @@ impl<'n> Nexus<'n> {
                         return Err(Error::SaveStateFailed {
                             source: StoreError::Txn {
                                 key: key.clone(),
-                                source: EtcdErr::IoError(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
+                                source: EtcdErr::IoError(std::io::Error::other(
                                     "Txn CompareOp failed",
                                 )),
                             },
