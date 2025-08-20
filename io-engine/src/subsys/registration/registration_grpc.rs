@@ -197,7 +197,7 @@ impl Registration {
 
     /// runner responsible for registering and
     /// de-registering the mayastor instance on shutdown
-    pub async fn run() -> Result<(), ()> {
+    pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(registration) = GRPC_REGISTRATION.get() {
             registration.clone().run_loop().await;
         }
