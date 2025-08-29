@@ -250,6 +250,8 @@ impl From<LvsError> for tonic::Status {
             LvsError::SetProperty { .. } => Status::data_loss(e.to_string()),
             LvsError::WipeFailed { source } => source.into(),
             LvsError::ResourceLockFailed { .. } => Status::aborted(e.to_string()),
+            LvsError::MaxExpansionFactorFormat { .. } => Status::invalid_argument(e.to_string()),
+            LvsError::MaxExpansionFactorParse { .. } => Status::invalid_argument(e.to_string()),
             _ => Status::internal(e.verbose()),
         }
     }

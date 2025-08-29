@@ -325,6 +325,10 @@ impl IPoolProps for VolumeGroup {
     fn encrypted(&self) -> bool {
         false
     }
+
+    fn max_expandable_size(&self) -> u64 {
+        0
+    }
 }
 
 /// A factory instance which implements LVM specific `PoolFactory`.

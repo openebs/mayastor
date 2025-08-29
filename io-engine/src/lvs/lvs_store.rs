@@ -1,3 +1,4 @@
+use core::f64;
 use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull};
 
 use byte_unit::Byte;
@@ -206,6 +207,12 @@ impl Lvs {
     /// TODO
     pub fn md_used_pages(&self) -> u64 {
         unsafe { spdk_bs_get_used_md(self.blob_store()) }
+    }
+
+    /// Size upto which blobstore can be expanded.
+    pub fn max_expandable_size(&self) -> u64 {
+        // TODO: Use spdk function when changes gets merged.
+        0
     }
 
     /// returns the UUID of the lvs
@@ -417,14 +424,15 @@ impl Lvs {
 
     /// Converts floating point metadata reservation ratio into SPDK's format.
     fn mdp_ratio(args: &PoolArgs) -> Result<u32, LvsError> {
-        if let Some(h) = args.md_args.as_ref().and_then(|p| p.md_resv_ratio) {
-            if h > 0.0 {
-                Ok((h * 100.0) as u32)
+        if let Some(mut h) = args.md_args.as_ref().and_then(|p| p.max_expansion.clone()) {
+            if h.ends_with("x") {
+                let _ = h.pop();
+                let factor_parsed = h
+                    .parse::<f64>()
+                    .map_err(|_| LvsError::MaxExpansionFactorParse { factor: h })?;
+                Ok((factor_parsed * 100.0) as u32)
             } else {
-                Err(LvsError::InvalidMetadataParam {
-                    name: args.name.clone(),
-                    msg: format!("bad metadata resevation ratio: {h}"),
-                })
+                Err(LvsError::MaxExpansionFactorFormat { factor: h })
             }
         } else {
             Ok(0)
@@ -575,7 +583,7 @@ impl Lvs {
                 })
             };
         }
-        // Create the underlying ndev.
+        // Create the underlying bdev.
         let bdev_name = match bdev_ops.create().await {
             Err(e) => match e {
                 BdevError::BdevExists { .. } => Ok(bdev_ops.get_name()),

@@ -33,7 +33,7 @@ pub struct CliArgs {
     pub thin: bool,
     /// MD reservation ratio.
     #[clap(short = 'M')]
-    pub md_resv_ratio: Option<f32>,
+    pub max_expansion: Option<String>,
     /// Use extent table.
     #[clap(short = 'E')]
     pub use_extent_table: Option<bool>,
@@ -133,7 +133,7 @@ async fn create_lvs(args: &CliArgs) -> Lvs {
         uuid: Some(POOL_UUID.to_string()),
         cluster_size: args.cluster_size.map(|sz| sz * 1024 * 1024),
         md_args: Some(PoolMetadataArgs {
-            md_resv_ratio: args.md_resv_ratio,
+            max_expansion: args.max_expansion.clone(),
         }),
         backend: Default::default(),
         enc_key: None,

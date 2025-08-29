@@ -34,10 +34,10 @@ pub fn subcommands() -> Command {
                 .help("SPDK cluster size"),
         )
         .arg(
-            Arg::new("md-resv-ratio")
-                .long("md-resv-ratio")
+            Arg::new("max-expansion")
+                .long("max-expansion")
                 .required(false)
-                .help("Metadata reservation ratio"),
+                .help("Max expected expansion in factor or absolute size"),
         )
         .arg(
             Arg::new("disk")
@@ -184,8 +184,8 @@ pub fn subcommands() -> Command {
                 .default_value(PoolType::Lvs.as_ref()),
         );
 
-    let grow = Command::new("grow")
-        .about("Grow a storage pool to fill the entire underlying device")
+    let expand = Command::new("expand")
+        .about("Expand a storage pool to fill the entire underlying device")
         .arg(
             Arg::new("name")
                 .required(true)
@@ -230,7 +230,7 @@ pub fn subcommands() -> Command {
         .subcommand(import)
         .subcommand(destroy)
         .subcommand(export)
-        .subcommand(grow)
+        .subcommand(expand)
         .subcommand(list)
 }
 
@@ -240,7 +240,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("import", args) => import(ctx, args).await,
         ("destroy", args) => destroy(ctx, args).await,
         ("export", args) => export(ctx, args).await,
-        ("grow", args) => grow(ctx, args).await,
+        ("expand", args) => expand(ctx, args).await,
         ("list", args) => list(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
@@ -297,8 +297,8 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         None => None,
     };
 
-    let md_resv_ratio = match matches.get_one::<String>("md-resv-ratio") {
-        Some(s) => match s.parse::<f32>() {
+    let max_expansion = match matches.get_one::<String>("max-expansion") {
+        Some(s) => match s.parse::<String>() {
             Ok(v) => Some(v),
             Err(err) => {
                 return Err(Status::invalid_argument(format!(
@@ -336,7 +336,10 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             disks: disks_list,
             pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
             cluster_size,
-            md_args: Some(v1rpc::pool::PoolMetadataArgs { md_resv_ratio }),
+            md_args: Some(v1rpc::pool::PoolMetadataArgs {
+                md_resv_ratio: None,
+                max_expansion,
+            }),
             encryption: enc_msg,
         })
         .await
@@ -537,7 +540,7 @@ async fn export(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn grow(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+async fn expand(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     let name = matches
         .get_one::<String>("name")
         .ok_or_else(|| ClientError::MissingValue {
@@ -546,24 +549,48 @@ async fn grow(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .to_owned();
     let uuid = matches.get_one::<String>("uuid").cloned();
 
-    let response = ctx
+    let pooltype = matches
+        .get_one::<String>("type")
+        .map(|s| PoolType::from_str(s.as_str()))
+        .transpose()
+        .map_err(|e| Status::invalid_argument(e.to_string()))
+        .context(GrpcStatus)?;
+
+    let list_response = ctx
         .v1
         .pool
-        .grow_pool(v1rpc::pool::GrowPoolRequest {
+        .list_pools(v1rpc::pool::ListPoolOptions {
+            name: Some(name.clone()),
+            pooltype: pooltype.map(|pooltype| v1rpc::pool::PoolTypeValue {
+                value: v1rpc::pool::PoolType::from(pooltype) as i32,
+            }),
+            uuid: None,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    let pool = &list_response.get_ref().pools[0];
+    let previous_capacity = pool.capacity;
+
+    let grow_response = ctx
+        .v1
+        .pool
+        .grow_pool_v2(v1rpc::pool::GrowPoolRequest {
             name: name.clone(),
             uuid,
         })
         .await
         .context(GrpcStatus)?;
 
-    let old_cap = response.get_ref().previous_pool.as_ref().unwrap().capacity;
-    let new_cap = response.get_ref().current_pool.as_ref().unwrap().capacity;
+    let pool = &grow_response.get_ref();
+    let current_capacity = pool.capacity;
 
-    if old_cap == new_cap {
-        println!("Pool capacity did not change: {new_cap} bytes");
-    } else {
-        println!("Pool capacity was {old_cap}, now {new_cap} bytes");
-    }
+    match ctx.output {
+        OutputFormat::Json => {}
+        OutputFormat::Default => {
+            println!("pool expanded from {previous_capacity} to {current_capacity}");
+        }
+    };
 
     Ok(())
 }

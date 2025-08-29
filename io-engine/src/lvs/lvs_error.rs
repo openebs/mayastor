@@ -262,6 +262,14 @@ pub enum LvsError {
     ResourceLockFailed {
         msg: String,
     },
+    #[snafu(display("Failed to parse factor {} into float", factor))]
+    MaxExpansionFactorParse {
+        factor: String,
+    },
+    #[snafu(display("Max growth factor {} does not end with x", factor))]
+    MaxExpansionFactorFormat {
+        factor: String,
+    },
 }
 
 /// Map CoreError to errno code.
@@ -297,6 +305,8 @@ impl ToErrno for LvsError {
             Self::CloneConfigFailed { .. } => Errno::EINVAL,
             Self::WipeFailed { .. } => Errno::EINVAL,
             Self::ResourceLockFailed { .. } => Errno::EBUSY,
+            Self::MaxExpansionFactorParse { .. } => Errno::EINVAL,
+            Self::MaxExpansionFactorFormat { .. } => Errno::EINVAL,
         }
     }
 }

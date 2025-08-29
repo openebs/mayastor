@@ -231,6 +231,10 @@ impl IPoolProps for Lvs {
     fn encrypted(&self) -> bool {
         self.encrypted()
     }
+
+    fn max_expandable_size(&self) -> u64 {
+        self.max_expandable_size()
+    }
 }
 
 /// A factory instance which implements LVS specific `PoolFactory`.
