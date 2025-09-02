@@ -185,7 +185,7 @@ pub fn subcommands() -> Command {
         );
 
     let expand = Command::new("expand")
-        .about("Expand a storage pool to fill the entire underlying device")
+        .about("Expand a storage pool to span the entire underlying device")
         .arg(
             Arg::new("name")
                 .required(true)
@@ -568,6 +568,13 @@ async fn expand(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         })
         .await
         .context(GrpcStatus)?;
+
+    if list_response.get_ref().pools.is_empty() {
+        return Err(ClientError::GrpcStatus {
+            source: Status::not_found(format!("Pool {name} not found")),
+            backtrace: None,
+        });
+    }
 
     let pool = &list_response.get_ref().pools[0];
     let previous_capacity = pool.capacity;

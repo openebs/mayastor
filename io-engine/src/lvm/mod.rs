@@ -326,8 +326,8 @@ impl IPoolProps for VolumeGroup {
         false
     }
 
-    fn max_expandable_size(&self) -> u64 {
-        0
+    fn max_expandable_size(&self) -> Option<u64> {
+        None
     }
 }
 

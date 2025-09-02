@@ -234,7 +234,7 @@ pub trait IPoolProps {
     fn committed(&self) -> u64;
     fn md_props(&self) -> Option<PoolMetadataInfo>;
     fn encrypted(&self) -> bool;
-    fn max_expandable_size(&self) -> u64;
+    fn max_expandable_size(&self) -> Option<u64>;
 }
 
 /// A pool factory helper.

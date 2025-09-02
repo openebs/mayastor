@@ -232,7 +232,7 @@ impl IPoolProps for Lvs {
         self.encrypted()
     }
 
-    fn max_expandable_size(&self) -> u64 {
+    fn max_expandable_size(&self) -> Option<u64> {
         self.max_expandable_size()
     }
 }

@@ -5,4 +5,4 @@
 [submodule "utils/dependencies"]
 	path = utils/dependencies
 	url = ../mayastor-dependencies.git
-	branch = pool_grow_changes
+	branch = develop

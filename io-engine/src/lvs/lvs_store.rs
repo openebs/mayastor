@@ -1,5 +1,5 @@
 use core::f64;
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull};
+use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
 
 use byte_unit::Byte;
 use events_api::event::EventAction;
@@ -210,9 +210,9 @@ impl Lvs {
     }
 
     /// Size upto which blobstore can be expanded.
-    pub fn max_expandable_size(&self) -> u64 {
+    pub fn max_expandable_size(&self) -> Option<u64> {
         // TODO: Use spdk function when changes gets merged.
-        0
+        Some(0)
     }
 
     /// returns the UUID of the lvs
@@ -422,21 +422,37 @@ impl Lvs {
         }
     }
 
-    /// Converts floating point metadata reservation ratio into SPDK's format.
-    fn mdp_ratio(args: &PoolArgs) -> Result<u32, LvsError> {
-        if let Some(mut h) = args.md_args.as_ref().and_then(|p| p.max_expansion.clone()) {
-            if h.ends_with("x") {
-                let _ = h.pop();
-                let factor_parsed = h
-                    .parse::<f64>()
-                    .map_err(|_| LvsError::MaxExpansionFactorParse { factor: h })?;
-                Ok((factor_parsed * 100.0) as u32)
-            } else {
-                Err(LvsError::MaxExpansionFactorFormat { factor: h })
-            }
+    /// Derive num_md_pages_per_cluster_ratio from max_expansion which can be a factor or absolute size.
+    fn md_resv_ratio(args: &PoolArgs, capacity: u64) -> Result<u32, LvsError> {
+        let param = match args.md_args.as_ref().and_then(|p| p.max_expansion.clone()) {
+            Some(p) => p,
+            None => return Ok(100),
+        };
+        let factor = if let Some(stripped) = param.strip_suffix('x') {
+            stripped
+                .parse::<f64>()
+                .map_err(|error| LvsError::MaxExpansionParse {
+                    msg: format!(
+                        "Failed to parse factor max_expansion {stripped} as float: {error}"
+                    ),
+                })?
+        } else if param.ends_with('B') {
+            let expand_bytes =
+                Byte::from_str(&param).map_err(|error| LvsError::MaxExpansionParse {
+                    msg: format!("Failed to parse max_expansion {param} as bytes: {error}"),
+                })?;
+            expand_bytes.as_u64() as f64 / capacity as f64
         } else {
-            Ok(0)
-        }
+            return Err(LvsError::MaxExpansionParse {
+                msg: format!("Max expansion factor {param} does not end with x or B"),
+            });
+        };
+        // The Blobstore ensures that we have enough pages in used_cluster_mask to track the current device size.
+        // So, If maxExpansion results is < 1x it still shouldn't matter. Its same as having
+        // default reservation. However, it does impact how many md pages per cluster are reserved.
+        // For ex. if the factor turns out to be 0.5 then blobstore reserves 1 page per 2 clusters.
+        // So lets ensures that we pass at least default reservation.
+        Ok((factor.max(1.0) * 100.0) as u32)
     }
 
     /// Creates a pool on base bdev.
@@ -450,7 +466,7 @@ impl Lvs {
         let bdev_name = if let Some(ref c) = args.crypto_vbdev_name {
             c.clone().into_cstring()
         } else {
-            bdev.into_cstring()
+            bdev.clone().into_cstring()
         };
 
         let cluster_size = if let Some(cluster_size) = args.cluster_size {
@@ -474,9 +490,14 @@ impl Lvs {
                 msg: format!("{cluster_size}, larger than max limit {MAX_CLUSTER_SIZE}"),
             });
         }
-
-        let mdp_ratio = Self::mdp_ratio(&args)?;
-
+        let bdev = UntypedBdev::lookup_by_name(&bdev).ok_or(LvsError::InvalidBdev {
+            source: BdevError::BdevNotFound {
+                name: bdev.to_string(),
+            },
+            name: bdev.to_string(),
+        })?;
+        let bdev_capacity = bdev.num_blocks() * bdev.block_len() as u64;
+        let mdp_ratio = Self::md_resv_ratio(&args, bdev_capacity)?;
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
             if let Some(uuid) = &args.uuid {

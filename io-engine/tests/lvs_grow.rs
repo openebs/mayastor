@@ -254,8 +254,9 @@ async fn lvs_grow_api_malloc() {
         }
 
         async fn grow_pool(&mut self) -> (TestPoolStats, TestPoolStats) {
-            let (a, b) = self.pool.grow().await.unwrap();
-            (a.into(), b.into())
+            let a = self.pool_stats().await;
+            let b = self.pool.grow().await.unwrap();
+            (a, b.into())
         }
 
         async fn device_size(&mut self) -> u64 {
@@ -333,8 +334,9 @@ async fn lvs_grow_api_aio() {
         }
 
         async fn grow_pool(&mut self) -> (TestPoolStats, TestPoolStats) {
-            let (a, b) = self.pool.grow().await.unwrap();
-            (a.into(), b.into())
+            let a = self.pool_stats().await;
+            let b = self.pool.grow().await.unwrap();
+            (a, b.into())
         }
 
         async fn device_size(&mut self) -> u64 {

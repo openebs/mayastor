@@ -24,7 +24,7 @@ use std::{
     ops::Deref,
     panic::AssertUnwindSafe,
 };
-use tonic::{Request, Status};
+use tonic::{Code, Request, Status};
 
 pub type PoolCreateEncryptionParams = create_pool_request::Encryption;
 pub type PoolImportEncryptionParams = import_pool_request::Encryption;
@@ -448,7 +448,7 @@ impl From<&dyn PoolOps> for Pool {
             disk_capacity: value.disk_capacity(),
             md_info: value.md_props().map(|md| md.into()),
             encrypted: Some(value.encrypted()),
-            max_expandable_size: Some(value.max_expandable_size()),
+            max_expandable_size: value.max_expandable_size(),
         }
     }
 }
@@ -711,7 +711,10 @@ impl PoolRpc for PoolService {
     }
 
     async fn grow_pool(&self, _request: Request<GrowPoolRequest>) -> GrpcResult<GrowPoolResponse> {
-        unimplemented!()
+        Err(Status::new(
+            Code::Unimplemented,
+            "grow_pool is deprecated. Please use grow_pool_v2",
+        ))
     }
 
     #[named]
