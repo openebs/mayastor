@@ -212,20 +212,17 @@ impl PoolBuilderRpc {
             .map(|r| r.into_inner())
     }
 
-    pub async fn grow(&mut self) -> Result<(Pool, Pool), Status> {
+    pub async fn grow(&mut self) -> Result<Pool, Status> {
         self.rpc()
             .lock()
             .await
             .pool
-            .grow_pool(GrowPoolRequest {
+            .grow_pool_v2(GrowPoolRequest {
                 name: self.name(),
                 uuid: Some(self.uuid()),
             })
             .await
-            .map(|r| {
-                let t = r.into_inner();
-                (t.previous_pool.unwrap(), t.current_pool.unwrap())
-            })
+            .map(|r| (r.into_inner()))
     }
 
     pub async fn get_pool(&self) -> Result<Pool, Status> {

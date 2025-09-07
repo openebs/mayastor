@@ -24,7 +24,7 @@ use std::{
     ops::Deref,
     panic::AssertUnwindSafe,
 };
-use tonic::{Request, Status};
+use tonic::{Code, Request, Status};
 
 pub type PoolCreateEncryptionParams = create_pool_request::Encryption;
 pub type PoolImportEncryptionParams = import_pool_request::Encryption;
@@ -260,7 +260,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
 impl From<PoolMetadataArgs> for pool_backend::PoolMetadataArgs {
     fn from(params: PoolMetadataArgs) -> Self {
         Self {
-            md_resv_ratio: params.md_resv_ratio,
+            max_expansion: params.max_expansion,
         }
     }
 }
@@ -448,6 +448,7 @@ impl From<&dyn PoolOps> for Pool {
             disk_capacity: value.disk_capacity(),
             md_info: value.md_props().map(|md| md.into()),
             encrypted: Some(value.encrypted()),
+            max_expandable_size: value.max_expandable_size(),
         }
     }
 }
@@ -709,8 +710,15 @@ impl PoolRpc for PoolService {
         .await
     }
 
+    async fn grow_pool(&self, _request: Request<GrowPoolRequest>) -> GrpcResult<GrowPoolResponse> {
+        Err(Status::new(
+            Code::Unimplemented,
+            "grow_pool is deprecated. Please use grow_pool_v2",
+        ))
+    }
+
     #[named]
-    async fn grow_pool(&self, request: Request<GrowPoolRequest>) -> GrpcResult<GrowPoolResponse> {
+    async fn grow_pool_v2(&self, request: Request<GrowPoolRequest>) -> GrpcResult<Pool> {
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
@@ -718,30 +726,10 @@ impl PoolRpc for PoolService {
                     info!("{:?}", request.get_ref());
 
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
-
-                    let previous_pool = Pool::from(pool.as_ops());
                     pool.grow().await?;
                     let current_pool = Pool::from(pool.as_ops());
 
-                    if current_pool.capacity == previous_pool.capacity {
-                        info!(
-                            "Grow pool '{p}': capacity did not change: {sz} bytes",
-                            p = current_pool.name,
-                            sz = current_pool.capacity,
-                        );
-                    } else {
-                        info!(
-                            "Grow pool '{p}': pool capacity has changed from {a} to {b} bytes",
-                            p = current_pool.name,
-                            a = previous_pool.capacity,
-                            b = current_pool.capacity
-                        );
-                    }
-
-                    Ok(GrowPoolResponse {
-                        previous_pool: Some(previous_pool),
-                        current_pool: Some(current_pool),
-                    })
+                    Ok(current_pool)
                 })
             },
         )

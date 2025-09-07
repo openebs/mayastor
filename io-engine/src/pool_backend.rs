@@ -35,7 +35,7 @@ impl PoolArgs {
 /// Pool metadata args.
 #[derive(Clone, Debug, Default)]
 pub struct PoolMetadataArgs {
-    pub md_resv_ratio: Option<f32>,
+    pub max_expansion: Option<String>,
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc
@@ -234,6 +234,7 @@ pub trait IPoolProps {
     fn committed(&self) -> u64;
     fn md_props(&self) -> Option<PoolMetadataInfo>;
     fn encrypted(&self) -> bool;
+    fn max_expandable_size(&self) -> Option<u64>;
 }
 
 /// A pool factory helper.

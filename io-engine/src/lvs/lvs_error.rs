@@ -262,6 +262,10 @@ pub enum LvsError {
     ResourceLockFailed {
         msg: String,
     },
+    #[snafu(display("{msg}"))]
+    MaxExpansionParse {
+        msg: String,
+    },
 }
 
 /// Map CoreError to errno code.
@@ -297,6 +301,7 @@ impl ToErrno for LvsError {
             Self::CloneConfigFailed { .. } => Errno::EINVAL,
             Self::WipeFailed { .. } => Errno::EINVAL,
             Self::ResourceLockFailed { .. } => Errno::EBUSY,
+            Self::MaxExpansionParse { .. } => Errno::EINVAL,
         }
     }
 }
