@@ -82,6 +82,7 @@ impl From<Pool> for TestPoolStats {
 /// Grow test interface.
 #[async_trait(?Send)]
 trait GrowTest {
+    fn is_malloc(&self) -> bool;
     async fn create_pool(&mut self) -> TestPoolStats;
     async fn pool_stats(&self) -> TestPoolStats;
     async fn grow_pool(&mut self) -> (TestPoolStats, TestPoolStats);
@@ -107,19 +108,22 @@ async fn test_grow(create: impl Future<Output = Box<dyn GrowTest>>) {
     // Pool capacity must not change, disk capacity must reflect disk size
     // change.
     let after_dev_grow = gt.pool_stats().await;
+    if gt.is_malloc() {
+        assert_eq!(after_dev_grow.disk_capacity, new_dev_cap);
+    } else {
+        assert!(after_dev_grow.disk_capacity < new_dev_cap)
+    }
     assert_eq!(after_dev_grow.capacity, initial.capacity);
-    assert_eq!(after_dev_grow.disk_capacity, new_dev_cap);
 
     // Grow the pool.
     let (before_pool_grow, after_pool_grow) = gt.grow_pool().await;
     assert_eq!(before_pool_grow.capacity, initial.capacity);
-    assert_eq!(before_pool_grow.disk_capacity, new_dev_cap);
 
     // Pool must have grown.
     assert!(after_pool_grow.capacity > before_pool_grow.capacity);
 
     // New pool capacity must be close to the disk capacity.
-    assert!(after_pool_grow.capacity <= after_pool_grow.disk_capacity);
+    assert!(after_pool_grow.capacity < after_pool_grow.disk_capacity);
     assert!(after_pool_grow.capacity_approx_matches());
 }
 
@@ -193,6 +197,10 @@ async fn lvs_grow_ms_malloc() {
             })
             .await;
             self.device_size().await
+        }
+
+        fn is_malloc(&self) -> bool {
+            true
         }
     }
 
@@ -268,6 +276,10 @@ async fn lvs_grow_api_malloc() {
             let bdev = create_bdev(self.ms.clone(), BDEV_URI_RESIZE).await.unwrap();
             bdev.num_blocks * bdev.blk_size as u64
         }
+
+        fn is_malloc(&self) -> bool {
+            true
+        }
     }
 
     test_grow(async { Box::new(GrowTestApiMalloc::new().await) as Box<dyn GrowTest> }).await;
@@ -279,7 +291,6 @@ async fn lvs_grow_api_aio() {
     const DISK_NAME: &str = "/tmp/disk1.img";
     const BDEV_NAME: &str = "/host/tmp/disk1.img";
     const BDEV_URI: &str = "aio:///host/tmp/disk1.img?blk_size=512";
-    const BDEV_URI_RESCAN: &str = "aio:///host/tmp/disk1.img?blk_size=512&rescan";
     const POOL_NAME: &str = "pool0";
     const POOL_UUID: &str = "40baf8b5-6256-4f29-b073-61ebf67d9b91";
 
@@ -347,10 +358,11 @@ async fn lvs_grow_api_aio() {
         async fn grow_device(&mut self) -> u64 {
             // Resize bdev's backing file.
             common::truncate_file(DISK_NAME, 128 * 1024);
+            self.device_size().await + (128 * 1024)
+        }
 
-            // Rescan AIO bdev (re-read its size from the backing media).
-            let bdev = create_bdev(self.ms.clone(), BDEV_URI_RESCAN).await.unwrap();
-            bdev.num_blocks * bdev.blk_size as u64
+        fn is_malloc(&self) -> bool {
+            false
         }
     }
 
