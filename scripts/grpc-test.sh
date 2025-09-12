@@ -22,6 +22,11 @@ npm install --legacy-peer-deps
 
 sudo pkill io-engine || true
 
+if ! "$SCRIPTDIR"/nvme-conf.sh --check; then
+  echo "Warning: nvme configuration may not be valid, this can cause some test issues"
+  exit 1
+fi
+
 for ts in cli replica nexus rebuild; do
   ./node_modules/mocha/bin/_mocha test_${ts}.js \
       --reporter ./multi_reporter.js \

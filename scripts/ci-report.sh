@@ -2,7 +2,7 @@
 
 SCRIPT_DIR="$(dirname "$0")"
 export ROOT_DIR="$SCRIPT_DIR/.."
-SUDO=$(which sudo)
+SUDO=$(which nix-sudo 2>/dev/null || which sudo)
 CI_REPORT_START_DATE=${CI_REPORT_START_DATE:--3h}
 
 set -eu
@@ -18,4 +18,3 @@ $SUDO nvme list-subsys -v >> nvme.txt
 cat /proc/meminfo > meminfo.txt
 
 find . -type f \( -name "*.txt" -o -name "*.xml" \) -print0 | xargs -0 tar -czvf ci-report.tar.gz
-

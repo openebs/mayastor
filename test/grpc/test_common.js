@@ -22,6 +22,7 @@ const LOCALHOST = '127.0.0.1';
 const NVME_MODEL_ID = 'Mayastor NVMe controller';
 const NVME_NQN_PREFIX = 'nqn.2019-05.io.openebs';
 const NVMF_URI = /^nvmf(\+tcp|\+rdma\+tcp)?:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
+const NVME = process.env.NVME || 'nvme';
 
 const testPort = process.env.TEST_PORT || GRPC_PORT;
 const myIp = getMyIp() || LOCALHOST;
@@ -447,6 +448,7 @@ module.exports = {
   createGrpcClient,
   callGrpcMethod,
   createBdevs,
+  NVME,
   NVME_NQN_PREFIX,
   NVME_MODEL_ID,
   NVMF_URI

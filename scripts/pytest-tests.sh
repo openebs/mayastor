@@ -122,6 +122,11 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+if ! "$SCRIPTDIR"/nvme-conf.sh --check; then
+  echo "Warning: nvme configuration may not be valid, this can cause some test issues"
+  exit 1
+fi
+
 cd "$SRCDIR/test/python"
 
 # Ensure we cleanup when terminated
