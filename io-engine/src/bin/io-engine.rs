@@ -158,9 +158,12 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                 futures.push(Registration::run().boxed());
             }
 
-            futures::future::try_join_all(futures)
-                .await
-                .expect("runtime exited in the normal state");
+            if let Err(error) = futures::future::try_join_all(futures).await {
+                error!(error, "tokio runtime exited unexpectedly");
+                // todo: force process abort?
+                signal_hook::low_level::raise(signal_hook::consts::SIGUSR1)
+                    .expect("failed to raise internal error");
+            };
         });
     });
 }
@@ -296,5 +299,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ms.fini();
     ms.event(EventAction::Start).generate();
+
+    if MayastorEnvironment::internal_aborted() {
+        tracing::error!("Exitting with error due to an internal abort request");
+        std::process::exit(1);
+    }
+
     Ok(())
 }

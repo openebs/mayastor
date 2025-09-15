@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering::SeqCst},
+        atomic::{AtomicI32, Ordering::SeqCst},
         Arc,
         Mutex,
     },
@@ -16,7 +16,7 @@ use std::{
 use byte_unit::{Byte, ByteUnit};
 use clap::Parser;
 use events_api::event::EventAction;
-use futures::{channel::oneshot, future};
+use futures::{channel::oneshot, future, TryFutureExt};
 use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
@@ -342,8 +342,7 @@ pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
     Lazy::new(|| Arc::new(Mutex::new(-1)));
 
 /// keep track if we have received a signal already
-pub static SIG_RECEIVED: Lazy<AtomicBool> =
-    Lazy::new(|| AtomicBool::new(false));
+pub static SIG_RECEIVED: Lazy<AtomicI32> = Lazy::new(|| AtomicI32::new(0));
 
 // FFI functions that are needed to initialize the environment
 extern "C" {
@@ -553,12 +552,12 @@ unsafe extern "C" fn signal_trampoline(_: *mut c_void) {
 
 /// called on SIGINT and SIGTERM
 extern "C" fn mayastor_signal_handler(signo: i32) {
-    if SIG_RECEIVED.load(SeqCst) {
+    if SIG_RECEIVED.load(SeqCst) > 0 {
         return;
     }
 
-    warn!("Received SIGNO: {}", signo);
-    SIG_RECEIVED.store(true, SeqCst);
+    warn!("Received SIGNO: {signo}");
+    SIG_RECEIVED.store(signo, SeqCst);
     unsafe {
         if let Some(mth) = Mthread::primary_safe() {
             spdk_thread_send_critical_msg(
@@ -650,21 +649,18 @@ impl MayastorEnvironment {
 
     /// configure signal handling
     fn install_signal_handlers(&self) {
-        unsafe {
-            signal_hook::low_level::register(
-                signal_hook::consts::SIGTERM,
-                || mayastor_signal_handler(1),
-            )
+        for signal in [
+            signal_hook::consts::SIGTERM,
+            signal_hook::consts::SIGINT,
+            signal_hook::consts::SIGUSR1,
+        ] {
+            unsafe {
+                signal_hook::low_level::register(signal, move || {
+                    mayastor_signal_handler(signal)
+                })
+            }
+            .expect("Failed to install handler for signal {signal}");
         }
-        .unwrap();
-
-        unsafe {
-            signal_hook::low_level::register(
-                signal_hook::consts::SIGINT,
-                || mayastor_signal_handler(1),
-            )
-        }
-        .unwrap();
     }
 
     /// construct an array of options to be passed to EAL and start it
@@ -1093,7 +1089,8 @@ impl MayastorEnvironment {
     where
         F: FnOnce() + 'static,
     {
-        type FutureResult = Result<(), ()>;
+        type FutureResult =
+            Result<(), Box<dyn std::error::Error + Send + Sync>>;
         let node_name = self.node_name.clone();
         let node_nqn = self.node_nqn.clone();
 
@@ -1133,7 +1130,9 @@ impl MayastorEnvironment {
                 )));
             }
             futures.push(Box::pin(subsys::Registration::run()));
-            futures.push(Box::pin(master));
+            futures.push(Box::pin(master.map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::Other, "").into()
+            })));
             let _out = future::try_join_all(futures).await;
             info!("reactors stopped");
             ms.fini();
@@ -1145,6 +1144,11 @@ impl MayastorEnvironment {
     /// Create the hostnqn for this io-engine instance.
     pub fn make_hostnqn(&self) -> Option<String> {
         self.node_nqn.clone()
+    }
+
+    /// Check if we had to internally aborted.
+    pub fn internal_aborted() -> bool {
+        SIG_RECEIVED.load(SeqCst) == signal_hook::consts::SIGUSR1
     }
 }
 

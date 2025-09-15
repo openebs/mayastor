@@ -66,8 +66,8 @@ impl MayastorGrpcServer {
         endpoint: std::net::SocketAddr,
         rpc_addr: String,
         api_versions: Vec<ApiVersion>,
-    ) -> Result<(), ()> {
-        let mut rcv_chan = Self::get_or_init().rcv_chan.clone();
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut rcv_chan = Box::pin(Self::get_or_init().rcv_chan.clone());
 
         let address = Cow::from(rpc_addr);
 
@@ -76,10 +76,18 @@ impl MayastorGrpcServer {
 
         let enable_v0 = api_versions.contains(&ApiVersion::V0).then_some(true);
         let enable_v1 = api_versions.contains(&ApiVersion::V1).then_some(true);
-        info!(
-            "{:?} gRPC server configured at address {}",
-            api_versions, endpoint
-        );
+
+        let incoming =
+            tonic::transport::server::TcpIncoming::new(endpoint, true, None)
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        format!(
+                            "Failed to bind gRPC socket to {endpoint}: {e}"
+                        ),
+                    )
+                })?;
+        info!("{api_versions:?} gRPC server configured at address {endpoint}");
         let svc = Server::builder()
             .add_optional_service(
                 enable_v1
@@ -141,7 +149,7 @@ impl MayastorGrpcServer {
             .add_optional_service(
                 enable_v0.map(|_| BdevRpcServer::new(BdevSvc::new())),
             )
-            .serve(endpoint);
+            .serve_with_incoming(incoming);
 
         select! {
             result = svc.fuse() => {
@@ -151,8 +159,8 @@ impl MayastorGrpcServer {
                         Ok(())
                     }
                     Err(e) => {
-                        error!("gRPC server failed with error: {}", e);
-                        Err(())
+                        error!("gRPC server failed with error: {e:#?}");
+                        Err(e.into())
                     }
                 }
             },
