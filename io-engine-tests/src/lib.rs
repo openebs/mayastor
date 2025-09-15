@@ -196,6 +196,14 @@ pub fn truncate_file_bytes(path: &str, size: u64) {
     assert!(output.status.success());
 }
 
+pub fn expand_tempfs_file_bytes(path: &str, size: u64) {
+    let output = Command::new("truncate")
+        .args(["-s", &format!("+{size}"), path])
+        .output()
+        .expect("failed exec truncate");
+    assert!(output.status.success());
+}
+
 /// Automatically assign a loopdev to path
 pub fn setup_loopdev_file(path: &str, sector_size: Option<u64>) -> String {
     let log_sec = sector_size.unwrap_or(512);
