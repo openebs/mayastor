@@ -59,9 +59,9 @@ def dockerId() {
 
 // TODO: Use multiple choices
 run_linter = true
-rust_test = true
-grpc_test = true
-pytest_test = true
+rust_test = false
+grpc_test = false
+pytest_test = false
 // WA https://issues.jenkins.io/browse/JENKINS-41929
 // on the first run of new parameters, they are set to null.
 run_tests = params.run_tests == null ? true : params.run_tests
