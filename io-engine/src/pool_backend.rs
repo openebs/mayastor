@@ -19,6 +19,7 @@ pub struct PoolArgs {
     pub backend: PoolBackend,
     pub enc_key: Option<EncryptionKey>,
     pub crypto_vbdev_name: Option<String>,
+    pub raid_config: Option<RaidConfig>,
 }
 
 impl PoolArgs {
@@ -36,6 +37,24 @@ impl PoolArgs {
 #[derive(Clone, Debug, Default)]
 pub struct PoolMetadataArgs {
     pub max_expansion: Option<String>,
+}
+
+/// Pool configuration for advanced features like RAID.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RaidConfig {
+    /// RAID0 configuration
+    Raid0(Raid0Config),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Raid0Config {
+    pub strip_size_kb: u32,
+}
+
+impl Default for Raid0Config {
+    fn default() -> Self {
+        Self { strip_size_kb: 64 }
+    }
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc
@@ -220,6 +239,12 @@ pub struct PoolMetadataInfo {
     pub md_used_pages: u64,
 }
 
+/// Pool RAID information.
+pub struct RaidInfo {
+    pub level: String,
+    pub state: String,
+}
+
 /// Various properties from a pool.
 pub trait IPoolProps {
     fn pool_type(&self) -> PoolBackend;
@@ -235,6 +260,7 @@ pub trait IPoolProps {
     fn md_props(&self) -> Option<PoolMetadataInfo>;
     fn encrypted(&self) -> bool;
     fn max_expandable_size(&self) -> Option<u64>;
+    fn raid_info(&self) -> Option<RaidInfo>;
 }
 
 /// A pool factory helper.

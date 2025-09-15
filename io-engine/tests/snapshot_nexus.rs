@@ -130,6 +130,7 @@ async fn launch_instance(create_replicas: bool) -> (ComposeTest, Vec<String>) {
             cluster_size: None,
             md_args: None,
             encryption: None,
+            raid_config: None,
         })
         .await
         .unwrap();

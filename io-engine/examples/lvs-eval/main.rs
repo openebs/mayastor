@@ -138,6 +138,7 @@ async fn create_lvs(args: &CliArgs) -> Lvs {
         backend: Default::default(),
         enc_key: None,
         crypto_vbdev_name: None,
+        raid_config: None,
     };
 
     Lvs::create_or_import(lvs_args.clone()).await.unwrap()

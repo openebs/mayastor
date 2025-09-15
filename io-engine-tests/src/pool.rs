@@ -207,6 +207,7 @@ impl PoolBuilderRpc {
                 cluster_size: self.cluster_size,
                 md_args: None,
                 encryption: None,
+                raid_config: None,
             })
             .await
             .map(|r| r.into_inner())
@@ -282,6 +283,7 @@ impl PoolBuilderLocal {
             backend: Default::default(),
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await?;
         Ok(lvs)

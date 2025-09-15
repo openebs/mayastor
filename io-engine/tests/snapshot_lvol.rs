@@ -61,6 +61,7 @@ async fn create_test_pool(pool_name: &str, disk: String, cluster_size: Option<u3
         backend: PoolBackend::Lvs,
         enc_key: None,
         crypto_vbdev_name: None,
+        raid_config: None,
     })
     .await
     .expect("Failed to create test pool");

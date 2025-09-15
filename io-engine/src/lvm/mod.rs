@@ -329,6 +329,10 @@ impl IPoolProps for VolumeGroup {
     fn max_expandable_size(&self) -> Option<u64> {
         None
     }
+
+    fn raid_info(&self) -> Option<crate::pool_backend::RaidInfo> {
+        None // LVM pools do not support RAID
+    }
 }
 
 /// A factory instance which implements LVM specific `PoolFactory`.

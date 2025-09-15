@@ -99,6 +99,7 @@ async fn replica_snapshot() {
                 backend: PoolBackend::Lvs,
                 enc_key: None,
                 crypto_vbdev_name: None,
+                raid_config: None,
             })
             .await
             .unwrap();
