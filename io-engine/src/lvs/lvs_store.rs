@@ -9,12 +9,13 @@ use pin_utils::core_reexport::fmt::Formatter;
 
 use spdk_rs::libspdk::{
     bdev_aio_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store, spdk_bs_free_cluster_count,
-    spdk_bs_get_cluster_size, spdk_bs_get_md_len, spdk_bs_get_page_size, spdk_bs_get_used_md,
-    spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_opts, spdk_lvol_opts_init,
-    spdk_lvol_store, spdk_lvs_grow_live, vbdev_get_lvol_store_by_name,
-    vbdev_get_lvol_store_by_uuid, vbdev_get_lvs_bdev_by_lvs, vbdev_lvol_create_with_opts,
-    vbdev_lvs_create, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
-    vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
+    spdk_bs_get_cluster_size, spdk_bs_get_max_growable_size, spdk_bs_get_md_len,
+    spdk_bs_get_page_size, spdk_bs_get_used_md, spdk_bs_total_data_cluster_count, spdk_lvol,
+    spdk_lvol_opts, spdk_lvol_opts_init, spdk_lvol_store, spdk_lvs_grow_live,
+    vbdev_get_lvol_store_by_name, vbdev_get_lvol_store_by_uuid, vbdev_get_lvs_bdev_by_lvs,
+    vbdev_lvol_create_with_opts, vbdev_lvs_create, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct,
+    vbdev_lvs_import, vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP,
+    LVS_CLEAR_WITH_NONE,
 };
 use url::Url;
 
@@ -211,8 +212,8 @@ impl Lvs {
 
     /// Size upto which blobstore can be expanded.
     pub fn max_expandable_size(&self) -> Option<u64> {
-        // TODO: Use spdk function when changes gets merged.
-        Some(0)
+        let s = unsafe { spdk_bs_get_max_growable_size(self.blob_store()) };
+        Some(s)
     }
 
     /// returns the UUID of the lvs

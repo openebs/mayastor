@@ -44,9 +44,11 @@ fn approx_eq(a: f64, b: f64, t: f64) -> bool {
 }
 
 /// Pool stats.
+#[derive(Debug)]
 struct TestPoolStats {
     capacity: u64,
     disk_capacity: u64,
+    max_expandable_size: u64,
 }
 
 impl TestPoolStats {
@@ -60,6 +62,7 @@ impl From<&Lvs> for TestPoolStats {
         Self {
             capacity: lvs.capacity(),
             disk_capacity: lvs.disk_capacity(),
+            max_expandable_size: lvs.max_expandable_size().unwrap(),
         }
     }
 }
@@ -75,6 +78,7 @@ impl From<Pool> for TestPoolStats {
         Self {
             capacity: p.capacity,
             disk_capacity: p.disk_capacity,
+            max_expandable_size: p.max_expandable_size.unwrap(),
         }
     }
 }
@@ -356,9 +360,11 @@ async fn lvs_grow_api_aio() {
         }
 
         async fn grow_device(&mut self) -> u64 {
-            // Resize bdev's backing file.
-            common::truncate_file(DISK_NAME, 128 * 1024);
-            self.device_size().await + (128 * 1024)
+            let pool = self.pool_stats().await;
+            // Resize bdev's backing file to maximum expandable size.
+            let expand_by = pool.max_expandable_size - pool.disk_capacity;
+            common::expand_tempfs_file_bytes(DISK_NAME, expand_by);
+            self.device_size().await + expand_by
         }
 
         fn is_malloc(&self) -> bool {
