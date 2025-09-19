@@ -6,7 +6,7 @@ use crate::{
     },
     pool_backend::{
         Error, FindPoolArgs, IPoolFactory, IPoolProps, ListPoolArgs, PoolArgs, PoolBackend,
-        PoolMetadataInfo, PoolOps, ReplicaArgs,
+        PoolMetadataInfo, PoolOps, RaidInfo, ReplicaArgs,
     },
     replica_backend::{
         FindReplicaArgs, IReplicaFactory, ListCloneArgs, ListReplicaArgs, ListSnapshotArgs,
@@ -234,6 +234,10 @@ impl IPoolProps for Lvs {
 
     fn max_expandable_size(&self) -> Option<u64> {
         self.max_expandable_size()
+    }
+
+    fn raid_info(&self) -> Option<RaidInfo> {
+        self.raid_info()
     }
 }
 

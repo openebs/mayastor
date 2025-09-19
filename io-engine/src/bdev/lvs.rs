@@ -217,6 +217,7 @@ impl Lvs {
             enc_key: self.key.clone(),
             // XXX: Is this path ever exercised apart from test, or casperf perhaps?
             crypto_vbdev_name: self.key.as_ref().map(|_| format!("crypto_{}", self.name)),
+            raid_config: None,
         };
         match &self.mode {
             LvsMode::Create => match crate::lvs::Lvs::import_from_args(args.clone()).await {

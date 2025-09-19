@@ -155,6 +155,7 @@ async fn lvs_grow_ms_malloc() {
                     backend: Default::default(),
                     enc_key: None,
                     crypto_vbdev_name: None,
+                    raid_config: None,
                 };
 
                 // Create LVS.

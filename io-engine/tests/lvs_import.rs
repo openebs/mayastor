@@ -58,6 +58,7 @@ async fn lvs_import_many_volume() {
             backend: Default::default(),
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         };
 
         // Create LVS.

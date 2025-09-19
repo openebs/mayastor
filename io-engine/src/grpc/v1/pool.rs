@@ -6,7 +6,7 @@ use crate::{
     lvs::{BsError, LvsError},
     pool_backend::{
         self, FindPoolArgs, IPoolFactory, ListPoolArgs, PoolArgs, PoolBackend, PoolFactory,
-        PoolOps, ReplicaArgs,
+        PoolOps, Raid0Config, ReplicaArgs,
     },
 };
 use ::function_name::named;
@@ -254,6 +254,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             backend: backend.into(),
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: args.raid_config.map(TryFrom::try_from).transpose()?,
         })
     }
 }
@@ -261,6 +262,24 @@ impl From<PoolMetadataArgs> for pool_backend::PoolMetadataArgs {
     fn from(params: PoolMetadataArgs) -> Self {
         Self {
             max_expansion: params.max_expansion,
+        }
+    }
+}
+
+impl TryFrom<RaidConfig> for pool_backend::RaidConfig {
+    type Error = LvsError;
+
+    fn try_from(config: RaidConfig) -> Result<Self, Self::Error> {
+        match config.config {
+            Some(raid_config::Config::Raid0(raid0_config)) => {
+                Ok(pool_backend::RaidConfig::Raid0(Raid0Config {
+                    strip_size_kb: raid0_config.strip_size_kb,
+                }))
+            }
+            None => Err(LvsError::Invalid {
+                source: BsError::InvalidArgument {},
+                msg: "Pool config specified but no configuration found".to_string(),
+            }),
         }
     }
 }
@@ -342,6 +361,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
                 .encryption
                 .as_ref()
                 .map(|_| format!("crypto_{}", args.name)),
+            raid_config: args.raid_config.map(TryFrom::try_from).transpose()?,
         })
     }
 }
@@ -449,6 +469,7 @@ impl From<&dyn PoolOps> for Pool {
             md_info: value.md_props().map(|md| md.into()),
             encrypted: Some(value.encrypted()),
             max_expandable_size: value.max_expandable_size(),
+            raid_info: value.raid_info().map(|raid| raid.into()),
         }
     }
 }
@@ -458,6 +479,15 @@ impl From<pool_backend::PoolMetadataInfo> for PoolMetadataInfo {
             md_page_size: value.md_page_size,
             md_pages: value.md_pages,
             md_used_pages: value.md_used_pages,
+        }
+    }
+}
+
+impl From<crate::pool_backend::RaidInfo> for RaidInfo {
+    fn from(value: crate::pool_backend::RaidInfo) -> Self {
+        Self {
+            level: value.level,
+            state: value.state,
         }
     }
 }

@@ -66,6 +66,7 @@ async fn lvs_pool_test() {
         backend: PoolBackend::Lvs,
         enc_key: None,
         crypto_vbdev_name: None,
+        raid_config: None,
     };
 
     // should succeed to create a pool we can not import
@@ -153,6 +154,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .is_ok());
@@ -187,6 +189,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .unwrap();
@@ -227,6 +230,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .unwrap();
@@ -368,6 +372,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .unwrap();
@@ -392,6 +397,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .unwrap();
@@ -422,6 +428,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .unwrap();
@@ -462,6 +469,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .err()
@@ -482,6 +490,7 @@ async fn lvs_pool_test() {
             backend: PoolBackend::Lvs,
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         })
         .await
         .unwrap();
@@ -511,6 +520,7 @@ async fn lvs_pool_test() {
                 key2_len: Some(128),
             }),
             crypto_vbdev_name: Some("crypto_enc_pool".into()),
+            raid_config: None,
         })
         .await
         .unwrap();

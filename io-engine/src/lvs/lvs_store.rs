@@ -189,6 +189,10 @@ impl Lvs {
         b.driver() == "crypto"
     }
 
+    pub fn raid_info(&self) -> Option<crate::pool_backend::RaidInfo> {
+        None
+    }
+
     /// Returns blobstore cluster size.
     pub fn blob_cluster_size(&self) -> u64 {
         let blobs = self.blob_store();

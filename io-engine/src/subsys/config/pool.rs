@@ -8,7 +8,7 @@ use crate::{
     core::{runtime, Cores, Reactor, Share, VerboseError},
     grpc::rpc_submit,
     lvs::{Lvs, LvsBdev, LvsError},
-    pool_backend::{PoolArgs, PoolBackend},
+    pool_backend::{PoolArgs, PoolBackend, Raid0Config},
 };
 
 static CONFIG_FILE: OnceCell<String> = OnceCell::new();
@@ -143,9 +143,23 @@ impl PoolConfig {
     }
 }
 
+/// Pool storage configuration for config files.
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub enum RaidConfig {
+    #[serde(rename = "raid0")]
+    Raid0 {
+        #[serde(default = "default_strip_size")]
+        strip_size_kb: u32,
+    },
+}
+
+fn default_strip_size() -> u32 {
+    64
+}
+
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
-/// Pools that we create. Future work will include the ability to create RAID0
-/// or RAID5.
+/// Pools that we create. Supports RAID0 configuration.
+/// Future work will include RAID5 support.
 struct Pool {
     /// name of the pool to be created or imported
     name: String,
@@ -157,6 +171,22 @@ struct Pool {
     backend: PoolBackend,
     /// Is the pool encrypted.
     encrypted: bool,
+    /// Pool storage configuration for RAID support.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raid_config: Option<RaidConfig>,
+}
+
+/// Convert PoolStorageConfig to backend PoolConfig.
+impl From<&RaidConfig> for crate::pool_backend::RaidConfig {
+    fn from(config: &RaidConfig) -> Self {
+        match config {
+            RaidConfig::Raid0 { strip_size_kb } => {
+                crate::pool_backend::RaidConfig::Raid0(Raid0Config {
+                    strip_size_kb: *strip_size_kb,
+                })
+            }
+        }
+    }
 }
 
 /// Convert a Pool into a gRPC request payload.
@@ -175,6 +205,7 @@ impl From<&Pool> for PoolArgs {
             } else {
                 None
             },
+            raid_config: pool.raid_config.as_ref().map(Into::into),
         }
     }
 }
@@ -192,6 +223,7 @@ impl From<LvsBdev> for Pool {
             backend: PoolBackend::Lvs,
             // XXX: Check how we use this and set correctly.
             encrypted: false,
+            raid_config: None,
         }
     }
 }

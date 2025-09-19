@@ -53,6 +53,7 @@ async fn lvs_metadata_limit() {
             backend: Default::default(),
             enc_key: None,
             crypto_vbdev_name: None,
+            raid_config: None,
         };
 
         // Create LVS.
