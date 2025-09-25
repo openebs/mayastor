@@ -21,6 +21,7 @@ use io_engine::{
     eventing::Event,
     grpc, logger,
     persistent_store::PersistentStoreBuilder,
+    prctl::Prctl,
     subsys::Registration,
 };
 use version_info::fmt_package_info;
@@ -272,6 +273,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("{}", fmt_package_info!());
+
+    if let Err(err) = Prctl::set_io_flusher() {
+        error!("Failed to set PR_SET_IO_FLUSHER, CAP_SYS_RESOURCE is required error: {err}");
+    } else {
+        info!("PR_SET_IO_FLUSHER is configured");
+    }
 
     // Handle diagnostics-related commands before initializing the agent.
     // Once diagnostics command is executed (regardless of status), exit the
