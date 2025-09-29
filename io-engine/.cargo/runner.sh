@@ -13,8 +13,8 @@ fi
 #
 # * Set `cap_setpcap` to be able to set [ambient capabilities](https://lwn.net/Articles/636533/) which can be inherited
 # by children.
-# * Set `cap_sys_admin,cap_ipc_lock,cap_sys_nice` as they are required by `mayastor`.
+# * Set `cap_sys_admin,cap_ipc_lock,cap_sys_nice,cap_sys_resource` as they are required by `mayastor`.
 ${MAYBE_SUDO} capsh \
-  --caps="cap_setpcap+iep cap_sys_admin,cap_ipc_lock,cap_sys_nice+iep" \
-  --addamb=cap_sys_admin --addamb=cap_ipc_lock --addamb=cap_sys_nice \
+  --caps="cap_setpcap+iep cap_sys_admin,cap_ipc_lock,cap_sys_nice,cap_sys_resource+iep" \
+  --addamb=cap_sys_admin --addamb=cap_ipc_lock --addamb=cap_sys_nice --addamb=cap_sys_resource \
   -- -c "${ARGS}"
