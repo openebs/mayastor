@@ -193,7 +193,7 @@ impl IPoolProps for Lvs {
             .map(Bdev::new)
             .unwrap_or_else(|| self.base_bdev());
 
-        vec![disk_bdev.bdev_uri_str().unwrap_or_else(|| "".into())]
+        vec![disk_bdev.bdev_uri_original_str().unwrap_or_default()]
     }
 
     fn disk_capacity(&self) -> u64 {
