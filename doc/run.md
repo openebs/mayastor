@@ -230,7 +230,7 @@ systemd.services.mayastor = {
     Type = "forking";
     User = "nobody";
     ExecStart = "${pkgs.mayastor}/bin/mayastor";
-    AmbientCapabilities = "CAP_SETPCAP CAP_SYS_ADMIN CAP_IPC_LOCK CAP_SYS_NICE";
+    AmbientCapabilities = "CAP_SETPCAP CAP_SYS_ADMIN CAP_IPC_LOCK CAP_SYS_NICE CAP_SYS_RESOURCE";
   };
 };
 ```
@@ -245,7 +245,7 @@ After=network.target
 Description=A cloud native declarative data plane.
 
 [Service]
-AmbientCapabilities=CAP_SETPCAP CAP_SYS_ADMIN CAP_IPC_LOCK CAP_SYS_NICE
+AmbientCapabilities=CAP_SETPCAP CAP_SYS_ADMIN CAP_IPC_LOCK CAP_SYS_NICE CAP_SYS_RESOURCE
 ExecStart=/usr/bin/mayastor
 Type=simple
 User=nobody
