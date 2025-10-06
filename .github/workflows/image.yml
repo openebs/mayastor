@@ -4,13 +4,18 @@ on:
     branches:
       - develop
       - 'release/**'
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to be released (e.g. v4.2.0)'
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CI: 1
+  TAG: ${{ inputs.tag }}
 
 jobs:
   image-build-push:
@@ -32,5 +37,16 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push the release images
-        run: ./scripts/release.sh
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            nix-shell --run "./scripts/release.sh --tag ${{ inputs.tag }} --registry ghcr.io/openebs/mayastor/dev"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            nix-shell --run "./scripts/release.sh
+          fi        
