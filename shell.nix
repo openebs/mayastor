@@ -62,6 +62,9 @@ let
         export PATH="$PATH:$(pwd)/scripts/nix-sudo"
 
         export IO_ENGINE_DIR="$RUST_TARGET_DEBUG"
+
+        # Prevent Rust tooling to fallback to potentially incompatible host clang compiler
+        export CLANG_PATH="$NIX_CC_FOR_TARGET/bin/clang"
       '';
 
       shellInfoHook = ''
