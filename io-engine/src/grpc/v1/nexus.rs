@@ -75,7 +75,8 @@ impl NexusService {
                     Some(g) => Some(g),
                     None => {
                         return Err(Status::deadline_exceeded(
-                            "Failed to acquire access to object within given timeout".to_string(),
+                            "Failed to acquire access to subsystem within given timeout"
+                                .to_string(),
                         ))
                     }
                 }
@@ -373,7 +374,7 @@ impl NexusRpc for NexusService {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
-        self.serialized(ctx, args.uuid.clone(), true, async move {
+        self.serialized(ctx, args.uuid.clone(), false, async move {
             trace!("{:?}", args);
             let resv_type = NvmeReservationConv(args.resv_type).try_into()?;
             let preempt_policy = NvmePreemptionConv(args.preempt_policy).try_into()?;
@@ -436,7 +437,7 @@ impl NexusRpc for NexusService {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
-        self.serialized(ctx, args.uuid.clone(), true, async move {
+        self.serialized(ctx, args.uuid.clone(), false, async move {
             let rx = rpc_submit::<_, _, nexus::Error>(async move {
                 trace!("{:?}", args);
                 nexus_destroy(&args.uuid).await?;
