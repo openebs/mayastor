@@ -4,7 +4,7 @@ on:
     branches:
       - develop
       - 'release/**'
-  workflow_dispatch:
+  workflow_call:
     inputs:
       tag:
         description: 'Tag to be released (e.g. v4.2.0)'
@@ -46,7 +46,7 @@ jobs:
       - name: Build and push the release images
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            nix-shell --run "./scripts/release.sh --tag ${{ inputs.tag }} --registry ghcr.io/openebs/mayastor/dev"
+            ./scripts/release.sh --tag ${{ inputs.tag }} --registry ghcr.io/openebs/mayastor/dev
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            nix-shell --run "./scripts/release.sh
+            ./scripts/release.sh
           fi        

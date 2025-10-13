@@ -11,7 +11,7 @@ ROOT_DIR="${SCRIPT_DIR}/../.."
 # if PARENT_ROOT_DIR is not defined use the one below
 : "${PARENT_ROOT_DIR:=$ROOT_DIR}"
 
-source "$ROOT_DIR/mayastor/scripts/utils/log.sh"
+source "$PARENT_ROOT_DIR/scripts/utils/log.sh"
 NO_RUN=true . "$PARENT_ROOT_DIR/scripts/release.sh"
 
 IMAGES=()
