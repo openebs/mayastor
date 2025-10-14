@@ -1,0 +1,43 @@
+name: Submodule Update
+on:
+  workflow_dispatch:
+    inputs:
+      submodules:
+        description: 'Override modules to update via comma-separated list of names'
+        required: false
+        default: ''
+
+jobs:
+  submodule:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Update submodules
+        run: ./scripts/set-submodule-branches.sh -u -m "${{ github.event.inputs.submodules }}"
+
+      - name: Create Pull Request
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(ci): update git submodules"
+          committer: GitHub <noreply@github.com>
+          title: "[CI] Update git submodules"
+          draft: false
+          signoff: true
+          delete-branch: true
+          branch: update-submodules/${{ github.ref_name }}
+          token: ${{ secrets.ORG_CI_GITHUB }}
+
+      - name: Approve Pull Request by CI Bot 1
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
+        env:
+          GH_TOKEN: ${{ github.token }}
