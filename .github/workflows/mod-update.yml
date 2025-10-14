@@ -20,7 +20,7 @@ jobs:
           submodules: recursive
 
       - name: Update submodules
-        run: ./scripts/set-submodule-branches.sh -u -m "${{ github.event.inputs.submodules }}"
+        run: ./utils/dependencies/scripts/git/submodule-branches.sh -u -m "${{ github.event.inputs.submodules }}"
 
       - name: Create Pull Request
         id: cpr
