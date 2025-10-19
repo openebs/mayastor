@@ -1,6 +1,7 @@
 use core::f64;
 use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
 
+use crate::sleep::mayastor_sleep;
 use byte_unit::Byte;
 use events_api::event::EventAction;
 use futures::channel::oneshot;
@@ -880,28 +881,44 @@ impl Lvs {
     pub async fn grow(&self) -> Result<(), LvsError> {
         info!("{self:?}: growing lvs...");
 
-        let cname = self.base_bdev().name().into_cstring();
-        let uri_str = &self.base_bdev().bdev_uri_str().unwrap_or_default();
-        let url = Url::parse(uri_str).map_err(|source| LvsError::InvalidBdev {
+        let disk_bdev = self
+            .base_bdev()
+            .crypto_base_bdev()
+            .map(Bdev::new)
+            .unwrap_or_else(|| self.base_bdev());
+
+        let uri_str = disk_bdev.bdev_uri_str().unwrap_or_default();
+        let url = Url::parse(&uri_str).map_err(|source| LvsError::InvalidBdev {
             source: BdevError::UriParseFailed {
                 source,
                 uri: uri_str.to_string(),
             },
             name: self.name().to_string(),
         })?;
+
         if url.scheme() != "malloc" {
+            let bdev = disk_bdev.name().into_cstring();
             info!(
-                "Attempting to rescan bdev {:?} part of lvs {:?}, uri {:?}",
-                self.base_bdev().name(),
+                "Attempting to rescan bdev {:?} part of lvs {:?}",
+                bdev,
                 self.name(),
-                self.base_bdev().bdev_uri_str().unwrap_or_default()
             );
 
-            let errno = unsafe { bdev_aio_rescan(cname.as_ptr() as *mut std::os::raw::c_char) };
+            let errno = unsafe { bdev_aio_rescan(bdev.as_ptr() as *mut std::os::raw::c_char) };
 
             if errno != 0 {
                 return Err(LvsError::BdevRescanFailed {
                     source: BsError::from_i32(errno),
+                    name: self.base_bdev().name().to_string(),
+                });
+            }
+
+            if self.encrypted() && !self.crypto_vbdev_resized().await {
+                error!(
+                    "crypto bdev {} has not resized",
+                    self.base_bdev().name().to_string()
+                );
+                return Err(LvsError::CryptoBdevNotResized {
                     name: self.base_bdev().name().to_string(),
                 });
             }
@@ -937,6 +954,31 @@ impl Lvs {
         info!("{self:?}: lvs has been grown successfully");
 
         Ok(())
+    }
+
+    /// When the underlying AIO bdev is resized, crypto bdev receives SPDK_BDEV_EVENT_RESIZE
+    /// event. The crypto bdev then adjusts its block count accordingly. To ensure that this resize
+    /// operation completes before proceeding, we wait briefly for the crypto bdev to update.
+    /// This delay gives the crypto bdev time to process the resize event asynchronously.
+    async fn crypto_vbdev_resized(&self) -> bool {
+        for _i in 1..=6 {
+            let base_bdev = self.base_bdev();
+            let disk_bdev = base_bdev
+                .crypto_base_bdev()
+                .map(Bdev::new)
+                .unwrap_or_else(|| self.base_bdev());
+            let disk_bdev_size = disk_bdev.num_blocks() * disk_bdev.block_len() as u64;
+            let crypto_bdev_size = base_bdev.num_blocks() * base_bdev.block_len() as u64;
+            if crypto_bdev_size == disk_bdev_size {
+                return true;
+            } else {
+                let rx = mayastor_sleep(std::time::Duration::from_millis(500));
+                if rx.await.is_err() {
+                    error!("failed to wait for mayastor_sleep");
+                }
+            }
+        }
+        false
     }
 
     /// return an iterator for enumerating all snapshots that reside on the pool

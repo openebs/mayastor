@@ -271,8 +271,12 @@ pub enum LvsError {
         source: BsError,
         name: String,
     },
-    #[snafu(display("Failed to extend pool bdev: {name}"))]
+    #[snafu(display("Pool Bdev not extended: {name}"))]
     BdevNotExtended {
+        name: String,
+    },
+    #[snafu(display("crypto bdev: {name} failed to resize"))]
+    CryptoBdevNotResized {
         name: String,
     },
 }
@@ -285,7 +289,7 @@ impl ToErrno for LvsError {
             Self::PoolCreate { source, .. } => source.to_errno(),
             Self::Export { source, .. } => source.to_errno(),
             Self::Destroy { .. } => Errno::ENXIO,
-            Self::Grow { .. } => Errno::ENXIO,
+            Self::Grow { source, .. } => source.to_errno(),
             Self::PoolNotFound { source, .. } => source.to_errno(),
             Self::InvalidBdev { .. } => Errno::ENXIO,
             Self::Invalid { source, .. } => source.to_errno(),
@@ -313,6 +317,7 @@ impl ToErrno for LvsError {
             Self::MaxExpansionParse { .. } => Errno::EINVAL,
             Self::BdevRescanFailed { source, .. } => source.to_errno(),
             Self::BdevNotExtended { .. } => Errno::EOPNOTSUPP,
+            Self::CryptoBdevNotResized { .. } => Errno::EBUSY,
         }
     }
 }
