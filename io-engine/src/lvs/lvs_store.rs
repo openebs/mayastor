@@ -9,14 +9,14 @@ use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
 use spdk_rs::libspdk::{
-    bdev_aio_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store, spdk_bs_free_cluster_count,
-    spdk_bs_get_cluster_size, spdk_bs_get_max_growable_size, spdk_bs_get_md_len,
-    spdk_bs_get_page_size, spdk_bs_get_used_md, spdk_bs_total_data_cluster_count, spdk_lvol,
-    spdk_lvol_opts, spdk_lvol_opts_init, spdk_lvol_store, spdk_lvs_grow_live,
-    vbdev_get_lvol_store_by_name, vbdev_get_lvol_store_by_uuid, vbdev_get_lvs_bdev_by_lvs,
-    vbdev_lvol_create_with_opts, vbdev_lvs_create, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct,
-    vbdev_lvs_import, vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP,
-    LVS_CLEAR_WITH_NONE,
+    bdev_aio_rescan, bdev_uring_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store,
+    spdk_bs_free_cluster_count, spdk_bs_get_cluster_size, spdk_bs_get_max_growable_size,
+    spdk_bs_get_md_len, spdk_bs_get_page_size, spdk_bs_get_used_md,
+    spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_opts, spdk_lvol_opts_init,
+    spdk_lvol_store, spdk_lvs_grow_live, vbdev_get_lvol_store_by_name,
+    vbdev_get_lvol_store_by_uuid, vbdev_get_lvs_bdev_by_lvs, vbdev_lvol_create_with_opts,
+    vbdev_lvs_create, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
+    vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
 };
 use url::Url;
 
@@ -443,7 +443,7 @@ impl Lvs {
                 Byte::from_str(&param).map_err(|error| LvsError::MaxExpansionParse {
                     msg: format!("Failed to parse max_expansion {param} as bytes: {error}"),
                 })?;
-            expand_bytes.as_u64() as f64 / capacity as f64
+            (expand_bytes.as_u64() as f64 / capacity as f64).ceil()
         } else {
             return Err(LvsError::MaxExpansionParse {
                 msg: format!("Max expansion factor {param} does not end with x or B"),
@@ -880,6 +880,7 @@ impl Lvs {
     #[tracing::instrument(level = "debug", err)]
     pub async fn grow(&self) -> Result<(), LvsError> {
         info!("{self:?}: growing lvs...");
+        let lvs_name = self.name();
 
         let disk_bdev = self
             .base_bdev()
@@ -893,35 +894,34 @@ impl Lvs {
                 source,
                 uri: uri_str.to_string(),
             },
-            name: self.name().to_string(),
+            name: lvs_name.to_string(),
         })?;
 
-        if url.scheme() != "malloc" {
-            let bdev = disk_bdev.name().into_cstring();
-            info!(
-                "Attempting to rescan bdev {:?} part of lvs {:?}",
-                bdev,
-                self.name(),
+        let bdev = disk_bdev.name().into_cstring();
+        info!("Attempting to rescan bdev: {uri_str} part of lvs {lvs_name}");
+
+        // Performs a rescan only for uring or aio devices, this is a no-op for other device types.
+        let errno = match url.scheme() {
+            "uring" => unsafe { bdev_uring_rescan(bdev.as_ptr().cast()) },
+            "aio" => unsafe { bdev_aio_rescan(bdev.as_ptr().cast()) },
+            _ => 0,
+        };
+
+        if errno != 0 {
+            return Err(LvsError::BdevRescanFailed {
+                source: BsError::from_i32(errno),
+                name: self.base_bdev().name().to_string(),
+            });
+        }
+
+        if self.encrypted() && !self.crypto_vbdev_resized().await {
+            error!(
+                "crypto bdev {} has not resized",
+                self.base_bdev().name().to_string()
             );
-
-            let errno = unsafe { bdev_aio_rescan(bdev.as_ptr() as *mut std::os::raw::c_char) };
-
-            if errno != 0 {
-                return Err(LvsError::BdevRescanFailed {
-                    source: BsError::from_i32(errno),
-                    name: self.base_bdev().name().to_string(),
-                });
-            }
-
-            if self.encrypted() && !self.crypto_vbdev_resized().await {
-                error!(
-                    "crypto bdev {} has not resized",
-                    self.base_bdev().name().to_string()
-                );
-                return Err(LvsError::CryptoBdevNotResized {
-                    name: self.base_bdev().name().to_string(),
-                });
-            }
+            return Err(LvsError::CryptoBdevNotResized {
+                name: self.base_bdev().name().to_string(),
+            });
         }
 
         let capacity_before_grow = self.capacity();
@@ -942,7 +942,7 @@ impl Lvs {
             .expect("callback gone while growing lvs")
             .to_result(|e| LvsError::Grow {
                 source: BsError::from_i32(e),
-                name: self.name().to_string(),
+                name: lvs_name.to_string(),
             })?;
 
         if self.capacity() == capacity_before_grow {
@@ -961,7 +961,7 @@ impl Lvs {
     /// operation completes before proceeding, we wait briefly for the crypto bdev to update.
     /// This delay gives the crypto bdev time to process the resize event asynchronously.
     async fn crypto_vbdev_resized(&self) -> bool {
-        for _i in 1..=6 {
+        for _i in 1..=30 {
             let base_bdev = self.base_bdev();
             let disk_bdev = base_bdev
                 .crypto_base_bdev()
@@ -972,7 +972,7 @@ impl Lvs {
             if crypto_bdev_size == disk_bdev_size {
                 return true;
             } else {
-                let rx = mayastor_sleep(std::time::Duration::from_millis(500));
+                let rx = mayastor_sleep(std::time::Duration::from_millis(100));
                 if rx.await.is_err() {
                     error!("failed to wait for mayastor_sleep");
                 }

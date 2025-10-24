@@ -275,7 +275,7 @@ pub enum LvsError {
     BdevNotExtended {
         name: String,
     },
-    #[snafu(display("crypto bdev: {name} failed to resize"))]
+    #[snafu(display("Failed to resize crypto bdev: {name}"))]
     CryptoBdevNotResized {
         name: String,
     },
