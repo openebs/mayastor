@@ -222,6 +222,7 @@ impl Target {
             secure_channel: false,
             reserved1: unsafe { zeroed() },
             ana_state: 0,
+            sock_impl: std::ptr::null_mut(),
         };
         unsafe {
             spdk_nvmf_listen_opts_init(
@@ -287,6 +288,7 @@ impl Target {
             secure_channel: false,
             reserved1: unsafe { zeroed() },
             ana_state: 0,
+            sock_impl: std::ptr::null_mut(),
         };
         unsafe {
             spdk_nvmf_listen_opts_init(

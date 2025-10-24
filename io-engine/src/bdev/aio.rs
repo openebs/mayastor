@@ -116,8 +116,16 @@ impl CreateDestroy for Aio {
 
         let cname = CString::new(self.get_name()).unwrap();
 
-        let errno =
-            unsafe { create_aio_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size, false, false) };
+        let errno = unsafe {
+            create_aio_bdev(
+                cname.as_ptr(),
+                cname.as_ptr(),
+                self.blk_size,
+                false,
+                false,
+                std::ptr::null_mut(),
+            )
+        };
 
         if errno != 0 {
             let err = BdevError::CreateBdevFailed {

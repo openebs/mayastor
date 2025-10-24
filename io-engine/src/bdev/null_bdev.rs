@@ -156,16 +156,16 @@ impl CreateDestroy for Null {
         let uuid = spdk_rs::Uuid::generate().into_raw();
 
         let cname = self.name.clone().into_cstring();
-        let opts = spdk_rs::libspdk::spdk_null_bdev_opts {
-            name: cname.as_ptr(),
-            uuid: &uuid,
+        let opts = spdk_rs::libspdk::null_bdev_opts {
+            name: cname.into_raw(),
+            uuid,
             num_blocks: self.num_blocks,
             block_size: self.blk_size,
             physical_block_size: 0,
             md_size: 0,
-            md_interleave: false,
             dif_type: spdk_rs::libspdk::SPDK_DIF_DISABLE,
             dif_is_head_of_md: false,
+            dif_pi_format: 0,
         };
 
         let errno = unsafe {

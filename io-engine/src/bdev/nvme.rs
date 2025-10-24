@@ -12,7 +12,7 @@ use url::Url;
 use spdk_rs::{
     bdevs::bdev_nvme_delete_async,
     ffihelper::copy_str_with_null,
-    libspdk::{bdev_nvme_create, spdk_nvme_transport_id},
+    libspdk::{spdk_bdev_nvme_create, spdk_nvme_transport_id},
 };
 
 use crate::{
@@ -80,7 +80,7 @@ impl CreateDestroy for NVMe {
         let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
 
         let errno = unsafe {
-            bdev_nvme_create(
+            spdk_bdev_nvme_create(
                 &mut context.trid,
                 cname.as_ptr(),
                 &mut context.names[0],
@@ -89,7 +89,6 @@ impl CreateDestroy for NVMe {
                 cb_arg(sender),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                false,
             )
         };
 
