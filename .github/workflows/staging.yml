@@ -1,0 +1,55 @@
+name: Staging Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to be released (e.g. v4.2.0)'
+        required: true
+        type: string
+
+env:
+  TAG: ${{ inputs.tag }}
+  CI: 1
+
+jobs:
+  preflight-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - uses: cachix/install-nix-action@v31.3.0
+      - name: Pre-populate nix-shell
+        run: |
+          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' nix/sources.json -r)
+          echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
+          nix-shell ./utils/dependencies/scripts/staging/shell.nix --pure --run "echo"
+
+      - name: Login to 
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Validate if the staging should be even made
+        run: |
+          nix-shell ./utils/dependencies/scripts/staging/shell.nix \
+          --pure \
+          --keep CI \
+          --keep TAG \
+          --run "./utils/dependencies/scripts/staging/validate.sh \
+            --tag ${{ env.TAG }} \
+            --type staging"
+
+  build-images:
+    uses: ./.github/workflows/image.yml
+    needs: preflight-checks
+    with:
+      tag: ${{ inputs.tag }}
+      registry: ghcr.io
+      namespace: mayastor/dev
+    secrets: inherit

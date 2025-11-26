@@ -5,7 +5,10 @@
 # The script assumes that a user is logged on to dockerhub for public images,
 # or has insecure registry access setup for CI.
 
-SOURCE_REL=$(dirname "$0")/../utils/dependencies/scripts/release.sh
+# Allow override from caller
+if [[ -z "${SOURCE_REL:-}" ]]; then
+    SOURCE_REL=$(dirname "$0")/../utils/dependencies/scripts/release.sh
+fi
 
 if [ ! -f "$SOURCE_REL" ] && [ -z "$CI" ]; then
   git submodule update --init --recursive
@@ -14,6 +17,9 @@ fi
 IMAGES="mayastor.io-engine mayastor.casperf fio-spdk"
 CARGO_DEPS=units.cargoDeps
 PROJECT="io-engine"
+
 . "$SOURCE_REL"
 
-common_run $@
+if [ "${NO_RUN:-}" != "true" ]; then
+  common_run "$@"
+fi
