@@ -79,6 +79,10 @@ jobs:
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/grpc-test.sh"
+
+      - name: Create JS Report
+        if: always()
+        run: |
           mkdir -p ci-report/js
           for file in *-xunit-report.xml; do
             echo "<testsuites>" > "ci-report/js/$file"

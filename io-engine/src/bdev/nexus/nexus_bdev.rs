@@ -1339,9 +1339,10 @@ impl<'n> BdevOps for Nexus<'n> {
 
     fn io_type_supported(&self, io_type: IoType) -> bool {
         match io_type {
+            IoType::NvmeAdmin => false,
             // we always assume the device supports read/write commands
             // allow NVMe Admin as it is needed for local replicas
-            IoType::Read | IoType::Write | IoType::NvmeAdmin => true,
+            IoType::Read | IoType::Write => true,
             IoType::Flush | IoType::Reset | IoType::Unmap | IoType::WriteZeros => {
                 let supported = self.io_is_supported(io_type);
                 if !supported {

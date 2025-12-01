@@ -15,7 +15,7 @@ use spdk_rs::libspdk::{
     spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_opts, spdk_lvol_opts_init,
     spdk_lvol_store, spdk_lvs_grow_live, vbdev_get_lvol_store_by_name,
     vbdev_get_lvol_store_by_uuid, vbdev_get_lvs_bdev_by_lvs, vbdev_lvol_create_with_opts,
-    vbdev_lvs_create, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
+    vbdev_lvs_create_ext, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
     vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
 };
 use url::Url;
@@ -517,11 +517,12 @@ impl Lvs {
                     // acceptable.
                     LVS_CLEAR_WITH_NONE,
                     mdp_ratio,
+                    0,
                     Some(Self::lvs_cb),
                     cb_arg(sender),
                 )
             } else {
-                vbdev_lvs_create(
+                vbdev_lvs_create_ext(
                     bdev_name.as_ptr(),
                     pool_name.as_ptr(),
                     cluster_size,
@@ -533,6 +534,7 @@ impl Lvs {
                     // acceptable.
                     LVS_CLEAR_WITH_NONE,
                     mdp_ratio,
+                    0,
                     Some(Self::lvs_cb),
                     cb_arg(sender),
                 )

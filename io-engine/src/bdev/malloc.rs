@@ -203,6 +203,7 @@ impl CreateDestroy for Malloc {
                 md_interleave: false,
                 dif_type: SPDK_DIF_DISABLE,
                 dif_is_head_of_md: false,
+                dif_pi_format: 0,
             };
 
             create_malloc_disk(&mut bdev, &opts)

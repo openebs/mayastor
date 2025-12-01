@@ -363,7 +363,12 @@ impl NvmeController<'_> {
         // Check Controller Fatal Status for non-admin commands only to avoid
         // endless command resubmission in case of disconnected qpair.
         if !qpair.is_null()
-            && spdk_ctrlr.check_cfs()
+            // Commenting out CFS check for now as it blocks when there is a total communication loss
+            // to the controller, where admin commands time out as well.
+            // We started taking this path of IO qpair timeout after upstream commit:
+            // https://github.com/spdk/spdk/commit/8f9167af6f87b3c95cbc32798c47129e382e981f
+            //&& spdk_ctrlr.check_cfs()
+            && timeout_action != DeviceTimeoutAction::Ignore
             && timeout_action != DeviceTimeoutAction::HotRemove
         {
             error!(

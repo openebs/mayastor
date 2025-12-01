@@ -11,9 +11,8 @@ use nix::errno::Errno;
 
 use spdk_rs::{
     libspdk::{
-        nvmf_subsystem_find_listener, nvmf_subsystem_set_cntlid_range,
-        spdk_nvmf_ctrlr_set_cpl_error_cb, spdk_nvmf_ns_get_bdev, spdk_nvmf_ns_opts,
-        spdk_nvmf_request, spdk_nvmf_subsystem, spdk_nvmf_subsystem_add_host,
+        nvmf_subsystem_find_listener, spdk_nvmf_ctrlr_set_cpl_error_cb, spdk_nvmf_ns_get_bdev,
+        spdk_nvmf_ns_opts, spdk_nvmf_request, spdk_nvmf_subsystem, spdk_nvmf_subsystem_add_host,
         spdk_nvmf_subsystem_add_listener, spdk_nvmf_subsystem_add_ns_ext,
         spdk_nvmf_subsystem_create, spdk_nvmf_subsystem_destroy,
         spdk_nvmf_subsystem_disconnect_host, spdk_nvmf_subsystem_event,
@@ -24,11 +23,12 @@ use spdk_rs::{
         spdk_nvmf_subsystem_listener_get_trid, spdk_nvmf_subsystem_pause,
         spdk_nvmf_subsystem_remove_host, spdk_nvmf_subsystem_remove_ns, spdk_nvmf_subsystem_resume,
         spdk_nvmf_subsystem_set_allow_any_host, spdk_nvmf_subsystem_set_ana_reporting,
-        spdk_nvmf_subsystem_set_ana_state, spdk_nvmf_subsystem_set_event_cb,
-        spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn, spdk_nvmf_subsystem_start,
-        spdk_nvmf_subsystem_state_change_done, spdk_nvmf_subsystem_stop, spdk_nvmf_tgt,
-        spdk_nvmf_tgt_get_transport, SPDK_NVME_SCT_GENERIC, SPDK_NVME_SC_CAPACITY_EXCEEDED,
-        SPDK_NVME_SC_RESERVATION_CONFLICT, SPDK_NVMF_SUBTYPE_DISCOVERY, SPDK_NVMF_SUBTYPE_NVME,
+        spdk_nvmf_subsystem_set_ana_state, spdk_nvmf_subsystem_set_cntlid_range,
+        spdk_nvmf_subsystem_set_event_cb, spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn,
+        spdk_nvmf_subsystem_start, spdk_nvmf_subsystem_state_change_done, spdk_nvmf_subsystem_stop,
+        spdk_nvmf_tgt, spdk_nvmf_tgt_get_transport, SPDK_NVME_SCT_GENERIC,
+        SPDK_NVME_SC_CAPACITY_EXCEEDED, SPDK_NVME_SC_RESERVATION_CONFLICT,
+        SPDK_NVMF_SUBTYPE_DISCOVERY, SPDK_NVMF_SUBTYPE_NVME,
     },
     struct_size_init, NvmeStatus, NvmfController, NvmfSubsystemEvent,
 };
@@ -486,6 +486,7 @@ impl NvmfSubsystem {
                 no_auto_visible: false,
                 reserved61: unsafe { zeroed() },
                 transport_specific: ptr::null(),
+                hide_metadata: false,
             },
             opts_size
         );
@@ -720,7 +721,7 @@ impl NvmfSubsystem {
 
     /// set controller ID range
     pub fn set_cntlid_range(&self, cntlid_min: u16, cntlid_max: u16) -> Result<(), Error> {
-        unsafe { nvmf_subsystem_set_cntlid_range(self.0.as_ptr(), cntlid_min, cntlid_max) }
+        unsafe { spdk_nvmf_subsystem_set_cntlid_range(self.0.as_ptr(), cntlid_min, cntlid_max) }
             .to_result(|e| Error::Subsystem {
                 source: Errno::from_raw(e),
                 nqn: self.get_nqn(),

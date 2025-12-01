@@ -8,10 +8,11 @@ use serde::{Deserialize, Serialize};
 use spdk_rs::{
     ffihelper::copy_str_with_null,
     libspdk::{
-        bdev_nvme_get_opts, bdev_nvme_set_opts, spdk_bdev_get_opts, spdk_bdev_nvme_opts,
+        spdk_bdev_get_opts, spdk_bdev_nvme_get_opts, spdk_bdev_nvme_opts, spdk_bdev_nvme_set_opts,
         spdk_bdev_opts, spdk_bdev_set_opts, spdk_iobuf_get_opts, spdk_iobuf_opts,
         spdk_iobuf_set_opts, spdk_nvmf_target_opts, spdk_nvmf_transport_opts,
-        spdk_sock_impl_get_opts, spdk_sock_impl_opts, spdk_sock_impl_set_opts,
+        spdk_sock_impl_get_opts, spdk_sock_impl_opts, spdk_sock_impl_set_opts, NVMF_DEFAULT_KAS,
+        NVMF_DEFAULT_MIN_KATO,
     },
     struct_size_init,
 };
@@ -314,7 +315,9 @@ impl From<NvmfTransportOpts> for spdk_nvmf_transport_opts {
                 num_shared_buffers: o.num_shared_buf,
                 buf_cache_size: o.buf_cache_size,
                 dif_insert_or_strip: o.dif_insert_or_strip,
-                reserved29: Default::default(),
+                // todo: add disable_command_passthru in NvmfTransportOpts when needed.
+                disable_command_passthru: false,
+                reserved30: Default::default(),
                 abort_timeout_sec: o.abort_timeout_sec,
                 association_timeout: 120000,
                 transport_specific: std::ptr::null(),
@@ -323,6 +326,9 @@ impl From<NvmfTransportOpts> for spdk_nvmf_transport_opts {
                 reserved61: Default::default(),
                 ack_timeout: o.ack_timeout,
                 data_wr_pool_size: o.data_wr_pool_size,
+                // todo: add min_kato and kas in NvmfTransportOpts when needed.
+                min_kato: NVMF_DEFAULT_MIN_KATO,
+                kas: NVMF_DEFAULT_KAS as u16,
             },
             opts_size
         )
@@ -381,14 +387,19 @@ pub struct NvmeBdevOpts {
 impl GetOpts for NvmeBdevOpts {
     fn get(&self) -> Self {
         let opts: spdk_bdev_nvme_opts = unsafe { zeroed() };
-        unsafe { bdev_nvme_get_opts(&opts as *const _ as *mut spdk_bdev_nvme_opts) };
+        unsafe {
+            spdk_bdev_nvme_get_opts(
+                &opts as *const _ as *mut spdk_bdev_nvme_opts,
+                size_of::<spdk_bdev_nvme_opts>() as u64,
+            )
+        };
         opts.into()
     }
 
     fn set(&self) -> bool {
         let opts = Box::new(self.into());
         debug!("{:?}", &opts);
-        if unsafe { bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
+        if unsafe { spdk_bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
             warn!("Failed to apply NVMe Bdev options");
             return false;
         }
@@ -466,6 +477,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
 impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
     fn from(o: &NvmeBdevOpts) -> Self {
         Self {
+            opts_size: std::mem::size_of::<spdk_bdev_nvme_opts>() as u64,
             action_on_timeout: o.action_on_timeout,
             timeout_us: o.timeout_us,
             timeout_admin_us: o.timeout_admin_us,
@@ -479,6 +491,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             nvme_ioq_poll_period_us: o.nvme_ioq_poll_period_us,
             io_queue_requests: o.io_queue_requests,
             delay_cmd_submit: o.delay_cmd_submit,
+            reserved73: Default::default(),
             bdev_retry_count: o.bdev_retry_count,
             transport_ack_timeout: o.transport_ack_timeout,
             ctrlr_loss_timeout_sec: o.ctrlr_loss_timeout_sec,
@@ -490,11 +503,16 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             nvme_error_stat: false,
             rdma_srq_size: 0,
             io_path_stat: false,
+            reserved99: Default::default(),
             allow_accel_sequence: false,
             rdma_max_cq_size: 0,
             rdma_cm_event_timeout_ms: 0,
+            reserved110: Default::default(),
             dhchap_digests: 0,
             dhchap_dhgroups: 0,
+            rdma_umr_per_io: false,
+            reserved121: Default::default(),
+            tcp_connect_timeout_ms: 0,
         }
     }
 }
@@ -718,6 +736,7 @@ impl GetOpts for IoBufOpts {
                 large_pool_count: 0,
                 small_bufsize: 0,
                 large_bufsize: 0,
+                enable_numa: 0,
             },
             opts_size
         );
@@ -765,6 +784,7 @@ impl From<&IoBufOpts> for spdk_iobuf_opts {
                 large_pool_count: o.large_pool_count,
                 small_bufsize: o.small_bufsize,
                 large_bufsize: o.large_bufsize,
+                enable_numa: 0,
             },
             opts_size
         )

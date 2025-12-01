@@ -14,4 +14,4 @@ self: super: rec {
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
   units = (super.callPackage ./pkgs/io-engine/units.nix { inherit tag sourcer rustFlags; });
 }
-  // (import ../spdk-rs/nix/overlay.nix { } self super)
+  // (import ../spdk-rs/nix/overlay.nix self super)
