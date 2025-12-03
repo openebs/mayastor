@@ -599,7 +599,12 @@ impl NvmfSubsystem {
         }
 
         let hosts = hosts.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-        self.allow_hosts(&hosts)?;
+
+        let connected_hosts = self.allowed_hosts();
+        let allow_hosts = hosts
+            .iter()
+            .filter(|h| !connected_hosts.iter().any(|ref ch| ch == h));
+        self.allow_hosts(allow_hosts.cloned())?;
 
         let mut host = unsafe { spdk_nvmf_subsystem_get_first_host(self.0.as_ptr()) };
 
@@ -629,7 +634,7 @@ impl NvmfSubsystem {
     }
 
     /// Allows the specified hosts to connect to the subsystem.
-    pub fn allow_hosts(&self, hosts: &[&str]) -> Result<(), Error> {
+    pub fn allow_hosts<'a, T: Iterator<Item = &'a str>>(&'a self, hosts: T) -> Result<(), Error> {
         for host in hosts {
             self.allow_host(host)?;
         }
