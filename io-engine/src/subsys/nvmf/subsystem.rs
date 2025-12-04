@@ -599,37 +599,28 @@ impl NvmfSubsystem {
         }
 
         let hosts = hosts.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-        self.allow_hosts(&hosts)?;
 
-        let mut host = unsafe { spdk_nvmf_subsystem_get_first_host(self.0.as_ptr()) };
+        let connected_hosts = self.allowed_hosts();
+        let allow_hosts = hosts
+            .iter()
+            .filter(|h| !connected_hosts.iter().any(|ref ch| ch == h));
+        self.allow_hosts(allow_hosts.cloned())?;
 
-        let mut hosts_to_disconnect = vec![];
+        for host in connected_hosts
+            .iter()
+            .filter(|h| !hosts.iter().any(|ch| ch == h))
         {
-            // must first "clone" the host's nqn as the disallow_host fn will
-            // actually free the spdk_nvmf_host memory as it's not ref counted.
-            // this also means we better not call any async code within this
-            // "clone".
-            while !host.is_null() {
-                let host_str = unsafe { (*host).nqn.as_str() };
-                if !hosts.contains(&host_str) {
-                    hosts_to_disconnect.push(host_str.to_string());
-                }
-                host = unsafe { spdk_nvmf_subsystem_get_next_host(self.0.as_ptr(), host) };
-            }
-        }
-
-        for host in hosts_to_disconnect {
-            self.disallow_host(&host)?;
+            self.disallow_host(host)?;
             // note this only disconnects previously registered hosts
             // todo: disconnect any connected host which is not allowed
-            self.disconnect_host(&host).await?;
+            self.disconnect_host(host).await?;
         }
 
         Ok(())
     }
 
     /// Allows the specified hosts to connect to the subsystem.
-    pub fn allow_hosts(&self, hosts: &[&str]) -> Result<(), Error> {
+    pub fn allow_hosts<'a, T: Iterator<Item = &'a str>>(&'a self, hosts: T) -> Result<(), Error> {
         for host in hosts {
             self.allow_host(host)?;
         }
