@@ -160,8 +160,7 @@ impl CreateDestroy for Aio {
         debug!("{:?}: deleting", self);
 
         match UntypedBdev::lookup_by_name(&self.name) {
-            Some(mut bdev) => {
-                bdev.remove_alias(&self.alias);
+            Some(bdev) => {
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     bdev_aio_delete(
