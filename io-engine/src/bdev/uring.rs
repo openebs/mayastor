@@ -123,8 +123,7 @@ impl CreateDestroy for Uring {
     /// Destroy the given uring bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match UntypedBdev::lookup_by_name(&self.name) {
-            Some(mut bdev) => {
-                bdev.remove_alias(&self.alias);
+            Some(bdev) => {
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
                     delete_uring_bdev(

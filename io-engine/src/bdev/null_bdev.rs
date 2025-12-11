@@ -202,8 +202,7 @@ impl CreateDestroy for Null {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) {
-            bdev.remove_alias(&self.alias);
+        if let Some(bdev) = UntypedBdev::lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
                 spdk_rs::libspdk::bdev_null_delete(

@@ -267,11 +267,10 @@ impl CreateDestroy for Ftl {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         debug!("{:?}: deleting", self);
 
-        let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.name) else {
+        let Some(bdev) = UntypedBdev::lookup_by_name(&self.name) else {
             return Err(BdevError::BdevNotFound { name: self.name });
         };
 
-        bdev.remove_alias(&self.alias);
         let (s, r) = oneshot::channel::<ErrnoResult<()>>();
 
         unsafe {

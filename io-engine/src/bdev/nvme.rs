@@ -128,9 +128,7 @@ impl CreateDestroy for NVMe {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(mut bdev) = UntypedBdev::lookup_by_name(&self.get_name()) {
-            bdev.remove_alias(self.url.as_ref());
-
+        if UntypedBdev::lookup_by_name(&self.get_name()).is_some() {
             let res = bdev_nvme_delete_async(&self.name, None).await;
 
             // Restore the alias in the case the deletion failed.

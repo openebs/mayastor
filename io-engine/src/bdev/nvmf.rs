@@ -236,18 +236,14 @@ impl CreateDestroy for Nvmf {
     /// Destroy the given NVMF bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match UntypedBdev::lookup_by_name(&self.get_name()) {
-            Some(mut bdev) => {
-                bdev.remove_alias(&self.alias);
-
-                bdev_nvme_delete_async(&self.name, None)
-                    .await
-                    .context(bdev_api::BdevCommandCanceled {
-                        name: self.name.clone(),
-                    })?
-                    .context(bdev_api::DestroyBdevFailed {
-                        name: self.name.clone(),
-                    })
-            }
+            Some(_) => bdev_nvme_delete_async(&self.name, None)
+                .await
+                .context(bdev_api::BdevCommandCanceled {
+                    name: self.name.clone(),
+                })?
+                .context(bdev_api::DestroyBdevFailed {
+                    name: self.name.clone(),
+                }),
             None => Err(BdevError::BdevNotFound {
                 name: self.get_name(),
             }),
