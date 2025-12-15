@@ -3,8 +3,6 @@
 
 extern crate nix;
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate serde_json;
 #[macro_use]
 extern crate tracing;
@@ -15,6 +13,7 @@ mod test;
 
 use self::error::{Error, RpcCode};
 use nix::errno::Errno;
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
