@@ -4,6 +4,7 @@ from common.nvme import nvme_connect, nvme_disconnect
 from common.fio import Fio
 from common.fio_spdk import FioSpdk
 from common.mayastor import containers, mayastors, create_temp_files, check_size
+from retrying import retry
 import pytest
 import asyncio
 import uuid as guid
@@ -107,7 +108,9 @@ def test_rebuild_failure(containers, mayastors, times, create_nexuses):
             except:
                 print(f"Failed to remove child {child.uri} from {nexus}")
 
-    time.sleep(5)
+    # I'm not sure what this sleep was acomplishing, but if we wait too long we might
+    # miss the rebuilds... changing from 5 to 3 though this should probably be refactored.
+    time.sleep(3)
 
     rebuilds = 0
     for nexus in ms0.nexus_list():
@@ -127,10 +130,24 @@ def test_rebuild_failure(containers, mayastors, times, create_nexuses):
     # Stop ms3 again. Rebuild jobs in progress must terminate.
     node3.stop()
 
-    time.sleep(10)
-
     # All rebuild jobs must finish.
+    wait_no_rebuilds(ms0)
+
     for nexus in ms0.nexus_list():
         for child in nexus.children:
             assert child.rebuild_progress == -1
         ms0.nexus_destroy(nexus.uuid)
+
+
+@retry(wait_fixed=250, stop_max_attempt_number=50)
+def wait_no_rebuilds(ms0):
+    for nexus in ms0.nexus_list():
+        # Not here that the nexus may be degraded because the rebuilds above are started before the removed child is
+        # cleanly removed.
+        # I'm not sure if this was the intent or not?
+        assert nexus.state in [
+            pb.NEXUS_ONLINE,
+            pb.NEXUS_DEGRADED,
+        ], f"Nexus: {nexus}, {nexus.state}, {nexus.children}"
+        for child in nexus.children:
+            assert child.rebuild_progress == -1
