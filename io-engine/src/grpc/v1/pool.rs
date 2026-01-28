@@ -66,6 +66,11 @@ impl From<GrowPoolRequest> for FindPoolArgs {
         Self::name_uuid(value.name, &value.uuid)
     }
 }
+impl From<ClearErrorRequest> for FindPoolArgs {
+    fn from(value: ClearErrorRequest) -> Self {
+        Self::name_uuid(value.name, &value.uuid)
+    }
+}
 
 /// Helper routine to extract Encryption params from the Create or Import pool request.
 async fn util_fetch_secret_params(
@@ -420,6 +425,9 @@ impl PoolGrpc {
         self.pool.grow().await?;
         Ok(())
     }
+    async fn clear_errors(&self) -> Result<(), tonic::Status> {
+        Err(tonic::Status::unimplemented("todo"))
+    }
     /// Access the `PoolOps` from this wrapper.
     pub(crate) fn as_ops(&self) -> &dyn PoolOps {
         self.pool.deref()
@@ -449,6 +457,8 @@ impl From<&dyn PoolOps> for Pool {
             md_info: value.md_props().map(|md| md.into()),
             encrypted: Some(value.encrypted()),
             max_expandable_size: value.max_expandable_size(),
+            disk_info: vec![],
+            errors: None,
         }
     }
 }
@@ -728,6 +738,22 @@ impl PoolRpc for PoolService {
                     pool.grow().await?;
                     let current_pool = Pool::from(pool.as_ops());
                     Ok(current_pool)
+                })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn clear_errors(&self, request: Request<ClearErrorRequest>) -> GrpcResult<Pool> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
+                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    pool.clear_errors().await?;
+                    Ok(Pool::from(pool.as_ops()))
                 })
             },
         )

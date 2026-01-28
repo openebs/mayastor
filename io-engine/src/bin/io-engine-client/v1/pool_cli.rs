@@ -729,9 +729,10 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
 }
 
 fn pool_state_to_str(idx: i32) -> &'static str {
-    match v1rpc::pool::PoolState::try_from(idx).unwrap() {
+    match v1rpc::pool::PoolState::try_from(idx).unwrap_or_default() {
         v1rpc::pool::PoolState::PoolUnknown => "unknown",
         v1rpc::pool::PoolState::PoolOnline => "online",
+        v1rpc::pool::PoolState::PoolSuspected => "suspected",
         v1rpc::pool::PoolState::PoolDegraded => "degraded",
         v1rpc::pool::PoolState::PoolFaulted => "faulted",
     }
