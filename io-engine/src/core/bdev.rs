@@ -139,7 +139,7 @@ where
 
     /// Returns IoStats for a particular bdev.
     pub async fn stats_async(&self) -> Result<BlockDeviceIoStats, CoreError> {
-        match self.inner.stats_async().await {
+        match self.inner.stats_async(false).await {
             Ok(stat) => Ok(BlockDeviceIoStats {
                 num_read_ops: stat.num_read_ops,
                 num_write_ops: stat.num_write_ops,
@@ -164,10 +164,17 @@ where
 
     /// Resets io stats for a given Bdev.
     pub async fn reset_bdev_io_stats(&self) -> Result<(), CoreError> {
-        self.inner
-            .stats_reset_async()
+        self.reset_stats_ext(spdk_rs::BdevStatsResetMode::All)
             .await
             .map_err(|err| CoreError::DeviceStatisticsFailed { source: err })
+    }
+
+    /// Resets bdev stats with the specified reset mode.
+    pub async fn reset_stats_ext(
+        &self,
+        reset_mode: spdk_rs::BdevStatsResetMode,
+    ) -> Result<(), Errno> {
+        self.inner.stats_reset_async(reset_mode).await
     }
 }
 
