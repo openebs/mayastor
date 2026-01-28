@@ -222,6 +222,29 @@ pub fn subcommands() -> Command {
                 .value_parser(PoolType::types().to_vec()),
         );
 
+    let clear = Command::new("clear-errors")
+        .about("Clears errors from the storage pool")
+        .arg(
+            Arg::new("name")
+                .required(true)
+                .index(1)
+                .help("Storage pool name"),
+        )
+        .arg(
+            Arg::new("uuid")
+                .short('u')
+                .long("uuid")
+                .required(false)
+                .help("Storage pool uuid"),
+        )
+        .arg(
+            Arg::new("disk")
+                .required(false)
+                .action(clap::ArgAction::Append)
+                .index(2)
+                .help("Disk devices to clear errors or all if not specified"),
+        );
+
     Command::new("pool")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -232,6 +255,7 @@ pub fn subcommands() -> Command {
         .subcommand(export)
         .subcommand(expand)
         .subcommand(list)
+        .subcommand(clear)
 }
 
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -242,6 +266,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("export", args) => export(ctx, args).await,
         ("expand", args) => expand(ctx, args).await,
         ("list", args) => list(ctx, args).await,
+        ("clear-errors", args) => clear_errors(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
         }
@@ -722,6 +747,41 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                 ],
                 table,
             );
+        }
+    };
+
+    Ok(())
+}
+
+async fn clear_errors(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    let name = matches
+        .get_one::<String>("name")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "name".to_string(),
+        })?
+        .to_owned();
+    let uuid = matches.get_one::<String>("uuid").cloned();
+
+    let disks = matches.get_many::<String>("disk").unwrap_or_default();
+
+    let response = ctx
+        .v1
+        .pool
+        .clear_errors(v1rpc::pool::ClearErrorRequest {
+            name: name.clone(),
+            uuid,
+            disks: disks.map(|dev| dev.to_owned()).collect(),
+            clear: 0,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    let pool = response.get_ref();
+
+    match ctx.output {
+        OutputFormat::Json => {}
+        OutputFormat::Default => {
+            println!("pool stats error cleared, current: {:#?}", pool.errors);
         }
     };
 
