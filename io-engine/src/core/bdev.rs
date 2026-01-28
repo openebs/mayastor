@@ -14,6 +14,7 @@ use crate::{
     bdev::{bdev_event_callback, nexus::NEXUS_MODULE_NAME},
     bdev_api::bdev_uri_eq,
     core::{
+        block_device::BlockDeviceIoErrorStats,
         share::{NvmfShareProps, Protocol, Share, UpdateProps},
         BlockDeviceIoStats, CoreError, DescriptorGuard, PtplProps, ShareNvmf, UnshareNvmf,
     },
@@ -158,6 +159,14 @@ where
                 unmap_latency_ticks: stat.unmap_latency_ticks,
                 tick_rate: self.get_tick_rate(),
             }),
+            Err(err) => Err(CoreError::DeviceStatisticsFailed { source: err }),
+        }
+    }
+
+    /// Returns Io Error Stats for a particular bdev.
+    pub async fn stats_errors_async(&self) -> Result<BlockDeviceIoErrorStats, CoreError> {
+        match self.inner.stats_async(true).await {
+            Ok(mut stat) => Ok(stat.take_error_stats().expect("error is set")),
             Err(err) => Err(CoreError::DeviceStatisticsFailed { source: err }),
         }
     }
@@ -397,8 +406,30 @@ pub trait BdevStater {
     /// Returns IoStats for a particular bdev.
     async fn stats(&self) -> Result<Self::Stats, CoreError>;
 
+    /// Returns error IoStats for a particular bdev.
+    async fn error_stats(&self) -> Result<BdevErrorStats, CoreError> {
+        Err(CoreError::DeviceStatisticsFailed {
+            source: Errno::EOPNOTSUPP,
+        })
+    }
+
     /// Resets io stats for a given Bdev.
     async fn reset_stats(&self) -> Result<(), CoreError>;
+}
+
+pub struct BdevErrorStats(pub BlockDeviceIoErrorStats);
+
+impl BdevErrorStats {
+    /// All errors except `spdk_rs::libspdk::SPDK_BDEV_IO_STATUS_NOMEM`.
+    pub fn error_count(&self) -> u64 {
+        self.0
+            .error_status
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i as i32 != -spdk_rs::libspdk::SPDK_BDEV_IO_STATUS_NOMEM - 1)
+            .map(|(_, v)| v)
+            .sum::<u32>() as u64
+    }
 }
 
 /// Bdev IO stats along with its name and uuid.

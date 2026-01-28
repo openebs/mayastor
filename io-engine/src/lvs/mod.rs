@@ -30,7 +30,7 @@ pub mod lvs_lvol;
 mod lvs_store;
 
 use crate::{
-    core::{BdevStater, BdevStats, CoreError, UntypedBdev},
+    core::{BdevErrorStats, BdevStater, BdevStats, CoreError, UntypedBdev},
     replica_backend::{FindSnapshotArgs, ReplicaBdevStats},
 };
 pub use lvol_snapshot::{LvolResult, LvolSnapshotDescriptor, LvolSnapshotOps};
@@ -156,6 +156,16 @@ impl PoolOps for Lvs {
         (*self).grow().await?;
         Ok(())
     }
+
+    async fn reset_errors(&self) -> Result<(), crate::pool_backend::Error> {
+        self.base_bdev()
+            .reset_stats_ext(spdk_rs::BdevStatsResetMode::Errors)
+            .await
+            .map_err(|errno| crate::pool_backend::Error::Gen {
+                source: crate::pool_backend::GenericError::StatsReset { errno },
+            })?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait(?Send)]
@@ -165,6 +175,11 @@ impl BdevStater for Lvs {
     async fn stats(&self) -> Result<BdevStats, CoreError> {
         let stats = self.base_bdev().stats_async().await?;
         Ok(BdevStats::new(self.name().to_string(), self.uuid(), stats))
+    }
+
+    async fn error_stats(&self) -> Result<BdevErrorStats, CoreError> {
+        let stats = self.base_bdev().stats_errors_async().await?;
+        Ok(BdevErrorStats(stats))
     }
 
     async fn reset_stats(&self) -> Result<(), CoreError> {
