@@ -663,7 +663,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            let pools: &Vec<v1rpc::pool::Pool> = &response.get_ref().pools;
+            let pools = response.into_inner().pools;
             if pools.is_empty() {
                 ctx.v1("No pools found");
                 return Ok(());
@@ -679,11 +679,14 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             }
 
             let table = pools
-                .iter()
+                .into_iter()
                 .map(|p| {
                     let cap = Byte::from_u64(p.capacity);
                     let used = Byte::from_u64(p.used);
                     let state = pool_state_to_str(p.state);
+                    let errors = p.errors.unwrap_or_default();
+                    let alerts = errors.alerts.unwrap_or_default();
+                    let status = pool_status_to_str(alerts.status);
                     let cluster = Byte::from_u64(p.cluster_size.into());
                     let page_size = p
                         .page_size
@@ -712,6 +715,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                         p.name.clone(),
                         p.uuid.clone(),
                         state.to_string(),
+                        status.to_string(),
                         ctx.units(cap),
                         ctx.units(used),
                         percentage_str(p.used, p.capacity),
@@ -724,6 +728,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                         p.disks.join(" "),
                         ctx.units(disk_cap),
                         p.encrypted.unwrap_or_default().to_string(),
+                        errors.io_error_count.to_string(),
                     ]
                 })
                 .collect();
@@ -732,6 +737,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     "NAME",
                     "UUID",
                     "STATE",
+                    "STATUS",
                     "CAPACITY",
                     "USED",
                     "USED%",
@@ -744,6 +750,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     "DISKS",
                     "DISK_CAPACITY",
                     "ENCRYPTED",
+                    "ERRORS",
                 ],
                 table,
             );
@@ -795,5 +802,13 @@ fn pool_state_to_str(idx: i32) -> &'static str {
         v1rpc::pool::PoolState::PoolSuspected => "suspected",
         v1rpc::pool::PoolState::PoolDegraded => "degraded",
         v1rpc::pool::PoolState::PoolFaulted => "faulted",
+    }
+}
+fn pool_status_to_str(idx: i32) -> &'static str {
+    match v1rpc::pool::PoolAlertStatus::try_from(idx).unwrap_or_default() {
+        v1rpc::pool::PoolAlertStatus::Healthy => "healthy",
+        v1rpc::pool::PoolAlertStatus::Attention => "attention",
+        v1rpc::pool::PoolAlertStatus::Warning => "warning",
+        v1rpc::pool::PoolAlertStatus::Critical => "critical",
     }
 }
