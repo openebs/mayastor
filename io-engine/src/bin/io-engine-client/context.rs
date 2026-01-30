@@ -216,7 +216,10 @@ impl Context {
     }
 
     pub(crate) fn units_with(&self, n: Byte, unit: byte_unit::UnitType) -> String {
-        format!("{:.2}", n.get_appropriate_unit(unit))
+        match self.units {
+            'b' => n.as_u64().to_string(),
+            _ => format!("{:.2}", n.get_appropriate_unit(unit)),
+        }
     }
 
     pub(crate) fn print_list(&self, headers: Vec<&str>, mut data: Vec<Vec<String>>) {
