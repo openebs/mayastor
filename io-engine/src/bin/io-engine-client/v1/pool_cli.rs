@@ -5,7 +5,7 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use io_engine_api::v1 as v1rpc;
+use io_engine_api::{v1 as v1rpc, v1::pool::Pool};
 use snafu::ResultExt;
 use std::{convert::TryFrom, str::FromStr};
 use strum::VariantNames;
@@ -627,6 +627,115 @@ async fn expand(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
+fn list_pools(ctx: Context, pools: either::Either<Pool, Vec<Pool>>) -> crate::Result<()> {
+    match ctx.output {
+        OutputFormat::Json => {
+            let json = match pools {
+                either::Either::Left(pool) => serde_json::to_string_pretty(&pool).unwrap(),
+                either::Either::Right(pools) => serde_json::to_string_pretty(&pools).unwrap(),
+            };
+            println!("{}", json.to_colored_json_auto().unwrap());
+        }
+        OutputFormat::Default => {
+            if let either::Either::Right(ref pools) = pools {
+                if pools.is_empty() {
+                    ctx.v1("No pools found");
+                    return Ok(());
+                }
+            }
+
+            fn percentage_str(a: u64, b: u64) -> String {
+                if b > 0 {
+                    let v = 100.0 * a as f64 / b as f64;
+                    format!("{v:.2}%")
+                } else {
+                    "-".to_string()
+                }
+            }
+            fn map_pool(ctx: &Context, p: Pool) -> Vec<String> {
+                let cap = Byte::from_u64(p.capacity);
+                let used = Byte::from_u64(p.used);
+                let state = pool_state_to_str(p.state);
+                let errors = p.errors.unwrap_or_default();
+                let alerts = errors.alerts.unwrap_or_default();
+                let status = pool_status_to_str(alerts.status);
+                let cluster = Byte::from_u64(p.cluster_size.into());
+                let page_size = p
+                    .page_size
+                    .map(|s| ctx.units_with(Byte::from_u64(s.into()), byte_unit::UnitType::Binary))
+                    .unwrap_or("-".to_string());
+                let disk_cap = Byte::from_u64(p.disk_capacity);
+
+                let (md_page_size, md_pages, md_used_pages, md_usage) =
+                    if let Some(t) = p.md_info.as_ref() {
+                        (
+                            ctx.units_with(t.md_page_size.into(), byte_unit::UnitType::Binary),
+                            t.md_pages.to_string(),
+                            t.md_used_pages.to_string(),
+                            percentage_str(t.md_used_pages, t.md_pages),
+                        )
+                    } else {
+                        (
+                            "-".to_string(),
+                            "-".to_string(),
+                            "-".to_string(),
+                            "-".to_string(),
+                        )
+                    };
+
+                vec![
+                    p.name.clone(),
+                    p.uuid.clone(),
+                    state.to_string(),
+                    status.to_string(),
+                    ctx.units(cap),
+                    ctx.units(used),
+                    percentage_str(p.used, p.capacity),
+                    ctx.units_with(cluster, byte_unit::UnitType::Binary),
+                    page_size,
+                    md_page_size,
+                    md_pages,
+                    md_used_pages,
+                    md_usage,
+                    p.disks.join(" "),
+                    ctx.units(disk_cap),
+                    p.encrypted.unwrap_or_default().to_string(),
+                    errors.io_error_count.to_string(),
+                ]
+            }
+            let headers = vec![
+                "NAME",
+                "UUID",
+                "STATE",
+                "STATUS",
+                "CAPACITY",
+                "USED",
+                "USED%",
+                "CLUSTER_SIZE",
+                "PAGE_SIZE",
+                "MD_PAGE_SIZE",
+                "MD_PAGES",
+                "MD_USED_PAGES",
+                "MD_USED%",
+                "DISKS",
+                "DISK_CAPACITY",
+                "ENCRYPTED",
+                "ERRORS",
+            ];
+            let pools = match pools {
+                either::Either::Left(pool) => {
+                    vec![pool]
+                }
+                either::Either::Right(pools) => pools,
+            };
+            let table = pools.into_iter().map(|p| map_pool(&ctx, p)).collect();
+            ctx.print_list(headers, table);
+        }
+    }
+
+    Ok(())
+}
+
 async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
 
@@ -652,112 +761,7 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .await
         .context(GrpcStatus)?;
 
-    match ctx.output {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
-        }
-        OutputFormat::Default => {
-            let pools = response.into_inner().pools;
-            if pools.is_empty() {
-                ctx.v1("No pools found");
-                return Ok(());
-            }
-
-            fn percentage_str(a: u64, b: u64) -> String {
-                if b > 0 {
-                    let v = 100.0 * a as f64 / b as f64;
-                    format!("{v:.2}%")
-                } else {
-                    "-".to_string()
-                }
-            }
-
-            let table = pools
-                .into_iter()
-                .map(|p| {
-                    let cap = Byte::from_u64(p.capacity);
-                    let used = Byte::from_u64(p.used);
-                    let state = pool_state_to_str(p.state);
-                    let errors = p.errors.unwrap_or_default();
-                    let alerts = errors.alerts.unwrap_or_default();
-                    let status = pool_status_to_str(alerts.status);
-                    let cluster = Byte::from_u64(p.cluster_size.into());
-                    let page_size = p
-                        .page_size
-                        .map(|s| ctx.units(Byte::from_u64(s.into())))
-                        .unwrap_or("-".to_string());
-                    let disk_cap = Byte::from_u64(p.disk_capacity);
-
-                    let (md_page_size, md_pages, md_used_pages, md_usage) =
-                        if let Some(t) = p.md_info.as_ref() {
-                            (
-                                ctx.units(t.md_page_size.into()),
-                                t.md_pages.to_string(),
-                                t.md_used_pages.to_string(),
-                                percentage_str(t.md_used_pages, t.md_pages),
-                            )
-                        } else {
-                            (
-                                "-".to_string(),
-                                "-".to_string(),
-                                "-".to_string(),
-                                "-".to_string(),
-                            )
-                        };
-
-                    vec![
-                        p.name.clone(),
-                        p.uuid.clone(),
-                        state.to_string(),
-                        status.to_string(),
-                        ctx.units(cap),
-                        ctx.units(used),
-                        percentage_str(p.used, p.capacity),
-                        ctx.units(cluster),
-                        page_size,
-                        md_page_size,
-                        md_pages,
-                        md_used_pages,
-                        md_usage,
-                        p.disks.join(" "),
-                        ctx.units(disk_cap),
-                        p.encrypted.unwrap_or_default().to_string(),
-                        errors.io_error_count.to_string(),
-                    ]
-                })
-                .collect();
-            ctx.print_list(
-                vec![
-                    "NAME",
-                    "UUID",
-                    "STATE",
-                    "STATUS",
-                    "CAPACITY",
-                    "USED",
-                    "USED%",
-                    "CLUSTER_SIZE",
-                    "PAGE_SIZE",
-                    "MD_PAGE_SIZE",
-                    "MD_PAGES",
-                    "MD_USED_PAGES",
-                    "MD_USED%",
-                    "DISKS",
-                    "DISK_CAPACITY",
-                    "ENCRYPTED",
-                    "ERRORS",
-                ],
-                table,
-            );
-        }
-    };
-
-    Ok(())
+    list_pools(ctx, either::Right(response.into_inner().pools))
 }
 
 async fn clear_errors(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -783,16 +787,7 @@ async fn clear_errors(mut ctx: Context, matches: &ArgMatches) -> crate::Result<(
         .await
         .context(GrpcStatus)?;
 
-    let pool = response.get_ref();
-
-    match ctx.output {
-        OutputFormat::Json => {}
-        OutputFormat::Default => {
-            println!("pool stats error cleared, current: {:#?}", pool.errors);
-        }
-    };
-
-    Ok(())
+    list_pools(ctx, either::Left(response.into_inner()))
 }
 
 fn pool_state_to_str(idx: i32) -> &'static str {

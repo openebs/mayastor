@@ -215,6 +215,10 @@ impl Context {
         }
     }
 
+    pub(crate) fn units_with(&self, n: Byte, unit: byte_unit::UnitType) -> String {
+        format!("{:.2}", n.get_appropriate_unit(unit))
+    }
+
     pub(crate) fn print_list(&self, headers: Vec<&str>, mut data: Vec<Vec<String>>) {
         assert_ne!(data.len(), 0);
         let ncols = data.first().unwrap().len();
