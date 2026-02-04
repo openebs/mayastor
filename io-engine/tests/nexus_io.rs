@@ -6,7 +6,7 @@ use io_engine::{
         NexusPauseState, NvmeAnaState,
     },
     constants::NVME_NQN_PREFIX,
-    core::{MayastorCliArgs, Protocol},
+    core::{MayastorCliArgs, Protocol, Reactors},
     lvs::Lvs,
     pool_backend::PoolArgs,
 };
@@ -1073,6 +1073,91 @@ async fn nexus_io_write_zeroes() {
             bdev_io::read_some(&name, 0, 2, 0)
                 .await
                 .expect("read should return block of 0");
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn nexus_subsystem_races() {
+    let mayastor = get_ms();
+    let nexus_name = format!("nexus-{NEXUS_UUID}");
+
+    let name = nexus_name.clone();
+    let children = vec!["malloc:///d?size_mb=64".into()];
+    mayastor
+        .spawn(async move {
+            // create nexus on local node with remote replica as child
+            nexus_create(&name, 32 * 1024 * 1024, Some(NEXUS_UUID), &children)
+                .await
+                .unwrap();
+            // publish nexus on local node over nvmf
+            nexus_lookup_mut(&name)
+                .unwrap()
+                .share(Protocol::Nvmf, None)
+                .await
+                .unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Unpaused));
+        })
+        .await;
+
+    let name = nexus_name.clone();
+    mayastor
+        .spawn(async move {
+            let share_uri = nexus_lookup_mut(&name).unwrap().get_share_uri();
+            assert!(share_uri.is_some());
+
+            nexus_lookup_mut(&name).unwrap().pause().await.unwrap();
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Paused));
+
+            let name2 = name.clone();
+            Reactors::current().send_future(async move {
+                let nx = nexus_lookup_mut(&name2).unwrap();
+                nx.unshare_nexus().await.unwrap();
+            });
+
+            let (s, r) = futures::channel::oneshot::channel();
+            let name2 = name.clone();
+            Reactors::current().send_future(async move {
+                nexus_lookup_mut(&name2).unwrap().resume().await.unwrap();
+                s.send(()).unwrap();
+            });
+            r.await.unwrap();
+
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Unpaused));
+            let share_uri = nexus_lookup_mut(&name).unwrap().get_share_uri();
+            // Since stop races with resume, we actually end up in a limbo state where the share
+            // uri is not returned because the nexus_target is cleared, but the subsystem is
+            // running nonetheless!
+            assert_eq!(share_uri, None);
+
+            let nx = nexus_lookup_mut(&name).unwrap();
+            nx.share(Protocol::Nvmf, None).await.unwrap();
+
+            // sharing again will work and the subsystem will be reported correctly...
+            let share_uri = nexus_lookup_mut(&name).unwrap().get_share_uri();
+            assert!(share_uri.is_some());
+        })
+        .await;
+
+    let name = nexus_name.clone();
+    mayastor
+        .spawn(async move {
+            let name2 = name.clone();
+            Reactors::current().send_future(async move {
+                let nx = nexus_lookup_mut(&name2).unwrap();
+                nx.unshare_nexus().await.unwrap();
+            });
+
+            let name2 = name.clone();
+            let (s, r) = futures::channel::oneshot::channel();
+            Reactors::current().send_future(async move {
+                let _result = nexus_lookup_mut(&name2).unwrap().pause().await;
+                s.send(()).unwrap();
+            });
+
+            r.await.unwrap();
+
+            assert_eq!(nexus_pause_state(&name), Some(NexusPauseState::Paused));
         })
         .await;
 }
