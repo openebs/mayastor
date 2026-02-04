@@ -280,6 +280,38 @@ pub struct MayastorCliArgs {
     /// Enables globally blob store cluster release on unmap.
     #[clap(long, env = "ENABLE_BS_CLUSTER_UNMAP", hide = true)]
     pub bs_cluster_unmap: bool,
+
+    /// [`PoolCliArgs`].
+    #[clap(flatten)]
+    pub pool: PoolCliArgs,
+}
+
+/// DiskPool related arguments.
+#[derive(Debug, clap::Parser, Clone)]
+pub struct PoolCliArgs {
+    /// I/O error count threshold.
+    /// After this many errors a pool alert is raised as Warning.
+    #[clap(long, default_value_t = 64)]
+    pub io_error_threshold: u64,
+
+    /// I/O stall deadline.
+    /// If an I/O is stuck longer than this period, then the pool is considered stalled and a
+    /// Critical alert is raised.
+    /// The pool disk will also be reset and the stall will be cleared once complete and
+    /// I/O flows again.
+    #[clap(long, default_value = "30s")]
+    pub io_stall_deadline: humantime::Duration,
+
+    /// I/O stall transitions threshold.
+    /// After this many transitions within the window, a pool alert is raised as Warning.
+    #[clap(long, default_value_t = 3)]
+    pub io_stall_transition_threshold: u64,
+
+    /// I/O stall transitions window.
+    /// Time window during which stall ↔ resume state transitions are tracked
+    /// for flakiness detection.
+    #[clap(long, default_value = "3h")]
+    pub io_stall_transition_window: humantime::Duration,
 }
 
 fn delay_compat(s: &str) -> Result<bool, String> {
@@ -315,47 +347,7 @@ impl MayastorFeatures {
 /// Defaults are redefined here in case of using it during tests
 impl Default for MayastorCliArgs {
     fn default() -> Self {
-        #[allow(deprecated)]
-        Self {
-            deprecated_grpc_endpoint: None,
-            grpc_ip: std::net::Ipv6Addr::UNSPECIFIED.into(),
-            grpc_port: 10124,
-            ps_endpoint: None,
-            ps_timeout: Duration::from_secs(10),
-            ps_retries: 30,
-            node_name: None,
-            env_context: None,
-            reactor_mask: "0x1".into(),
-            mem_size: 0,
-            rpc_address: "/var/tmp/mayastor.sock".to_string(),
-            no_pci: false,
-            log_components: vec![],
-            log_format: None,
-            mayastor_config: None,
-            ptpl_dir: None,
-            pool_config: None,
-            hugedir: None,
-            core_list: None,
-            bdev_io_ctx_pool_size: 65535,
-            nvme_ctl_io_ctx_pool_size: 65535,
-            registration_endpoint: None,
-            nvmf_tgt_interface: None,
-            nvmf_tgt_crdt: [0; TARGET_CRDT_LEN],
-            api_versions: vec![ApiVersion::V0, ApiVersion::V1],
-            diagnose_stack: None,
-            reactor_freeze_detection: false,
-            reactor_freeze_timeout: None,
-            skip_sig_handler: false,
-            enable_io_all_thrd_nexus_channels: false,
-            events_url: None,
-            events_replicas: None,
-            enable_nexus_channel_debug: false,
-            lvm: false,
-            snap_rebuild: false,
-            developer_delay: false,
-            rdma: false,
-            bs_cluster_unmap: false,
-        }
+        MayastorCliArgs::parse_from(Vec::<String>::new())
     }
 }
 
@@ -445,6 +437,7 @@ pub struct MayastorEnvironment {
     developer_delay: bool,
     rdma: bool,
     bs_cluster_unmap: bool,
+    pub pool_args: PoolCliArgs,
 }
 
 impl Default for MayastorEnvironment {
@@ -495,6 +488,7 @@ impl Default for MayastorEnvironment {
             developer_delay: false,
             rdma: false,
             bs_cluster_unmap: false,
+            pool_args: PoolCliArgs::parse_from(Vec::<String>::new()),
         }
     }
 }
@@ -636,6 +630,7 @@ impl MayastorEnvironment {
             rdma: args.rdma,
             bs_cluster_unmap: args.bs_cluster_unmap,
             enable_io_all_thrd_nexus_channels: args.enable_io_all_thrd_nexus_channels,
+            pool_args: args.pool,
             ..Default::default()
         }
         .setup_static()
@@ -664,6 +659,17 @@ impl MayastorEnvironment {
         match MAYASTOR_DEFAULT_ENV.get() {
             Some(env) => env.lock().clone(),
             None => MayastorEnvironment::default(),
+        }
+    }
+
+    /// Get the global environment (first created on new)
+    /// or otherwise the default one (used by the tests)
+    /// # Warning
+    /// Panics if used before the environment is set.
+    pub fn global() -> parking_lot::MutexGuard<'static, Self> {
+        match MAYASTOR_DEFAULT_ENV.get() {
+            Some(env) => env.lock(),
+            None => panic!("Environment not setup"),
         }
     }
 

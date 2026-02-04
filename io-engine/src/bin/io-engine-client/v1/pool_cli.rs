@@ -5,7 +5,7 @@ use crate::{
 use byte_unit::Byte;
 use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
-use io_engine_api::v1 as v1rpc;
+use io_engine_api::{v1 as v1rpc, v1::pool::Pool};
 use snafu::ResultExt;
 use std::{convert::TryFrom, str::FromStr};
 use strum::VariantNames;
@@ -222,6 +222,29 @@ pub fn subcommands() -> Command {
                 .value_parser(PoolType::types().to_vec()),
         );
 
+    let clear = Command::new("clear-errors")
+        .about("Clears errors from the storage pool")
+        .arg(
+            Arg::new("name")
+                .required(true)
+                .index(1)
+                .help("Storage pool name"),
+        )
+        .arg(
+            Arg::new("uuid")
+                .short('u')
+                .long("uuid")
+                .required(false)
+                .help("Storage pool uuid"),
+        )
+        .arg(
+            Arg::new("disk")
+                .required(false)
+                .action(clap::ArgAction::Append)
+                .index(2)
+                .help("Disk devices to clear errors or all if not specified"),
+        );
+
     Command::new("pool")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -232,6 +255,7 @@ pub fn subcommands() -> Command {
         .subcommand(export)
         .subcommand(expand)
         .subcommand(list)
+        .subcommand(clear)
 }
 
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -242,6 +266,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("export", args) => export(ctx, args).await,
         ("expand", args) => expand(ctx, args).await,
         ("list", args) => list(ctx, args).await,
+        ("clear-errors", args) => clear_errors(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
         }
@@ -602,6 +627,115 @@ async fn expand(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
+fn list_pools(ctx: Context, pools: either::Either<Pool, Vec<Pool>>) -> crate::Result<()> {
+    match ctx.output {
+        OutputFormat::Json => {
+            let json = match pools {
+                either::Either::Left(pool) => serde_json::to_string_pretty(&pool).unwrap(),
+                either::Either::Right(pools) => serde_json::to_string_pretty(&pools).unwrap(),
+            };
+            println!("{}", json.to_colored_json_auto().unwrap());
+        }
+        OutputFormat::Default => {
+            if let either::Either::Right(ref pools) = pools {
+                if pools.is_empty() {
+                    ctx.v1("No pools found");
+                    return Ok(());
+                }
+            }
+
+            fn percentage_str(a: u64, b: u64) -> String {
+                if b > 0 {
+                    let v = 100.0 * a as f64 / b as f64;
+                    format!("{v:.2}%")
+                } else {
+                    "-".to_string()
+                }
+            }
+            fn map_pool(ctx: &Context, p: Pool) -> Vec<String> {
+                let cap = Byte::from_u64(p.capacity);
+                let used = Byte::from_u64(p.used);
+                let state = pool_state_to_str(p.state);
+                let errors = p.errors.unwrap_or_default();
+                let alerts = errors.alerts.unwrap_or_default();
+                let status = pool_status_to_str(alerts.status);
+                let cluster = Byte::from_u64(p.cluster_size.into());
+                let page_size = p
+                    .page_size
+                    .map(|s| ctx.units_with(Byte::from_u64(s.into()), byte_unit::UnitType::Binary))
+                    .unwrap_or("-".to_string());
+                let disk_cap = Byte::from_u64(p.disk_capacity);
+
+                let (md_page_size, md_pages, md_used_pages, md_usage) =
+                    if let Some(t) = p.md_info.as_ref() {
+                        (
+                            ctx.units_with(t.md_page_size.into(), byte_unit::UnitType::Binary),
+                            t.md_pages.to_string(),
+                            t.md_used_pages.to_string(),
+                            percentage_str(t.md_used_pages, t.md_pages),
+                        )
+                    } else {
+                        (
+                            "-".to_string(),
+                            "-".to_string(),
+                            "-".to_string(),
+                            "-".to_string(),
+                        )
+                    };
+
+                vec![
+                    p.name.clone(),
+                    p.uuid.clone(),
+                    state.to_string(),
+                    status.to_string(),
+                    ctx.units(cap),
+                    ctx.units(used),
+                    percentage_str(p.used, p.capacity),
+                    ctx.units_with(cluster, byte_unit::UnitType::Binary),
+                    page_size,
+                    md_page_size,
+                    md_pages,
+                    md_used_pages,
+                    md_usage,
+                    p.disks.join(" "),
+                    ctx.units(disk_cap),
+                    p.encrypted.unwrap_or_default().to_string(),
+                    errors.io_error_count.to_string(),
+                ]
+            }
+            let headers = vec![
+                "NAME",
+                "UUID",
+                "STATE",
+                "STATUS",
+                "CAPACITY",
+                "USED",
+                "USED%",
+                "CLUSTER_SIZE",
+                "PAGE_SIZE",
+                "MD_PAGE_SIZE",
+                "MD_PAGES",
+                "MD_USED_PAGES",
+                "MD_USED%",
+                "DISKS",
+                "DISK_CAPACITY",
+                "ENCRYPTED",
+                "ERRORS",
+            ];
+            let pools = match pools {
+                either::Either::Left(pool) => {
+                    vec![pool]
+                }
+                either::Either::Right(pools) => pools,
+            };
+            let table = pools.into_iter().map(|p| map_pool(&ctx, p)).collect();
+            ctx.print_list(headers, table);
+        }
+    }
+
+    Ok(())
+}
+
 async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
 
@@ -627,112 +761,49 @@ async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .await
         .context(GrpcStatus)?;
 
-    match ctx.output {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
-        }
-        OutputFormat::Default => {
-            let pools: &Vec<v1rpc::pool::Pool> = &response.get_ref().pools;
-            if pools.is_empty() {
-                ctx.v1("No pools found");
-                return Ok(());
-            }
+    list_pools(ctx, either::Right(response.into_inner().pools))
+}
 
-            fn percentage_str(a: u64, b: u64) -> String {
-                if b > 0 {
-                    let v = 100.0 * a as f64 / b as f64;
-                    format!("{v:.2}%")
-                } else {
-                    "-".to_string()
-                }
-            }
+async fn clear_errors(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    let name = matches
+        .get_one::<String>("name")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "name".to_string(),
+        })?
+        .to_owned();
+    let uuid = matches.get_one::<String>("uuid").cloned();
 
-            let table = pools
-                .iter()
-                .map(|p| {
-                    let cap = Byte::from_u64(p.capacity);
-                    let used = Byte::from_u64(p.used);
-                    let state = pool_state_to_str(p.state);
-                    let cluster = Byte::from_u64(p.cluster_size.into());
-                    let page_size = p
-                        .page_size
-                        .map(|s| ctx.units(Byte::from_u64(s.into())))
-                        .unwrap_or("-".to_string());
-                    let disk_cap = Byte::from_u64(p.disk_capacity);
+    let disks = matches.get_many::<String>("disk").unwrap_or_default();
 
-                    let (md_page_size, md_pages, md_used_pages, md_usage) =
-                        if let Some(t) = p.md_info.as_ref() {
-                            (
-                                ctx.units(t.md_page_size.into()),
-                                t.md_pages.to_string(),
-                                t.md_used_pages.to_string(),
-                                percentage_str(t.md_used_pages, t.md_pages),
-                            )
-                        } else {
-                            (
-                                "-".to_string(),
-                                "-".to_string(),
-                                "-".to_string(),
-                                "-".to_string(),
-                            )
-                        };
+    let response = ctx
+        .v1
+        .pool
+        .clear_errors(v1rpc::pool::ClearErrorRequest {
+            name: name.clone(),
+            uuid,
+            disks: disks.map(|dev| dev.to_owned()).collect(),
+            clear: 0,
+        })
+        .await
+        .context(GrpcStatus)?;
 
-                    vec![
-                        p.name.clone(),
-                        p.uuid.clone(),
-                        state.to_string(),
-                        ctx.units(cap),
-                        ctx.units(used),
-                        percentage_str(p.used, p.capacity),
-                        ctx.units(cluster),
-                        page_size,
-                        md_page_size,
-                        md_pages,
-                        md_used_pages,
-                        md_usage,
-                        p.disks.join(" "),
-                        ctx.units(disk_cap),
-                        p.encrypted.unwrap_or_default().to_string(),
-                    ]
-                })
-                .collect();
-            ctx.print_list(
-                vec![
-                    "NAME",
-                    "UUID",
-                    "STATE",
-                    "CAPACITY",
-                    "USED",
-                    "USED%",
-                    "CLUSTER_SIZE",
-                    "PAGE_SIZE",
-                    "MD_PAGE_SIZE",
-                    "MD_PAGES",
-                    "MD_USED_PAGES",
-                    "MD_USED%",
-                    "DISKS",
-                    "DISK_CAPACITY",
-                    "ENCRYPTED",
-                ],
-                table,
-            );
-        }
-    };
-
-    Ok(())
+    list_pools(ctx, either::Left(response.into_inner()))
 }
 
 fn pool_state_to_str(idx: i32) -> &'static str {
-    match v1rpc::pool::PoolState::try_from(idx).unwrap() {
+    match v1rpc::pool::PoolState::try_from(idx).unwrap_or_default() {
         v1rpc::pool::PoolState::PoolUnknown => "unknown",
         v1rpc::pool::PoolState::PoolOnline => "online",
+        v1rpc::pool::PoolState::PoolSuspected => "suspected",
         v1rpc::pool::PoolState::PoolDegraded => "degraded",
         v1rpc::pool::PoolState::PoolFaulted => "faulted",
+    }
+}
+fn pool_status_to_str(idx: i32) -> &'static str {
+    match v1rpc::pool::PoolAlertStatus::try_from(idx).unwrap_or_default() {
+        v1rpc::pool::PoolAlertStatus::Healthy => "healthy",
+        v1rpc::pool::PoolAlertStatus::Attention => "attention",
+        v1rpc::pool::PoolAlertStatus::Warning => "warning",
+        v1rpc::pool::PoolAlertStatus::Critical => "critical",
     }
 }

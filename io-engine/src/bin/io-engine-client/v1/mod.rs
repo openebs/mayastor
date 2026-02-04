@@ -55,9 +55,10 @@ pub(super) async fn main_() -> crate::Result<()> {
             Arg::new("units")
                 .short('u')
                 .long("units")
+                .default_value("d")
                 .value_name("BASE")
-                .value_parser(["i", "d"])
-                .hide_possible_values(true)
+                .value_parser(["i", "d", "b"])
+                .hide_possible_values(false)
                 .next_line_help(true)
                 .help("Output with large units: i for kiB, etc. or d for kB, etc."),
         )

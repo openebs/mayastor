@@ -47,6 +47,9 @@ pub struct BlockDeviceIoStats {
     pub tick_rate: u64,
 }
 
+/// Structure representing Bdev Io Error Stats.
+pub type BlockDeviceIoErrorStats = spdk_rs::BdevErrorStats;
+
 /// Core trait that represents a block device.
 /// TODO: Add text.
 #[async_trait(?Send)]

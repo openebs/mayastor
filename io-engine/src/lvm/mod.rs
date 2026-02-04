@@ -141,6 +141,10 @@ impl PoolOps for VolumeGroup {
     async fn grow(&self) -> Result<(), crate::pool_backend::Error> {
         Err(Error::GrowNotSup {}.into())
     }
+
+    async fn reset_errors(&self) -> Result<(), crate::pool_backend::Error> {
+        Err(Error::GrowNotSup {}.into())
+    }
 }
 
 #[async_trait::async_trait(?Send)]

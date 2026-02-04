@@ -63,11 +63,14 @@ pub struct ReplicaArgs {
 pub enum GenericError {
     #[snafu(display("{message}"))]
     NotFound { message: String },
+    #[snafu(display("Failed to reset the stats: {errno}"))]
+    StatsReset { errno: Errno },
 }
 impl From<GenericError> for tonic::Status {
     fn from(e: GenericError) -> Self {
         match e {
             GenericError::NotFound { message } => tonic::Status::not_found(message),
+            GenericError::StatsReset { .. } => tonic::Status::internal(e.to_string()),
         }
     }
 }
@@ -75,6 +78,7 @@ impl ToErrno for GenericError {
     fn to_errno(self) -> Errno {
         match self {
             GenericError::NotFound { .. } => Errno::ENODEV,
+            GenericError::StatsReset { errno } => errno,
         }
     }
 }
@@ -142,6 +146,9 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
 
     /// Grows the given pool by filling the entire underlying device(s).
     async fn grow(&self) -> Result<(), Error>;
+
+    /// Reset the error stats of the pool disks.
+    async fn reset_errors(&self) -> Result<(), Error>;
 }
 
 /// Interface for a pool factory which can be used for various
