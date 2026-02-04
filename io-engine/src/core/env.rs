@@ -280,6 +280,11 @@ pub struct MayastorCliArgs {
     /// Enables globally blob store cluster release on unmap.
     #[clap(long, env = "ENABLE_BS_CLUSTER_UNMAP", hide = true)]
     pub bs_cluster_unmap: bool,
+    /// Enable core dump by setting ulimit -c.
+    /// You may specify a limit value or otherwise [`io_engine::core_dump::DEFAULT_CORE_LIMIT`] is used.
+    /// Enabled by default on debug builds.
+    #[clap(long, env = "ENABLE_COREDUMP", num_args(0..=1))]
+    pub enable_coredump: Option<Option<u64>>,
 
     /// [`PoolCliArgs`].
     #[clap(flatten)]

@@ -74,6 +74,7 @@ impl<'a> MayastorTest<'a> {
     }
 
     pub fn new_ex(args: MayastorCliArgs, log_level: Option<&str>) -> MayastorTest<'static> {
+        io_engine::coredump::enable(io_engine::coredump::DEFAULT_CORE_LIMIT).ok();
         let (tx, rx) = bounded(1);
         mayastor_test_init_ex(args.log_format.unwrap_or_default(), log_level);
         let thdl = std::thread::Builder::new()
