@@ -310,13 +310,12 @@ impl<'n> Nexus<'n> {
         self.check_nexus_state()?;
 
         // Step 1: Pause I/O subsystem for nexus.
-        self.as_mut().pause().await.map_err(|error| {
+        self.as_mut().pause().await.inspect_err(|error| {
             error!(
                 ?self,
                 ?error,
                 "Failed to pause I/O subsystem, nexus snapshot creation failed"
             );
-            error
         })?;
 
         // Step 2: Create snapshots on all replicas.
