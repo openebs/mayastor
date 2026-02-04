@@ -190,8 +190,7 @@ where
 
         let ptpl = props.ptpl().as_ref().map(|ptpl| ptpl.path());
 
-        // todo: add option to use uuid here, will allow for the replica uuid to
-        // be used!
+        // todo: add option to use uuid here, will allow for the replica uuid to be used!
         let subsystem = NvmfSubsystem::try_from_with(me, ptpl).context(ShareNvmf {})?;
 
         if let Some((cntlid_min, cntlid_max)) = props.cntlid_range() {

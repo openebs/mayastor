@@ -774,7 +774,7 @@ impl NvmfSubsystem {
             s.send(status).unwrap();
         }
 
-        info!(?self, "Subsystem {} in progress...", op);
+        info!(?self, "Subsystem {op} in progress...");
 
         let res = {
             let mut n = 0;
@@ -791,10 +791,8 @@ impl NvmfSubsystem {
                 n += 1;
 
                 warn!(
-                    "Failed to {} '{}': subsystem is busy, retrying {}...",
-                    op,
-                    self.get_nqn(),
-                    n
+                    "Failed to {op} '{}': subsystem is busy, retrying {n}...",
+                    self.get_nqn()
                 );
 
                 crate::sleep::mayastor_sleep(std::time::Duration::from_millis(100))
@@ -821,9 +819,9 @@ impl NvmfSubsystem {
         };
 
         if let Err(ref e) = res {
-            error!(?self, "Subsystem {} failed: {}", op, e.to_string());
+            error!(?self, "Subsystem {op} failed: {e}");
         } else {
-            info!(?self, "Subsystem {} completed: Ok", op);
+            info!(?self, "Subsystem {op} completed: Ok");
         }
 
         res
