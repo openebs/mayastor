@@ -74,6 +74,24 @@ pub enum Error {
     HostCstrNul { host: String },
 }
 
+impl Error {
+    /// Get the [`nix::Error`] or equivalent for this error.
+    pub(crate) fn errno(&self) -> nix::Error {
+        match self {
+            Error::CreateTarget { .. } => nix::Error::EXFULL,
+            Error::DestroyTarget { source, .. } => *source,
+            Error::PgError { .. } => nix::Error::EXFULL,
+            Error::Transport { source, .. } => *source,
+            Error::SubsystemBusy { .. } => nix::Error::EBUSY,
+            Error::Subsystem { source, .. } => *source,
+            Error::Share { .. } => nix::Error::EXFULL,
+            Error::Namespace { .. } => nix::Error::EXFULL,
+            Error::Listener { .. } => nix::Error::EXFULL,
+            Error::HostCstrNul { .. } => nix::Error::EXFULL,
+        }
+    }
+}
+
 thread_local! {
     pub (crate) static NVMF_PGS: RefCell<Vec<PollGroup>> = const { RefCell::new(Vec::new()) };
 }

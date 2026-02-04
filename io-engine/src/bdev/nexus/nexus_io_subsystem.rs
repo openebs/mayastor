@@ -17,8 +17,12 @@ use crate::{
 /// Nexus pause states.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum NexusPauseState {
+    /// When subsystem is stopping/stopped but not destroyed, there's a race where a resume will
+    /// restart the subsystem!
     Unpaused,
     Pausing,
+    /// When subsystem is stopping/stopped but not destroyed, there's a race where a pause will fail.
+    /// We'll still consider it as paused in this case.
     Paused,
     Frozen,
     Unpausing,
@@ -118,11 +122,22 @@ impl<'n> NexusIoSubsystem<'n> {
                             let nqn = subsystem.get_nqn();
                             trace!("{self:?}: pausing subsystem '{nqn}'...");
 
-                            if let Err(e) = subsystem.pause().await {
-                                panic!("Failed to pause subsystem '{}: {}", subsystem.get_nqn(), e);
+                            let result = subsystem.pause().await;
+                            if let Err(ref error) = result {
+                                // todo: handle error instead of panic, but in practice only ENOMEM can be seen here?
+                                if error.errno() != nix::Error::EPERM {
+                                    panic!("Failed to pause subsystem: {}", error);
+                                }
+                                // Can't pause a stopped subsystem, but we're essentially paused anyway.
+                                // However, there's a race here as, resume may resume a stopped subsystem.
+                                // We should prevent this on the spdk nvmf subsystem state mgmt.
                             }
 
-                            trace!("{self:?}: subsystem '{nqn}' paused");
+                            if result.is_ok() {
+                                trace!("{self:?}: subsystem '{nqn}' paused");
+                            } else {
+                                warn!("{self:?}: subsystem '{nqn}' stopped");
+                            }
                         }
                     }
 
@@ -173,6 +188,11 @@ impl<'n> NexusIoSubsystem<'n> {
     /// # NOTE
     /// In order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
+    /// # Warning
+    /// This function may return whilst the subsystem is still paused if other requests for pause
+    /// have been accepted.
+    /// The subsystem is only truly resumed when the last pause is undone, which may happen after
+    /// this function completes.
     pub(super) async fn resume(&mut self, freeze: bool) -> Result<(), Error> {
         assert_eq!(
             Cores::current(),
@@ -233,6 +253,7 @@ impl<'n> NexusIoSubsystem<'n> {
                             self.pause_state.store(NexusPauseState::Unpausing);
                             trace!("{self:?}: resuming subsystem '{}'...", subsystem.get_nqn());
                             if let Err(error) = subsystem.resume().await {
+                                // todo: handle error instead of panic, but in practice only ENOMEM can be seen here?
                                 panic!(
                                     "Failed to resume subsystem '{}: {}",
                                     subsystem.get_nqn(),
