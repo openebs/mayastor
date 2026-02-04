@@ -289,6 +289,21 @@ pub struct MayastorCliArgs {
     /// [`PoolCliArgs`].
     #[clap(flatten)]
     pub pool: PoolCliArgs,
+
+    /// [`SpdkTracingArgs`].
+    #[clap(flatten)]
+    pub traces: SpdkTracingArgs,
+}
+
+/// SPDK tracing related arguments.
+#[derive(Debug, clap::Parser, Clone)]
+pub struct SpdkTracingArgs {
+    /// Number of trace entries per lcore.
+    #[clap(long, default_value_t = 0)]
+    pub entries: u64,
+    /// Number of user created threads.
+    #[clap(long, default_value_t = 1)]
+    pub threads: u32,
 }
 
 /// DiskPool related arguments.
@@ -417,7 +432,7 @@ pub struct MayastorEnvironment {
     pub mem_size: i32,
     pub name: String,
     no_pci: bool,
-    num_entries: u64,
+    traces: SpdkTracingArgs,
     num_pci_addr: usize,
     pci_blocklist: Vec<spdk_pci_addr>,
     pci_allowlist: Vec<spdk_pci_addr>,
@@ -469,7 +484,6 @@ impl Default for MayastorEnvironment {
             mem_size: -1,
             name: "mayastor".into(),
             no_pci: false,
-            num_entries: 0,
             num_pci_addr: 0,
             pci_blocklist: vec![],
             pci_allowlist: vec![],
@@ -494,6 +508,7 @@ impl Default for MayastorEnvironment {
             rdma: false,
             bs_cluster_unmap: false,
             pool_args: PoolCliArgs::parse_from(Vec::<String>::new()),
+            traces: SpdkTracingArgs::parse_from(Vec::<String>::new()),
         }
     }
 }
@@ -636,6 +651,7 @@ impl MayastorEnvironment {
             bs_cluster_unmap: args.bs_cluster_unmap,
             enable_io_all_thrd_nexus_channels: args.enable_io_all_thrd_nexus_channels,
             pool_args: args.pool,
+            traces: args.traces,
             ..Default::default()
         }
         .setup_static()
@@ -1000,9 +1016,16 @@ impl MayastorEnvironment {
         None
     }
 
+    /// You can capture snapshot of the traces using the spdk utils and backtrace config, exampl:
+    /// sudo -E ./scripts/bpftrace.sh $(pidof io-engine) scripts/bpf/nvmf.bt
+    /// # NOTE
+    /// You may have to remove the top trace on scripts/bpf/nvmf.bt : nvmf_tgt_state
     fn init_spdk_tracing(&self) {
-        const MAX_GROUP_IDS: u32 = 16;
-        const NUM_THREADS: u32 = 1;
+        if self.traces.entries == 0 {
+            return;
+        }
+
+        tracing::info!(traces=?self.traces, "Enabling SPDK Tracing");
         let cshm_name = if self.shm_id >= 0 {
             CString::new(format!("/{}_trace.{}", self.name, self.shm_id).as_str()).unwrap()
         } else {
@@ -1010,7 +1033,7 @@ impl MayastorEnvironment {
                 .unwrap()
         };
         unsafe {
-            if spdk_trace_init(cshm_name.as_ptr(), self.num_entries, NUM_THREADS) != 0 {
+            if spdk_trace_init(cshm_name.as_ptr(), self.traces.entries, self.traces.threads) != 0 {
                 error!("SPDK tracing init error");
             }
         }
@@ -1018,7 +1041,7 @@ impl MayastorEnvironment {
         let tpoint_group_mask =
             unsafe { spdk_trace_create_tpoint_group_mask(tpoint_group_name.as_ptr()) };
 
-        for group_id in 0..MAX_GROUP_IDS {
+        for group_id in 0..spdk_rs::libspdk::SPDK_TRACE_MAX_GROUP_ID {
             if (tpoint_group_mask & (1 << group_id) as u64) > 0 {
                 unsafe {
                     spdk_trace_set_tpoints(group_id, u64::MAX);
@@ -1095,10 +1118,8 @@ impl MayastorEnvironment {
         // ensure we are within the context of a spdk thread from here
         Mthread::primary().set_current();
 
-        // To enable SPDK tracing set self.num_entries (eg. to 32768).
-        if self.num_entries > 0 {
-            self.init_spdk_tracing();
-        }
+        // To enable SPDK tracing set self.traces.entries (eg. to 32768).
+        self.init_spdk_tracing();
 
         Reactor::block_on(async {
             let (sender, receiver) = oneshot::channel::<bool>();
