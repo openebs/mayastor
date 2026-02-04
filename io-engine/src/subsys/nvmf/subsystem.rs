@@ -798,6 +798,7 @@ impl NvmfSubsystem {
                     nqn: self.get_nqn(),
                     msg: format!("{op} failed"),
                 }),
+                // this can't happen anymore, SPDK handles transitions in a q
                 libc::EBUSY => Err(Error::SubsystemBusy {
                     nqn: self.get_nqn(),
                     op: op.to_owned(),
