@@ -1143,7 +1143,7 @@ impl<'n> Nexus<'n> {
 
                 // Step 5: Mark nexus as shutdown.
                 // Note: we don't persist nexus's state in ETCd as nexus
-                // might be recreated on onother node.
+                // might be recreated on another node.
                 *nexus.state.lock() = NexusState::Shutdown;
             }
         });
