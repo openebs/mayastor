@@ -498,6 +498,11 @@ impl<'c> NexusChild<'c> {
         self.state() == ChildState::Open && self.sync_state() == ChildSyncState::Synced
     }
 
+    /// Determines if the child is faulted.
+    pub fn is_faulted(&self) -> bool {
+        matches!(self.state(), ChildState::Faulted(..))
+    }
+
     /// Determines if the child is being rebuilt.
     #[inline]
     pub(crate) fn is_rebuilding(&self) -> bool {

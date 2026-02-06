@@ -708,6 +708,14 @@ impl DeviceEventListener for Nexus<'_> {
                 Reactors::master().send_future(Nexus::disconnect_failed_child(
                     self.name.clone(),
                     dev_name.to_owned(),
+                    true,
+                ));
+            }
+            DeviceEventType::AdminQBroken => {
+                Reactors::master().send_future(Nexus::disconnect_failed_child(
+                    self.name.clone(),
+                    dev_name.to_owned(),
+                    false,
                 ));
             }
 
@@ -836,25 +844,34 @@ impl<'n> Nexus<'n> {
     }
 
     /// Disconnect a failed child from the given nexus.
-    async fn disconnect_failed_child(nexus_name: String, dev: String) {
-        let Some(nex) = nexus_lookup_mut(&nexus_name) else {
-            warn!(
-                "Nexus '{nexus_name}': retiring failed device '{dev}': \
-                nexus already gone"
-            );
+    async fn disconnect_failed_child(nexus_name: String, dev: String, ctrl_failed: bool) {
+        let Some(nexus) = nexus_lookup_mut(&nexus_name) else {
+            warn!("Nexus '{nexus_name}': retiring failed device '{dev}': nexus already gone");
             return;
         };
 
-        info!("Nexus '{nexus_name}': disconnect handlers for controller failed device: '{dev}'");
+        info!("Nexus '{nexus_name}': disconnect handlers for controller failed device: '{dev}', failed: {ctrl_failed}");
 
-        if nex.io_subsystem_state() == Some(NexusPauseState::Pausing) {
-            nex.traverse_io_channels_async((), |channel, _| {
+        let Ok(child) = nexus.child_by_device(&dev) else {
+            warn!("Nexus '{nexus_name}': retiring failed device '{dev}': child already gone");
+            return;
+        };
+        if !child.is_faulted() {
+            error!("Nexus '{nexus_name}': retiring failed device '{dev}': child not faulted");
+            return;
+        }
+
+        if nexus.io_subsystem_state() != Some(NexusPauseState::Pausing) {
+            error!("Nexus '{nexus_name}': retiring failed device '{dev}': nexus not pausing");
+            return;
+        }
+        nexus
+            .traverse_io_channels_async((), |channel, _| {
                 channel.disconnect_detached_devices(|h| {
-                    h.get_device().device_name() == dev && h.is_ctrlr_failed()
+                    h.get_device().device_name() == dev && (h.is_ctrlr_failed() || !ctrl_failed)
                 });
             })
             .await;
-        }
     }
 
     /// Retires a child device for the given nexus.
