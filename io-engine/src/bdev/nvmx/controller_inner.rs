@@ -21,6 +21,7 @@ use crate::{
         nvme_bdev_running_config, utils::nvme_cpl_succeeded, NvmeController, NVME_CONTROLLERS,
     },
     core::{CoreError, DeviceIoController, DeviceTimeoutAction},
+    subsys::Config,
 };
 
 impl TryFrom<u32> for DeviceTimeoutAction {
@@ -63,6 +64,11 @@ pub(crate) struct TimeoutConfig {
     next_reset_time: Instant,
     destroy_in_progress: AtomicCell<bool>,
     report_failed: AtomicCell<bool>,
+    /// Sometimes the target might misbehave, leading into us failing to send keep alives,
+    /// and leaving the controller in a non-failed state.
+    adminq_broken_report: AtomicCell<bool>,
+    adminq_broken_ts: AtomicCell<Option<Instant>>,
+    adminq_broken_tmo: Duration,
 }
 
 impl Drop for TimeoutConfig {
@@ -84,6 +90,9 @@ impl TimeoutConfig {
             next_reset_time: Instant::now(),
             destroy_in_progress: AtomicCell::new(false),
             report_failed: AtomicCell::new(true),
+            adminq_broken_ts: AtomicCell::new(None),
+            adminq_broken_tmo: Duration::from_micros(Config::get().nvme_bdev_opts.timeout_admin_us),
+            adminq_broken_report: AtomicCell::new(true),
         }
     }
 
@@ -91,7 +100,7 @@ impl TimeoutConfig {
         self as *const _ as *mut _
     }
 
-    pub fn start_device_destroy(&mut self) -> bool {
+    pub fn start_device_destroy(&self) -> bool {
         self.destroy_in_progress
             .compare_exchange(false, true)
             .is_ok()
@@ -104,13 +113,34 @@ impl TimeoutConfig {
         unsafe { spdk_nvme_ctrlr_process_admin_completions(self.ctrlr.as_ptr()) }
     }
 
+    /// Yields true when the adminq is receiving ENXIO for longer than the adminq timeout.
+    pub fn adminq_broken_tmo(&self, error: nix::Error) -> bool {
+        if error != nix::Error::ENXIO {
+            return false;
+        }
+        let Err(Some(start_ts)) = self
+            .adminq_broken_ts
+            .compare_exchange(None, Some(Instant::now()))
+        else {
+            return false;
+        };
+
+        if start_ts.elapsed() <= self.adminq_broken_tmo {
+            return false;
+        }
+
+        self.adminq_broken_report
+            .compare_exchange(true, false)
+            .is_ok()
+    }
+
     /// Check if the SPDK's nvme controller is failed.
     pub fn is_failed(&self) -> bool {
         self.ctrlr.is_failed
     }
     /// Check if we need to report the controller failure.
     /// We only report this failure once.
-    pub fn report_failed(&mut self) -> bool {
+    pub fn report_failed(&self) -> bool {
         if !self.is_failed() {
             return false;
         }
