@@ -282,6 +282,7 @@ impl PoolBuilderLocal {
             backend: Default::default(),
             enc_key: None,
             crypto_vbdev_name: None,
+            no_spdk: false,
         })
         .await?;
         Ok(lvs)

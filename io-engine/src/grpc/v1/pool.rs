@@ -278,6 +278,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             backend: backend.into(),
             enc_key: None,
             crypto_vbdev_name: None,
+            no_spdk: false,
         })
     }
 }
@@ -366,6 +367,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
                 .encryption
                 .as_ref()
                 .map(|_| format!("crypto_{}", args.name)),
+            no_spdk: false,
         })
     }
 }

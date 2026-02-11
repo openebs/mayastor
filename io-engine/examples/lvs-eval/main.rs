@@ -135,9 +135,7 @@ async fn create_lvs(args: &CliArgs) -> Lvs {
         md_args: Some(PoolMetadataArgs {
             max_expansion: args.max_expansion.clone(),
         }),
-        backend: Default::default(),
-        enc_key: None,
-        crypto_vbdev_name: None,
+        ..Default::default()
     };
 
     Lvs::create_or_import(lvs_args.clone()).await.unwrap()

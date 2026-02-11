@@ -1,11 +1,10 @@
-use serde::Deserialize;
-
 use crate::{
     bdev::PtplFileOps,
     core::Protocol,
     lvm::{property::Property, LogicalVolume},
     pool_backend::PoolArgs,
 };
+use serde::Deserialize;
 
 use super::{
     cli::{de, CmnQueryArgs, LvmCmd},
@@ -141,6 +140,7 @@ impl VolumeGroup {
     /// Import a volume group with the name provided or create one with the name
     /// and disks provided currently only import is supported.
     pub(crate) async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
+        tracing::info!(?args, "Creating LVM VolumeGroup");
         let vg = match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
             Ok(_) => Self::import_inner(args).await,
             Err(Error::NotFound { .. }) => {
@@ -148,11 +148,13 @@ impl VolumeGroup {
 
                 LvmCmd::vg_create()
                     .arg(&args.name)
-                    .tag(Property::Lvm)
+                    .tag_if(!args.no_spdk, Property::Lvm)
                     .args(args.disks)
                     .run()
                     .await?;
-                let lookup = CmnQueryArgs::ours().named(&args.name).uuid_opt(&args.uuid);
+                let lookup = CmnQueryArgs::ours_if(!args.no_spdk)
+                    .named(&args.name)
+                    .uuid_opt(&args.uuid);
                 VolumeGroup::lookup(lookup).await
             }
             Err(error) => Err(error),
@@ -194,6 +196,7 @@ impl VolumeGroup {
     /// and if true add our tag to the volume group to make it available
     /// as a Pool.
     async fn import_inner(args: PoolArgs) -> Result<VolumeGroup, Error> {
+        tracing::info!(?args, "Importing LVM Volume Group");
         let name = &args.name;
         let mut vg = Self::lookup(CmnQueryArgs::any().named(name)).await?;
 
@@ -206,6 +209,15 @@ impl VolumeGroup {
                 args: args.disks,
                 vg: vg.disks,
             });
+        }
+
+        if args.no_spdk {
+            if !vg.tags.contains(&Property::Lvm) {
+                return Ok(vg);
+            }
+            LvmCmd::vg_change(name).untag(Property::Lvm).run().await?;
+            vg.tags.retain(|t| t != &Property::Lvm);
+            return Ok(vg);
         }
 
         if vg.tags.contains(&Property::Lvm) {
@@ -278,6 +290,7 @@ impl VolumeGroup {
     }
 
     /// Create a logical volume in this volume group.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn create_lvol(
         &self,
         name: &str,
@@ -286,6 +299,7 @@ impl VolumeGroup {
         thin: bool,
         entity_id: &Option<String>,
         share: Protocol,
+        spdk: bool,
     ) -> Result<(), Error> {
         let vg_name = self.name();
         let ins_space = format!("Volume group \"{vg_name}\" has insufficient free space");
@@ -296,7 +310,6 @@ impl VolumeGroup {
             return Err(Error::NoSpace { error: ins_space });
         }
 
-        let ins_space = format!("Volume group \"{vg_name}\" has insufficient free space");
         let entity_id = entity_id.clone().unwrap_or_default();
         match LvmCmd::lv_create()
             .arg(format!("-L{size}b"))
@@ -304,7 +317,7 @@ impl VolumeGroup {
             .tag(Property::LvName(name.to_string()))
             .tag(Property::LvShare(share))
             .tag_if(!entity_id.is_empty(), Property::LvEntityId(entity_id))
-            .tag(Property::Lvm)
+            .tag_if(spdk, Property::Lvm)
             .arg(self.name())
             .run()
             .await
@@ -387,6 +400,11 @@ impl VolumeGroup {
         let eq = uuid.map(|uuid| &self.uuid == uuid).unwrap_or(true);
         tracing::trace!("{uuid:?} == {} ? {eq}", self.uuid);
         eq
+    }
+
+    /// Check if the volume group is owned by mayastor.
+    pub(crate) fn ours(&self) -> bool {
+        self.tags.iter().any(|t| t == &Property::Lvm)
     }
 
     /// Get a `PtplFileOps` from `&self`.

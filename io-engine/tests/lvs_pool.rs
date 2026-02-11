@@ -60,12 +60,8 @@ async fn lvs_pool_test() {
     let pool_args = PoolArgs {
         name: "tpool".into(),
         disks: vec![format!("aio://{DISKNAME1}")],
-        uuid: None,
-        cluster_size: None,
-        md_args: None,
         backend: PoolBackend::Lvs,
-        enc_key: None,
-        crypto_vbdev_name: None,
+        ..Default::default()
     };
 
     // should succeed to create a pool we can not import
@@ -147,12 +143,8 @@ async fn lvs_pool_test() {
         assert!(Lvs::create_from_args_inner(PoolArgs {
             name: "tpool".to_string(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .is_ok());
@@ -181,12 +173,8 @@ async fn lvs_pool_test() {
         let pool2 = Lvs::create_or_import(PoolArgs {
             name: "tpool2".to_string(),
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -221,12 +209,8 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".to_string(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -362,12 +346,8 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -386,12 +366,8 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(PoolArgs {
             name: "tpool_4k_aio".into(),
             disks: vec![format!("aio://{pool_dev_aio}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -416,12 +392,8 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(PoolArgs {
             name: "tpool_4k_uring".into(),
             disks: vec![format!("uring://{pool_dev_uring}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -456,12 +428,8 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(PoolArgs {
             name: "jpool".into(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .err()
@@ -476,12 +444,8 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool2".into(),
             disks: vec![format!("aio://{DISKNAME2}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -498,10 +462,6 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "enc_pool".into(),
             disks: vec![format!("aio://{DISK_CRYPTO}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
-            backend: PoolBackend::Lvs,
             enc_key: Some(EncryptionKey {
                 cipher: Cipher::AesXts,
                 key_name: "test_key".into(),
@@ -511,6 +471,8 @@ async fn lvs_pool_test() {
                 key2_len: Some(128),
             }),
             crypto_vbdev_name: Some("crypto_enc_pool".into()),
+            backend: PoolBackend::Lvs,
+            ..Default::default()
         })
         .await
         .unwrap();

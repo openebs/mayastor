@@ -194,6 +194,7 @@ struct LogicalVolumeList {
 
 impl LogicalVolume {
     /// Create a new logical volume for the given vg uuid.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create(
         vg_uuid: &str,
         name: &str,
@@ -202,14 +203,15 @@ impl LogicalVolume {
         thin: bool,
         entity_id: &Option<String>,
         share: Protocol,
+        spdk: bool,
     ) -> Result<LogicalVolume, Error> {
-        let pool = VolumeGroup::lookup(CmnQueryArgs::ours().uuid(vg_uuid)).await?;
-        pool.create_lvol(name, size, uuid, thin, entity_id, share)
+        let pool = VolumeGroup::lookup(CmnQueryArgs::ours_if(spdk).uuid(vg_uuid)).await?;
+        pool.create_lvol(name, size, uuid, thin, entity_id, share, spdk)
             .await?;
         Self::lookup(
             &QueryArgs::new()
-                .with_lv(CmnQueryArgs::ours().uuid(uuid))
-                .with_vg(CmnQueryArgs::ours().uuid(vg_uuid)),
+                .with_lv(CmnQueryArgs::ours_if(spdk).uuid(uuid))
+                .with_vg(CmnQueryArgs::ours_if(spdk).uuid(vg_uuid)),
         )
         .await
     }

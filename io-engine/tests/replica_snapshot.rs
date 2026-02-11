@@ -93,12 +93,8 @@ async fn replica_snapshot() {
             Lvs::create_or_import(PoolArgs {
                 name: POOL1_NAME.to_string(),
                 disks: vec![format!("aio://{DISKNAME1}")],
-                uuid: None,
-                cluster_size: None,
-                md_args: None,
                 backend: PoolBackend::Lvs,
-                enc_key: None,
-                crypto_vbdev_name: None,
+                ..Default::default()
             })
             .await
             .unwrap();

@@ -30,6 +30,15 @@ impl CmnQueryArgs {
             ..Default::default()
         }
     }
+    /// Find only our entries (ie, with our tag).
+    pub(crate) fn ours_if(spdk: bool) -> Self {
+        if spdk {
+            Self::ours()
+        } else {
+            Self::any()
+        }
+    }
+
     /// Find entries with the given name.
     pub(crate) fn named_opt(self, name: &Option<String>) -> Self {
         let Some(name) = name else {
@@ -241,7 +250,7 @@ impl LvmCmd {
     /// Tag the given `Property`.
     pub(super) fn tag_if(self, tag: bool, property: Property) -> Self {
         if tag {
-            self.arg(property.add())
+            self.tag(property)
         } else {
             self
         }
@@ -285,7 +294,8 @@ impl LvmCmd {
     pub(super) async fn output(mut self) -> Result<std::process::Output, Error> {
         tracing::trace!("{:?}", self.cmder);
 
-        crate::tokio_run!(async move {
+        let in_spdk = spdk_rs::Thread::is_spdk_thread();
+        let fut = async move {
             let output = self
                 .cmder
                 .output()
@@ -301,7 +311,12 @@ impl LvmCmd {
                 });
             }
             Ok(output)
-        })
+        };
+        if in_spdk {
+            crate::tokio_run!(fut)
+        } else {
+            fut.await
+        }
     }
 }
 

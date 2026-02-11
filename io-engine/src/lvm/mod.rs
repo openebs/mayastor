@@ -123,6 +123,7 @@ impl PoolOps for VolumeGroup {
             args.thin,
             &args.entity_id,
             Protocol::Off,
+            self.ours(),
         )
         .await?;
         Ok(Box::new(replica))
