@@ -206,14 +206,39 @@ impl LogicalVolume {
         spdk: bool,
     ) -> Result<LogicalVolume, Error> {
         let pool = VolumeGroup::lookup(CmnQueryArgs::ours_if(spdk).uuid(vg_uuid)).await?;
-        pool.create_lvol(name, size, uuid, thin, entity_id, share, spdk)
-            .await?;
-        Self::lookup(
+        let error = match pool
+            .create_lvol(name, size, uuid, thin, entity_id, share, spdk)
+            .await
+        {
+            Ok(_) => Ok(None),
+            Err(error @ Error::Exists { .. }) => Ok(Some(error)),
+            Err(error) => Err(error),
+        }?;
+        let lvol = Self::lookup(
             &QueryArgs::new()
                 .with_lv(CmnQueryArgs::ours_if(spdk).uuid(uuid))
                 .with_vg(CmnQueryArgs::ours_if(spdk).uuid(vg_uuid)),
         )
-        .await
+        .await?;
+
+        let Some(error) = error else {
+            return Ok(lvol);
+        };
+
+        snafu::ensure!(lvol.name().as_deref() == Some(name), error);
+        snafu::ensure!(lvol.uuid() == uuid, error);
+        snafu::ensure!(lvol.size() == size, error);
+        snafu::ensure!(lvol.entity_id() == entity_id.as_ref(), error);
+        snafu::ensure!(lvol.share_proto().unwrap_or_default() == share, error);
+
+        info!(
+            name,
+            uuid,
+            vg_name = pool.name(),
+            "LVM LogicalVolume imported successfully"
+        );
+
+        Ok(lvol)
     }
 
     /// Lookup a single logical volume.

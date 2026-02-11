@@ -140,9 +140,13 @@ impl VolumeGroup {
     /// Import a volume group with the name provided or create one with the name
     /// and disks provided currently only import is supported.
     pub(crate) async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
-        tracing::info!(?args, "Creating LVM VolumeGroup");
-        let vg = match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
-            Ok(_) => Self::import_inner(args).await,
+        tracing::info!(?args, "Creating/Importing LVM Volume Group");
+        match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
+            Ok(_) => {
+                let vg = Self::import_inner(args).await?;
+                info!(name = vg.name(), "LVM Volume Group imported successfully");
+                Ok(vg)
+            }
             Err(Error::NotFound { .. }) => {
                 LvmCmd::pv_create().args(&args.disks).run().await?;
 
@@ -152,16 +156,14 @@ impl VolumeGroup {
                     .args(args.disks)
                     .run()
                     .await?;
+                info!(name = args.name, "LVM VolumeGroup created successfully");
                 let lookup = CmnQueryArgs::ours_if(!args.no_spdk)
                     .named(&args.name)
                     .uuid_opt(&args.uuid);
                 VolumeGroup::lookup(lookup).await
             }
             Err(error) => Err(error),
-        }?;
-
-        info!("The lvm vg pool '{}' has been created", vg.name());
-        Ok(vg)
+        }
     }
 
     async fn import_lvols(&self) -> Result<(), Error> {
@@ -188,6 +190,7 @@ impl VolumeGroup {
     /// as a Pool.
     pub(crate) async fn import(args: PoolArgs) -> Result<VolumeGroup, Error> {
         let vg = Self::import_inner(args).await?;
+        info!(name = vg.name(), "LVM Volume Group imported successfully");
         vg.import_lvols().await?;
         Ok(vg)
     }
@@ -303,11 +306,11 @@ impl VolumeGroup {
     ) -> Result<(), Error> {
         let vg_name = self.name();
         let ins_space = format!("Volume group \"{vg_name}\" has insufficient free space");
+        let eexists =
+            format!("Logical Volume \"{uuid}\" already exists in volume group \"{vg_name}\"");
 
         if thin {
             return Err(Error::ThinProv {});
-        } else if size > self.free {
-            return Err(Error::NoSpace { error: ins_space });
         }
 
         let entity_id = entity_id.clone().unwrap_or_default();
@@ -326,10 +329,16 @@ impl VolumeGroup {
             Err(Error::LvmBinErr { error, .. }) if error.starts_with(&ins_space) => {
                 Err(Error::NoSpace { error })
             }
+            Err(Error::LvmBinErr { error, .. }) if error.starts_with(&eexists) => {
+                Err(Error::Exists { error })
+            }
             _else => _else,
         }?;
 
-        info!("lvm volume {name} created");
+        info!(
+            name,
+            uuid, vg_name, "LVM Logical Volume created successfully"
+        );
 
         Ok(())
     }

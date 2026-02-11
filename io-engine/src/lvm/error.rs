@@ -54,10 +54,19 @@ pub enum Error {
     },
     #[snafu(display("{error}"))]
     NoSpace { error: String },
+    #[snafu(display("{error}"))]
+    Exists { error: String },
     #[snafu(display("Snapshots are not currently supported for LVM volumes"))]
     SnapshotNotSup {},
     #[snafu(display("Pool expansion is not currently supported for LVM volumes"))]
     GrowNotSup {},
+}
+
+impl Error {
+    /// Fail method is required by the snafu::ensure! macro.
+    pub(crate) fn fail<T>(self) -> Result<T, Self> {
+        Err(self)
+    }
 }
 
 impl ToErrno for Error {
@@ -84,6 +93,7 @@ impl ToErrno for Error {
             Error::BdevMissing { .. } => Errno::ENODEV,
             Error::UpdateProps { .. } => Errno::EIO,
             Error::NoSpace { .. } => Errno::ENOSPC,
+            Error::Exists { .. } => Errno::EEXIST,
             Error::SnapshotNotSup { .. } => Errno::ENOTSUP,
             Error::GrowNotSup { .. } => Errno::ENOTSUP,
         }
