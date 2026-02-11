@@ -31,6 +31,7 @@ pub mod lvm;
 pub mod lvs;
 pub mod persistent_store;
 pub mod pool_backend;
+pub mod pool_information;
 pub mod prctl;
 pub mod rebuild;
 pub mod replica_backend;

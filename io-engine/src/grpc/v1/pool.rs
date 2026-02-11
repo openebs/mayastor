@@ -11,6 +11,7 @@ use crate::{
         self, FindPoolArgs, IPoolFactory, ListPoolArgs, PoolArgs, PoolBackend, PoolFactory,
         PoolOps, ReplicaArgs,
     },
+    pool_information::pool_info_read,
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -461,13 +462,25 @@ impl Deref for PoolErrorsNt {
     }
 }
 impl PoolErrorsNt {
-    fn new(environ: &MayastorEnvironment, stats: &BdevErrorStats) -> Self {
+    fn new(pool: &str, environ: &MayastorEnvironment, stats: &BdevErrorStats) -> Self {
+        let mut io_stalled = false;
+        let mut io_stall_transition_count: u64 = 0;
+
+        let cache = pool_info_read();
+
+        if let Some(pool_lock) = cache.get(pool) {
+            let mut pool_mut = pool_lock.write();
+            pool_mut.update_transition_timestamp(*environ.pool_args.io_stall_transition_window);
+            io_stalled = pool_mut.io_stalled;
+            io_stall_transition_count = pool_mut.transition_timestamps.len() as u64;
+        }
+
         Self(PoolErrors {
             alerts: None,
             io_error_count: stats.error_count(),
             io_error_threshold: environ.pool_args.io_error_threshold,
-            io_stalled: false,
-            io_stall_transition_count: 0,
+            io_stalled,
+            io_stall_transition_count,
             io_stall_transition_threshold: environ.pool_args.io_stall_transition_threshold,
         })
     }
@@ -488,8 +501,9 @@ impl PoolErrorsNt {
 
         // todo: add sliding window parameters
         match self.io_stall_transition_count {
-            0 => {}
-            errors if errors < self.io_stall_transition_threshold => {
+            // todo: Notice should be raised on 1 transition.
+            0 | 1 => {}
+            num_stalls if num_stalls < self.io_stall_transition_threshold => {
                 self.set_alert(PoolAlertStatus::Attention, PoolAlert::IoStallIntermittent)
             }
             _ => self.set_alert(PoolAlertStatus::Warning, PoolAlert::IoStallIntermittentExc),
@@ -576,7 +590,7 @@ impl AsyncFrom<&dyn PoolOps> for Pool {
 
         let errors = stats.as_ref().map(|stats| {
             let environ = MayastorEnvironment::global();
-            PoolErrorsNt::new(&environ, stats)
+            PoolErrorsNt::new(value.name(), &environ, stats)
                 .with_io_errors()
                 .with_io_stall()
         });
