@@ -139,7 +139,7 @@ impl VolumeGroup {
 
     /// Import a volume group with the name provided or create one with the name
     /// and disks provided currently only import is supported.
-    pub(crate) async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
+    pub async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
         tracing::info!(?args, "Creating/Importing LVM Volume Group");
         match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
             Ok(_) => {
@@ -164,6 +164,14 @@ impl VolumeGroup {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Creates a [`LogicalVolume`] from this [`VolumeGroup`].
+    pub async fn create_lvol(
+        &self,
+        args: crate::pool_backend::ReplicaArgs,
+    ) -> Result<LogicalVolume, Error> {
+        LogicalVolume::create(self, args, Protocol::Off, self.ours()).await
     }
 
     async fn import_lvols(&self) -> Result<(), Error> {
@@ -293,31 +301,28 @@ impl VolumeGroup {
     }
 
     /// Create a logical volume in this volume group.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn create_lvol(
+    /// This is an internal method that should not be used outside the LVM module.
+    pub(super) async fn create_lvoli(
         &self,
-        name: &str,
-        size: u64,
-        uuid: &str,
-        thin: bool,
-        entity_id: &Option<String>,
+        args: &crate::pool_backend::ReplicaArgs,
         share: Protocol,
         spdk: bool,
     ) -> Result<(), Error> {
         let vg_name = self.name();
+        let uuid = &args.uuid;
         let ins_space = format!("Volume group \"{vg_name}\" has insufficient free space");
         let eexists =
             format!("Logical Volume \"{uuid}\" already exists in volume group \"{vg_name}\"");
 
-        if thin {
+        if args.thin {
             return Err(Error::ThinProv {});
         }
 
-        let entity_id = entity_id.clone().unwrap_or_default();
+        let entity_id = args.entity_id.clone().unwrap_or_default();
         match LvmCmd::lv_create()
-            .arg(format!("-L{size}b"))
+            .arg(format!("-L{}b", args.size))
             .args(["-n", uuid])
-            .tag(Property::LvName(name.to_string()))
+            .tag(Property::LvName(args.name.to_string()))
             .tag(Property::LvShare(share))
             .tag_if(!entity_id.is_empty(), Property::LvEntityId(entity_id))
             .tag_if(spdk, Property::Lvm)
@@ -336,7 +341,7 @@ impl VolumeGroup {
         }?;
 
         info!(
-            name,
+            name = args.name,
             uuid, vg_name, "LVM Logical Volume created successfully"
         );
 
@@ -412,7 +417,7 @@ impl VolumeGroup {
     }
 
     /// Check if the volume group is owned by mayastor.
-    pub(crate) fn ours(&self) -> bool {
+    fn ours(&self) -> bool {
         self.tags.iter().any(|t| t == &Property::Lvm)
     }
 

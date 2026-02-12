@@ -194,30 +194,21 @@ struct LogicalVolumeList {
 
 impl LogicalVolume {
     /// Create a new logical volume for the given vg uuid.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create(
-        vg_uuid: &str,
-        name: &str,
-        size: u64,
-        uuid: &str,
-        thin: bool,
-        entity_id: &Option<String>,
+        pool: &VolumeGroup,
+        args: crate::pool_backend::ReplicaArgs,
         share: Protocol,
         spdk: bool,
     ) -> Result<LogicalVolume, Error> {
-        let pool = VolumeGroup::lookup(CmnQueryArgs::ours_if(spdk).uuid(vg_uuid)).await?;
-        let error = match pool
-            .create_lvol(name, size, uuid, thin, entity_id, share, spdk)
-            .await
-        {
+        let error = match pool.create_lvoli(&args, share, spdk).await {
             Ok(_) => Ok(None),
             Err(error @ Error::Exists { .. }) => Ok(Some(error)),
             Err(error) => Err(error),
         }?;
         let lvol = Self::lookup(
             &QueryArgs::new()
-                .with_lv(CmnQueryArgs::ours_if(spdk).uuid(uuid))
-                .with_vg(CmnQueryArgs::ours_if(spdk).uuid(vg_uuid)),
+                .with_lv(CmnQueryArgs::ours_if(spdk).uuid(&args.uuid))
+                .with_vg(CmnQueryArgs::ours_if(spdk).uuid(pool.uuid())),
         )
         .await?;
 
@@ -225,15 +216,15 @@ impl LogicalVolume {
             return Ok(lvol);
         };
 
-        snafu::ensure!(lvol.name().as_deref() == Some(name), error);
-        snafu::ensure!(lvol.uuid() == uuid, error);
-        snafu::ensure!(lvol.size() == size, error);
-        snafu::ensure!(lvol.entity_id() == entity_id.as_ref(), error);
+        snafu::ensure!(lvol.name().as_deref() == Some(&args.name), error);
+        snafu::ensure!(lvol.uuid() == args.uuid, error);
+        snafu::ensure!(lvol.size() == args.size, error);
+        snafu::ensure!(lvol.entity_id() == args.entity_id.as_ref(), error);
         snafu::ensure!(lvol.share_proto().unwrap_or_default() == share, error);
 
         info!(
-            name,
-            uuid,
+            name = args.name,
+            uuid = args.uuid,
             vg_name = pool.name(),
             "LVM LogicalVolume imported successfully"
         );

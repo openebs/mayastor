@@ -115,17 +115,7 @@ impl PoolOps for VolumeGroup {
         &self,
         args: ReplicaArgs,
     ) -> Result<Box<dyn ReplicaOps>, crate::pool_backend::Error> {
-        let replica = LogicalVolume::create(
-            self.uuid(),
-            &args.name,
-            args.size,
-            &args.uuid,
-            args.thin,
-            &args.entity_id,
-            Protocol::Off,
-            self.ours(),
-        )
-        .await?;
+        let replica = self.create_lvol(args).await?;
         Ok(Box::new(replica))
     }
 
