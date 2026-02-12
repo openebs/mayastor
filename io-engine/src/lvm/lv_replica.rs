@@ -201,6 +201,13 @@ impl LogicalVolume {
         share: Protocol,
         spdk: bool,
     ) -> Result<LogicalVolume, Error> {
+        info!(
+            name = args.name,
+            uuid = args.uuid,
+            vg_name = pool.name(),
+            "Creating LVM Logical Volume"
+        );
+
         let error = match pool.create_lvoli(&args, share, spdk).await {
             Ok(_) => Ok(None),
             Err(error @ Error::Exists { .. }) => Ok(Some(error)),

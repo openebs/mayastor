@@ -1,15 +1,14 @@
-use crate::{
-    bdev::PtplFileOps,
-    core::Protocol,
-    lvm::{property::Property, LogicalVolume},
-    pool_backend::PoolArgs,
-};
-use serde::Deserialize;
-
 use super::{
     cli::{de, CmnQueryArgs, LvmCmd},
     error::Error,
 };
+use crate::{
+    bdev::PtplFileOps,
+    core::Protocol,
+    lvm::{dm_setup::DmSetup, property::Property, LogicalVolume},
+    pool_backend::PoolArgs,
+};
+use serde::Deserialize;
 
 /// VG query arguments, allowing filtering via --select.
 /// It's essentially a new-type wrapper over the common arguments
@@ -150,12 +149,28 @@ impl VolumeGroup {
             Err(Error::NotFound { .. }) => {
                 LvmCmd::pv_create().args(&args.disks).run().await?;
 
-                LvmCmd::vg_create()
-                    .arg(&args.name)
-                    .tag_if(!args.no_spdk, Property::Lvm)
-                    .args(args.disks)
-                    .run()
-                    .await?;
+                // A broken vg as a result of improper cleanup during tests
+                let edm_e = format!("/dev/{}: already exists in filesystem", args.name);
+                let cmd = || {
+                    LvmCmd::vg_create()
+                        .arg(&args.name)
+                        .tag_if(!args.no_spdk, Property::Lvm)
+                        .args(&args.disks)
+                };
+                match cmd().run().await {
+                    Err(Error::LvmBinErr { error, command }) if error.starts_with(&edm_e) => {
+                        // cleanup
+                        let name = &args.name;
+                        let Ok(dir) = std::fs::read_dir(format!("/dev/{name}")) else {
+                            return Err(Error::LvmBinErr { error, command });
+                        };
+                        for entry in dir.flatten() {
+                            DmSetup::remove(&entry.path().display().to_string()).await?;
+                        }
+                        cmd().run().await
+                    }
+                    _else => _else,
+                }?;
                 info!(name = args.name, "LVM VolumeGroup created successfully");
                 let lookup = CmnQueryArgs::ours_if(!args.no_spdk)
                     .named(&args.name)

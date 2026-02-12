@@ -111,6 +111,27 @@ impl DmSetup {
         Ok(())
     }
 
+    /// Removes a device-mapper device.
+    ///
+    /// # NOTES
+    ///
+    /// It will no longer be visible to dmsetup.
+    ///
+    /// Open devices cannot be removed, but:
+    /// - adding --force will replace the table with one that fails all I/O.
+    /// - --deferred will enable deferred removal of open devices - the device will be removed when
+    ///   the last user closes it.
+    ///
+    /// As is, this method will remove stale devices.
+    pub async fn remove(path: &str) -> Result<(), super::Error> {
+        let _output = super::cli::LvmCmd::dm_setup()
+            .arg("remove")
+            .arg(path)
+            .output()
+            .await?;
+        Ok(())
+    }
+
     /// Get the [`DmState`] of the given device-mapper device path.
     pub async fn state(path: &str) -> Result<DmState, super::Error> {
         let output = super::cli::LvmCmd::dm_setup()
