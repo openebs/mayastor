@@ -580,6 +580,11 @@ impl PoolErrorsNt {
     }
 }
 
+/// Convert something which implements [`PoolOps`] to the proto `Pool` type.
+pub async fn pool_to_proto(pool: &dyn PoolOps) -> Pool {
+    pool.async_into().await
+}
+
 impl AsyncFrom<Box<dyn PoolOps>> for Pool {
     async fn async_from(value: Box<dyn PoolOps>) -> Self {
         let value = value.deref();

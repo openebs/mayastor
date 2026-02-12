@@ -2,10 +2,16 @@ use common::MayastorTest;
 use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
-    core::{logical_volume::LogicalVolume, MayastorCliArgs, Protocol, Share, UntypedBdev},
+    core::{
+        logical_volume::LogicalVolume, MayastorCliArgs, PoolCliArgs, Protocol, Share, UntypedBdev,
+    },
+    grpc::v1::pool::pool_to_proto,
     lvs::{Lvs, LvsLvol, PropName, PropValue},
-    pool_backend::{PoolArgs, PoolBackend},
+    pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
     subsys::NvmfSubsystem,
+};
+use io_engine_api::v1::pool::{
+    Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState,
 };
 use std::pin::Pin;
 
@@ -501,4 +507,143 @@ async fn lvs_pool_test() {
         common::delete_file(&[DISK_CRYPTO.into()]);
     })
     .await;
+}
+
+#[tokio::test]
+async fn lvs_errors() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    common::delete_file(&[DISKNAME1.into()]);
+    common::truncate_file(DISKNAME1, 128 * 1024);
+
+    const VG_NAME: &str = "vg-1";
+    const LV_NAME: &str = "lvol1";
+
+    struct TestGuard {
+        loop_dev: Option<String>,
+    }
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            if let Some(loop_dev) = self.loop_dev.take() {
+                let script = r#"
+                    export LVM_SUPPRESS_FD_WARNINGS=1
+                    vgremove -f $2
+                    pvremove -f $3
+                "#;
+                let args = vec![DISKNAME1.into(), VG_NAME.into(), loop_dev.clone()];
+                run_script::run_script!(script, args, run_script::ScriptOptions::new()).ok();
+                common::detach_loopdev(&loop_dev);
+            }
+        }
+    }
+    let mut guard = TestGuard { loop_dev: None };
+
+    let io_error_threshold = 5;
+    let args = MayastorCliArgs {
+        reactor_mask: "0x2".into(),
+        pool: PoolCliArgs {
+            io_error_threshold,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let ms = MayastorTest::new(args);
+
+    //setup disk1 via loop device using a sector size of 4096.
+    let ldev = common::setup_loopdev_file(DISKNAME1, Some(4096));
+    guard.loop_dev = Some(ldev.clone());
+
+    let vg_pool = io_engine::lvm::VolumeGroup::create(PoolArgs {
+        name: VG_NAME.into(),
+        disks: vec![ldev.clone()],
+        no_spdk: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let mut lvol = vg_pool
+        .create_lvol(ReplicaArgs {
+            name: LV_NAME.into(),
+            uuid: LV_NAME.into(),
+            size: 64 * 1024 * 1024,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![format!("aio://{}", lvol.path())],
+        backend: PoolBackend::Lvs,
+        ..Default::default()
+    };
+
+    ms.spawn(async move {
+        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+
+        // We bork the device, making it return -EIO for all I/O
+        let table = lvol.bork().await.unwrap();
+
+        for i in 1..=io_error_threshold {
+            let error = lvs_pool
+                .create_lvol("fail", 8 * 1024 * 1024, None, true, None)
+                .await
+                .expect_err("error due to -EIO");
+            println!("error: {error}");
+
+            if i < io_error_threshold {
+                let (pool, errors, alerts) = pool_info(&lvs_pool).await;
+
+                assert_eq!(pool.state(), PoolState::PoolOnline);
+                assert_eq!(errors.io_error_count, i);
+                assert_eq!(alerts.attention, vec![PoolAlert::IoError as i32]);
+                assert_eq!(alerts.status(), PoolAlertStatus::Attention);
+            }
+        }
+
+        let (pool, errors, alerts) = pool_info(&lvs_pool).await;
+        assert_eq!(pool.state(), PoolState::PoolSuspected);
+        assert_eq!(errors.io_error_count, io_error_threshold);
+        assert_eq!(alerts.warning, vec![PoolAlert::IoErrorExc as i32]);
+        assert_eq!(alerts.status(), PoolAlertStatus::Warning);
+
+        lvol.unbork(table).await.unwrap();
+
+        let repl = lvs_pool
+            .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
+            .await
+            .expect("now we can create it");
+
+        println!("repl: {}", repl.uuid());
+
+        lvs_pool.reset_errors().await.unwrap();
+
+        let (pool, errors, alerts) = pool_info(&lvs_pool).await;
+        assert_eq!(pool.state(), PoolState::PoolOnline);
+        assert_eq!(errors.io_error_count, 0);
+        assert_eq!(
+            alerts.notice.len()
+                + alerts.attention.len()
+                + alerts.warning.len()
+                + alerts.critical.len(),
+            0
+        );
+        assert_eq!(alerts.status(), PoolAlertStatus::Healthy);
+
+        lvs_pool.destroy().await.unwrap();
+    })
+    .await;
+
+    vg_pool.purge().await.unwrap();
+}
+
+async fn pool_info(pool: &dyn PoolOps) -> (Pool, PoolErrors, PoolAlerts) {
+    let pool = pool_to_proto(pool).await;
+    let errors = pool.errors.clone().unwrap();
+    let alerts = errors.alerts.clone().unwrap_or_default();
+    (pool, errors, alerts)
 }
