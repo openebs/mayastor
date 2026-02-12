@@ -139,6 +139,9 @@ impl Drop for MayastorTest<'_> {
         self.reactor.send_future(async { mayastor_env_stop(0) });
         // wait for mayastor to stop
         let hdl = self.thdl.take().unwrap();
-        hdl.join().unwrap()
+        let result = hdl.join();
+        if !std::thread::panicking() {
+            result.unwrap();
+        }
     }
 }
