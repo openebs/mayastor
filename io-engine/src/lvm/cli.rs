@@ -5,7 +5,7 @@ use serde::de::Deserialize;
 use snafu::ResultExt;
 use std::ffi::OsStr;
 use strum_macros::{AsRefStr, Display, EnumString};
-use tokio::process::Command;
+use tokio::{io::AsyncWriteExt, process::Command};
 
 /// Common set of query options for a volume group or logical volume.
 /// If the name is present then the name will be used to query.
@@ -127,6 +127,7 @@ enum LvmSubCmd {
 /// decoding of json output reports.
 pub(super) struct LvmCmd {
     cmd: &'static str,
+    input: Option<String>,
     cmder: Command,
 }
 
@@ -152,6 +153,7 @@ impl LvmCmd {
         Self {
             cmd,
             cmder: Command::new(cmd),
+            input: None,
         }
     }
     /// Prepare a `Command` for `LvmSubCmd::PVCreate`.
@@ -274,6 +276,11 @@ impl LvmCmd {
         self.cmder.args(args);
         self
     }
+    /// Run the command with the given input.
+    pub fn input(mut self, input: String) -> Self {
+        self.input = Some(input);
+        self
+    }
     /// Runs the LVM command with the provided `Command` arguments et al.
     ///
     /// # Errors
@@ -324,7 +331,18 @@ impl LvmCmd {
             });
         }
 
-        self.cmder.output().await
+        let Some(input) = self.input.take() else {
+            return self.cmder.output().await;
+        };
+
+        let mut child = self.cmder.stdin(std::process::Stdio::piped()).spawn()?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(input.as_bytes()).await?;
+            stdin.shutdown().await?;
+        }
+
+        child.wait_with_output().await
     }
 
     /// The close_range system call closes all open file descriptors from first to last (included).
