@@ -305,6 +305,11 @@ pub struct SpdkTracingArgs {
     #[clap(long, default_value_t = 1)]
     pub threads: u32,
 }
+impl Default for SpdkTracingArgs {
+    fn default() -> Self {
+        Self::parse_from(Vec::<String>::new())
+    }
+}
 
 /// DiskPool related arguments.
 #[derive(Debug, clap::Parser, Clone)]
@@ -332,6 +337,11 @@ pub struct PoolCliArgs {
     /// for flakiness detection.
     #[clap(long, default_value = "3h")]
     pub io_stall_transition_window: humantime::Duration,
+}
+impl Default for PoolCliArgs {
+    fn default() -> Self {
+        Self::parse_from(Vec::<String>::new())
+    }
 }
 
 fn delay_compat(s: &str) -> Result<bool, String> {
@@ -507,8 +517,8 @@ impl Default for MayastorEnvironment {
             developer_delay: false,
             rdma: false,
             bs_cluster_unmap: false,
-            pool_args: PoolCliArgs::parse_from(Vec::<String>::new()),
-            traces: SpdkTracingArgs::parse_from(Vec::<String>::new()),
+            pool_args: PoolCliArgs::default(),
+            traces: SpdkTracingArgs::default(),
         }
     }
 }
