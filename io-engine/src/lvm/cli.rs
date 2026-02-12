@@ -1,5 +1,6 @@
 use crate::lvm::{error, error::Error, property::Property};
 
+use nix::errno::Errno;
 use serde::de::Deserialize;
 use snafu::ResultExt;
 use std::ffi::OsStr;
@@ -296,13 +297,9 @@ impl LvmCmd {
 
         let in_spdk = spdk_rs::Thread::is_spdk_thread();
         let fut = async move {
-            let output = self
-                .cmder
-                .output()
-                .await
-                .context(error::LvmBinSpawnErrSnafu {
-                    command: self.cmd.to_string(),
-                })?;
+            let output = self.cmder().await.context(error::LvmBinSpawnErrSnafu {
+                command: self.cmd.to_string(),
+            })?;
             if !output.status.success() {
                 let error = String::from_utf8_lossy(&output.stderr).to_string();
                 return Err(Error::LvmBinErr {
@@ -317,6 +314,25 @@ impl LvmCmd {
         } else {
             fut.await
         }
+    }
+
+    async fn cmder(&mut self) -> std::io::Result<std::process::Output> {
+        unsafe {
+            self.cmder.pre_exec(|| {
+                Self::close_range().ok();
+                Ok(())
+            });
+        }
+
+        self.cmder.output().await
+    }
+
+    /// The close_range system call closes all open file descriptors from first to last (included).
+    /// Here close from 3 to 1024.
+    /// todo: find a better way such as querying /proc/self/fd ?.
+    fn close_range() -> nix::Result<()> {
+        let res = unsafe { libc::close_range(3, 1024, libc::CLOSE_RANGE_CLOEXEC as i32) };
+        Errno::result(res).map(drop)
     }
 }
 
