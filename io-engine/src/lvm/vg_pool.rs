@@ -246,13 +246,27 @@ impl VolumeGroup {
 
     /// Delete the volume group.
     /// > Note: The Vg is first exported and then destroyed.
-    pub(crate) async fn destroy(mut self) -> Result<(), Error> {
+    /// > Note: The Vg is kept if it contains foreign LVs.
+    pub async fn destroy(self) -> Result<(), Error> {
+        self.destroy_(false).await
+    }
+
+    /// Delete the volume group.
+    /// > Note: The Vg is first exported and then destroyed.
+    /// > Warning: The Vg is destroyed even if containing foreign LVs.
+    pub async fn purge(self) -> Result<(), Error> {
+        self.destroy_(true).await
+    }
+
+    /// Delete the volume group.
+    /// > Note: The Vg is first exported and then destroyed.
+    pub async fn destroy_(mut self, purge_always: bool) -> Result<(), Error> {
         self.export().await?;
 
         let foreign_lvs = self.list_foreign_lvs().await?;
         let name = self.name().to_string();
 
-        if foreign_lvs.is_empty() {
+        if purge_always || foreign_lvs.is_empty() {
             LvmCmd::vg_remove()
                 .arg(format!("--select=vg_name={name}"))
                 .arg("-y")

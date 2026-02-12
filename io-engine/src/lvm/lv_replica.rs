@@ -5,6 +5,7 @@ use crate::{
     core::{NvmfShareProps, Protocol, PtplProps, Share, UntypedBdev, UpdateProps},
     lvm::{
         cli::LvmCmd,
+        dm_setup::{DmSetup, DmState, DmTable},
         property::{Property, PropertyType},
     },
     pool_backend::PoolBackend,
@@ -260,6 +261,77 @@ impl LogicalVolume {
         }
         g_error?;
         Ok(lvs)
+    }
+
+    /// Suspends the [`LogicalVolume`].
+    ///
+    /// # NOTES
+    ///
+    /// See details from [`DmSetup::suspend`].
+    ///
+    /// # WARNING
+    ///
+    /// The device is only suspended once the open count reaches 0.
+    /// This means the device might not be suspended after the suspend call completes.
+    /// You should consider using awaiting till [`DmState`] is [`DmState::SUSPENDED`].
+    pub async fn dm_suspend(&mut self) -> Result<DmState, Error> {
+        DmSetup::suspend(&self.path).await?;
+        self.dm_state().await
+    }
+    /// Resumes/Un-suspends the [`LogicalVolume`].
+    ///
+    /// # NOTES
+    ///
+    /// See details from [`DmSetup::resume`].
+    pub async fn dm_resume(&mut self) -> Result<(), Error> {
+        DmSetup::resume(&self.path).await
+    }
+
+    /// Retrieve the [`DmState`] of the [`LogicalVolume`].
+    pub async fn dm_state(&self) -> Result<DmState, Error> {
+        DmSetup::state(&self.path).await
+    }
+
+    /// Retrieve the device-mapper table for the [`LogicalVolume`].
+    pub async fn table(&self) -> Result<DmTable, Error> {
+        DmSetup::table(self.path()).await
+    }
+
+    /// A very simple way of making the [`LogicalVolume`] return -EIO for all I/O.
+    ///
+    /// Returns the previous device-mapper table for restoring.
+    pub async fn bork(&mut self) -> Result<DmTable, Error> {
+        let current = DmSetup::table(self.path()).await?;
+
+        let sz = self.sz().await?;
+        let table = format!("0 {sz} error");
+        DmSetup::load(self.path(), DmTable(table)).await?;
+        self.dm_resume().await.ok();
+        Ok(current)
+    }
+
+    async fn sz(&self) -> Result<u64, Error> {
+        let output = LvmCmd::blk_dev()
+            .arg("--getsz")
+            .arg(self.path())
+            .output()
+            .await?;
+        let output_str = String::from_utf8_lossy(&output.stdout).to_string();
+        let sz_str = output_str.trim_end();
+        sz_str.parse::<u64>().map_err(|error| Error::Internal {
+            error: error.to_string(),
+        })
+    }
+
+    /// Undoes a borked [`LogicalVolume`] by re-applying the previous device-mapper table.
+    pub async fn unbork(&mut self, table: DmTable) -> Result<(), Error> {
+        DmSetup::load(self.path(), table).await?;
+        self.dm_resume().await
+    }
+
+    /// Retrieve the device path of the [`LogicalVolume`].
+    pub fn path(&self) -> &str {
+        &self.path
     }
 
     /// Fetch logical volumes using the provided options as query criteria.

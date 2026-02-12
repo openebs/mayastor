@@ -121,6 +121,12 @@ enum LvmSubCmd {
     /// Display information about logical volumes.
     #[strum(serialize = "lvs")]
     LVList,
+    /// DeviceMapper commands.
+    #[strum(serialize = "dmsetup")]
+    DMSetup,
+    /// BlockDevice commands.
+    #[strum(serialize = "blockdev")]
+    BlkDev,
 }
 
 /// LVM wrapper over `Command` with added qol such as error mapping and
@@ -199,6 +205,14 @@ impl LvmCmd {
     /// Prepare a `Command` for `LvmSubCmd::LVList`.
     pub(super) fn lv_list() -> Self {
         Self::new(LvmSubCmd::LVList.as_ref())
+    }
+    /// Prepare a `Command` for `LvmSubCmd::DMSuspend`.
+    pub(super) fn dm_setup() -> Self {
+        Self::new(LvmSubCmd::DMSetup.as_ref())
+    }
+    /// Prepare a `Command` for `LvmSubCmd::BlkDev`.
+    pub(super) fn blk_dev() -> Self {
+        Self::new(LvmSubCmd::BlkDev.as_ref())
     }
     /// Runs the LVM command with the provided `Command` arguments et all and
     /// returns an LVM specific report containing an output type `T`.

@@ -26,6 +26,8 @@
 
 /// Helps run LVM commands and decode their json output and reports.
 mod cli;
+/// Device Mapper setup and info.
+mod dm_setup;
 mod error;
 /// Logical Volume management.
 mod lv_replica;
@@ -40,7 +42,7 @@ pub(crate) use error::Error;
 pub(crate) use cli::CmnQueryArgs;
 
 /// A pool which is a Volume Group in LVM.
-pub(crate) use vg_pool::VolumeGroup;
+pub use vg_pool::VolumeGroup;
 
 /// Logical volume and its query arguments.
 pub(crate) use lv_replica::{LogicalVolume, QueryArgs};

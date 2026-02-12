@@ -60,6 +60,8 @@ pub enum Error {
     SnapshotNotSup {},
     #[snafu(display("Pool expansion is not currently supported for LVM volumes"))]
     GrowNotSup {},
+    #[snafu(display("{error}"))]
+    Internal { error: String },
 }
 
 impl Error {
@@ -96,6 +98,7 @@ impl ToErrno for Error {
             Error::Exists { .. } => Errno::EEXIST,
             Error::SnapshotNotSup { .. } => Errno::ENOTSUP,
             Error::GrowNotSup { .. } => Errno::ENOTSUP,
+            Error::Internal { .. } => Errno::EPIPE,
         }
     }
 }
