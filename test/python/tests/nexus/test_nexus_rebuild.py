@@ -107,8 +107,29 @@ def test_rebuild_failure(containers, mayastors, times, create_nexuses):
             except:
                 print(f"Failed to remove child {child.uri} from {nexus}")
 
-    time.sleep(5)
+    time.sleep(3)
+    rebuilds = 0
+    for i in range(3):
+        time.sleep(1)
+        rebuilds += collect_rebuilds(ms0)
+        if rebuilds > 0:
+            break
 
+    assert rebuilds > 0, f"{ms0.nexus_list()}"
+
+    # Stop ms3 again. Rebuild jobs in progress must terminate.
+    node3.stop()
+
+    time.sleep(10)
+
+    # All rebuild jobs must finish.
+    for nexus in ms0.nexus_list():
+        for child in nexus.children:
+            assert child.rebuild_progress == -1
+        ms0.nexus_destroy(nexus.uuid)
+
+
+def collect_rebuilds(ms0):
     rebuilds = 0
     for nexus in ms0.nexus_list():
         for child in nexus.children:
@@ -121,16 +142,4 @@ def test_rebuild_failure(containers, mayastors, times, create_nexuses):
                     child.uri,
                     f"{child.rebuild_progress}",
                 )
-
-    assert rebuilds > 0
-
-    # Stop ms3 again. Rebuild jobs in progress must terminate.
-    node3.stop()
-
-    time.sleep(10)
-
-    # All rebuild jobs must finish.
-    for nexus in ms0.nexus_list():
-        for child in nexus.children:
-            assert child.rebuild_progress == -1
-        ms0.nexus_destroy(nexus.uuid)
+    return rebuilds
