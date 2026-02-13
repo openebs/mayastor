@@ -3,7 +3,8 @@ use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
     core::{
-        logical_volume::LogicalVolume, MayastorCliArgs, PoolCliArgs, Protocol, Share, UntypedBdev,
+        logical_volume::LogicalVolume, MayastorCliArgs, PoolCliArgs, Protocol, Share, ToErrno,
+        UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
     lvs::{Lvs, LvsLvol, PropName, PropValue},
@@ -13,6 +14,7 @@ use io_engine::{
 use io_engine_api::v1::pool::{
     Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState,
 };
+use once_cell::sync::OnceCell;
 use std::pin::Pin;
 
 pub mod common;
@@ -24,6 +26,22 @@ static DISKNAME3: &str = "/tmp/io-engine-tests/disk3.img";
 static DISK_CRYPTO: &str = "/tmp/io-engine-tests/crypto_disk.img";
 static XTS_KEY: &str = "2b7e151628aed2a6abf7158809cf4f3c";
 static XTS_KEY2: &str = "2b7e151628aed2a6abf7158809cf4f3d";
+const IO_ERROR_THRESHOLD: u64 = 5;
+
+static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
+
+fn ms() -> &'static MayastorTest<'static> {
+    MAYASTOR.get_or_init(|| {
+        MayastorTest::new(MayastorCliArgs {
+            reactor_mask: "0x3".into(),
+            pool: PoolCliArgs {
+                io_error_threshold: IO_ERROR_THRESHOLD,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    })
+}
 
 #[tokio::test]
 async fn lvs_pool_test() {
@@ -49,11 +67,7 @@ async fn lvs_pool_test() {
     //setup disk3 via loop device using a sector size of 4096.
     let ldev = common::setup_loopdev_file(DISKNAME3, Some(4096));
 
-    let args = MayastorCliArgs {
-        reactor_mask: "0x3".into(),
-        ..Default::default()
-    };
-    let ms = MayastorTest::new(args);
+    let ms = ms();
 
     // should fail to import a pool that does not exist on disk
     ms.spawn(async {
@@ -542,17 +556,6 @@ async fn lvs_errors() {
     }
     let mut guard = TestGuard { loop_dev: None };
 
-    let io_error_threshold = 5;
-    let args = MayastorCliArgs {
-        reactor_mask: "0x2".into(),
-        pool: PoolCliArgs {
-            io_error_threshold,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let ms = MayastorTest::new(args);
-
     //setup disk1 via loop device using a sector size of 4096.
     let ldev = common::setup_loopdev_file(DISKNAME1, Some(4096));
     guard.loop_dev = Some(ldev.clone());
@@ -582,20 +585,22 @@ async fn lvs_errors() {
         ..Default::default()
     };
 
+    let ms = ms();
     ms.spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
 
         // We bork the device, making it return -EIO for all I/O
         let table = lvol.bork().await.unwrap();
 
-        for i in 1..=io_error_threshold {
+        for i in 1..=IO_ERROR_THRESHOLD {
             let error = lvs_pool
                 .create_lvol("fail", 8 * 1024 * 1024, None, true, None)
                 .await
                 .expect_err("error due to -EIO");
             println!("error: {error}");
+            assert_eq!(error.to_errno(), nix::Error::EIO);
 
-            if i < io_error_threshold {
+            if i < IO_ERROR_THRESHOLD {
                 let (pool, errors, alerts) = pool_info(&lvs_pool).await;
 
                 assert_eq!(pool.state(), PoolState::PoolOnline);
@@ -607,7 +612,7 @@ async fn lvs_errors() {
 
         let (pool, errors, alerts) = pool_info(&lvs_pool).await;
         assert_eq!(pool.state(), PoolState::PoolSuspected);
-        assert_eq!(errors.io_error_count, io_error_threshold);
+        assert_eq!(errors.io_error_count, IO_ERROR_THRESHOLD);
         assert_eq!(alerts.warning, vec![PoolAlert::IoErrorExc as i32]);
         assert_eq!(alerts.status(), PoolAlertStatus::Warning);
 
@@ -646,4 +651,90 @@ async fn pool_info(pool: &dyn PoolOps) -> (Pool, PoolErrors, PoolAlerts) {
     let errors = pool.errors.clone().unwrap();
     let alerts = errors.alerts.clone().unwrap_or_default();
     (pool, errors, alerts)
+}
+
+#[tokio::test]
+async fn lvs_hot_remove() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    common::delete_file(&[DISKNAME1.into()]);
+    common::truncate_file(DISKNAME1, 128 * 1024);
+
+    let script = r#"
+        set -euo pipefail
+        modprobe ublk_drv
+        o=$(ublk add -t loop -f $1)
+        echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
+    "#;
+    let args = vec![DISKNAME1.into()];
+    let result = run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+    if result.0 == 1 && result.2.contains("ublk_drv not found") {
+        eprint!(" skipped because UBLK kernel module not found, not");
+        return;
+    }
+    assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
+
+    let ublk_n: u64 = result.1.trim_end().parse().unwrap();
+    let ublk_dev = format!("/dev/ublkb{ublk_n}");
+
+    struct TestGuard {
+        ublk_n: u64,
+    }
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            let script = r#"
+                if ! ublk del -n $1 --async; then
+                    echo "Ublk delete async not supported..."
+                    ublk del -n $1 &
+                    PID=$!
+                    sleep 1
+                    kill $PID || kill -9 $PID
+                fi
+            "#;
+            let args = vec![self.ublk_n.to_string()];
+            let out =
+                run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+            if out.0 != 0 {
+                eprintln!("TestGuard=>{out:#?}");
+            }
+            common::delete_file(&[DISKNAME1.into()]);
+        }
+    }
+    let guard = TestGuard { ublk_n };
+
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![ublk_dev],
+        backend: PoolBackend::Lvs,
+        ..Default::default()
+    };
+
+    ms().start_grpc();
+
+    ms().spawn(async move {
+        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+
+        let repl = lvs_pool
+            .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
+
+        // We bork the device, leading to hot-removal
+        drop(guard);
+
+        let error = lvs_pool
+            .create_lvol("fail", 8 * 1024 * 1024, None, true, None)
+            .await
+            .expect_err("-EIO");
+        println!("repl: {error:#?}");
+        assert_eq!(error.to_errno(), nix::Error::EIO);
+
+        let error = repl.destroy().await.expect_err("-EIO");
+        assert_eq!(error.to_errno(), nix::Error::EIO);
+    })
+    .await;
 }
