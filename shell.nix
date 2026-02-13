@@ -41,6 +41,7 @@ let
         nvme-cli
         xfsprogs
         nixpkgs-fmt
+        ublksrv
       ];
 
       shellEnv = with pkgs; {
