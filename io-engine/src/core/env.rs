@@ -299,11 +299,16 @@ pub struct MayastorCliArgs {
 #[derive(Debug, clap::Parser, Clone)]
 pub struct SpdkTracingArgs {
     /// Number of trace entries per lcore.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, env = "SPDK_TRACING_ENTRIES", default_value_t = 0)]
     pub entries: u64,
     /// Number of user created threads.
-    #[clap(long, default_value_t = 1)]
+    #[clap(long, env = "SPDK_TRACING_THREADS", default_value_t = 1)]
     pub threads: u32,
+}
+impl Default for SpdkTracingArgs {
+    fn default() -> Self {
+        Self::parse_from(Vec::<String>::new())
+    }
 }
 
 /// DiskPool related arguments.
@@ -311,7 +316,7 @@ pub struct SpdkTracingArgs {
 pub struct PoolCliArgs {
     /// I/O error count threshold.
     /// After this many errors a pool alert is raised as Warning.
-    #[clap(long, default_value_t = 64)]
+    #[clap(long, env, default_value_t = 8)]
     pub io_error_threshold: u64,
 
     /// I/O stall deadline.
@@ -319,19 +324,24 @@ pub struct PoolCliArgs {
     /// Critical alert is raised.
     /// The pool disk will also be reset and the stall will be cleared once complete and
     /// I/O flows again.
-    #[clap(long, default_value = "30s")]
+    #[clap(long, env, default_value = "30s")]
     pub io_stall_deadline: humantime::Duration,
 
     /// I/O stall transitions threshold.
     /// After this many transitions within the window, a pool alert is raised as Warning.
-    #[clap(long, default_value_t = 3)]
+    #[clap(long, env, default_value_t = 3)]
     pub io_stall_transition_threshold: u64,
 
     /// I/O stall transitions window.
     /// Time window during which stall ↔ resume state transitions are tracked
     /// for flakiness detection.
-    #[clap(long, default_value = "3h")]
+    #[clap(long, env, default_value = "3h")]
     pub io_stall_transition_window: humantime::Duration,
+}
+impl Default for PoolCliArgs {
+    fn default() -> Self {
+        Self::parse_from(Vec::<String>::new())
+    }
 }
 
 fn delay_compat(s: &str) -> Result<bool, String> {
@@ -507,8 +517,8 @@ impl Default for MayastorEnvironment {
             developer_delay: false,
             rdma: false,
             bs_cluster_unmap: false,
-            pool_args: PoolCliArgs::parse_from(Vec::<String>::new()),
-            traces: SpdkTracingArgs::parse_from(Vec::<String>::new()),
+            pool_args: PoolCliArgs::default(),
+            traces: SpdkTracingArgs::default(),
         }
     }
 }

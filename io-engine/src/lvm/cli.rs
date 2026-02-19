@@ -1,10 +1,11 @@
 use crate::lvm::{error, error::Error, property::Property};
 
+use nix::errno::Errno;
 use serde::de::Deserialize;
 use snafu::ResultExt;
 use std::ffi::OsStr;
 use strum_macros::{AsRefStr, Display, EnumString};
-use tokio::process::Command;
+use tokio::{io::AsyncWriteExt, process::Command};
 
 /// Common set of query options for a volume group or logical volume.
 /// If the name is present then the name will be used to query.
@@ -30,6 +31,15 @@ impl CmnQueryArgs {
             ..Default::default()
         }
     }
+    /// Find only our entries (ie, with our tag).
+    pub(crate) fn ours_if(spdk: bool) -> Self {
+        if spdk {
+            Self::ours()
+        } else {
+            Self::any()
+        }
+    }
+
     /// Find entries with the given name.
     pub(crate) fn named_opt(self, name: &Option<String>) -> Self {
         let Some(name) = name else {
@@ -111,12 +121,19 @@ enum LvmSubCmd {
     /// Display information about logical volumes.
     #[strum(serialize = "lvs")]
     LVList,
+    /// DeviceMapper commands.
+    #[strum(serialize = "dmsetup")]
+    DMSetup,
+    /// BlockDevice commands.
+    #[strum(serialize = "blockdev")]
+    BlkDev,
 }
 
 /// LVM wrapper over `Command` with added qol such as error mapping and
 /// decoding of json output reports.
 pub(super) struct LvmCmd {
     cmd: &'static str,
+    input: Option<String>,
     cmder: Command,
 }
 
@@ -142,6 +159,7 @@ impl LvmCmd {
         Self {
             cmd,
             cmder: Command::new(cmd),
+            input: None,
         }
     }
     /// Prepare a `Command` for `LvmSubCmd::PVCreate`.
@@ -187,6 +205,14 @@ impl LvmCmd {
     /// Prepare a `Command` for `LvmSubCmd::LVList`.
     pub(super) fn lv_list() -> Self {
         Self::new(LvmSubCmd::LVList.as_ref())
+    }
+    /// Prepare a `Command` for `LvmSubCmd::DMSuspend`.
+    pub(super) fn dm_setup() -> Self {
+        Self::new(LvmSubCmd::DMSetup.as_ref())
+    }
+    /// Prepare a `Command` for `LvmSubCmd::BlkDev`.
+    pub(super) fn blk_dev() -> Self {
+        Self::new(LvmSubCmd::BlkDev.as_ref())
     }
     /// Runs the LVM command with the provided `Command` arguments et all and
     /// returns an LVM specific report containing an output type `T`.
@@ -241,7 +267,7 @@ impl LvmCmd {
     /// Tag the given `Property`.
     pub(super) fn tag_if(self, tag: bool, property: Property) -> Self {
         if tag {
-            self.arg(property.add())
+            self.tag(property)
         } else {
             self
         }
@@ -262,6 +288,11 @@ impl LvmCmd {
         S: AsRef<OsStr>,
     {
         self.cmder.args(args);
+        self
+    }
+    /// Run the command with the given input.
+    pub fn input(mut self, input: String) -> Self {
+        self.input = Some(input);
         self
     }
     /// Runs the LVM command with the provided `Command` arguments et al.
@@ -285,14 +316,11 @@ impl LvmCmd {
     pub(super) async fn output(mut self) -> Result<std::process::Output, Error> {
         tracing::trace!("{:?}", self.cmder);
 
-        crate::tokio_run!(async move {
-            let output = self
-                .cmder
-                .output()
-                .await
-                .context(error::LvmBinSpawnErrSnafu {
-                    command: self.cmd.to_string(),
-                })?;
+        let in_spdk = spdk_rs::Thread::is_spdk_thread();
+        let fut = async move {
+            let output = self.cmder().await.context(error::LvmBinSpawnErrSnafu {
+                command: self.cmd.to_string(),
+            })?;
             if !output.status.success() {
                 let error = String::from_utf8_lossy(&output.stderr).to_string();
                 return Err(Error::LvmBinErr {
@@ -301,7 +329,42 @@ impl LvmCmd {
                 });
             }
             Ok(output)
-        })
+        };
+        if in_spdk {
+            crate::tokio_run!(fut)
+        } else {
+            fut.await
+        }
+    }
+
+    async fn cmder(&mut self) -> std::io::Result<std::process::Output> {
+        unsafe {
+            self.cmder.pre_exec(|| {
+                Self::close_range().ok();
+                Ok(())
+            });
+        }
+
+        let Some(input) = self.input.take() else {
+            return self.cmder.output().await;
+        };
+
+        let mut child = self.cmder.stdin(std::process::Stdio::piped()).spawn()?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(input.as_bytes()).await?;
+            stdin.shutdown().await?;
+        }
+
+        child.wait_with_output().await
+    }
+
+    /// The close_range system call closes all open file descriptors from first to last (included).
+    /// Here close from 3 to 1024.
+    /// todo: find a better way such as querying /proc/self/fd ?.
+    fn close_range() -> nix::Result<()> {
+        let res = unsafe { libc::close_range(3, 1024, libc::CLOSE_RANGE_CLOEXEC as i32) };
+        Errno::result(res).map(drop)
     }
 }
 

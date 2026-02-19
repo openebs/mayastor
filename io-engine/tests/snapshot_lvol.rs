@@ -55,12 +55,9 @@ async fn create_test_pool(pool_name: &str, disk: String, cluster_size: Option<u3
     Lvs::create_or_import(PoolArgs {
         name: pool_name.to_string(),
         disks: vec![disk],
-        uuid: None,
         cluster_size,
-        md_args: None,
         backend: PoolBackend::Lvs,
-        enc_key: None,
-        crypto_vbdev_name: None,
+        ..Default::default()
     })
     .await
     .expect("Failed to create test pool");

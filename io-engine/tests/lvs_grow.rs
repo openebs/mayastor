@@ -9,9 +9,8 @@ use spdk_rs::{ffihelper::IntoCString, libspdk::resize_malloc_disk, UntypedBdev};
 use io_engine::{
     core::MayastorCliArgs,
     lvs::Lvs,
-    pool_backend::{IPoolProps, PoolArgs},
+    pool_backend::{IPoolProps, PoolArgs, PoolBackend},
 };
-
 use io_engine_tests::{
     bdev::{create_bdev, find_bdev_by_name},
     compose::{
@@ -150,11 +149,8 @@ async fn lvs_grow_ms_malloc() {
                     name: POOL_NAME.to_string(),
                     disks: vec![BDEV_URI.to_string()],
                     uuid: Some(POOL_UUID.to_string()),
-                    cluster_size: None,
-                    md_args: None,
-                    backend: Default::default(),
-                    enc_key: None,
-                    crypto_vbdev_name: None,
+                    backend: PoolBackend::Lvs,
+                    ..Default::default()
                 };
 
                 // Create LVS.

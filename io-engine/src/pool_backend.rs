@@ -19,6 +19,9 @@ pub struct PoolArgs {
     pub backend: PoolBackend,
     pub enc_key: Option<EncryptionKey>,
     pub crypto_vbdev_name: Option<String>,
+    /// Set to false if you don't want the pool and its replicas to be managed by spdk.
+    /// Applicable for non LvsBlobstore pools, such as the LVM.
+    pub no_spdk: bool,
 }
 
 impl PoolArgs {
@@ -47,6 +50,7 @@ pub enum PoolBackend {
 }
 
 /// Arguments for replica creation.
+#[derive(Default)]
 pub struct ReplicaArgs {
     pub name: String,
     pub size: u64,

@@ -1,16 +1,14 @@
-use serde::Deserialize;
-
-use crate::{
-    bdev::PtplFileOps,
-    core::Protocol,
-    lvm::{property::Property, LogicalVolume},
-    pool_backend::PoolArgs,
-};
-
 use super::{
     cli::{de, CmnQueryArgs, LvmCmd},
     error::Error,
 };
+use crate::{
+    bdev::PtplFileOps,
+    core::Protocol,
+    lvm::{dm_setup::DmSetup, property::Property, LogicalVolume},
+    pool_backend::PoolArgs,
+};
+use serde::Deserialize;
 
 /// VG query arguments, allowing filtering via --select.
 /// It's essentially a new-type wrapper over the common arguments
@@ -140,26 +138,55 @@ impl VolumeGroup {
 
     /// Import a volume group with the name provided or create one with the name
     /// and disks provided currently only import is supported.
-    pub(crate) async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
-        let vg = match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
-            Ok(_) => Self::import_inner(args).await,
+    pub async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
+        tracing::info!(?args, "Creating/Importing LVM Volume Group");
+        match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
+            Ok(_) => {
+                let vg = Self::import_inner(args).await?;
+                info!(name = vg.name(), "LVM Volume Group imported successfully");
+                Ok(vg)
+            }
             Err(Error::NotFound { .. }) => {
                 LvmCmd::pv_create().args(&args.disks).run().await?;
 
-                LvmCmd::vg_create()
-                    .arg(&args.name)
-                    .tag(Property::Lvm)
-                    .args(args.disks)
-                    .run()
-                    .await?;
-                let lookup = CmnQueryArgs::ours().named(&args.name).uuid_opt(&args.uuid);
+                // A broken vg as a result of improper cleanup during tests
+                let edm_e = format!("/dev/{}: already exists in filesystem", args.name);
+                let cmd = || {
+                    LvmCmd::vg_create()
+                        .arg(&args.name)
+                        .tag_if(!args.no_spdk, Property::Lvm)
+                        .args(&args.disks)
+                };
+                match cmd().run().await {
+                    Err(Error::LvmBinErr { error, command }) if error.starts_with(&edm_e) => {
+                        // cleanup
+                        let name = &args.name;
+                        let Ok(dir) = std::fs::read_dir(format!("/dev/{name}")) else {
+                            return Err(Error::LvmBinErr { error, command });
+                        };
+                        for entry in dir.flatten() {
+                            DmSetup::remove(&entry.path().display().to_string()).await?;
+                        }
+                        cmd().run().await
+                    }
+                    _else => _else,
+                }?;
+                info!(name = args.name, "LVM VolumeGroup created successfully");
+                let lookup = CmnQueryArgs::ours_if(!args.no_spdk)
+                    .named(&args.name)
+                    .uuid_opt(&args.uuid);
                 VolumeGroup::lookup(lookup).await
             }
             Err(error) => Err(error),
-        }?;
+        }
+    }
 
-        info!("The lvm vg pool '{}' has been created", vg.name());
-        Ok(vg)
+    /// Creates a [`LogicalVolume`] from this [`VolumeGroup`].
+    pub async fn create_lvol(
+        &self,
+        args: crate::pool_backend::ReplicaArgs,
+    ) -> Result<LogicalVolume, Error> {
+        LogicalVolume::create(self, args, Protocol::Off, self.ours()).await
     }
 
     async fn import_lvols(&self) -> Result<(), Error> {
@@ -186,6 +213,7 @@ impl VolumeGroup {
     /// as a Pool.
     pub(crate) async fn import(args: PoolArgs) -> Result<VolumeGroup, Error> {
         let vg = Self::import_inner(args).await?;
+        info!(name = vg.name(), "LVM Volume Group imported successfully");
         vg.import_lvols().await?;
         Ok(vg)
     }
@@ -194,6 +222,7 @@ impl VolumeGroup {
     /// and if true add our tag to the volume group to make it available
     /// as a Pool.
     async fn import_inner(args: PoolArgs) -> Result<VolumeGroup, Error> {
+        tracing::info!(?args, "Importing LVM Volume Group");
         let name = &args.name;
         let mut vg = Self::lookup(CmnQueryArgs::any().named(name)).await?;
 
@@ -206,6 +235,15 @@ impl VolumeGroup {
                 args: args.disks,
                 vg: vg.disks,
             });
+        }
+
+        if args.no_spdk {
+            if !vg.tags.contains(&Property::Lvm) {
+                return Ok(vg);
+            }
+            LvmCmd::vg_change(name).untag(Property::Lvm).run().await?;
+            vg.tags.retain(|t| t != &Property::Lvm);
+            return Ok(vg);
         }
 
         if vg.tags.contains(&Property::Lvm) {
@@ -223,13 +261,27 @@ impl VolumeGroup {
 
     /// Delete the volume group.
     /// > Note: The Vg is first exported and then destroyed.
-    pub(crate) async fn destroy(mut self) -> Result<(), Error> {
+    /// > Note: The Vg is kept if it contains foreign LVs.
+    pub async fn destroy(self) -> Result<(), Error> {
+        self.destroy_(false).await
+    }
+
+    /// Delete the volume group.
+    /// > Note: The Vg is first exported and then destroyed.
+    /// > Warning: The Vg is destroyed even if containing foreign LVs.
+    pub async fn purge(self) -> Result<(), Error> {
+        self.destroy_(true).await
+    }
+
+    /// Delete the volume group.
+    /// > Note: The Vg is first exported and then destroyed.
+    pub async fn destroy_(mut self, purge_always: bool) -> Result<(), Error> {
         self.export().await?;
 
         let foreign_lvs = self.list_foreign_lvs().await?;
         let name = self.name().to_string();
 
-        if foreign_lvs.is_empty() {
+        if purge_always || foreign_lvs.is_empty() {
             LvmCmd::vg_remove()
                 .arg(format!("--select=vg_name={name}"))
                 .arg("-y")
@@ -278,33 +330,31 @@ impl VolumeGroup {
     }
 
     /// Create a logical volume in this volume group.
-    pub(super) async fn create_lvol(
+    /// This is an internal method that should not be used outside the LVM module.
+    pub(super) async fn create_lvoli(
         &self,
-        name: &str,
-        size: u64,
-        uuid: &str,
-        thin: bool,
-        entity_id: &Option<String>,
+        args: &crate::pool_backend::ReplicaArgs,
         share: Protocol,
+        spdk: bool,
     ) -> Result<(), Error> {
         let vg_name = self.name();
+        let uuid = &args.uuid;
         let ins_space = format!("Volume group \"{vg_name}\" has insufficient free space");
+        let eexists =
+            format!("Logical Volume \"{uuid}\" already exists in volume group \"{vg_name}\"");
 
-        if thin {
+        if args.thin {
             return Err(Error::ThinProv {});
-        } else if size > self.free {
-            return Err(Error::NoSpace { error: ins_space });
         }
 
-        let ins_space = format!("Volume group \"{vg_name}\" has insufficient free space");
-        let entity_id = entity_id.clone().unwrap_or_default();
+        let entity_id = args.entity_id.clone().unwrap_or_default();
         match LvmCmd::lv_create()
-            .arg(format!("-L{size}b"))
+            .arg(format!("-L{}b", args.size))
             .args(["-n", uuid])
-            .tag(Property::LvName(name.to_string()))
+            .tag(Property::LvName(args.name.to_string()))
             .tag(Property::LvShare(share))
             .tag_if(!entity_id.is_empty(), Property::LvEntityId(entity_id))
-            .tag(Property::Lvm)
+            .tag_if(spdk, Property::Lvm)
             .arg(self.name())
             .run()
             .await
@@ -313,10 +363,16 @@ impl VolumeGroup {
             Err(Error::LvmBinErr { error, .. }) if error.starts_with(&ins_space) => {
                 Err(Error::NoSpace { error })
             }
+            Err(Error::LvmBinErr { error, .. }) if error.starts_with(&eexists) => {
+                Err(Error::Exists { error })
+            }
             _else => _else,
         }?;
 
-        info!("lvm volume {name} created");
+        info!(
+            name = args.name,
+            uuid, vg_name, "LVM Logical Volume created successfully"
+        );
 
         Ok(())
     }
@@ -387,6 +443,11 @@ impl VolumeGroup {
         let eq = uuid.map(|uuid| &self.uuid == uuid).unwrap_or(true);
         tracing::trace!("{uuid:?} == {} ? {eq}", self.uuid);
         eq
+    }
+
+    /// Check if the volume group is owned by mayastor.
+    fn ours(&self) -> bool {
+        self.tags.iter().any(|t| t == &Property::Lvm)
     }
 
     /// Get a `PtplFileOps` from `&self`.

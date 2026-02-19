@@ -176,7 +176,7 @@ pub fn dd_random_file(path: &str, bs: u32, size: u64) {
         .output()
         .expect("failed exec dd");
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 pub fn truncate_file(path: &str, size: u64) {
@@ -185,7 +185,7 @@ pub fn truncate_file(path: &str, size: u64) {
         .output()
         .expect("failed exec truncate");
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 pub fn truncate_file_bytes(path: &str, size: u64) {
@@ -193,7 +193,7 @@ pub fn truncate_file_bytes(path: &str, size: u64) {
         .args(["-s", &format!("{size}"), path])
         .output()
         .expect("failed exec truncate");
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 pub fn expand_tempfs_file_bytes(path: &str, size: u64) {
@@ -201,7 +201,7 @@ pub fn expand_tempfs_file_bytes(path: &str, size: u64) {
         .args(["-s", &format!("+{size}"), path])
         .output()
         .expect("failed exec truncate");
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 /// Automatically assign a loopdev to path
@@ -212,7 +212,7 @@ pub fn setup_loopdev_file(path: &str, sector_size: Option<u64>) -> String {
         .args(["-f", "--show", "-b", &format!("{log_sec}"), path])
         .output()
         .expect("failed exec losetup");
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
     // return the assigned loop device
     String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
@@ -223,7 +223,7 @@ pub fn detach_loopdev(dev: &str) {
         .args(["-d", dev])
         .output()
         .expect("failed exec losetup");
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 pub fn fscheck(device: &str) {
@@ -235,7 +235,7 @@ pub fn fscheck(device: &str) {
     io::stdout().write_all(&output.stderr).unwrap();
     io::stdout().write_all(&output.stdout).unwrap();
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 pub fn mkfs(path: &str, fstype: &str) -> bool {
@@ -279,7 +279,7 @@ pub fn compare_files(a: &str, b: &str) {
 
     io::stdout().write_all(&output.stderr).unwrap();
     io::stdout().write_all(&output.stdout).unwrap();
-    assert!(output.status.success());
+    assert!(output.status.success(), "{:#?}", output);
 }
 
 pub fn mount_umount(device: &str) -> Result<String, String> {

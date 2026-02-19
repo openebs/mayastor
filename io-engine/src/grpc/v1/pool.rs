@@ -278,6 +278,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             backend: backend.into(),
             enc_key: None,
             crypto_vbdev_name: None,
+            no_spdk: false,
         })
     }
 }
@@ -366,6 +367,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
                 .encryption
                 .as_ref()
                 .map(|_| format!("crypto_{}", args.name)),
+            no_spdk: false,
         })
     }
 }
@@ -576,6 +578,11 @@ impl PoolErrorsNt {
     fn build(self) -> PoolErrors {
         self.0
     }
+}
+
+/// Convert something which implements [`PoolOps`] to the proto `Pool` type.
+pub async fn pool_to_proto(pool: &dyn PoolOps) -> Pool {
+    pool.async_into().await
 }
 
 impl AsyncFrom<Box<dyn PoolOps>> for Pool {

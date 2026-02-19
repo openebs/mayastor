@@ -175,6 +175,7 @@ impl From<&Pool> for PoolArgs {
             } else {
                 None
             },
+            no_spdk: false,
         }
     }
 }

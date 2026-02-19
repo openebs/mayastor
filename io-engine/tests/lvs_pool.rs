@@ -2,11 +2,19 @@ use common::MayastorTest;
 use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
-    core::{logical_volume::LogicalVolume, MayastorCliArgs, Protocol, Share, UntypedBdev},
+    core::{
+        logical_volume::LogicalVolume, MayastorCliArgs, PoolCliArgs, Protocol, Share, ToErrno,
+        UntypedBdev,
+    },
+    grpc::v1::pool::pool_to_proto,
     lvs::{Lvs, LvsLvol, PropName, PropValue},
-    pool_backend::{PoolArgs, PoolBackend},
+    pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
     subsys::NvmfSubsystem,
 };
+use io_engine_api::v1::pool::{
+    Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState,
+};
+use once_cell::sync::OnceCell;
 use std::pin::Pin;
 
 pub mod common;
@@ -18,6 +26,22 @@ static DISKNAME3: &str = "/tmp/io-engine-tests/disk3.img";
 static DISK_CRYPTO: &str = "/tmp/io-engine-tests/crypto_disk.img";
 static XTS_KEY: &str = "2b7e151628aed2a6abf7158809cf4f3c";
 static XTS_KEY2: &str = "2b7e151628aed2a6abf7158809cf4f3d";
+const IO_ERROR_THRESHOLD: u64 = 5;
+
+static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
+
+fn ms() -> &'static MayastorTest<'static> {
+    MAYASTOR.get_or_init(|| {
+        MayastorTest::new(MayastorCliArgs {
+            reactor_mask: "0x3".into(),
+            pool: PoolCliArgs {
+                io_error_threshold: IO_ERROR_THRESHOLD,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    })
+}
 
 #[tokio::test]
 async fn lvs_pool_test() {
@@ -43,11 +67,7 @@ async fn lvs_pool_test() {
     //setup disk3 via loop device using a sector size of 4096.
     let ldev = common::setup_loopdev_file(DISKNAME3, Some(4096));
 
-    let args = MayastorCliArgs {
-        reactor_mask: "0x3".into(),
-        ..Default::default()
-    };
-    let ms = MayastorTest::new(args);
+    let ms = ms();
 
     // should fail to import a pool that does not exist on disk
     ms.spawn(async {
@@ -60,12 +80,8 @@ async fn lvs_pool_test() {
     let pool_args = PoolArgs {
         name: "tpool".into(),
         disks: vec![format!("aio://{DISKNAME1}")],
-        uuid: None,
-        cluster_size: None,
-        md_args: None,
         backend: PoolBackend::Lvs,
-        enc_key: None,
-        crypto_vbdev_name: None,
+        ..Default::default()
     };
 
     // should succeed to create a pool we can not import
@@ -147,12 +163,8 @@ async fn lvs_pool_test() {
         assert!(Lvs::create_from_args_inner(PoolArgs {
             name: "tpool".to_string(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .is_ok());
@@ -181,12 +193,8 @@ async fn lvs_pool_test() {
         let pool2 = Lvs::create_or_import(PoolArgs {
             name: "tpool2".to_string(),
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -221,12 +229,8 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".to_string(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -362,12 +366,8 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -386,12 +386,8 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(PoolArgs {
             name: "tpool_4k_aio".into(),
             disks: vec![format!("aio://{pool_dev_aio}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -416,12 +412,8 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(PoolArgs {
             name: "tpool_4k_uring".into(),
             disks: vec![format!("uring://{pool_dev_uring}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -456,12 +448,8 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(PoolArgs {
             name: "jpool".into(),
             disks: vec![format!("aio://{DISKNAME1}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .err()
@@ -476,12 +464,8 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool2".into(),
             disks: vec![format!("aio://{DISKNAME2}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
             backend: PoolBackend::Lvs,
-            enc_key: None,
-            crypto_vbdev_name: None,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -498,10 +482,6 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(PoolArgs {
             name: "enc_pool".into(),
             disks: vec![format!("aio://{DISK_CRYPTO}")],
-            uuid: None,
-            cluster_size: None,
-            md_args: None,
-            backend: PoolBackend::Lvs,
             enc_key: Some(EncryptionKey {
                 cipher: Cipher::AesXts,
                 key_name: "test_key".into(),
@@ -511,6 +491,8 @@ async fn lvs_pool_test() {
                 key2_len: Some(128),
             }),
             crypto_vbdev_name: Some("crypto_enc_pool".into()),
+            backend: PoolBackend::Lvs,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -537,6 +519,222 @@ async fn lvs_pool_test() {
         futures::future::join_all(dest).await;
         pool.destroy().await.unwrap();
         common::delete_file(&[DISK_CRYPTO.into()]);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn lvs_errors() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    common::delete_file(&[DISKNAME1.into()]);
+    common::truncate_file(DISKNAME1, 128 * 1024);
+
+    const VG_NAME: &str = "vg-1";
+    const LV_NAME: &str = "lvol1";
+
+    struct TestGuard {
+        loop_dev: Option<String>,
+    }
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            if let Some(loop_dev) = self.loop_dev.take() {
+                let script = r#"
+                    export LVM_SUPPRESS_FD_WARNINGS=1
+                    vgremove -f $2
+                    pvremove -f $3
+                "#;
+                let args = vec![DISKNAME1.into(), VG_NAME.into(), loop_dev.clone()];
+                run_script::run_script!(script, args, run_script::ScriptOptions::new()).ok();
+                common::detach_loopdev(&loop_dev);
+            }
+        }
+    }
+    let mut guard = TestGuard { loop_dev: None };
+
+    //setup disk1 via loop device using a sector size of 4096.
+    let ldev = common::setup_loopdev_file(DISKNAME1, Some(4096));
+    guard.loop_dev = Some(ldev.clone());
+
+    let vg_pool = io_engine::lvm::VolumeGroup::create(PoolArgs {
+        name: VG_NAME.into(),
+        disks: vec![ldev.clone()],
+        no_spdk: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let mut lvol = vg_pool
+        .create_lvol(ReplicaArgs {
+            name: LV_NAME.into(),
+            uuid: LV_NAME.into(),
+            size: 64 * 1024 * 1024,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![format!("aio://{}", lvol.path())],
+        backend: PoolBackend::Lvs,
+        ..Default::default()
+    };
+
+    let ms = ms();
+    ms.spawn(async move {
+        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+
+        // We bork the device, making it return -EIO for all I/O
+        let table = lvol.bork().await.unwrap();
+
+        for i in 1..=IO_ERROR_THRESHOLD {
+            let error = lvs_pool
+                .create_lvol("fail", 8 * 1024 * 1024, None, true, None)
+                .await
+                .expect_err("error due to -EIO");
+            println!("error: {error}");
+            assert_eq!(error.to_errno(), nix::Error::EIO);
+
+            if i < IO_ERROR_THRESHOLD {
+                let (pool, errors, alerts) = pool_info(&lvs_pool).await;
+
+                assert_eq!(pool.state(), PoolState::PoolOnline);
+                assert_eq!(errors.io_error_count, i);
+                assert_eq!(alerts.attention, vec![PoolAlert::IoError as i32]);
+                assert_eq!(alerts.status(), PoolAlertStatus::Attention);
+            }
+        }
+
+        let (pool, errors, alerts) = pool_info(&lvs_pool).await;
+        assert_eq!(pool.state(), PoolState::PoolSuspected);
+        assert_eq!(errors.io_error_count, IO_ERROR_THRESHOLD);
+        assert_eq!(alerts.warning, vec![PoolAlert::IoErrorExc as i32]);
+        assert_eq!(alerts.status(), PoolAlertStatus::Warning);
+
+        lvol.unbork(table).await.unwrap();
+
+        let repl = lvs_pool
+            .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
+            .await
+            .expect("now we can create it");
+
+        println!("repl: {}", repl.uuid());
+
+        lvs_pool.reset_errors().await.unwrap();
+
+        let (pool, errors, alerts) = pool_info(&lvs_pool).await;
+        assert_eq!(pool.state(), PoolState::PoolOnline);
+        assert_eq!(errors.io_error_count, 0);
+        assert_eq!(
+            alerts.notice.len()
+                + alerts.attention.len()
+                + alerts.warning.len()
+                + alerts.critical.len(),
+            0
+        );
+        assert_eq!(alerts.status(), PoolAlertStatus::Healthy);
+
+        lvs_pool.destroy().await.unwrap();
+    })
+    .await;
+
+    vg_pool.purge().await.unwrap();
+}
+
+async fn pool_info(pool: &dyn PoolOps) -> (Pool, PoolErrors, PoolAlerts) {
+    let pool = pool_to_proto(pool).await;
+    let errors = pool.errors.clone().unwrap();
+    let alerts = errors.alerts.clone().unwrap_or_default();
+    (pool, errors, alerts)
+}
+
+#[tokio::test]
+async fn lvs_hot_remove() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    common::delete_file(&[DISKNAME1.into()]);
+    common::truncate_file(DISKNAME1, 128 * 1024);
+
+    let script = r#"
+        set -euo pipefail
+        modprobe ublk_drv
+        o=$(ublk add -t loop -f $1)
+        echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
+    "#;
+    let args = vec![DISKNAME1.into()];
+    let result = run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+    if result.0 == 1 && result.2.contains("ublk_drv not found") {
+        eprint!(" skipped because UBLK kernel module not found, not");
+        return;
+    }
+    assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
+
+    let ublk_n: u64 = result.1.trim_end().parse().unwrap();
+    let ublk_dev = format!("/dev/ublkb{ublk_n}");
+
+    struct TestGuard {
+        ublk_n: u64,
+    }
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            let script = r#"
+                if ! ublk del -n $1 --async; then
+                    echo "Ublk delete async not supported..."
+                    ublk del -n $1 &
+                    PID=$!
+                    sleep 1
+                    kill $PID || kill -9 $PID
+                fi
+            "#;
+            let args = vec![self.ublk_n.to_string()];
+            let out =
+                run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+            if out.0 != 0 {
+                eprintln!("TestGuard=>{out:#?}");
+            }
+            common::delete_file(&[DISKNAME1.into()]);
+        }
+    }
+    let guard = TestGuard { ublk_n };
+
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![ublk_dev],
+        backend: PoolBackend::Lvs,
+        ..Default::default()
+    };
+
+    ms().start_grpc();
+
+    ms().spawn(async move {
+        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+
+        let repl = lvs_pool
+            .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
+
+        // We bork the device, leading to hot-removal
+        drop(guard);
+
+        let error = lvs_pool
+            .create_lvol("fail", 8 * 1024 * 1024, None, true, None)
+            .await
+            .expect_err("-EIO");
+        println!("repl: {error:#?}");
+        assert_eq!(error.to_errno(), nix::Error::EIO);
+
+        let error = repl.destroy().await.expect_err("-EIO");
+        assert_eq!(error.to_errno(), nix::Error::EIO);
     })
     .await;
 }

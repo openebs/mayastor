@@ -13,5 +13,6 @@ self: super: rec {
   ms-buildenv = super.callPackage ./pkgs/ms-buildenv { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
   units = (super.callPackage ./pkgs/io-engine/units.nix { inherit tag sourcer rustFlags; });
+  ublksrv = super.callPackage ./pkgs/ublksrv { };
 }
   // (import ../spdk-rs/nix/overlay.nix self super)

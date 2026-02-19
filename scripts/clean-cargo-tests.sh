@@ -5,6 +5,16 @@ ROOT_DIR=$(realpath "$SCRIPT_DIR/..")
 
 nix-sudo nvme disconnect-all
 
+# Clean up ublk devices
+back_dir="/tmp/io-engine-tests/"
+nix-sudo ublk list -v | jq -r --arg dir "$back_dir" '
+  select(.target.backing_file? // "" | startswith($dir))
+  | .dev_info.dev_id
+' | while read -r id; do
+    echo "Deleting ublk device $id"
+    nix-sudo ublk del -n "$id" --async
+done
+
 # Detach any loop devices created for test purposes
 for back_file in "/tmp/io-engine-tests"/*; do
     # Find loop devices associated with the disk image
