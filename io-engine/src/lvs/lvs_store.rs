@@ -1,4 +1,5 @@
 use core::f64;
+use parking_lot::RwLock;
 use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
 
 use crate::sleep::mayastor_sleep;
@@ -39,6 +40,7 @@ use crate::{
         LvolSnapshotDescriptor,
     },
     pool_backend::{PoolArgs, ReplicaArgs},
+    pool_information::{pool_info_write, PoolInfo},
 };
 
 static ROUND_TO_MB: u32 = 1024 * 1024;
@@ -223,6 +225,18 @@ impl Lvs {
         uuid::Uuid::from_bytes(t).to_string()
     }
 
+    /// Adds pool information to in memory cache.
+    pub fn add_info(&self) {
+        let mut cache = pool_info_write();
+        cache.insert(self.name().to_string(), RwLock::new(PoolInfo::default()));
+    }
+
+    /// Removes pool information from in memory cache.
+    pub fn remove_info(pool: &str) {
+        let mut cache = pool_info_write();
+        cache.remove(pool);
+    }
+
     // checks for the disks length and parses to correct format
     pub fn parse_disk(disks: Vec<String>) -> Result<String, LvsError> {
         let disk = match disks.first() {
@@ -314,6 +328,7 @@ impl Lvs {
         } else {
             lvs.share_all().await;
             info!("{:?}: existing lvs imported successfully", lvs);
+            lvs.add_info();
             Ok(lvs)
         }
     }
@@ -556,6 +571,7 @@ impl Lvs {
         match Self::lookup(&args.name) {
             Some(pool) => {
                 info!("{:?}: new lvs created successfully", pool);
+                pool.add_info();
                 Ok(pool)
             }
             None => Err(LvsError::PoolCreate {
@@ -713,12 +729,19 @@ impl Lvs {
 
         unsafe { vbdev_lvs_unload(self.as_inner_ptr(), Some(Self::lvs_op_cb), cb_arg(s)) };
 
-        r.await
+        let result = r
+            .await
             .expect("callback gone while exporting lvs")
             .to_result(|e| LvsError::Export {
                 source: BsError::from_i32(e),
                 name: pool.clone(),
-            })?;
+            });
+
+        if Lvs::lookup(&pool).is_none() {
+            Lvs::remove_info(&pool);
+        }
+
+        result?;
 
         info!(
             "{}: lvs exported successfully. base bdev: {}",
@@ -822,12 +845,19 @@ impl Lvs {
 
         unsafe { vbdev_lvs_destruct(self.as_inner_ptr(), Some(Self::lvs_op_cb), cb_arg(s)) };
 
-        r.await
+        let result = r
+            .await
             .expect("callback gone while destroying lvs")
             .to_result(|e| LvsError::Export {
                 source: BsError::from_i32(e),
                 name: pool.clone(),
-            })?;
+            });
+
+        if Lvs::lookup(&pool).is_none() {
+            Lvs::remove_info(&pool);
+        }
+
+        result?;
 
         info!(
             "{}: lvs destroyed successfully. base_bdev: {base_bdev:?}",
