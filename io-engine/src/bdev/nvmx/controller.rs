@@ -45,6 +45,7 @@ use crate::{
     },
     ffihelper::{cb_arg, done_cb},
     sleep::mayastor_sleep,
+    subsys::nvmx::NvmxSubsystem,
 };
 
 #[derive(Debug)]
@@ -85,13 +86,16 @@ impl NvmeControllerInner<'_> {
 
         info!("Running admin queue poller on core #{}", core);
 
-        let adminq_poller = PollerBuilder::new()
-            .with_name("nvme_poll_adminq")
+        let poller = match NvmxSubsystem::adminq_thread(core) {
+            Some(thread) => PollerBuilder::new().with_thread(thread),
+            // in case the poller threads were not registered
+            None => PollerBuilder::new(),
+        };
+        let adminq_poller = poller
             .with_interval(Duration::from_micros(
                 nvme_bdev_running_config().nvme_adminq_poll_period_us,
             ))
             .with_poll_fn(move |_| nvme_poll_adminq(cfg.as_ptr().cast()))
-            .with_core(core)
             .build();
 
         Self {
