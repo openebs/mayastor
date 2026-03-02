@@ -58,6 +58,7 @@ use spdk_rs::libspdk::{
 use crate::{
     core::{CoreError, Cores},
     eventing::Event,
+    subsys::config::opts::try_from_env,
 };
 use gettid::gettid;
 use nix::errno::Errno;
@@ -132,13 +133,15 @@ impl Reactors {
     /// initialize the reactor subsystem for each core assigned to us
     pub fn init(developer_delay: bool) {
         REACTOR_LIST.get_or_init(|| {
+            let mempool_sz = try_from_env(
+                "SPDK_DEFAULT_MSG_MEMPOOL_SIZE",
+                SPDK_DEFAULT_MSG_MEMPOOL_SIZE as u64,
+            );
+            if !(mempool_sz+1).is_power_of_two() {
+                tracing::warn!("The provided SPDK_DEFAULT_MSG_MEMPOOL_SIZE ({SPDK_DEFAULT_MSG_MEMPOOL_SIZE}) is not a power of 2 - 1. This is not optimal for memory consumption");
+            }
             let rc = unsafe {
-                spdk_thread_lib_init_ext(
-                    Some(Self::do_op),
-                    Some(Self::can_op),
-                    0,
-                    SPDK_DEFAULT_MSG_MEMPOOL_SIZE as u64,
-                )
+                spdk_thread_lib_init_ext(Some(Self::do_op), Some(Self::can_op), 0, mempool_sz)
             };
             assert_eq!(rc, 0);
 
