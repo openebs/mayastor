@@ -303,10 +303,18 @@ pub struct MayastorCliArgs {
 #[derive(Debug, clap::Parser, Clone)]
 pub struct SpdkTracingArgs {
     /// Number of trace entries per lcore.
-    #[clap(long, env = "SPDK_TRACING_ENTRIES", default_value_t = 0)]
+    #[clap(
+        long = "spdk-tracing-entries",
+        env = "SPDK_TRACING_ENTRIES",
+        default_value_t = 0
+    )]
     pub entries: u64,
     /// Number of user created threads.
-    #[clap(long, env = "SPDK_TRACING_THREADS", default_value_t = 1)]
+    #[clap(
+        long = "spdk-tracing-threads",
+        env = "SPDK_TRACING_THREADS",
+        default_value_t = 1
+    )]
     pub threads: u32,
 }
 impl Default for SpdkTracingArgs {
@@ -320,7 +328,11 @@ impl Default for SpdkTracingArgs {
 pub struct PoolCliArgs {
     /// I/O error count threshold. {n}
     /// After this many errors a pool alert is raised as Warning.
-    #[clap(long, env, default_value_t = 8)]
+    #[clap(
+        long = "pool-io-error-threshold",
+        env = "POOL_IO_ERROR_THRESHOLD",
+        default_value_t = 8
+    )]
     pub io_error_threshold: u64,
 
     /// I/O stall deadline. {n}
@@ -328,18 +340,30 @@ pub struct PoolCliArgs {
     /// Critical alert is raised. {n}
     /// The pool disk will also be reset and the stall will be cleared once complete and
     /// I/O flows again.
-    #[clap(long, env, default_value = "30s")]
+    #[clap(
+        long = "pool-io-stall-deadline",
+        env = "POOL_IO_STALL_DEADLINE",
+        default_value = "30s"
+    )]
     pub io_stall_deadline: humantime::Duration,
 
     /// I/O stall transitions threshold. {n}
     /// After this many transitions within the window, a pool alert is raised as Warning.
-    #[clap(long, env, default_value_t = 3)]
+    #[clap(
+        long = "pool-io-stall-transition-threshold",
+        env = "POOL_IO_STALL_TRANSITION_THRESHOLD",
+        default_value_t = 3
+    )]
     pub io_stall_transition_threshold: u64,
 
     /// I/O stall transitions window. {n}
     /// Time window during which stall ↔ resume state transitions are tracked
     /// for flakiness detection.
-    #[clap(long, env, default_value = "3h")]
+    #[clap(
+        long = "pool-io-stall-transition-window",
+        env = "POOL_IO_STALL_TRANSITION_WINDOW",
+        default_value = "3h"
+    )]
     pub io_stall_transition_window: humantime::Duration,
 }
 impl Default for PoolCliArgs {
