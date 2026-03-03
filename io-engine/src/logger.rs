@@ -1,4 +1,9 @@
+use crate::{
+    constants::{EVENTING_TARGET, SERVICE_NAME},
+    core::spawn,
+};
 use ansi_term::{Colour, Style};
+use event_publisher::event_handler::EventHandle;
 use once_cell::sync::OnceCell;
 use std::{
     collections::HashMap,
@@ -10,19 +15,13 @@ use std::{
     path::Path,
     str::FromStr,
 };
-
-use crate::{
-    constants::{EVENTING_TARGET, SERVICE_NAME},
-    core::spawn,
-};
-use event_publisher::event_handler::EventHandle;
 use tracing::field::{Field, Visit};
 use tracing_core::{event::Event, Level, Metadata};
 use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{
     filter::{filter_fn, Targets},
     fmt::{
-        format::{FmtSpan, FormatEvent, FormatFields, Writer},
+        format::{FormatEvent, FormatFields, Writer},
         FmtContext, FormattedFields,
     },
     layer::{Layer, SubscriberExt},
@@ -348,7 +347,8 @@ fn ellipsis(s: &str, w: usize) -> String {
 /// Input struct for json serializer.
 #[derive(Serialize)]
 struct JsonLogger {
-    hostname: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
     level: String,
     timestamp: String,
     fields: HashMap<String, String>,
@@ -481,7 +481,7 @@ impl LogFormat {
         msg.insert(key, val.to_string());
 
         let json_log = JsonLogger {
-            hostname: self.hostname().to_string(),
+            hostname: self.hostname_json(),
             level: fmt.long(),
             timestamp: now.to_rfc2822(),
             fields: msg,
@@ -491,13 +491,71 @@ impl LogFormat {
         writeln!(writer)
     }
 
-    fn hostname(&self) -> &str {
+    fn hostname_json(&self) -> Option<String> {
         if self.show_host {
-            HOSTNAME_PREFIX
-                .get_or_init(|| format!("{} :: ", get_hostname()))
-                .as_str()
+            Some(Self::global_hostname().to_string())
         } else {
-            ""
+            None
+        }
+    }
+    fn global_hostname<'a>() -> &'a str {
+        HOSTNAME_PREFIX.get_or_init(get_hostname).as_str()
+    }
+    fn hostname(&self) -> LogHostname<'_> {
+        if self.show_host {
+            LogHostname(Some(Self::global_hostname()))
+        } else {
+            LogHostname(None)
+        }
+    }
+}
+
+struct LogHostname<'a>(Option<&'a str>);
+impl std::fmt::Display for LogHostname<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(hostname) => write!(f, "{hostname} :: "),
+            None => write!(f, ""),
+        }
+    }
+}
+
+/// Configures how synthesized events are emitted at points in the [span lifecycle][lifecycle].
+///
+/// [lifecycle]: https://docs.rs/tracing/latest/tracing/span/index.html#the-span-lifecycle
+// todo: support combinations.
+#[derive(clap::ValueEnum, Debug, Default, Clone, Copy)]
+pub enum FmtSpan {
+    /// One event when span is created.
+    New,
+    /// One event per enter of a span.
+    Enter,
+    /// One event per exit of a span.
+    Exit,
+    /// One event when the span is dropped.
+    Close,
+    /// Spans are ignored (this is the default).
+    #[default]
+    None,
+    /// One event per enter/exit of a span.
+    Active,
+    /// Events at all points (new, enter, exit, drop).
+    Full,
+    /// Events at all points (new, enter, exit, drop).
+    All,
+}
+
+impl From<FmtSpan> for tracing_subscriber::fmt::format::FmtSpan {
+    fn from(value: FmtSpan) -> Self {
+        match value {
+            FmtSpan::New => Self::NEW,
+            FmtSpan::Enter => Self::ENTER,
+            FmtSpan::Exit => Self::EXIT,
+            FmtSpan::Close => Self::CLOSE,
+            FmtSpan::None => Self::NONE,
+            FmtSpan::Active => Self::ACTIVE,
+            FmtSpan::Full => Self::FULL,
+            FmtSpan::All => Self::FULL,
         }
     }
 }
@@ -513,6 +571,7 @@ pub fn init_ex(
     format: LogFormat,
     events_url: Option<url::Url>,
     events_replicas: Option<usize>,
+    span: FmtSpan,
 ) {
     // Set up a "logger" that simply translates any "log" messages it receives
     // to trace events. This is for our custom spdk log messages, but also
@@ -522,7 +581,7 @@ pub fn init_ex(
 
     // Create a default subscriber.
     let builder = tracing_subscriber::fmt::layer()
-        .with_span_events(FmtSpan::FULL)
+        .with_span_events(span.into())
         .event_format(format)
         .with_filter(filter_fn(|metadata| {
             // Exclude spans or events that have the target
@@ -553,5 +612,5 @@ pub fn init_ex(
 }
 
 pub fn init(level: &str) {
-    init_ex(level, Default::default(), None, None)
+    init_ex(level, Default::default(), None, None, Default::default())
 }

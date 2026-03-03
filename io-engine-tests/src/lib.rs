@@ -159,6 +159,7 @@ pub fn mayastor_test_init_ex(log_format: LogFormat, log_level: Option<&str>) {
         log_format,
         None,
         None,
+        Default::default(),
     );
 
     io_engine::CPS_INIT!();

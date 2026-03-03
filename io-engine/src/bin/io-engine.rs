@@ -262,6 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             log_format,
             args.events_url.clone(),
             args.events_replicas,
+            args.log_span_events,
         );
     } else {
         logger::init_ex(
@@ -269,6 +270,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             log_format,
             args.events_url.clone(),
             args.events_replicas,
+            args.log_span_events,
         );
     }
 

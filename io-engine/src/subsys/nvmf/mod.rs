@@ -93,7 +93,7 @@ impl Error {
 }
 
 thread_local! {
-    pub (crate) static NVMF_PGS: RefCell<Vec<PollGroup>> = const { RefCell::new(Vec::new()) };
+    pub(crate) static NVMF_PGS: RefCell<Vec<PollGroup>> = const { RefCell::new(Vec::new()) };
 }
 
 impl Nvmf {
@@ -110,7 +110,7 @@ impl Nvmf {
         if Config::get().nexus_opts.nvmf_enable {
             NVMF_TGT.with(|tgt| tgt.borrow_mut().next_state());
         } else {
-            debug!("nvmf target disabled");
+            debug!("NVMF target disabled");
             unsafe { spdk_subsystem_init_next(0) }
         }
     }

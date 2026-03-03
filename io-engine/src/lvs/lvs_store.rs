@@ -351,8 +351,7 @@ impl Lvs {
             &parsed.get_name()
         };
 
-        // At any point two pools with the same name should
-        // not exists so returning error
+        // At any point two pools with the same name should not exists so returning error
         if let Some(pool) = Self::lookup(&args.name) {
             let pool_name = pool.base_bdev().name().to_string();
             return if pool_name.as_str() == pool_bdev_name {
@@ -417,8 +416,7 @@ impl Lvs {
 
         let bsdev_name = args.crypto_vbdev_name.as_ref().unwrap_or(&bdev);
         let pool = Self::import(&args.name, bsdev_name).await?;
-        // Try to destroy the pending snapshots without catching
-        // the error.
+        // Try to destroy the pending snapshots without catching the error.
         Lvol::destroy_pending_discarded_snapshot().await;
         // if the uuid is provided for the import request check
         // for the pool uuid to make sure it is the correct one
@@ -570,7 +568,7 @@ impl Lvs {
 
         match Self::lookup(&args.name) {
             Some(pool) => {
-                info!("{:?}: new lvs created successfully", pool);
+                info!("{pool:?}: new lvs created successfully");
                 pool.add_info();
                 Ok(pool)
             }
@@ -586,17 +584,14 @@ impl Lvs {
     #[tracing::instrument(level = "debug", err)]
     pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
+        let name = &args.name;
+        let enc = if args.crypto_vbdev_name.is_some() {
+            "encrypted"
+        } else {
+            "non-encrypted"
+        };
 
-        info!(
-            "Creating or importing {enc} lvs '{}' from '{}'...",
-            args.name,
-            disk,
-            enc = if args.crypto_vbdev_name.is_some() {
-                "encrypted"
-            } else {
-                "non-encrypted"
-            }
-        );
+        info!("Creating or importing {enc} lvs '{name}' from '{disk}'...");
 
         let bdev_ops = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
             source: e,

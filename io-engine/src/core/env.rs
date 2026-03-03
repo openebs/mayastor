@@ -46,6 +46,7 @@ use crate::{
     grpc,
     grpc::MayastorGrpcServer,
     logger,
+    logger::FmtSpan,
     persistent_store::PersistentStoreBuilder,
     subsys::{
         self, config::opts::TARGET_CRDT_LEN, registration::registration_grpc::ApiVersion, Config,
@@ -145,12 +146,16 @@ pub struct MayastorCliArgs {
     #[clap(short = 'R')]
     /// Registration grpc endpoint
     pub registration_endpoint: Option<Uri>,
-    #[clap(short = 'L')]
-    /// Enable logging for sub components.
+    #[clap(long, short = 'L')]
+    /// Enable logging for SPDK sub-components.
     pub log_components: Vec<String>,
-    #[clap(short = 'F')]
-    /// Log format.
+    #[clap(long, short = 'F', default_value = "default")]
+    /// The logging format. {n}
+    /// Possible values: [ default compact, json, color, nocolor, date, nodate, host, nohost ]. {n}
+    /// You can combine multiple values with commas, e.g. "-F=compact,nocolor,date".
     pub log_format: Option<logger::LogFormat>,
+    #[clap(long, default_value = "none")]
+    pub log_span_events: FmtSpan,
     #[clap(short = 'm', default_value = "0x1")]
     /// The reactor mask to be used for starting up the instance
     pub reactor_mask: String,
@@ -158,7 +163,8 @@ pub struct MayastorCliArgs {
     /// Name of the node where mayastor is running (ID used by control plane)
     pub node_name: Option<String>,
     /// The maximum amount of hugepage memory we are allowed to allocate in
-    /// MiB. A value of 0 means no limit.
+    /// MiB. {n}
+    /// A value of 0 means no limit.
     #[clap(short = 's', value_parser = parse_mb, default_value = "0")]
     pub mem_size: i32,
     #[clap(short = 'u')]
@@ -183,8 +189,8 @@ pub struct MayastorCliArgs {
     /// Pass additional arguments to the EAL environment.
     pub env_context: Option<String>,
     #[clap(short = 'l')]
-    /// List of cores to run on instead of using the core mask. When specified
-    /// it supersedes the core mask (-m) argument.
+    /// List of cores to run on instead of using the core mask. {n}
+    /// When specified it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
     #[clap(short = 'p')]
     /// Endpoint of the persistent store.
@@ -203,16 +209,15 @@ pub struct MayastorCliArgs {
     /// Number of entries in memory pool for bdev I/O contexts
     pub bdev_io_ctx_pool_size: u64,
     #[clap(long = "nvme-ctl-pool-size", default_value = "65535")]
-    /// Number of entries in memory pool for NVMe controller I/O contexts
+    /// Number of entries in memory pool for NVMe controller I/O contexts.
     pub nvme_ctl_io_ctx_pool_size: u64,
     #[clap(short = 'T', long = "tgt-iface", env = "NVMF_TGT_IFACE")]
     /// NVMF target interface (ip, mac, name or subnet).
     pub nvmf_tgt_interface: Option<String>,
-    /// NVMF target Command Retry Delay in x100 ms (single integer or three
-    /// comma-separated integers). First value is used for errors on nexus
-    /// target except reservation conflict and no space; second
-    /// value is used for reservation conflict and no space on nexus target;
-    /// third value is used for all errors on replica target.
+    /// NVMF target Command Retry Delay in x100 ms (single integer or three comma-separated integers): {n}
+    /// - first value is used for errors on nexus target except reservation conflict and no space {n}
+    /// - second value is used for reservation conflict and no space on nexus target {n}
+    /// - third value is used for all errors on replica target
     #[clap(
         long = "tgt-crdt",
         env = "NVMF_TGT_CRDT",
@@ -228,8 +233,7 @@ pub struct MayastorCliArgs {
         env = "API_VERSIONS"
     )]
     pub api_versions: Vec<ApiVersion>,
-    /// Dump stack trace for all threads inside I/O agent process with target
-    /// PID.
+    /// Dump stack trace for all threads inside I/O agent process with target PID.
     #[clap(short = 'd', long = "diagnose-stack", env = "DIAGNOSE_STACK")]
     pub diagnose_stack: Option<u32>,
     /// Enable reactor freeze detection.
@@ -238,14 +242,14 @@ pub struct MayastorCliArgs {
     /// Timeout (in seconds) for reactor freeze detection.
     #[clap(long = "reactor-freeze-timeout", env = "REACTOR_FREEZE_TIMEOUT")]
     pub reactor_freeze_timeout: Option<u64>,
-    /// Skip install of the signal handler which will trigger process graceful
-    /// termination.
+    /// Skip install of the signal handler which will trigger process graceful termination.
     #[clap(long, hide = true)]
     pub skip_sig_handler: bool,
-    /// Whether the nexus channel should have readers/writers configured.
+    /// Whether the nexus channel should have readers/writers configured. {n}
     /// This must be set true ONLY from tests. This option can be removed once
     /// dynamic reconfiguration of nexus channels can handle async-qpair
-    /// connect. Details in NexusChannel::new
+    /// connect. {n}
+    /// Details in [`NexusChannel::new`].
     #[clap(long = "enable-io-all-thrd-nexus-channels", hide = true)]
     pub enable_io_all_thrd_nexus_channels: bool,
     /// Events message-bus endpoint url.
@@ -261,8 +265,8 @@ pub struct MayastorCliArgs {
         hide = true
     )]
     pub enable_nexus_channel_debug: bool,
-    /// Enables experimental LVM backend support.
-    /// LVM pools can then be created by specifying the LVM pool type.
+    /// Enables experimental LVM backend support. {n}
+    /// LVM pools can then be created by specifying the LVM pool type. {n}
     /// If LVM is enabled and LVM_SUPPRESS_FD_WARNINGS is not set then it will
     /// be set to 1.
     #[clap(long = "enable-lvm", env = "ENABLE_LVM", value_parser = delay_compat)]
@@ -280,8 +284,8 @@ pub struct MayastorCliArgs {
     /// Enables globally blob store cluster release on unmap.
     #[clap(long, env = "ENABLE_BS_CLUSTER_UNMAP", hide = true)]
     pub bs_cluster_unmap: bool,
-    /// Enable core dump by setting ulimit -c.
-    /// You may specify a limit value or otherwise [`io_engine::core_dump::DEFAULT_CORE_LIMIT`] is used.
+    /// Enable core dump by setting ulimit -c. {n}
+    /// You may specify a limit value or otherwise DEFAULT_CORE_LIMIT=5GiB is used. {n}
     /// Enabled by default on debug builds.
     #[clap(long, env = "ENABLE_COREDUMP", num_args(0..=1))]
     pub enable_coredump: Option<Option<u64>>,
@@ -314,25 +318,25 @@ impl Default for SpdkTracingArgs {
 /// DiskPool related arguments.
 #[derive(Debug, clap::Parser, Clone)]
 pub struct PoolCliArgs {
-    /// I/O error count threshold.
+    /// I/O error count threshold. {n}
     /// After this many errors a pool alert is raised as Warning.
     #[clap(long, env, default_value_t = 8)]
     pub io_error_threshold: u64,
 
-    /// I/O stall deadline.
+    /// I/O stall deadline. {n}
     /// If an I/O is stuck longer than this period, then the pool is considered stalled and a
-    /// Critical alert is raised.
+    /// Critical alert is raised. {n}
     /// The pool disk will also be reset and the stall will be cleared once complete and
     /// I/O flows again.
     #[clap(long, env, default_value = "30s")]
     pub io_stall_deadline: humantime::Duration,
 
-    /// I/O stall transitions threshold.
+    /// I/O stall transitions threshold. {n}
     /// After this many transitions within the window, a pool alert is raised as Warning.
     #[clap(long, env, default_value_t = 3)]
     pub io_stall_transition_threshold: u64,
 
-    /// I/O stall transitions window.
+    /// I/O stall transitions window. {n}
     /// Time window during which stall ↔ resume state transitions are tracked
     /// for flakiness detection.
     #[clap(long, env, default_value = "3h")]
