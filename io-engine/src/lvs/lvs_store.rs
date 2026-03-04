@@ -1,13 +1,12 @@
-use core::f64;
-use parking_lot::RwLock;
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
-
-use crate::sleep::mayastor_sleep;
 use byte_unit::Byte;
+use core::f64;
 use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use parking_lot::RwLock;
 use pin_utils::core_reexport::fmt::Formatter;
+use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
+use url::Url;
 
 use spdk_rs::libspdk::{
     bdev_aio_rescan, bdev_uring_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store,
@@ -19,7 +18,6 @@ use spdk_rs::libspdk::{
     vbdev_lvs_create_ext, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
     vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
 };
-use url::Url;
 
 use super::{BsError, ImportErrorReason, Lvol, LvsError, LvsIter, PropName, PropValue};
 
@@ -41,6 +39,7 @@ use crate::{
     },
     pool_backend::{PoolArgs, ReplicaArgs},
     pool_information::{pool_info_write, PoolInfo},
+    sleep::mayastor_sleep,
 };
 
 static ROUND_TO_MB: u32 = 1024 * 1024;
@@ -333,9 +332,14 @@ impl Lvs {
         }
     }
 
-    /// imports a pool based on its name, uuid and base bdev name
+    /// Imports a pool based on its name, uuid and base bdev name.
     #[tracing::instrument(level = "debug", err)]
     pub async fn import_from_args(args: PoolArgs) -> Result<Lvs, LvsError> {
+        Self::import_from_args_(args).await
+    }
+
+    /// Imports a pool based on its name, uuid and base bdev name.
+    pub async fn import_from_args_(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
 
         let parsed = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
@@ -663,7 +667,7 @@ impl Lvs {
             }
         }
 
-        match Self::import_from_args(args.clone()).await {
+        match Self::import_from_args_(args.clone()).await {
             Ok(pool) => Ok(pool),
             // try to create the pool
             Err(LvsError::Import {
