@@ -27,7 +27,7 @@ pub enum ImportErrorReason {
 /// codes in high-level LVS code.
 #[derive(Debug, Snafu, Copy, Clone)]
 pub enum BsError {
-    #[snafu(display(""))]
+    #[snafu(display("{source}"))]
     Generic { source: Errno },
     #[snafu(display(""))]
     InvalidArgument {},
