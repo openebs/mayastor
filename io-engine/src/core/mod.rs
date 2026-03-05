@@ -310,8 +310,8 @@ impl ToErrno for CoreError {
             | Self::ResetFailed { .. }
             | Self::WriteZeroesFailed { .. }
             | Self::NvmeIoPassthruFailed { .. }
-            | Self::ShareNvmf { .. }
             | Self::UnshareNvmf { .. } => Errno::EIO,
+            Self::ShareNvmf { source } => source.errno(),
             Self::NvmeAdminFailed { source, .. } => source,
             Self::NotSupported { source, .. } => source,
             Self::ReactorConfigureFailed { source, .. } => source,
