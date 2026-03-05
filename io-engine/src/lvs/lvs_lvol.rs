@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use byte_unit::Byte;
 use events_api::event::EventAction;
 use futures::channel::oneshot;
-use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
 use std::{
@@ -121,7 +120,6 @@ impl TryFrom<UntypedBdev> for Lvol {
             }
         } else {
             Err(LvsError::NotALvol {
-                source: BsError::InvalidArgument {},
                 name: b.name().to_string(),
             })
         }
@@ -288,24 +286,22 @@ impl Lvol {
         if self.as_inner_ref().clear_method != LVS_CLEAR_WITH_UNMAP {
             let hdl = Bdev::open(&self.as_bdev(), true)
                 .and_then(|desc| desc.into_handle())
-                .map_err(|e| {
-                    error!(?self, ?e, "failed to wipe lvol");
-                    LvsError::RepDestroy {
-                        source: BsError::from_errno(Errno::ENXIO),
+                .map_err(|error| {
+                    error!(?self, %error, "failed to open lvol for wipe");
+                    LvsError::WipeFailed {
+                        source: error,
                         name: self.name(),
-                        msg: "failed to wipe lvol".into(),
                     }
                 })?;
 
             // write zero to the first 8MB which wipes the metadata and the
             // first 4MB of the data partition
             let wipe_size = std::cmp::min(self.as_bdev().size_in_bytes(), WIPE_SUPER_LEN);
-            hdl.write_zeroes_at(0, wipe_size).await.map_err(|e| {
-                error!(?self, ?e);
-                LvsError::RepDestroy {
-                    source: BsError::from_errno(Errno::EIO),
+            hdl.write_zeroes_at(0, wipe_size).await.map_err(|error| {
+                error!(?self, %error, "Failed to wipe/write-zeroes");
+                LvsError::WipeFailed {
+                    source: error,
                     name: self.name(),
-                    msg: "failed to write to lvol".into(),
                 }
             })?;
         }
@@ -781,12 +777,7 @@ impl LvsLvol for Lvol {
             prop,
             name: self.name(),
         })?;
-        let einval = || {
-            Err(LvsError::Property {
-                source: BsError::InvalidArgument {},
-                name: self.name(),
-            })
-        };
+        let einval = || Err(LvsError::Property { name: self.name() });
 
         match prop {
             PropName::Shared => match unsafe { CStr::from_ptr(value).to_str() } {

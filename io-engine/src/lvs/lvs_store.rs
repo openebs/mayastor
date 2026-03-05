@@ -260,7 +260,7 @@ impl Lvs {
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, LvsError> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
-        debug!("Trying to import lvs '{}' from '{}'...", name, bdev);
+        debug!("Trying to import lvs '{name}' from '{bdev}'...");
 
         let mut bdev = UntypedBdev::lookup_by_name(bdev).ok_or(LvsError::InvalidBdev {
             source: BdevError::BdevNotFound {
@@ -291,6 +291,8 @@ impl Lvs {
         };
 
         if rc != 0 {
+            // as of now, vbdev_lvs_import fails only with -1, even when hitting enomem
+            debug_assert_eq!(rc, -1, "Unexpected error for vbdev_lvs_import");
             return Err(LvsError::Import {
                 source: BsError::InvalidArgument {},
                 name: name.to_string(),
@@ -311,10 +313,7 @@ impl Lvs {
 
         if name != lvs.name() {
             warn!(
-                "No lvs with name '{}' found on this device: '{}'; \
-                found lvs: '{}'",
-                name,
-                bdev,
+                "No lvs with name '{name}' found on this device: '{bdev}'; found lvs: '{}'",
                 lvs.name()
             );
             let pool_name = lvs.name().to_string();
@@ -493,7 +492,6 @@ impl Lvs {
                 cluster_size
             } else {
                 return Err(LvsError::InvalidClusterSize {
-                    source: BsError::InvalidArgument {},
                     name: args.name,
                     msg: format!("{cluster_size}, not multiple of 1MiB"),
                 });
@@ -504,7 +502,6 @@ impl Lvs {
 
         if cluster_size > MAX_CLUSTER_SIZE {
             return Err(LvsError::InvalidClusterSize {
-                source: BsError::InvalidArgument {},
                 name: args.name,
                 msg: format!("{cluster_size}, larger than max limit {MAX_CLUSTER_SIZE}"),
             });
@@ -718,7 +715,7 @@ impl Lvs {
     pub async fn export(self) -> Result<(), LvsError> {
         let self_str = format!("{self:?}");
 
-        info!("{}: exporting lvs...", self_str);
+        info!("{self_str}: exporting lvs...");
 
         let pool = self.name().to_string();
         let mut base_bdev = self.base_bdev();
@@ -740,11 +737,14 @@ impl Lvs {
             Lvs::remove_info(&pool);
         }
 
+        // todo: if result is EIO error, then delete the bdevs as well here?
+        //  note that in this case we'd have to re-lookup the bdevs again as
+        //  they may have been hot-removed!
+
         result?;
 
         info!(
-            "{}: lvs exported successfully. base bdev: {}",
-            self_str,
+            "{self_str}: lvs exported successfully. base bdev: {}",
             base_bdev.name()
         );
 

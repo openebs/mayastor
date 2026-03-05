@@ -19,7 +19,7 @@ use crate::{
         lock::{ProtectedSubsystems, ResourceLockManager},
         logical_volume::{LogicalVolume, LvolSpaceUsage},
         BlockDeviceIoStats, CoreError, MayastorFeatures, NvmfShareProps, Protocol, Share,
-        SnapshotParams, ToErrno, UntypedBdev,
+        SnapshotParams, ToErrno, UntypedBdev, UpdateProps,
     },
     grpc::{
         controller_grpc::{controller_stats, list_controllers, NvmeControllerInfo},
@@ -34,6 +34,7 @@ use crate::{
     subsys::PoolConfig,
 };
 
+use ::function_name::named;
 use chrono::Utc;
 use futures::FutureExt;
 use io_engine_api::v0::*;
@@ -42,13 +43,11 @@ use std::{
     convert::{TryFrom, TryInto},
     fmt::Debug,
     ops::Deref,
+    panic::AssertUnwindSafe,
+    pin::Pin,
     time::Duration,
 };
 use tonic::{Request, Response, Status};
-
-use crate::core::{UpdateProps, VerboseError};
-use ::function_name::named;
-use std::{panic::AssertUnwindSafe, pin::Pin};
 use uuid::Uuid;
 use version_info::raw_version_string;
 
@@ -196,6 +195,23 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
 impl From<LvsError> for tonic::Status {
     fn from(e: LvsError) -> Self {
         match e {
+            ref e @ LvsError::Import {
+                source: crate::lvs::BsError::InvalidArgument {},
+                ref reason,
+                ..
+            } => {
+                let mut status = Status::invalid_argument(e.to_string());
+                let error = match reason {
+                    crate::lvs::ImportErrorReason::None => Errno::EINVAL,
+                    crate::lvs::ImportErrorReason::NameMismatch { .. } => Errno::EMEDIUMTYPE,
+                    crate::lvs::ImportErrorReason::NameClash { .. } => Errno::ENOTUNIQ,
+                    crate::lvs::ImportErrorReason::UuidMismatch { .. } => Errno::EMEDIUMTYPE,
+                };
+                status
+                    .metadata_mut()
+                    .insert("errno", tonic::metadata::MetadataValue::from(error as i32));
+                status
+            }
             LvsError::Import { source, .. } => match source.to_errno() {
                 Errno::EINVAL => Status::invalid_argument(e.to_string()),
                 Errno::EEXIST => Status::already_exists(e.to_string()),
@@ -236,7 +252,6 @@ impl From<LvsError> for tonic::Status {
                 Errno::EEXIST => Status::already_exists(e.to_string()),
                 _ => Status::invalid_argument(e.to_string()),
             },
-            LvsError::PoolNotFound { .. } => Status::not_found(e.to_string()),
             LvsError::PoolCreate { source, .. } => {
                 if source.to_errno() == Errno::EEXIST {
                     Status::already_exists(e.to_string())
@@ -248,7 +263,7 @@ impl From<LvsError> for tonic::Status {
             }
             LvsError::InvalidBdev { source, .. } => source.into(),
             LvsError::SetProperty { .. } => Status::data_loss(e.to_string()),
-            LvsError::WipeFailed { source } => source.into(),
+            LvsError::WipeFailed { .. } => Status::data_loss(e.to_string()),
             LvsError::ResourceLockFailed { .. } => Status::aborted(e.to_string()),
             LvsError::MaxExpansionParse { .. } => Status::invalid_argument(e.to_string()),
             LvsError::BdevRescanFailed { .. } => {
@@ -271,7 +286,7 @@ impl From<LvsError> for tonic::Status {
                 Errno::ENOSPC => Status::out_of_range(e.to_string()),
                 _ => Status::internal(e.to_string()),
             },
-            _ => Status::internal(e.verbose()),
+            _ => Status::internal(e.to_string()),
         }
     }
 }

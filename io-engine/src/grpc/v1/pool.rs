@@ -223,7 +223,7 @@ impl TryFrom<EncryptionData> for PoolEncKey {
         } else {
             return Err(LvsError::Invalid {
                 source: BsError::InvalidArgument {},
-                msg: "invalid argument, missing key".to_string(),
+                msg: "missing key".to_string(),
             });
         };
 
@@ -252,7 +252,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
         if args.disks.is_empty() {
             return Err(LvsError::Invalid {
                 source: BsError::InvalidArgument {},
-                msg: "invalid argument, missing devices".to_string(),
+                msg: "missing devices".to_string(),
             });
         }
 
@@ -332,7 +332,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
         if args.disks.is_empty() {
             return Err(LvsError::Invalid {
                 source: BsError::InvalidArgument {},
-                msg: "invalid argument, missing devices".to_string(),
+                msg: "missing devices".to_string(),
             });
         }
 
