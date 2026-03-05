@@ -269,6 +269,9 @@ impl From<LvsError> for tonic::Status {
                 Errno::ENOSPC => Status::out_of_range(e.to_string()),
                 _ => Status::internal(e.to_string()),
             },
+            LvsError::LvolShare { .. } if errno == Errno::EMLINK => {
+                Status::out_of_range(e.to_string())
+            }
             _ => Status::internal(e.to_string()),
         };
         status
