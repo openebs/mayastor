@@ -137,7 +137,7 @@ impl Default for NvmfTgtConfig {
         let args = MayastorEnvironment::global_or_default();
         Self {
             name: "mayastor_target".to_string(),
-            max_namespaces: 2048,
+            max_namespaces: try_from_env("NVME_MAX_NAMESPACES", 4096),
             crdt: args.nvmf_tgt_crdt,
             opts_tcp: NvmfTransportOpts::default(),
             interface: None,
