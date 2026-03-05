@@ -200,6 +200,16 @@ pub enum LvsError {
 impl ToErrno for LvsError {
     fn to_errno(&self) -> Errno {
         match self {
+            Self::Import {
+                source: crate::lvs::BsError::InvalidArgument {},
+                reason,
+                ..
+            } => match reason {
+                crate::lvs::ImportErrorReason::None => Errno::EINVAL,
+                crate::lvs::ImportErrorReason::NameMismatch { .. } => Errno::EMEDIUMTYPE,
+                crate::lvs::ImportErrorReason::NameClash { .. } => Errno::ENOTUNIQ,
+                crate::lvs::ImportErrorReason::UuidMismatch { .. } => Errno::EMEDIUMTYPE,
+            },
             Self::Import { source, .. } => source.to_errno(),
             Self::PoolCreate { source, .. } => source.to_errno(),
             Self::Export { source, .. } => source.to_errno(),

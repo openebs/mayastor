@@ -194,10 +194,13 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
 
 impl From<LvsError> for tonic::Status {
     fn from(e: LvsError) -> Self {
-        match e {
+        let errno = e.to_errno();
+        let mut status = match e {
             LvsError::Import { source, .. } => match source.to_errno() {
                 Errno::EINVAL => Status::invalid_argument(e.to_string()),
                 Errno::EEXIST => Status::already_exists(e.to_string()),
+                Errno::EILSEQ => Status::data_loss(e.to_string()),
+                Errno::EIO => Status::data_loss(e.to_string()),
                 _ => Status::invalid_argument(e.to_string()),
             },
             LvsError::RepCreate { source, .. } => {
@@ -267,7 +270,11 @@ impl From<LvsError> for tonic::Status {
                 _ => Status::internal(e.to_string()),
             },
             _ => Status::internal(e.to_string()),
-        }
+        };
+        status
+            .metadata_mut()
+            .insert("errno", tonic::metadata::MetadataValue::from(errno as i32));
+        status
     }
 }
 

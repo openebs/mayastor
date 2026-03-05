@@ -346,7 +346,7 @@ impl Lvs {
             name: args.name.clone(),
         })?;
 
-        // If we are requesting for an encrypted pool, then we should match existing pool(if any)
+        // If we are requesting for an encrypted pool, then we should match existing pool (if any)
         // by pool's bdev name as crypto bdev name.
         let pool_bdev_name = if let Some(c) = args.crypto_vbdev_name.as_ref() {
             c
