@@ -382,6 +382,10 @@ pub struct NvmeBdevOpts {
     /// These strings are based on device serial number and namespace ID and
     ///  will always be the same for that device.
     pub generate_uuids: bool,
+    /// Type of Service value for RDMA transport connections.
+    /// Used to set DSCP for QoS classification (e.g., 104 = DSCP 26/AF31
+    /// for lossless RoCE traffic with Priority Flow Control).
+    pub transport_tos: u8,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -443,6 +447,7 @@ impl Default for NvmeBdevOpts {
             fast_io_fail_timeout_sec: 0,
             disable_auto_failback: false,
             generate_uuids: try_from_env("NVME_GENERATE_UUIDS", true),
+            transport_tos: try_from_env("NVME_TRANSPORT_TOS", 0),
         }
     }
 }
@@ -470,6 +475,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
             fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
             disable_auto_failback: o.disable_auto_failback,
             generate_uuids: o.generate_uuids,
+            transport_tos: o.transport_tos,
         }
     }
 }
@@ -499,7 +505,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             fast_io_fail_timeout_sec: o.fast_io_fail_timeout_sec,
             disable_auto_failback: o.disable_auto_failback,
             generate_uuids: o.generate_uuids,
-            transport_tos: 0,
+            transport_tos: o.transport_tos,
             nvme_error_stat: false,
             rdma_srq_size: 0,
             io_path_stat: false,
