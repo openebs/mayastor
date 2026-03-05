@@ -260,27 +260,27 @@ pub enum CoreError {
 
 /// Represent error as Errno value.
 pub trait ToErrno {
-    fn to_errno(self) -> Errno;
+    fn to_errno(&self) -> Errno;
 }
 
 /// Map CoreError to errno code.
 impl ToErrno for CoreError {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
             Self::BdevNotFound { .. } => Errno::ENODEV,
-            Self::OpenBdev { source } => source,
+            Self::OpenBdev { source } => *source,
             Self::InvalidDescriptor { .. } => Errno::ENODEV,
             Self::GetIoChannel { .. } => Errno::ENXIO,
             Self::InvalidOffset { .. } => Errno::EINVAL,
-            Self::WriteDispatch { source, .. } => source,
-            Self::ReadDispatch { source, .. } => source,
-            Self::CompareDispatch { source, .. } => source,
-            Self::ResetDispatch { source, .. } => source,
-            Self::FlushDispatch { source, .. } => source,
-            Self::NvmeAdminDispatch { source, .. } => source,
-            Self::UnmapDispatch { source, .. } => source,
-            Self::WriteZeroesDispatch { source, .. } => source,
-            Self::NvmeIoPassthruDispatch { source, .. } => source,
+            Self::WriteDispatch { source, .. } => *source,
+            Self::ReadDispatch { source, .. } => *source,
+            Self::CompareDispatch { source, .. } => *source,
+            Self::ResetDispatch { source, .. } => *source,
+            Self::FlushDispatch { source, .. } => *source,
+            Self::NvmeAdminDispatch { source, .. } => *source,
+            Self::UnmapDispatch { source, .. } => *source,
+            Self::WriteZeroesDispatch { source, .. } => *source,
+            Self::NvmeIoPassthruDispatch { source, .. } => *source,
             Self::WriteFailed { .. }
             | Self::ReadFailed { .. }
             | Self::CompareFailed { .. }
@@ -290,16 +290,16 @@ impl ToErrno for CoreError {
             | Self::NvmeIoPassthruFailed { .. }
             | Self::ShareNvmf { .. }
             | Self::UnshareNvmf { .. } => Errno::EIO,
-            Self::NvmeAdminFailed { source, .. } => source,
-            Self::NotSupported { source, .. } => source,
-            Self::ReactorConfigureFailed { source, .. } => source,
+            Self::NvmeAdminFailed { source, .. } => *source,
+            Self::NotSupported { source, .. } => *source,
+            Self::ReactorConfigureFailed { source, .. } => *source,
             Self::DmaAllocationFailed { .. } => Errno::ENOMEM,
-            Self::DeviceStatisticsFailed { source, .. } => source,
+            Self::DeviceStatisticsFailed { source, .. } => *source,
             Self::NoDevicesAvailable { .. } => Errno::ENODEV,
             Self::InvalidNvmeDeviceHandle { .. } => Errno::EINVAL,
-            Self::DeviceFlush { source, .. } => source,
+            Self::DeviceFlush { source, .. } => *source,
             Self::Ptpl { .. } => Errno::EIO,
-            Self::SnapshotCreate { source, .. } => source,
+            Self::SnapshotCreate { source, .. } => *source,
             Self::WipeFailed { .. } => Errno::EIO,
             Self::InitCryptoModule { .. } => Errno::EINVAL,
         }

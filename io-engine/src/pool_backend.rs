@@ -79,10 +79,10 @@ impl From<GenericError> for tonic::Status {
     }
 }
 impl ToErrno for GenericError {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
             GenericError::NotFound { .. } => Errno::ENODEV,
-            GenericError::StatsReset { errno } => errno,
+            GenericError::StatsReset { errno } => *errno,
         }
     }
 }
@@ -123,7 +123,7 @@ impl From<Error> for tonic::Status {
     }
 }
 impl ToErrno for Error {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
             Error::Lvs { source } => source.to_errno(),
             Error::Lvm { source } => source.to_errno(),

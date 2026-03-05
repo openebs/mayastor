@@ -90,9 +90,9 @@ impl BsError {
 }
 
 impl ToErrno for BsError {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
-            Self::Generic { source } => source,
+            Self::Generic { source } => *source,
             Self::InvalidArgument {} => Errno::EINVAL,
             Self::LvolNotFound {} => Errno::ENOENT,
             Self::VolAlreadyExists {} => Errno::EEXIST,
@@ -103,7 +103,7 @@ impl ToErrno for BsError {
             Self::NoSpace {} => Errno::ENOSPC,
             Self::OutOfMetadata {} => Errno::EMFILE,
             Self::CapacityOverflow {} => Errno::EOVERFLOW,
-            Self::LvsCryptoVbdev { source } => source,
+            Self::LvsCryptoVbdev { source } => *source,
         }
     }
 }
@@ -198,7 +198,7 @@ pub enum LvsError {
 
 /// Map CoreError to errno code.
 impl ToErrno for LvsError {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
             Self::Import { source, .. } => source.to_errno(),
             Self::PoolCreate { source, .. } => source.to_errno(),
@@ -226,7 +226,7 @@ impl ToErrno for LvsError {
             Self::SnapshotConfigFailed { .. } | Self::ReplicaShareProtocol { .. } => Errno::EINVAL,
             Self::SnapshotCloneCreate { source, .. } => source.to_errno(),
             Self::CloneConfigFailed { .. } => Errno::EINVAL,
-            Self::WipeFailed { .. } => Errno::EINVAL,
+            Self::WipeFailed { source, .. } => source.to_errno(),
             Self::ResourceLockFailed { .. } => Errno::EBUSY,
             Self::MaxExpansionParse { .. } => Errno::EINVAL,
             Self::BdevRescanFailed { source, .. } => source.to_errno(),

@@ -195,23 +195,6 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
 impl From<LvsError> for tonic::Status {
     fn from(e: LvsError) -> Self {
         match e {
-            ref e @ LvsError::Import {
-                source: crate::lvs::BsError::InvalidArgument {},
-                ref reason,
-                ..
-            } => {
-                let mut status = Status::invalid_argument(e.to_string());
-                let error = match reason {
-                    crate::lvs::ImportErrorReason::None => Errno::EINVAL,
-                    crate::lvs::ImportErrorReason::NameMismatch { .. } => Errno::EMEDIUMTYPE,
-                    crate::lvs::ImportErrorReason::NameClash { .. } => Errno::ENOTUNIQ,
-                    crate::lvs::ImportErrorReason::UuidMismatch { .. } => Errno::EMEDIUMTYPE,
-                };
-                status
-                    .metadata_mut()
-                    .insert("errno", tonic::metadata::MetadataValue::from(error as i32));
-                status
-            }
             LvsError::Import { source, .. } => match source.to_errno() {
                 Errno::EINVAL => Status::invalid_argument(e.to_string()),
                 Errno::EEXIST => Status::already_exists(e.to_string()),
@@ -252,15 +235,12 @@ impl From<LvsError> for tonic::Status {
                 Errno::EEXIST => Status::already_exists(e.to_string()),
                 _ => Status::invalid_argument(e.to_string()),
             },
-            LvsError::PoolCreate { source, .. } => {
-                if source.to_errno() == Errno::EEXIST {
-                    Status::already_exists(e.to_string())
-                } else if source.to_errno() == Errno::EINVAL {
-                    Status::invalid_argument(e.to_string())
-                } else {
-                    Status::internal(e.to_string())
-                }
-            }
+            LvsError::PoolCreate { source, .. } => match source.to_errno() {
+                Errno::EEXIST => Status::already_exists(e.to_string()),
+                Errno::EINVAL => Status::invalid_argument(e.to_string()),
+                Errno::EIO => Status::data_loss(e.to_string()),
+                _ => Status::internal(e.to_string()),
+            },
             LvsError::InvalidBdev { source, .. } => source.into(),
             LvsError::SetProperty { .. } => Status::data_loss(e.to_string()),
             LvsError::WipeFailed { .. } => Status::data_loss(e.to_string()),
