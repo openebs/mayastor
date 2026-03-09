@@ -58,6 +58,8 @@ pub enum Error {
     Transport { source: Errno, msg: String },
     #[snafu(display("Failed to {} subsystem '{}': subsystem is busy", op, nqn))]
     SubsystemBusy { nqn: String, op: String },
+    #[snafu(display("{nqn}"))]
+    SubsystemExt { source: Errno, nqn: String },
     #[snafu(display("Failed nvmf subsystem operation for {} {} error: {}", source.desc(), nqn, msg))]
     Subsystem {
         source: Errno,
@@ -83,6 +85,7 @@ impl Error {
             Error::PgError { .. } => nix::Error::EXFULL,
             Error::Transport { source, .. } => *source,
             Error::SubsystemBusy { .. } => nix::Error::EBUSY,
+            Error::SubsystemExt { source, .. } => *source,
             Error::Subsystem { source, .. } => *source,
             Error::Share { .. } => nix::Error::EXFULL,
             Error::Namespace { .. } => nix::Error::EXFULL,

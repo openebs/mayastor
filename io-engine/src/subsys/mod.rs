@@ -19,6 +19,8 @@ use crate::subsys::nvmf::Nvmf;
 
 pub(super) mod config;
 mod nvmf;
+/// Module for managing of the nvmx admin queues.
+pub mod nvmx;
 /// Module for registration of the data-plane with control-plane
 pub mod registration;
 
@@ -35,6 +37,7 @@ pub(crate) fn register_subsystem() {
         spdk_add_subsystem_depend(Box::into_raw(Box::new(depend)));
     }
     RegistrationSubsystem::register();
+    nvmx::NvmxSubsystem::register();
 }
 
 /// Makes a subsystem serial number from a subsystem UUID or name.

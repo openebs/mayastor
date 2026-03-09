@@ -250,6 +250,12 @@ impl From<LvsError> for tonic::Status {
             LvsError::SetProperty { .. } => Status::data_loss(e.to_string()),
             LvsError::WipeFailed { source } => source.into(),
             LvsError::ResourceLockFailed { .. } => Status::aborted(e.to_string()),
+            LvsError::LvolShare { ref source, .. } => match source {
+                CoreError::ShareNvmf { source } if source.errno() == Errno::EMLINK => {
+                    Status::out_of_range(e.verbose())
+                }
+                _ => Status::internal(e.verbose()),
+            },
             _ => Status::internal(e.verbose()),
         }
     }
