@@ -48,30 +48,38 @@ impl RpcErrorCode for Error {
 #[derive(Debug, Clone, Snafu)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum Error {
-    #[snafu(display("Failed to create nvmf target {}", msg))]
+    #[snafu(display("failed to create nvmf target {msg}"))]
     CreateTarget { msg: String },
-    #[snafu(display("Failed to destroy nvmf target {}: {}", endpoint, source))]
+    #[snafu(display("failed to destroy nvmf target {endpoint}: {source}"))]
     DestroyTarget { source: Errno, endpoint: String },
-    #[snafu(display("Failed to create poll groups {}", msg))]
+    #[snafu(display("failed to create poll groups {msg}"))]
     PgError { msg: String },
-    #[snafu(display("Failed to create transport {}", msg))]
+    #[snafu(display("failed to create transport {msg}: {source}"))]
     Transport { source: Errno, msg: String },
-    #[snafu(display("Failed to {} subsystem '{}': subsystem is busy", op, nqn))]
+    #[snafu(display("failed to {op} subsystem {nqn}: subsystem is busy"))]
     SubsystemBusy { nqn: String, op: String },
-    #[snafu(display("Failed nvmf subsystem operation for {} {} error: {}", source.desc(), nqn, msg))]
+    #[snafu(display("{nqn}: {source}"))]
+    SubsystemExt { source: Errno, nqn: String },
+    #[snafu(display("failed nvmf subsystem operation for {nqn}, {source}: {msg}"))]
     Subsystem {
         source: Errno,
         nqn: String,
         msg: String,
     },
-    #[snafu(display("Failed to create share for {} {}", bdev, msg))]
+    #[snafu(display("failed to create share for {bdev} {msg}"))]
     Share { bdev: String, msg: String },
-    #[snafu(display("Failed to add namespace for {} {}", bdev, msg))]
+    #[snafu(display("failed to add namespace for {bdev} {msg}"))]
     Namespace { bdev: String, msg: String },
-    #[snafu(display("Failed to find listener for {} {}", nqn, trid))]
+    #[snafu(display("failed to find listener for {nqn} {trid}"))]
     Listener { nqn: String, trid: String },
-    #[snafu(display("Interior nul byte found for host {}", host))]
+    #[snafu(display("interior nul byte found for host {host}"))]
     HostCstrNul { host: String },
+}
+
+impl crate::core::ToErrno for Error {
+    fn to_errno(&self) -> Errno {
+        self.errno()
+    }
 }
 
 impl Error {
@@ -83,6 +91,7 @@ impl Error {
             Error::PgError { .. } => nix::Error::EXFULL,
             Error::Transport { source, .. } => *source,
             Error::SubsystemBusy { .. } => nix::Error::EBUSY,
+            Error::SubsystemExt { source, .. } => *source,
             Error::Subsystem { source, .. } => *source,
             Error::Share { .. } => nix::Error::EXFULL,
             Error::Namespace { .. } => nix::Error::EXFULL,
@@ -93,7 +102,7 @@ impl Error {
 }
 
 thread_local! {
-    pub (crate) static NVMF_PGS: RefCell<Vec<PollGroup>> = const { RefCell::new(Vec::new()) };
+    pub(crate) static NVMF_PGS: RefCell<Vec<PollGroup>> = const { RefCell::new(Vec::new()) };
 }
 
 impl Nvmf {
@@ -110,7 +119,7 @@ impl Nvmf {
         if Config::get().nexus_opts.nvmf_enable {
             NVMF_TGT.with(|tgt| tgt.borrow_mut().next_state());
         } else {
-            debug!("nvmf target disabled");
+            debug!("NVMF target disabled");
             unsafe { spdk_subsystem_init_next(0) }
         }
     }

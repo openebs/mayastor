@@ -11,8 +11,9 @@ use nix::errno::Errno;
 
 use spdk_rs::{
     libspdk::{
-        nvmf_subsystem_find_listener, spdk_nvmf_ctrlr_set_cpl_error_cb, spdk_nvmf_ns_get_bdev,
-        spdk_nvmf_ns_opts, spdk_nvmf_request, spdk_nvmf_subsystem, spdk_nvmf_subsystem_add_host,
+        nvmf_subsystem_find_listener, spdk_bit_array_find_first_clear,
+        spdk_nvmf_ctrlr_set_cpl_error_cb, spdk_nvmf_ns_get_bdev, spdk_nvmf_ns_opts,
+        spdk_nvmf_request, spdk_nvmf_subsystem, spdk_nvmf_subsystem_add_host,
         spdk_nvmf_subsystem_add_listener, spdk_nvmf_subsystem_add_ns_ext,
         spdk_nvmf_subsystem_create, spdk_nvmf_subsystem_destroy,
         spdk_nvmf_subsystem_disconnect_host, spdk_nvmf_subsystem_event,
@@ -26,8 +27,8 @@ use spdk_rs::{
         spdk_nvmf_subsystem_set_ana_state, spdk_nvmf_subsystem_set_cntlid_range,
         spdk_nvmf_subsystem_set_event_cb, spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn,
         spdk_nvmf_subsystem_start, spdk_nvmf_subsystem_state_change_done, spdk_nvmf_subsystem_stop,
-        spdk_nvmf_tgt, spdk_nvmf_tgt_get_transport, SPDK_NVME_SCT_GENERIC,
-        SPDK_NVME_SC_CAPACITY_EXCEEDED, SPDK_NVME_SC_RESERVATION_CONFLICT,
+        spdk_nvmf_tgt, spdk_nvmf_tgt_find_subsystem, spdk_nvmf_tgt_get_transport,
+        SPDK_NVME_SCT_GENERIC, SPDK_NVME_SC_CAPACITY_EXCEEDED, SPDK_NVME_SC_RESERVATION_CONFLICT,
         SPDK_NVMF_SUBTYPE_DISCOVERY, SPDK_NVMF_SUBTYPE_NVME,
     },
     struct_size_init, NvmeStatus, NvmfController, NvmfSubsystemEvent,
@@ -408,16 +409,35 @@ impl NvmfSubsystem {
     /// create a new subsystem where the NQN is based on the UUID
     pub fn new(uuid: &str) -> Result<Self, Error> {
         let nqn = make_nqn(uuid).into_cstring();
-        let ss = NVMF_TGT
-            .with(|t| {
-                let tgt = t.borrow().tgt.as_ptr();
-                unsafe { spdk_nvmf_subsystem_create(tgt, nqn.as_ptr(), SPDK_NVMF_SUBTYPE_NVME, 1) }
-            })
-            .to_result(|_| Error::Subsystem {
-                source: Errno::EEXIST,
-                nqn: uuid.into(),
-                msg: "ss ptr is null".into(),
-            })?;
+
+        let ss = match NVMF_TGT.with(|t| {
+            let tgt = t.borrow().tgt.as_ptr();
+
+            let ss =
+                unsafe { spdk_nvmf_subsystem_create(tgt, nqn.as_ptr(), SPDK_NVMF_SUBTYPE_NVME, 1) };
+            if !ss.is_null() {
+                return Ok(ss);
+            }
+
+            // try to decipher why it's failed (the spdk_nvmf_subsystem_create provides no help)
+            if !unsafe { spdk_nvmf_tgt_find_subsystem(tgt, nqn.as_ptr()) }.is_null() {
+                return Err(Errno::EEXIST);
+            }
+            // check if we've hit the max number of namespaces/targets (since we have 1n-1t)
+            if unsafe { spdk_bit_array_find_first_clear((*tgt).subsystem_ids, 0) } == u32::MAX {
+                return Err(Errno::EMLINK);
+            }
+            Ok(ss)
+        }) {
+            Err(source) => Err(Error::SubsystemExt {
+                source,
+                nqn: nqn.to_string_lossy().to_string(),
+            }),
+            Ok(x) => x.to_result(|_| Error::SubsystemExt {
+                source: Errno::ENOMEM,
+                nqn: nqn.to_string_lossy().to_string(),
+            }),
+        }?;
 
         // Register subsystem event handler.
         unsafe {

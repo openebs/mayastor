@@ -1,13 +1,12 @@
-use core::f64;
-use parking_lot::RwLock;
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
-
-use crate::sleep::mayastor_sleep;
 use byte_unit::Byte;
+use core::f64;
 use events_api::event::EventAction;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use parking_lot::RwLock;
 use pin_utils::core_reexport::fmt::Formatter;
+use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
+use url::Url;
 
 use spdk_rs::libspdk::{
     bdev_aio_rescan, bdev_uring_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store,
@@ -19,7 +18,6 @@ use spdk_rs::libspdk::{
     vbdev_lvs_create_ext, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
     vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
 };
-use url::Url;
 
 use super::{BsError, ImportErrorReason, Lvol, LvsError, LvsIter, PropName, PropValue};
 
@@ -41,6 +39,7 @@ use crate::{
     },
     pool_backend::{PoolArgs, ReplicaArgs},
     pool_information::{pool_info_write, PoolInfo},
+    sleep::mayastor_sleep,
 };
 
 static ROUND_TO_MB: u32 = 1024 * 1024;
@@ -261,7 +260,7 @@ impl Lvs {
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, LvsError> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
-        debug!("Trying to import lvs '{}' from '{}'...", name, bdev);
+        debug!("Trying to import lvs '{name}' from '{bdev}'...");
 
         let mut bdev = UntypedBdev::lookup_by_name(bdev).ok_or(LvsError::InvalidBdev {
             source: BdevError::BdevNotFound {
@@ -292,6 +291,8 @@ impl Lvs {
         };
 
         if rc != 0 {
+            // as of now, vbdev_lvs_import fails only with -1, even when hitting enomem
+            debug_assert_eq!(rc, -1, "Unexpected error for vbdev_lvs_import");
             return Err(LvsError::Import {
                 source: BsError::InvalidArgument {},
                 name: name.to_string(),
@@ -312,10 +313,7 @@ impl Lvs {
 
         if name != lvs.name() {
             warn!(
-                "No lvs with name '{}' found on this device: '{}'; \
-                found lvs: '{}'",
-                name,
-                bdev,
+                "No lvs with name '{name}' found on this device: '{bdev}'; found lvs: '{}'",
                 lvs.name()
             );
             let pool_name = lvs.name().to_string();
@@ -333,9 +331,14 @@ impl Lvs {
         }
     }
 
-    /// imports a pool based on its name, uuid and base bdev name
+    /// Imports a pool based on its name, uuid and base bdev name.
     #[tracing::instrument(level = "debug", err)]
     pub async fn import_from_args(args: PoolArgs) -> Result<Lvs, LvsError> {
+        Self::import_from_args_(args).await
+    }
+
+    /// Imports a pool based on its name, uuid and base bdev name.
+    pub async fn import_from_args_(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
 
         let parsed = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
@@ -343,7 +346,7 @@ impl Lvs {
             name: args.name.clone(),
         })?;
 
-        // If we are requesting for an encrypted pool, then we should match existing pool(if any)
+        // If we are requesting for an encrypted pool, then we should match existing pool (if any)
         // by pool's bdev name as crypto bdev name.
         let pool_bdev_name = if let Some(c) = args.crypto_vbdev_name.as_ref() {
             c
@@ -351,8 +354,7 @@ impl Lvs {
             &parsed.get_name()
         };
 
-        // At any point two pools with the same name should
-        // not exists so returning error
+        // At any point two pools with the same name should not exists so returning error
         if let Some(pool) = Self::lookup(&args.name) {
             let pool_name = pool.base_bdev().name().to_string();
             return if pool_name.as_str() == pool_bdev_name {
@@ -417,8 +419,7 @@ impl Lvs {
 
         let bsdev_name = args.crypto_vbdev_name.as_ref().unwrap_or(&bdev);
         let pool = Self::import(&args.name, bsdev_name).await?;
-        // Try to destroy the pending snapshots without catching
-        // the error.
+        // Try to destroy the pending snapshots without catching the error.
         Lvol::destroy_pending_discarded_snapshot().await;
         // if the uuid is provided for the import request check
         // for the pool uuid to make sure it is the correct one
@@ -491,7 +492,6 @@ impl Lvs {
                 cluster_size
             } else {
                 return Err(LvsError::InvalidClusterSize {
-                    source: BsError::InvalidArgument {},
                     name: args.name,
                     msg: format!("{cluster_size}, not multiple of 1MiB"),
                 });
@@ -502,7 +502,6 @@ impl Lvs {
 
         if cluster_size > MAX_CLUSTER_SIZE {
             return Err(LvsError::InvalidClusterSize {
-                source: BsError::InvalidArgument {},
                 name: args.name,
                 msg: format!("{cluster_size}, larger than max limit {MAX_CLUSTER_SIZE}"),
             });
@@ -570,7 +569,7 @@ impl Lvs {
 
         match Self::lookup(&args.name) {
             Some(pool) => {
-                info!("{:?}: new lvs created successfully", pool);
+                info!("{pool:?}: new lvs created successfully");
                 pool.add_info();
                 Ok(pool)
             }
@@ -586,17 +585,14 @@ impl Lvs {
     #[tracing::instrument(level = "debug", err)]
     pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, LvsError> {
         let disk = Self::parse_disk(args.disks.clone())?;
+        let name = &args.name;
+        let enc = if args.crypto_vbdev_name.is_some() {
+            "encrypted"
+        } else {
+            "non-encrypted"
+        };
 
-        info!(
-            "Creating or importing {enc} lvs '{}' from '{}'...",
-            args.name,
-            disk,
-            enc = if args.crypto_vbdev_name.is_some() {
-                "encrypted"
-            } else {
-                "non-encrypted"
-            }
-        );
+        info!("Creating or importing {enc} lvs '{name}' from '{disk}'...");
 
         let bdev_ops = uri::parse(&disk).map_err(|e| LvsError::InvalidBdev {
             source: e,
@@ -668,7 +664,7 @@ impl Lvs {
             }
         }
 
-        match Self::import_from_args(args.clone()).await {
+        match Self::import_from_args_(args.clone()).await {
             Ok(pool) => Ok(pool),
             // try to create the pool
             Err(LvsError::Import {
@@ -719,7 +715,7 @@ impl Lvs {
     pub async fn export(self) -> Result<(), LvsError> {
         let self_str = format!("{self:?}");
 
-        info!("{}: exporting lvs...", self_str);
+        info!("{self_str}: exporting lvs...");
 
         let pool = self.name().to_string();
         let mut base_bdev = self.base_bdev();
@@ -741,11 +737,14 @@ impl Lvs {
             Lvs::remove_info(&pool);
         }
 
+        // todo: if result is EIO error, then delete the bdevs as well here?
+        //  note that in this case we'd have to re-lookup the bdevs again as
+        //  they may have been hot-removed!
+
         result?;
 
         info!(
-            "{}: lvs exported successfully. base bdev: {}",
-            self_str,
+            "{self_str}: lvs exported successfully. base bdev: {}",
             base_bdev.name()
         );
 

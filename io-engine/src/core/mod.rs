@@ -98,213 +98,133 @@ where
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility(pub(crate)), context(suffix(false)))]
 pub enum CoreError {
-    #[snafu(display("bdev {} not found", name))]
-    BdevNotFound {
-        name: String,
-    },
-    #[snafu(display("failed to open bdev"))]
-    OpenBdev {
-        source: Errno,
-    },
-    #[snafu(display("bdev {} not found", name))]
-    InvalidDescriptor {
-        name: String,
-    },
-    #[snafu(display("failed to get IO channel for {}", name))]
-    GetIoChannel {
-        name: String,
-    },
-    InvalidOffset {
-        offset: u64,
-    },
-    #[snafu(display("Failed to dispatch write at offset {} length {}", offset, len))]
+    #[snafu(display("bdev {name} not found"))]
+    BdevNotFound { name: String },
+    #[snafu(display("failed to open bdev: {source}"))]
+    OpenBdev { source: Errno },
+    #[snafu(display("bdev {name} not found"))]
+    InvalidDescriptor { name: String },
+    #[snafu(display("failed to get IO channel for {name}"))]
+    GetIoChannel { name: String },
+    #[snafu(display("invalid offset {offset}"))]
+    InvalidOffset { offset: u64 },
+    #[snafu(display("Failed to dispatch write at offset {offset} length {len}: {source}"))]
     WriteDispatch {
         source: Errno,
         offset: u64,
         len: u64,
     },
-    #[snafu(display("Failed to dispatch compare at offset {} length {}", offset, len))]
+    #[snafu(display("Failed to dispatch compare at offset {offset} length {len}: {source}"))]
     CompareDispatch {
         source: Errno,
         offset: u64,
         len: u64,
     },
-    #[snafu(display("Failed to dispatch read at offset {} length {}", offset, len))]
+    #[snafu(display("Failed to dispatch read at offset {offset} length {len}: {source}"))]
     ReadDispatch {
         source: Errno,
         offset: u64,
         len: u64,
     },
-    #[snafu(display("Failed to dispatch reset: {}", source))]
-    ResetDispatch {
-        source: Errno,
-    },
-    #[snafu(display("Failed to dispatch flush: {}", source))]
-    FlushDispatch {
-        source: Errno,
-    },
-    #[snafu(display("Failed to dispatch NVMe Admin command {:x}h: {}", opcode, source))]
-    NvmeAdminDispatch {
-        source: Errno,
-        opcode: u16,
-    },
-    #[snafu(display("Failed to dispatch unmap at offset {} length {}", offset, len))]
+    #[snafu(display("Failed to dispatch reset: {source}"))]
+    ResetDispatch { source: Errno },
+    #[snafu(display("Failed to dispatch flush: {source}"))]
+    FlushDispatch { source: Errno },
+    #[snafu(display("Failed to dispatch NVMe Admin command {opcode:x}h: {source}"))]
+    NvmeAdminDispatch { source: Errno, opcode: u16 },
+    #[snafu(display("Failed to dispatch unmap at offset {offset} length {len}"))]
     UnmapDispatch {
         source: Errno,
         offset: u64,
         len: u64,
     },
-    #[snafu(display("Failed to dispatch write-zeroes at offset {} length {}", offset, len))]
+    #[snafu(display("Failed to dispatch write-zeroes at offset {offset} length {len}"))]
     WriteZeroesDispatch {
         source: Errno,
         offset: u64,
         len: u64,
     },
-    #[snafu(display(
-        "Failed to dispatch NVMe IO passthru command {:x}h: {}",
-        opcode,
-        source
-    ))]
-    NvmeIoPassthruDispatch {
-        source: Errno,
-        opcode: u16,
-    },
-    #[snafu(display(
-        "Write failed at offset {} length {} with status {:?}",
-        offset,
-        len,
-        status
-    ))]
+    #[snafu(display("Failed to dispatch NVMe IO passthru command {opcode:x}h: {source}"))]
+    NvmeIoPassthruDispatch { source: Errno, opcode: u16 },
+    #[snafu(display("Write failed at offset {offset} length {len} with status {status:?}",))]
     WriteFailed {
         status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },
-    #[snafu(display(
-        "Read failed at offset {} length {} with status {:?}",
-        offset,
-        len,
-        status
-    ))]
+    #[snafu(display("Read failed at offset {offset} length {len} with status {status:?}",))]
     ReadFailed {
         status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },
-    #[snafu(display(
-        "Compare failed at offset {} length {} with status {:?}",
-        offset,
-        len,
-        status
-    ))]
+    #[snafu(display("Compare failed at offset {offset} length {len} with status {status:?}",))]
     CompareFailed {
         status: IoCompletionStatus,
         offset: u64,
         len: u64,
     },
-    #[snafu(display(
-        "Attempt to read unallocated block failed at offset {} length {}",
-        offset,
-        len
-    ))]
-    ReadingUnallocatedBlock {
-        offset: u64,
-        len: u64,
-    },
-    #[snafu(display("Reset failed"))]
+    #[snafu(display("attempt to read unallocated block failed at offset {offset} length {len}",))]
+    ReadingUnallocatedBlock { offset: u64, len: u64 },
+    #[snafu(display("reset failed"))]
     ResetFailed {},
-    #[snafu(display("Write zeroes failed at offset {} length {}", offset, len))]
-    WriteZeroesFailed {
-        offset: u64,
-        len: u64,
-    },
-    #[snafu(display("NVMe Admin command {:x}h failed: {}", opcode, source))]
-    NvmeAdminFailed {
-        source: Errno,
-        opcode: u16,
-    },
-    #[snafu(display("NVMe IO Passthru command {:x}h failed", opcode))]
-    NvmeIoPassthruFailed {
-        opcode: u16,
-    },
+    #[snafu(display("write zeroes failed at offset {offset} length {len}"))]
+    WriteZeroesFailed { offset: u64, len: u64 },
+    #[snafu(display("NVMe Admin command {opcode:x}h failed: {source}"))]
+    NvmeAdminFailed { source: Errno, opcode: u16 },
+    #[snafu(display("NVMe IO Passthru command {opcode:x}h failed"))]
+    NvmeIoPassthruFailed { opcode: u16 },
     #[snafu(display("failed to share: {source}"))]
-    ShareNvmf {
-        source: NvmfError,
-    },
-    #[snafu(display("failed to unshare"))]
-    UnshareNvmf {
-        source: NvmfError,
-    },
-    #[snafu(display("the operation is invalid for this bdev: {}", source))]
-    NotSupported {
-        source: Errno,
-    },
-    #[snafu(display("failed to configure reactor: {}", source))]
-    ReactorConfigureFailed {
-        source: Errno,
-    },
-    #[snafu(display("Failed to allocate DMA buffer of {} bytes", size))]
-    DmaAllocationFailed {
-        size: u64,
-    },
-    #[snafu(display("Failed to get I/O satistics for device: {}", source))]
-    DeviceStatisticsFailed {
-        source: Errno,
-    },
-    #[snafu(display("No devices available for I/O"))]
+    ShareNvmf { source: NvmfError },
+    #[snafu(display("failed to unshare: {source}"))]
+    UnshareNvmf { source: NvmfError },
+    #[snafu(display("the operation is invalid for this bdev: {source}"))]
+    NotSupported { source: Errno },
+    #[snafu(display("failed to configure reactor: {source}"))]
+    ReactorConfigureFailed { source: Errno },
+    #[snafu(display("Failed to allocate DMA buffer of {size} bytes"))]
+    DmaAllocationFailed { size: u64 },
+    #[snafu(display("failed to get I/O satistics for device: {source}"))]
+    DeviceStatisticsFailed { source: Errno },
+    #[snafu(display("no devices available for I/O"))]
     NoDevicesAvailable {},
-    #[snafu(display("Invalid NVMe device hanele: {}", msg))]
-    InvalidNvmeDeviceHandle {
-        msg: String,
-    },
-
-    #[snafu(display("errno: {} Device Flush {}", source, name))]
-    DeviceFlush {
-        source: Errno,
-        name: String,
-    },
-    #[snafu(display("NVMe persistence through power-loss failure: {}", reason))]
-    Ptpl {
-        reason: String,
-    },
-    #[snafu(display("Failed to create device snapshot: {}", reason))]
-    SnapshotCreate {
-        reason: String,
-        source: Errno,
-    },
-    #[snafu(display("Failed to wipe the device"))]
-    WipeFailed {
-        source: wiper::Error,
-    },
-    #[snafu(display("Failed to init crypto module: {reason}"))]
-    InitCryptoModule {
-        reason: String,
-    },
+    #[snafu(display("invalid NVMe device hanele: {msg}"))]
+    InvalidNvmeDeviceHandle { msg: String },
+    #[snafu(display("failed to flush {name}: {source}"))]
+    DeviceFlush { source: Errno, name: String },
+    #[snafu(display("NVMe persistence through power-loss failure: {reason}"))]
+    Ptpl { reason: String },
+    #[snafu(display("failed to create device snapshot: {reason}"))]
+    SnapshotCreate { reason: String, source: Errno },
+    #[snafu(display("failed to wipe the device: {source}"))]
+    WipeFailed { source: wiper::Error },
+    #[snafu(display("failed to init crypto module: {reason}"))]
+    InitCryptoModule { reason: String },
 }
 
 /// Represent error as Errno value.
 pub trait ToErrno {
-    fn to_errno(self) -> Errno;
+    fn to_errno(&self) -> Errno;
 }
 
 /// Map CoreError to errno code.
 impl ToErrno for CoreError {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
             Self::BdevNotFound { .. } => Errno::ENODEV,
-            Self::OpenBdev { source } => source,
+            Self::OpenBdev { source } => *source,
             Self::InvalidDescriptor { .. } => Errno::ENODEV,
             Self::GetIoChannel { .. } => Errno::ENXIO,
             Self::InvalidOffset { .. } => Errno::EINVAL,
-            Self::WriteDispatch { source, .. } => source,
-            Self::ReadDispatch { source, .. } => source,
-            Self::CompareDispatch { source, .. } => source,
-            Self::ResetDispatch { source, .. } => source,
-            Self::FlushDispatch { source, .. } => source,
-            Self::NvmeAdminDispatch { source, .. } => source,
-            Self::UnmapDispatch { source, .. } => source,
-            Self::WriteZeroesDispatch { source, .. } => source,
-            Self::NvmeIoPassthruDispatch { source, .. } => source,
+            Self::WriteDispatch { source, .. } => *source,
+            Self::ReadDispatch { source, .. } => *source,
+            Self::CompareDispatch { source, .. } => *source,
+            Self::ResetDispatch { source, .. } => *source,
+            Self::FlushDispatch { source, .. } => *source,
+            Self::NvmeAdminDispatch { source, .. } => *source,
+            Self::UnmapDispatch { source, .. } => *source,
+            Self::WriteZeroesDispatch { source, .. } => *source,
+            Self::NvmeIoPassthruDispatch { source, .. } => *source,
             Self::WriteFailed { .. }
             | Self::ReadFailed { .. }
             | Self::CompareFailed { .. }
@@ -312,18 +232,18 @@ impl ToErrno for CoreError {
             | Self::ResetFailed { .. }
             | Self::WriteZeroesFailed { .. }
             | Self::NvmeIoPassthruFailed { .. }
-            | Self::ShareNvmf { .. }
             | Self::UnshareNvmf { .. } => Errno::EIO,
-            Self::NvmeAdminFailed { source, .. } => source,
-            Self::NotSupported { source, .. } => source,
-            Self::ReactorConfigureFailed { source, .. } => source,
+            Self::ShareNvmf { source } => source.to_errno(),
+            Self::NvmeAdminFailed { source, .. } => *source,
+            Self::NotSupported { source, .. } => *source,
+            Self::ReactorConfigureFailed { source, .. } => *source,
             Self::DmaAllocationFailed { .. } => Errno::ENOMEM,
-            Self::DeviceStatisticsFailed { source, .. } => source,
+            Self::DeviceStatisticsFailed { source, .. } => *source,
             Self::NoDevicesAvailable { .. } => Errno::ENODEV,
             Self::InvalidNvmeDeviceHandle { .. } => Errno::EINVAL,
-            Self::DeviceFlush { source, .. } => source,
+            Self::DeviceFlush { source, .. } => *source,
             Self::Ptpl { .. } => Errno::EIO,
-            Self::SnapshotCreate { source, .. } => source,
+            Self::SnapshotCreate { source, .. } => *source,
             Self::WipeFailed { .. } => Errno::EIO,
             Self::InitCryptoModule { .. } => Errno::EINVAL,
         }

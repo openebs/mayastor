@@ -1,6 +1,6 @@
-{ rust ? "stable"
-, spdk ? "develop"
-, spdk-path ? null
+{ rust ? (let v = builtins.getEnv "NIX_RUST"; in if v == "" then "stable" else v)
+, spdk ? (let v = builtins.getEnv "NIX_SPDK"; in if v == "" then "develop" else v)
+, spdk-path ? (let v = builtins.getEnv "NIX_SPDK_PATH"; in if v == "" then null else v)
 } @ args:
 let
   sources = import ./nix/sources.nix;
@@ -15,6 +15,8 @@ let
   # python environment for test/python
   pytest_inputs = with pkgs; python3.withPackages
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
+
+  nix-file = "\\$" + "{workspaceFolder}/shell.nix";
 
   shellAttrs = import ./spdk-rs/nix/shell {
     inherit rust;
@@ -54,6 +56,11 @@ let
         # Dummy values in case environment does not have /etc/nvme
         NVME_HOSTID = "03f79caf-dc58-475a-a111-bf0b75214a51";
         NVME_HOSTNQN = "nqn.2014-08.org.nvmexpress:uuid:03f79caf-dc58-475a-a111-bf0b75214a51";
+
+        # Env vars to allow for better integration with code editors which use a nix environment selector
+        NIX_RUST = rust;
+        NIX_SPDK = spdk;
+        NIX_SPDK_PATH = toString spdk-path;
       };
 
       shellHook = ''
@@ -66,6 +73,13 @@ let
 
         # Prevent Rust tooling to fallback to potentially incompatible host clang compiler
         export CLANG_PATH="$NIX_CC_FOR_TARGET/bin/clang"
+
+        cat > "$SRCDIR/.vscode/settings.json" <<EOF
+        {
+            "nixEnvSelector.args": "--argstr rust ${rust} --argstr spdk ${spdk} --argstr spdk-path $(realpath ${toString spdk-path})",
+            "nixEnvSelector.nixFile": "${toString nix-file}"
+        }
+        EOF
       '';
 
       shellInfoHook = ''

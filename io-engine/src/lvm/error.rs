@@ -72,7 +72,7 @@ impl Error {
 }
 
 impl ToErrno for Error {
-    fn to_errno(self) -> Errno {
+    fn to_errno(&self) -> Errno {
         match self {
             Error::ReportMissing { .. } => Errno::EIO,
             Error::JsonParsing { .. } => Errno::EIO,
