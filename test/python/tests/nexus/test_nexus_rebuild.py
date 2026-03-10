@@ -113,19 +113,13 @@ def test_rebuild_failure(containers, mayastors, times, create_nexuses):
     time.sleep(3)
 
     rebuilds = 0
-    for nexus in ms0.nexus_list():
-        for child in nexus.children:
-            if child.rebuild_progress > -1:
-                rebuilds += 1
-                print(
-                    "nexus",
-                    nexus.uuid,
-                    "rebuilding",
-                    child.uri,
-                    f"{child.rebuild_progress}",
-                )
+    for i in range(3):
+        rebuilds += collect_rebuilds(ms0)
+        if rebuilds > 0:
+            break
+        time.sleep(1)
 
-    assert rebuilds > 0
+    assert rebuilds > 0, f"{ms0.nexus_list()}"
 
     # Stop ms3 again. Rebuild jobs in progress must terminate.
     node3.stop()
@@ -151,3 +145,19 @@ def wait_no_rebuilds(ms0):
         ], f"Nexus: {nexus}, {nexus.state}, {nexus.children}"
         for child in nexus.children:
             assert child.rebuild_progress == -1
+
+
+def collect_rebuilds(ms0):
+    rebuilds = 0
+    for nexus in ms0.nexus_list():
+        for child in nexus.children:
+            if child.rebuild_progress > -1:
+                rebuilds += 1
+                print(
+                    "nexus",
+                    nexus.uuid,
+                    "rebuilding",
+                    child.uri,
+                    f"{child.rebuild_progress}",
+                )
+    return rebuilds

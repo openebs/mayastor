@@ -1759,7 +1759,10 @@ async fn nvmf_device_hot_remove() {
 
     impl DeviceEventListener for TestEventListener {
         fn handle_device_event(&self, event: DeviceEventType, device: &str) {
-            if event == DeviceEventType::AdminQNoticeCtrlFailed {
+            if matches!(
+                event,
+                DeviceEventType::AdminQNoticeCtrlFailed | DeviceEventType::AdminQBroken
+            ) {
                 return; // Not interested in this one
             }
             // Check event type and device name.

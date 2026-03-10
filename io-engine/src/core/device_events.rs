@@ -27,6 +27,11 @@ pub enum DeviceEventType {
     /// failed for the first time, this event is sent, allowing further
     /// clean up to be performed.
     AdminQNoticeCtrlFailed,
+    /// Sometimes KeepAlives are failed to be sent, and the adminq keeps failing
+    /// to be polled, but never transitions into controller failed!
+    /// In this case IOs might get stuck, and lead to subsystem pause hang.
+    /// This event is sent after the q has been failing to pool for more than adminq timeout.
+    AdminQBroken,
 }
 
 /// TODO
