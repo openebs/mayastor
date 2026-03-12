@@ -181,6 +181,7 @@ impl GetName for Lvol {
         self.name.clone()
     }
 }
+impl super::Probe for Lvol {}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Lvol {

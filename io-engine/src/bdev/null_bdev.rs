@@ -141,6 +141,7 @@ impl GetName for Null {
         self.name.clone()
     }
 }
+impl super::Probe for Null {}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Null {

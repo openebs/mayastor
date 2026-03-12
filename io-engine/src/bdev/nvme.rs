@@ -30,6 +30,29 @@ pub(super) struct NVMe {
     url: Url,
 }
 
+impl NVMe {
+    /// Returns the driver name bound to a PCI device (e.g., "vfio-pci", "nvme")
+    fn pci_driver(&self) -> Result<Option<String>, std::io::Error> {
+        let driver_path = format!("/sys/bus/pci/devices/{}/driver", self.name);
+        let path = std::path::Path::new(&driver_path);
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        // Resolve the symlink: /sys/.../driver -> ../../../bus/pci/drivers/<driver>
+        let driver_link = path.read_link()?;
+
+        // Extract the last component (driver name)
+        let driver = driver_link.file_name().and_then(|os| os.to_str());
+        Ok(driver.map(ToString::to_string))
+    }
+    fn is_pci_nvme(&self) -> bool {
+        let pci = format!("/sys/module/nvme/drivers/pci:nvme/{}", self.name);
+        std::fs::exists(&pci).unwrap_or_default()
+    }
+}
+
 /// Convert a URI to NVMe object
 impl TryFrom<&Url> for NVMe {
     type Error = BdevError;
@@ -148,6 +171,43 @@ impl CreateDestroy for NVMe {
                 name: self.get_name(),
             })
         }
+    }
+}
+
+impl super::Probe for NVMe {
+    fn probe(&self) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+        const PCIE_DRVS: [&str; 2] = ["vfio-pci", "uio_pci_generic"];
+
+        let driver = match self.pci_driver() {
+            Ok(Some(driver)) if !driver.is_empty() => Ok(driver),
+            Ok(_) => Err(io_engine_api::v1::pool::ProbeError {
+                code: io_engine_api::v1::pool::ProbeErrorCode::DiskNotFound as i32,
+                msg: None,
+            }),
+            Err(error) => Err(io_engine_api::v1::pool::ProbeError {
+                code: io_engine_api::v1::pool::ProbeErrorCode::ProbeUnknown as i32,
+                msg: Some(error.to_string()),
+            }),
+        }?;
+
+        if PCIE_DRVS.contains(&driver.as_str()) {
+            return Ok(());
+        }
+
+        if driver == "nvme" {
+            return Err(io_engine_api::v1::pool::ProbeError {
+                code: io_engine_api::v1::pool::ProbeErrorCode::PciKernelBound as i32,
+                msg: None,
+            });
+        }
+
+        let code = if self.is_pci_nvme() {
+            io_engine_api::v1::pool::ProbeErrorCode::PciDriverUnsupported
+        } else {
+            io_engine_api::v1::pool::ProbeErrorCode::PciNotNvme
+        } as i32;
+
+        Err(io_engine_api::v1::pool::ProbeError { code, msg: None })
     }
 }
 

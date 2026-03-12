@@ -183,6 +183,7 @@ impl GetName for NvmfDeviceTemplate {
         format!("{}n1", self.name)
     }
 }
+impl crate::bdev::Probe for NvmfDeviceTemplate {}
 
 // Context for an NVMe controller being created.
 pub(crate) struct NvmeControllerContext<'probe> {

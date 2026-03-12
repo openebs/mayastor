@@ -26,9 +26,9 @@ mod nx;
 mod uring;
 pub mod util;
 
-pub trait BdevCreateDestroy: CreateDestroy + GetName + std::fmt::Debug {}
+pub trait BdevCreateDestroy: CreateDestroy + Probe + GetName + std::fmt::Debug {}
 
-impl<T: CreateDestroy + GetName + std::fmt::Debug> BdevCreateDestroy for T {}
+impl<T: CreateDestroy + GetName + Probe + std::fmt::Debug> BdevCreateDestroy for T {}
 
 #[async_trait(?Send)]
 /// Main trait that must be implemented for every supported device type.
@@ -43,6 +43,28 @@ pub trait CreateDestroy {
 /// device type.
 pub trait GetName {
     fn get_name(&self) -> String;
+}
+
+/// The following trait must also be implemented for every supported
+/// device type.
+pub trait Probe {
+    fn probe(&self) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+        Err(io_engine_api::v1::pool::ProbeError {
+            code: io_engine_api::v1::pool::ProbeErrorCode::InvalidDiskUri as i32,
+            msg: None,
+        })
+    }
+}
+
+fn probe_file(file: &str) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+    let disk_path = std::path::Path::new(file);
+    if !disk_path.exists() {
+        return Err(io_engine_api::v1::pool::ProbeError {
+            code: io_engine_api::v1::pool::ProbeErrorCode::DiskNotFound as i32,
+            msg: None,
+        });
+    }
+    Ok(())
 }
 
 /// Exposes functionality to prepare for persisting reservations in the event

@@ -23,6 +23,7 @@ use io_engine_api::v1::{
 };
 use secret_provider::secret_data;
 use std::{
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     fmt::Debug,
     ops::Deref,
@@ -341,8 +342,8 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             msg: format!("invalid pooltype provided: {}", args.pooltype),
         })?;
         if backend == PoolType::Lvs {
-            if let Some(s) = args.uuid.clone() {
-                let _uuid = uuid::Uuid::parse_str(s.as_str()).map_err(|e| LvsError::Invalid {
+            if let Some(ref s) = args.uuid {
+                let _uuid = uuid::Uuid::parse_str(s).map_err(|e| LvsError::Invalid {
                     source: BsError::InvalidArgument {},
                     msg: format!("invalid uuid provided, {e}"),
                 })?;
@@ -930,5 +931,64 @@ impl PoolRpc for PoolService {
             },
         )
         .await
+    }
+
+    async fn probe_pool(
+        &self,
+        request: Request<ProbePoolRequest>,
+    ) -> GrpcResult<ProbePoolResponse> {
+        let request = request.into_inner();
+
+        // todo: implement probes
+        if request.probes.is_some() {
+            return Err(Status::new(
+                Code::InvalidArgument,
+                "Pool probes are not implemented",
+            ));
+        }
+        let Some(request) = request.request else {
+            return Err(Status::new(
+                Code::InvalidArgument,
+                "Pool import request is missing",
+            ));
+        };
+        if request.disks.is_empty() {
+            return Err(Status::new(
+                Code::InvalidArgument,
+                "No pool disks specified",
+            ));
+        }
+
+        let mut errors = HashMap::new();
+        for disk_uri in request.disks {
+            let parsed = match crate::bdev::uri::try_parse_or_aio(&disk_uri) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    let error = vec![ProbeError {
+                        code: ProbeErrorCode::InvalidDiskUri as i32,
+                        msg: Some(error.to_string()),
+                    }];
+                    let disk = disk_uri.clone();
+                    let info = ProbeDiskInfo { disk, error };
+                    errors.insert(disk_uri, info);
+                    continue;
+                }
+            };
+            let Err(error) = parsed.probe() else {
+                continue;
+            };
+
+            let error = vec![error];
+            let disk = disk_uri.clone();
+            let info = ProbeDiskInfo { disk, error };
+            errors.insert(disk_uri, info);
+        }
+
+        Ok(tonic::Response::new(ProbePoolResponse {
+            success: errors.is_empty(),
+            probed: None,
+            metadata: None,
+            errors,
+        }))
     }
 }
