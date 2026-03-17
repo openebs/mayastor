@@ -1031,10 +1031,16 @@ impl NvmfSubsystem {
 
     /// Lookup a subsystem by its nqn.
     pub fn nqn_lookup_(nqn: &str) -> Option<NvmfSubsystem> {
-        NvmfSubsystem::first()
-            .unwrap()
-            .into_iter()
-            .find(|s| s.nqn_str() == nqn)
+        NVMF_TGT.with(|t| {
+            let nqn = nqn.into_cstring();
+            let ss = unsafe { spdk_nvmf_tgt_find_subsystem(t.borrow().tgt.as_ptr(), nqn.as_ptr()) };
+
+            if ss.is_null() {
+                None
+            } else {
+                Some(NvmfSubsystem(NonNull::new(ss).unwrap()))
+            }
+        })
     }
 
     /// get the bdev associated with this subsystem -- we implicitly assume the
