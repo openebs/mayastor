@@ -1,6 +1,6 @@
 use std::{
     convert::TryFrom,
-    ffi::{c_void, CString},
+    ffi::{c_void, CStr, CString},
     fmt::{self, Debug, Display, Formatter},
     mem::zeroed,
     ptr::{self, NonNull},
@@ -220,7 +220,7 @@ impl NvmfSubsystem {
 
         debug!("NVMF subsystem event {s:?}: {event:?}");
 
-        let nqn_tgt = NqnTarget::lookup(&s.get_nqn());
+        let nqn_tgt = NqnTarget::lookup(s.nqn_str());
         if matches!(nqn_tgt, NqnTarget::None) {
             warn!(
                 "NVMF subsystem event {s:?}: {event:?}: \
@@ -298,7 +298,7 @@ impl NvmfSubsystem {
             "Host '{host}' connected to subsystem '{subsys}' on \
             nexus '{nex:?}'",
             host = ctrlr.hostnqn(),
-            subsys = self.get_nqn(),
+            subsys = self.nqn_str(),
         );
 
         nex.add_initiator(&ctrlr.hostnqn());
@@ -318,7 +318,7 @@ impl NvmfSubsystem {
             "Host '{host}' disconnected from subsystem '{subsys}' on \
             nexus '{nex:?}'",
             host = ctrlr.hostnqn(),
-            subsys = self.get_nqn(),
+            subsys = self.nqn_str(),
         );
 
         nex.rm_initiator(&ctrlr.hostnqn());
@@ -334,7 +334,7 @@ impl NvmfSubsystem {
             "Host '{host}': keep alive timeout on subsystem '{subsys}' on \
             nexus '{nex:?}'",
             host = ctrlr.hostnqn(),
-            subsys = self.get_nqn(),
+            subsys = self.nqn_str(),
         );
 
         nex.initiator_keep_alive_timeout(&ctrlr.hostnqn());
@@ -370,7 +370,7 @@ impl NvmfSubsystem {
             "Host '{host}' connected to subsystem '{subsys}' on \
             replica '{lvol:?}'",
             host = ctrlr.hostnqn(),
-            subsys = self.get_nqn(),
+            subsys = self.nqn_str(),
         );
 
         unsafe {
@@ -388,7 +388,7 @@ impl NvmfSubsystem {
             "Host '{host}' disconnected from subsystem '{subsys}' on \
             replica '{lvol:?}'",
             host = ctrlr.hostnqn(),
-            subsys = self.get_nqn(),
+            subsys = self.nqn_str(),
         );
 
         unsafe {
@@ -402,7 +402,7 @@ impl NvmfSubsystem {
             "Host '{host}': keep alive timeout on subsystem '{subsys}' on \
             replica '{lvol:?}'",
             host = ctrlr.hostnqn(),
-            subsys = self.get_nqn(),
+            subsys = self.nqn_str(),
         );
     }
 
@@ -569,12 +569,25 @@ impl NvmfSubsystem {
     }
 
     /// Get NVMe subsystem's NQN
+    /// # Warning
+    /// If used as a lookup, this can be very expensive when very large clusters as it's
+    /// allocating and copying a new string rather than returning a reference.
     pub fn get_nqn(&self) -> String {
         unsafe {
             spdk_nvmf_subsystem_get_nqn(self.0.as_ptr())
                 .as_str()
                 .to_string()
         }
+    }
+
+    /// Get NVMe subsystem's NQN as a [`CStr`] reference
+    pub fn nqn_cstr(&self) -> &CStr {
+        unsafe { CStr::from_ptr(spdk_nvmf_subsystem_get_nqn(self.0.as_ptr())) }
+    }
+
+    /// Get NVMe subsystem's NQN as a [`CStr`] reference
+    pub fn nqn_str(&self) -> &str {
+        self.nqn_cstr().to_str().unwrap_or("")
     }
 
     fn cstr(host: &str) -> Result<CString, Error> {
@@ -804,7 +817,7 @@ impl NvmfSubsystem {
 
                 warn!(
                     "Failed to {op} '{}': subsystem is busy, retrying {n}...",
-                    self.get_nqn()
+                    self.nqn_str()
                 );
 
                 crate::sleep::mayastor_sleep(std::time::Duration::from_millis(100))
@@ -1015,7 +1028,7 @@ impl NvmfSubsystem {
         NvmfSubsystem::first()
             .unwrap()
             .into_iter()
-            .find(|s| s.get_nqn() == nqn)
+            .find(|s| s.nqn_str() == nqn)
     }
 
     /// get the bdev associated with this subsystem -- we implicitly assume the
@@ -1078,12 +1091,9 @@ impl NvmfSubsystem {
 
     /// return the URI's this subsystem is listening on
     pub fn uri_endpoints(&self) -> Option<Vec<String>> {
-        if let Some(v) = self.listeners_to_vec() {
-            let nqn = self.get_nqn();
-            Some(v.iter().map(|t| format!("{t}/{nqn}")).collect::<Vec<_>>())
-        } else {
-            None
-        }
+        let nqn = self.nqn_str();
+        self.listeners_to_vec()
+            .map(|v| v.iter().map(|t| format!("{t}/{nqn}")).collect())
     }
 }
 

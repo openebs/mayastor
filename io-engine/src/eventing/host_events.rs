@@ -37,9 +37,9 @@ impl HostTargetMeta for Lvol {
 
 impl EventMetaGen for NvmfSubsystem {
     fn meta(&self) -> EventMeta {
-        let nqn = self.get_nqn();
+        let nqn = self.nqn_str();
         let event_source = EventSource::new(MayastorEnvironment::global_or_default().node_name)
-            .with_subsystem_data(&nqn);
+            .with_subsystem_data(nqn);
 
         EventMeta::from_source(event_source)
     }
