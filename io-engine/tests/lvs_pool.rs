@@ -3,16 +3,17 @@ use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
     core::{
-        logical_volume::LogicalVolume, MayastorCliArgs, PoolCliArgs, Protocol, Share, ToErrno,
-        UntypedBdev,
+        logical_volume::LogicalVolume, MayastorCliArgs, NvmfShareProps, PoolCliArgs, Protocol,
+        Share, ToErrno, UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
     lvs::{Lvs, LvsLvol, PropName, PropValue},
     pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
     subsys::NvmfSubsystem,
 };
-use io_engine_api::v1::pool::{
-    Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState,
+use io_engine_api::v1::{
+    pool::{Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState},
+    replica::ListReplicaOptions,
 };
 use once_cell::sync::OnceCell;
 use std::pin::Pin;
@@ -735,6 +736,110 @@ async fn lvs_hot_remove() {
 
         let error = repl.destroy().await.expect_err("-EIO");
         assert_eq!(error.to_errno(), nix::Error::EIO);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn lvol_list() {
+    let ms = ms();
+
+    let pool_size = "4GiB";
+    let repl_size = 4 * 1024 * 1024;
+
+    use io_engine::pool_backend::PoolMetadataArgs;
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![format!("malloc:///m?size={pool_size}")],
+        backend: PoolBackend::Lvs,
+        md_args: Some(PoolMetadataArgs {
+            max_expansion: Some("300GiB".into()),
+        }),
+        ..Default::default()
+    };
+
+    ms.start_grpc();
+    ms.start_device_monitor();
+
+    ms.spawn(async move {
+        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+
+        for i in 1..8000 {
+            let name = format!("replica-{i}");
+            let opts = ReplicaArgs::new(name, repl_size)
+                .wipe_super(false)
+                .thin(true);
+            let _repl = lvs_pool.create_lvol_with_opts(opts).await.unwrap();
+        }
+    })
+    .await;
+
+    // this could vary depending on the system where we're running, but this is large enough that
+    // it should run on weaker systems as well as low enough to ensure we're testing the fix.
+    let max_dur = std::time::Duration::from_millis(300);
+
+    // 1. this list is "quicker" as there's no nvmf subsystems
+    let list_tm = std::time::Instant::now();
+    ms.spawn(async move {
+        for lvs_pool in Lvs::iter() {
+            for lvol in lvs_pool.lvols().unwrap() {
+                let _replica: io_engine_api::v1::replica::Replica = lvol.into();
+            }
+        }
+    })
+    .await;
+    let no_uri_elapsed = list_tm.elapsed();
+    println!("Lvol List: {no_uri_elapsed:?}");
+    assert!(no_uri_elapsed <= max_dur, "Listing replicas took too long");
+
+    // 2. we share all replicas, so each replica now must search its subsystems
+    ms.spawn(async move {
+        for lvs_pool in Lvs::iter() {
+            for mut lvol in lvs_pool.lvols().unwrap() {
+                use io_engine::replica_backend::ReplicaOps;
+                lvol.share_nvmf(NvmfShareProps::new()).await.unwrap();
+            }
+        }
+    })
+    .await;
+
+    // 3. we have to iter but also convert each lvol to a Replica so we can exercise the subsystem listing
+    let list_tm = std::time::Instant::now();
+    ms.spawn(async move {
+        let list_tm = std::time::Instant::now();
+        for lvs_pool in Lvs::iter() {
+            for lvol in lvs_pool.lvols().unwrap() {
+                let _replica: io_engine_api::v1::replica::Replica = lvol.into();
+            }
+        }
+        println!("Lvol List time: {:?}", list_tm.elapsed());
+    })
+    .await;
+    let uri_elapsed = list_tm.elapsed();
+    println!("Lvol List: {uri_elapsed:?}");
+    assert!(uri_elapsed <= max_dur, "Listing replicas took too long");
+
+    use io_engine_api::v1::replica::ReplicaRpcClient;
+    let mut h = ReplicaRpcClient::connect("http://localhost:10124")
+        .await
+        .unwrap();
+
+    let list_tm = std::time::Instant::now();
+    h.list_replicas(ListReplicaOptions::default())
+        .await
+        .unwrap();
+    let grpc_elapsed = list_tm.elapsed();
+    println!("gRPC Lvol List: {grpc_elapsed:?}");
+    assert!(
+        // adds some extra buffer for gRPC
+        grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
+        "Listing replicas took too long"
+    );
+
+    ms.spawn(async move {
+        for lvs_pool in Lvs::iter() {
+            lvs_pool.destroy().await.unwrap();
+        }
     })
     .await;
 }
