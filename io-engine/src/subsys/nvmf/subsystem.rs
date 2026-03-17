@@ -219,8 +219,7 @@ impl NvmfSubsystem {
         let event = NvmfSubsystemEvent::from_cb_args(event, ctx);
 
         debug!("NVMF subsystem event {s:?}: {event:?}");
-
-        let nqn_tgt = NqnTarget::lookup(s.nqn_str());
+        let nqn_tgt = NqnTarget::from(&s);
         if matches!(nqn_tgt, NqnTarget::None) {
             warn!(
                 "NVMF subsystem event {s:?}: {event:?}: \
@@ -1022,9 +1021,16 @@ impl NvmfSubsystem {
         })
     }
 
-    /// lookup a subsystem by its UUID
+    /// Lookup a subsystem by its UUID.
+    /// # Warning
+    /// This is a misnomer, as the function input is a name/uuid!
     pub fn nqn_lookup(uuid: &str) -> Option<NvmfSubsystem> {
         let nqn = make_nqn(uuid);
+        Self::nqn_lookup_(&nqn)
+    }
+
+    /// Lookup a subsystem by its nqn.
+    pub fn nqn_lookup_(nqn: &str) -> Option<NvmfSubsystem> {
         NvmfSubsystem::first()
             .unwrap()
             .into_iter()
@@ -1109,31 +1115,15 @@ pub enum NqnTarget<'a> {
     None,
 }
 
-impl NqnTarget<'_> {
-    pub fn lookup(nqn: &str) -> Self {
-        let Some(bdev) = UntypedBdev::bdev_first() else {
+impl From<&'_ NvmfSubsystem> for NqnTarget<'_> {
+    fn from(value: &'_ NvmfSubsystem) -> Self {
+        let Some(bdev) = value.bdev() else {
             return Self::None;
         };
-
-        let parts: Vec<&str> = nqn.split(':').collect();
-        if parts.len() != 2 || parts[0] != NVME_NQN_PREFIX {
-            return Self::None;
+        match bdev.driver() {
+            NEXUS_MODULE_NAME => Self::Nexus(unsafe { Nexus::unsafe_from_untyped_bdev(*bdev) }),
+            "lvol" => Lvol::try_from(bdev).map_or(Self::None, Self::Replica),
+            _ => Self::None,
         }
-
-        let name = parts[1];
-
-        for b in bdev.into_iter() {
-            match b.driver() {
-                NEXUS_MODULE_NAME if b.name() == name => {
-                    return Self::Nexus(unsafe { Nexus::unsafe_from_untyped_bdev(*b) });
-                }
-                "lvol" if b.name() == name => {
-                    return Lvol::try_from(b).map_or(Self::None, Self::Replica)
-                }
-                _ => {}
-            }
-        }
-
-        Self::None
     }
 }
