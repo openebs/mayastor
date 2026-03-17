@@ -3,8 +3,8 @@ use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
     core::{
-        logical_volume::LogicalVolume, MayastorCliArgs, NvmfShareProps, PoolCliArgs, Protocol,
-        Share, ToErrno, UntypedBdev,
+        logical_volume::LogicalVolume, MayastorCliArgs, NvmeCliArgs, NvmfShareProps, PoolCliArgs,
+        Protocol, Share, ToErrno, UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
     lvs::{Lvs, LvsLvol, PropName, PropValue},
@@ -38,6 +38,9 @@ fn ms() -> &'static MayastorTest<'static> {
             pool: PoolCliArgs {
                 io_error_threshold: IO_ERROR_THRESHOLD,
                 ..Default::default()
+            },
+            nvme: NvmeCliArgs {
+                max_namespaces: 8192,
             },
             ..Default::default()
         })
