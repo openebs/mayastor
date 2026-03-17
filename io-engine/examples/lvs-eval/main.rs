@@ -176,6 +176,7 @@ async fn create_lvol(
         thin,
         entity_id: None,
         use_extent_table: Some(et),
+        wipe_super: true,
     };
 
     lvs.create_lvol_with_opts(opts).await.map_err(|err| {

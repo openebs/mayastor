@@ -407,7 +407,8 @@ impl PoolGrpc {
                 uuid: args.uuid,
                 thin: args.thin,
                 entity_id: args.entity_id,
-                use_extent_table: None,
+                wipe_super: true,
+                ..Default::default()
             })
             .await
         {
