@@ -1,8 +1,8 @@
 use nix::errno::Errno;
 use snafu::Snafu;
-use tonic::{Code, Status};
+use tonic::Status;
 
-use super::{ChildError, NbdError, NexusPauseState};
+use super::{ChildError, NbdError};
 
 use crate::{
     bdev_api::BdevError,
@@ -29,10 +29,6 @@ pub enum Error {
     NameExists { name: String },
     #[snafu(display("Invalid encryption key"))]
     InvalidKey {},
-    #[snafu(display("Failed to create crypto bdev for nexus {}", name))]
-    CreateCryptoBdev { source: Errno, name: String },
-    #[snafu(display("Failed to destroy crypto bdev for nexus {}", name))]
-    DestroyCryptoBdev { source: Errno, name: String },
     #[snafu(display("The nexus {} has been already shared with a different protocol", name))]
     AlreadyShared { name: String },
     #[snafu(display("The nexus {} has not been shared", name))]
@@ -81,8 +77,6 @@ pub enum Error {
     ChildGeometry { child: String, name: String },
     #[snafu(display("Child {} of nexus {} cannot be found", child, name))]
     ChildMissing { child: String, name: String },
-    #[snafu(display("Child {} of nexus {} has no error store", child, name))]
-    ChildMissingErrStore { child: String, name: String },
     #[snafu(display(
         "Failed to acquire write exclusive reservation on child {} of nexus {}",
         child,
@@ -121,8 +115,6 @@ pub enum Error {
     ChildDeviceNotOpen { child: String, name: String },
     #[snafu(display("Child {} of nexus {} already exists", child, name))]
     ChildAlreadyExists { child: String, name: String },
-    #[snafu(display("Failed to pause child {} of nexus {}", child, name))]
-    PauseChild { child: String, name: String },
     #[snafu(display("Suitable rebuild source for nexus {} not found", name))]
     NoRebuildSource { name: String },
     #[snafu(display("Failed to create rebuild job for child {} of nexus {}", child, name,))]
@@ -159,17 +151,10 @@ pub enum Error {
         name: String,
         state: String,
     },
-    #[snafu(display("Failed to get BdevHandle for snapshot operation"))]
-    FailedGetHandle,
     #[snafu(display("Failed to create snapshot on nexus {}: {}", name, reason))]
     FailedCreateSnapshot { name: String, reason: String },
     #[snafu(display("NVMf subsystem error: {}", e))]
     SubsysNvmf { e: String },
-    #[snafu(display("failed to pause {} current state {:?}", name, state))]
-    Pause {
-        state: NexusPauseState,
-        name: String,
-    },
     #[snafu(display("Operation not allowed: {}", reason))]
     OperationNotAllowed { reason: String },
     #[snafu(display("Invalid value for nvme reservation: {}", reservation))]
@@ -190,7 +175,8 @@ impl From<NvmfError> for Error {
 
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
-        match e {
+        let errno = e.to_errno();
+        let mut status = match e {
             Error::InvalidUuid { .. } => Status::invalid_argument(e.to_string()),
             Error::InvalidKey { .. } => Status::invalid_argument(e.to_string()),
             Error::InvalidShareProtocol { .. } => Status::invalid_argument(e.to_string()),
@@ -218,7 +204,98 @@ impl From<Error> for tonic::Status {
                 Status::out_of_range(e.to_string())
             }
             Error::ShareNvmfNexus { .. } => Status::internal(e.to_string()),
-            e => Status::new(Code::Internal, e.verbose()),
+            Error::NexusInitialising { .. } => Status::internal(e.to_string()),
+            Error::UuidExists { .. } => Status::internal(e.to_string()),
+            Error::ShareNbdNexus { .. } => Status::internal(e.to_string()),
+            Error::UnshareNexus { .. } => Status::internal(e.to_string()),
+            Error::RegisterNexus { .. } => Status::internal(e.to_string()),
+            Error::ChildMissing { .. } => Status::internal(e.to_string()),
+            Error::ChildWriteExclusiveResvFailed { .. } => Status::internal(e.to_string()),
+            Error::OnlineChild { .. } => Status::internal(e.to_string()),
+            Error::CloseChild { .. } => Status::internal(e.to_string()),
+            Error::ChildDeviceNotOpen { .. } => Status::failed_precondition(e.to_string()),
+            Error::NoRebuildSource { .. } => Status::failed_precondition(e.to_string()),
+            Error::CreateRebuild { .. } => Status::already_exists(e.to_string()),
+            Error::RebuildJobAlreadyExists { .. } => Status::already_exists(e.to_string()),
+            Error::RebuildOperation { .. } => Status::internal(e.to_string()),
+            Error::InvalidNvmeAnaState { .. } => Status::invalid_argument(e.to_string()),
+            Error::NexusCreate { .. } => Status::internal(e.to_string()),
+            Error::NexusDestroy { .. } => Status::internal(e.to_string()),
+            Error::ChildNotDegraded { .. } => Status::failed_precondition(e.to_string()),
+            Error::FailedCreateSnapshot { .. } => Status::internal(e.to_string()),
+            Error::SubsysNvmf { .. } => Status::internal(e.to_string()),
+            Error::UpdateShareProperties { .. } => Status::internal(e.to_string()),
+            Error::SaveStateFailed { .. } => Status::data_loss(e.to_string()),
+        };
+        status
+            .metadata_mut()
+            .insert("errno", tonic::metadata::MetadataValue::from(errno as i32));
+        status
+    }
+}
+
+impl ToErrno for Error {
+    fn to_errno(&self) -> nix::Error {
+        match self {
+            Error::ShareNvmfNexus { source, .. } | Error::UnshareNexus { source, .. } => {
+                source.to_errno()
+            }
+            Error::RegisterNexus { source, .. } => *source,
+            // todo: need to change spdk_nvme_connect_async to include the probe_error callback
+            // otherwise the source errno here is always -ENXIO for nvmx failures.
+            Error::CreateChild { source, .. } => source.to_errno(),
+            Error::ChildWriteExclusiveResvFailed { .. } => nix::Error::EKEYREJECTED,
+            Error::OpenChild { source, .. } => source.to_errno(),
+            Error::OnlineChild { source, .. } => source.to_errno(),
+            Error::CloseChild { source, .. } => source.to_errno(),
+            Error::CreateRebuild { .. } => nix::Error::EPIPE,
+            Error::RebuildOperation { .. } => nix::Error::EPIPE,
+            Error::NexusResize { source, .. } => *source,
+            Error::UpdateShareProperties { source, .. } => source.to_errno(),
+            Error::SaveStateFailed { .. } => nix::Error::ENODATA,
+
+            Error::ShareNbdNexus { .. } => Errno::ENOTSUP,
+
+            Error::NexusNotFound { .. }
+            | Error::ChildMissing { .. }
+            | Error::ChildNotFound { .. }
+            | Error::RebuildJobNotFound { .. } => Errno::ENOENT,
+
+            Error::UuidExists { .. }
+            | Error::NameExists { .. }
+            | Error::ChildAlreadyExists { .. }
+            | Error::RebuildJobAlreadyExists { .. } => Errno::EEXIST,
+
+            Error::InvalidUuid { .. }
+            | Error::InvalidKey { .. }
+            | Error::InvalidShareProtocol { .. }
+            | Error::InvalidNvmeAnaState { .. }
+            | Error::InvalidArguments { .. }
+            | Error::InvalidReservation { .. } => Errno::EINVAL,
+
+            Error::NexusInitialising { .. } => Errno::EBUSY,
+
+            Error::AlreadyShared { .. }
+            | Error::NotShared { .. }
+            | Error::NotSharedNvmf { .. }
+            | Error::OperationNotAllowed { .. }
+            | Error::RemoveLastChild { .. }
+            | Error::RemoveLastHealthyChild { .. }
+            | Error::ChildNotDegraded { .. } => Errno::EPERM,
+
+            Error::ChildDeviceNotOpen { .. }
+            | Error::ChildGeometry { .. }
+            | Error::ChildTooSmall { .. }
+            | Error::SubsysNvmf { .. } => Errno::EIO,
+
+            Error::NexusIncomplete { .. }
+            | Error::NexusCreate { .. }
+            | Error::NexusDestroy { .. }
+            | Error::FailedCreateSnapshot { .. }
+            | Error::NoRebuildSource { .. } => Errno::EFAULT,
+
+            // This is something we'll have to handle better
+            Error::MixedBlockSizes { .. } => Errno::EINVAL,
         }
     }
 }
