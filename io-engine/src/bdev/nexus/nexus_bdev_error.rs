@@ -6,7 +6,7 @@ use super::{ChildError, NbdError, NexusPauseState};
 
 use crate::{
     bdev_api::BdevError,
-    core::{CoreError, VerboseError},
+    core::{CoreError, ToErrno, VerboseError},
     rebuild::RebuildError,
     store::store_defs::StoreError,
     subsys::NvmfError,
@@ -214,6 +214,10 @@ impl From<Error> for tonic::Status {
             Error::ChildAlreadyExists { .. } => Status::already_exists(e.to_string()),
             Error::NameExists { .. } => Status::already_exists(e.to_string()),
             Error::InvalidArguments { .. } => Status::invalid_argument(e.to_string()),
+            Error::ShareNvmfNexus { ref source, .. } if source.to_errno() == Errno::EMLINK => {
+                Status::out_of_range(e.to_string())
+            }
+            Error::ShareNvmfNexus { .. } => Status::internal(e.to_string()),
             e => Status::new(Code::Internal, e.verbose()),
         }
     }
