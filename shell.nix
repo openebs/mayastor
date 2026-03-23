@@ -17,6 +17,7 @@ let
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
 
   nix-file = "\\$" + "{workspaceFolder}/shell.nix";
+  nix-spdk-path = if spdk-path != null then " --argstr spdk-path $(realpath ${toString spdk-path})" else "";
 
   shellAttrs = import ./spdk-rs/nix/shell {
     inherit rust;
@@ -76,7 +77,7 @@ let
 
         cat > "$SRCDIR/.vscode/settings.json" <<EOF
         {
-            "nixEnvSelector.args": "--argstr rust ${rust} --argstr spdk ${spdk} --argstr spdk-path $(realpath ${toString spdk-path})",
+            "nixEnvSelector.args": "--argstr rust ${rust} --argstr spdk ${spdk}${nix-spdk-path}",
             "nixEnvSelector.nixFile": "${toString nix-file}"
         }
         EOF
