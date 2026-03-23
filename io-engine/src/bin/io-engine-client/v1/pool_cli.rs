@@ -245,6 +245,61 @@ pub fn subcommands() -> Command {
                 .help("Disk devices to clear errors or all if not specified"),
         );
 
+    let probe = Command::new("probe")
+        .about("Probes storage pool")
+        .arg(
+            Arg::new("pool")
+                .required(true)
+                .index(1)
+                .help("Storage pool name"),
+        )
+        .arg(
+            Arg::new("uuid")
+                .short('u')
+                .long("uuid")
+                .required(false)
+                .help("Storage pool uuid"),
+        )
+        .arg(
+            Arg::new("disk")
+                .required(true)
+                .action(clap::ArgAction::Append)
+                .index(2)
+                .help("Disk device files"),
+        )
+        .arg(
+            Arg::new("type")
+                .short('t')
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(PoolType::types().to_vec())
+                .default_value(PoolType::Lvs.as_ref()),
+        )
+        .arg(
+            Arg::new("cipher")
+                .short('c')
+                .long("cipher")
+                .help("The cipher to use for encryption")
+                .required(false)
+                .requires("encryption-key"),
+        )
+        .arg(
+            Arg::new("encryption-key")
+                .short('k')
+                .long("encryption-key")
+                .help("The encryption key of the pool in hexlified format")
+                .required(false),
+        )
+        .arg(
+            Arg::new("xts-key")
+                .short('e')
+                .long("xts-key")
+                .help("encryption key2 required for AES_XTS")
+                .required_if_eq("cipher", "AES_XTS")
+                .required(false),
+        );
+
     Command::new("pool")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -256,6 +311,7 @@ pub fn subcommands() -> Command {
         .subcommand(expand)
         .subcommand(list)
         .subcommand(clear)
+        .subcommand(probe)
 }
 
 pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
@@ -267,6 +323,7 @@ pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         ("expand", args) => expand(ctx, args).await,
         ("list", args) => list(ctx, args).await,
         ("clear-errors", args) => clear_errors(ctx, args).await,
+        ("probe", args) => probe(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
         }
@@ -788,6 +845,94 @@ async fn clear_errors(mut ctx: Context, matches: &ArgMatches) -> crate::Result<(
         .context(GrpcStatus)?;
 
     list_pools(ctx, either::Left(response.into_inner()))
+}
+
+async fn probe(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+    let name = matches
+        .get_one::<String>("pool")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "pool".to_string(),
+        })?
+        .to_owned();
+    let uuid = matches.get_one::<String>("uuid");
+    let cipher = matches.get_one::<String>("cipher");
+
+    if let Some(c) = cipher {
+        if !c.eq_ignore_ascii_case("AES_XTS") && !c.eq_ignore_ascii_case("AES_CBC") {
+            return Err(Status::invalid_argument(
+                "Need valid cipher(AES_XTS or AES_CBC)",
+            ))
+            .context(GrpcStatus);
+        }
+    }
+
+    let enc_key = matches.get_one::<String>("encryption-key");
+    let xts_key = matches.get_one::<String>("xts-key");
+
+    let disks_list = matches
+        .get_many::<String>("disk")
+        .ok_or_else(|| ClientError::MissingValue {
+            field: "disk".to_string(),
+        })?
+        .map(|dev| dev.to_owned())
+        .collect();
+    let pooltype = matches
+        .get_one::<String>("type")
+        .map(|s| PoolType::from_str(s.as_str()))
+        .unwrap()
+        .map_err(|e| Status::invalid_argument(e.to_string()))
+        .context(GrpcStatus)?;
+
+    let enc_key_msg = enc_key.map(|k| v1rpc::common::EncryptionKey {
+        key_name: "key_".to_owned() + k,
+        key: k.clone().into(),
+        key_length: k.len() as u32,
+        key2: xts_key.map(|k2| k2.clone().into()),
+        key2_length: xts_key.map(|x| x.len() as u32),
+    });
+
+    let enc_msg = enc_key_msg.map(|e| {
+        v1rpc::common::import_pool_request::Encryption::Data(v1rpc::common::EncryptionData {
+            cipher: v1rpc::common::Cipher::from_str_name(cipher.unwrap())
+                .unwrap()
+                .into(),
+            key: Some(e),
+        })
+    });
+
+    let response = ctx
+        .v1
+        .pool
+        .probe_pool(v1rpc::pool::ProbePoolRequest {
+            request: Some(v1rpc::pool::ImportPoolRequest {
+                name: name.clone(),
+                uuid: uuid.map(ToString::to_string),
+                disks: disks_list,
+                pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
+                encryption: enc_msg,
+            }),
+            probes: None,
+        })
+        .await
+        .context(GrpcStatus)?
+        .into_inner();
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response)
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{response:#?}");
+        }
+    };
+
+    Ok(())
 }
 
 fn pool_state_to_str(idx: i32) -> &'static str {

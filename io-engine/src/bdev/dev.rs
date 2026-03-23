@@ -43,11 +43,29 @@ pub(crate) mod uri {
         bdev_api::{self, BdevError},
     };
 
+    /// Parse the given uri into a [`BdevCreateDestroy`].
     pub fn parse(uri: &str) -> Result<Box<dyn BdevCreateDestroy<Error = BdevError>>, BdevError> {
-        let url = url::Url::parse(uri).context(bdev_api::UriParseFailed {
-            uri: uri.to_string(),
-        })?;
+        parse_url(parse_uri(uri)?)
+    }
 
+    /// Parse the given uri into a [`BdevCreateDestroy`].
+    /// If the given uri is not a [`url::Url`] then we try to parse it as an aio uri.
+    pub fn try_parse_or_aio(
+        uri: &str,
+    ) -> Result<Box<dyn BdevCreateDestroy<Error = BdevError>>, BdevError> {
+        let url = match parse_uri(uri) {
+            Ok(url) => Ok(url),
+            Err(error) => match parse_uri(&format!("aio://{uri}")) {
+                Ok(url) => Ok(url),
+                Err(_) => Err(error),
+            },
+        }?;
+        parse_url(url)
+    }
+
+    fn parse_url(
+        url: url::Url,
+    ) -> Result<Box<dyn BdevCreateDestroy<Error = BdevError>>, BdevError> {
         match url.scheme() {
             "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
             "bdev" | "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
@@ -69,6 +87,12 @@ pub(crate) mod uri {
                 scheme: scheme.to_string(),
             }),
         }
+    }
+
+    fn parse_uri(uri: &str) -> Result<url::Url, BdevError> {
+        url::Url::parse(uri).context(bdev_api::UriParseFailed {
+            uri: uri.to_string(),
+        })
     }
 }
 

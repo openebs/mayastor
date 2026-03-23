@@ -147,3 +147,9 @@ impl CreateDestroy for Uring {
         }
     }
 }
+
+impl super::Probe for Uring {
+    fn probe(&self) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+        super::probe_file(&self.name)
+    }
+}

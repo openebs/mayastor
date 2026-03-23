@@ -103,6 +103,7 @@ impl GetName for Nexus {
         self.name.clone()
     }
 }
+impl super::Probe for Nexus {}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Nexus {

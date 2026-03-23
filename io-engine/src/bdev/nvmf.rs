@@ -123,6 +123,7 @@ impl GetName for Nvmf {
         format!("{}n1", self.name)
     }
 }
+impl super::Probe for Nvmf {}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Nvmf {

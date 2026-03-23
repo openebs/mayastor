@@ -170,6 +170,7 @@ impl GetName for Malloc {
         self.name.clone()
     }
 }
+impl super::Probe for Malloc {}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Malloc {

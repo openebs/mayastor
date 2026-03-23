@@ -64,6 +64,7 @@ impl GetName for Loopback {
         self.name.clone()
     }
 }
+impl super::Probe for Loopback {}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Loopback {
