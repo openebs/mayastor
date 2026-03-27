@@ -1230,8 +1230,8 @@ pub(crate) mod transport {
             self
         }
         /// svcid (port) to connect to
-        pub fn with_svcid(mut self, svcid: &str) -> Self {
-            self.svcid = svcid.to_string();
+        pub fn with_svcid<I: Into<String>>(mut self, svcid: I) -> Self {
+            self.svcid = svcid.into();
             self
         }
 

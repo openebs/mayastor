@@ -6,7 +6,7 @@ use url::ParseError;
 
 use crate::{
     bdev::uri,
-    core::{Bdev, Share},
+    core::{Bdev, Share, ToErrno},
 };
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
@@ -90,6 +90,31 @@ pub enum BdevError {
     BdevCommandCanceled { source: Canceled, name: String },
     #[snafu(display("Failed to wipe the BDEV"))]
     WipeFailed {},
+}
+
+impl ToErrno for BdevError {
+    fn to_errno(&self) -> Errno {
+        match self {
+            BdevError::UriParseFailed { .. } => Errno::EINVAL,
+            BdevError::BdevNoMatchingUri { .. } => Errno::EPIPE,
+            BdevError::UriSchemeUnsupported { .. } => Errno::ENOTSUP,
+            BdevError::InvalidUri { .. } => Errno::EINVAL,
+            BdevError::BoolParamParseFailed { .. } => Errno::EINVAL,
+            BdevError::IntParamParseFailed { .. } => Errno::EINVAL,
+            BdevError::UuidParamParseFailed { .. } => Errno::EINVAL,
+            BdevError::BdevExists { .. } => Errno::ENOENT,
+            BdevError::BdevWrongUuid { .. } => Errno::EINVAL,
+            BdevError::BdevNotFound { .. } => Errno::ENOENT,
+            BdevError::CreateBdevInvalidParams { source, .. } => *source,
+            BdevError::CreateBdevFailed { source, .. } => *source,
+            BdevError::DestroyBdevFailed { source, .. } => *source,
+            BdevError::ResizeBdevFailed { source, .. } => *source,
+            BdevError::CreateBdevFailedStr { .. } => Errno::EPERM,
+            BdevError::DestroyBdevFailedStr { .. } => Errno::EPERM,
+            BdevError::BdevCommandCanceled { .. } => Errno::EPIPE,
+            BdevError::WipeFailed {} => Errno::EPERM,
+        }
+    }
 }
 
 /// Parse URI and create bdev described in the URI.

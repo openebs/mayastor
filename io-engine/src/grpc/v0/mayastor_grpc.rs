@@ -272,7 +272,22 @@ impl From<LvsError> for tonic::Status {
             LvsError::LvolShare { .. } if errno == Errno::EMLINK => {
                 Status::out_of_range(e.to_string())
             }
-            _ => Status::internal(e.to_string()),
+            LvsError::LvolShare { .. } => Status::internal(e.to_string()),
+            LvsError::InvalidClusterSize { .. } => Status::invalid_argument(e.to_string()),
+            LvsError::Export { .. }
+            | LvsError::InvalidMetadataParam { .. }
+            | LvsError::NotALvol { .. }
+            | LvsError::GetProperty { .. }
+            | LvsError::FlushFailed { .. }
+            | LvsError::SnapshotConfigFailed { .. }
+            | LvsError::CloneConfigFailed { .. }
+            | LvsError::CryptoBdevNotResized { .. }
+            | LvsError::Property { .. }
+            | LvsError::SyncProperty { .. }
+            | LvsError::LvolUnShare { .. }
+            | LvsError::UpdateShareProperties { .. }
+            | LvsError::SnapshotCreate { .. }
+            | LvsError::SnapshotCloneCreate { .. } => Status::internal(e.to_string()),
         };
         status
             .metadata_mut()

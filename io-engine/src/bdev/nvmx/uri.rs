@@ -200,7 +200,7 @@ impl NvmeControllerContext<'_> {
     pub fn new(template: &NvmfDeviceTemplate) -> NvmeControllerContext {
         let trid = controller::transport::Builder::new()
             .with_subnqn(&template.subnqn)
-            .with_svcid(&template.port.to_string())
+            .with_svcid(template.port.to_string())
             .with_traddr(&template.host)
             .build();
 

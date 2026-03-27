@@ -19,7 +19,7 @@ use crate::{
     bdev::{device_create, device_destroy, device_lookup},
     bdev_api::BdevError,
     core::{
-        BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, CoreError, DeviceEventSink,
+        BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, CoreError, DeviceEventSink, ToErrno,
         VerboseError,
     },
     eventing::replica_events::state_change_event_meta,
@@ -95,6 +95,33 @@ pub enum ChildError {
     NvmeHostId { source: CoreError },
     #[snafu(display("Failed to create a BlockDevice for child {}", child))]
     ChildBdevCreate { child: String, source: BdevError },
+}
+
+impl ToErrno for ChildError {
+    fn to_errno(&self) -> Errno {
+        match self {
+            ChildError::PermanentlyFaulted { .. } => Errno::EFAULT,
+            ChildError::ChildFaulted { .. } => Errno::EFAULT,
+            ChildError::ChildBeingDestroyed { .. } => Errno::EBUSY,
+            ChildError::ChildTooSmall { .. } => Errno::EINVAL,
+            ChildError::ChildInaccessible { .. } => Errno::ENXIO,
+            ChildError::CannotOnlineChild { .. } => Errno::ERFKILL,
+            ChildError::ResvType { .. } => Errno::EINVAL,
+            ChildError::ResvNoHolder { .. } => Errno::EPERM,
+            ChildError::Holder { .. } => Errno::EPERM,
+            ChildError::ClaimChild { source } => *source,
+            ChildError::OpenChild { source } => source.to_errno(),
+            ChildError::HandleCreate { source } => source.to_errno(),
+            ChildError::HandleOpen { source } => source.to_errno(),
+            ChildError::HandleDmaMalloc { .. } => Errno::ENOMEM,
+            ChildError::ResvRegisterKey { source } => source.to_errno(),
+            ChildError::ResvAcquire { source } => source.to_errno(),
+            ChildError::ResvRelease { source } => source.to_errno(),
+            ChildError::ResvReport { source } => source.to_errno(),
+            ChildError::NvmeHostId { source } => source.to_errno(),
+            ChildError::ChildBdevCreate { source, .. } => source.to_errno(),
+        }
+    }
 }
 
 /// Fault reason.
@@ -927,10 +954,7 @@ impl<'c> NexusChild<'c> {
         let state = self.state.load();
 
         if state.is_open_or_init() {
-            warn!(
-                "{:?}: child is in {} state and cannot be onlined",
-                self, state
-            );
+            warn!("{self:?}: child is in {state} state and cannot be onlined");
             return Err(ChildError::CannotOnlineChild {});
         }
 
@@ -940,10 +964,7 @@ impl<'c> NexusChild<'c> {
         }
 
         if !state.is_recoverable() {
-            warn!(
-                "{:?}: child is permanently faulted and cannot be onlined",
-                self
-            );
+            warn!("{self:?}: child is permanently faulted and cannot be onlined",);
             return Err(ChildError::PermanentlyFaulted {});
         }
 
@@ -955,10 +976,7 @@ impl<'c> NexusChild<'c> {
 
         self.device = device_lookup(&name);
         if self.device.is_none() {
-            error!(
-                "{:?}: failed to find device after successful creation",
-                self,
-            );
+            error!("{self:?}: failed to find device after successful creation",);
             return Err(ChildError::ChildInaccessible {});
         }
 
