@@ -1068,7 +1068,8 @@ impl Lvs {
             uuid: uuid.unwrap_or("").to_string(),
             thin,
             entity_id,
-            use_extent_table: None,
+            wipe_super: true,
+            ..Default::default()
         })
         .await
     }
@@ -1166,22 +1167,24 @@ impl Lvs {
             }
         }
 
-        info!("{lvol:?}: wiping super");
+        if opts.wipe_super {
+            info!("{lvol:?}: wiping super");
 
-        if let Err(error) = lvol.wipe_super().await {
-            // If we fail to destroy it hopefully the control-plane will clean
-            // it up, though it's possible it may attempt to use it...
-            // todo: address this; with a property?
-            let lvol_uuid = lvol.uuid();
-            if let Err(error) = lvol.destroy().await {
-                warn!(
-                    "uuid/{lvol_uuid}: failed to destroy lvol after failing to wipe super: {error:?}",
-                );
+            if let Err(error) = lvol.wipe_super().await {
+                // If we fail to destroy it hopefully the control-plane will clean
+                // it up, though it's possible it may attempt to use it...
+                // todo: address this; with a property?
+                let lvol_uuid = lvol.uuid();
+                if let Err(error) = lvol.destroy().await {
+                    warn!(
+                        "uuid/{lvol_uuid}: failed to destroy lvol after failing to wipe super: {error:?}",
+                    );
+                }
+                return Err(error);
             }
-            return Err(error);
         }
-
         info!("{lvol:?}: created");
+
         lvol.event(EventAction::Create).generate();
         Ok(lvol)
     }

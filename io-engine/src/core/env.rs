@@ -297,6 +297,10 @@ pub struct MayastorCliArgs {
     /// [`SpdkTracingArgs`].
     #[clap(flatten)]
     pub traces: SpdkTracingArgs,
+
+    /// [`NvmeCliArgs`].
+    #[clap(flatten)]
+    pub nvme: NvmeCliArgs,
 }
 
 /// SPDK tracing related arguments.
@@ -367,6 +371,24 @@ pub struct PoolCliArgs {
     pub io_stall_transition_window: humantime::Duration,
 }
 impl Default for PoolCliArgs {
+    fn default() -> Self {
+        Self::parse_from(Vec::<String>::new())
+    }
+}
+
+/// NVMe related arguments.
+#[derive(Debug, clap::Parser, Clone)]
+pub struct NvmeCliArgs {
+    /// Maximum number of NVMe namespaces we can expose. {n}
+    /// As of today, there's a 1-1 mapping of namespaces to nvmf targets.
+    #[clap(
+        long = "nvme-max-namespaces",
+        env = "NVME_MAX_NAMESPACES",
+        default_value_t = 4096
+    )]
+    pub max_namespaces: u32,
+}
+impl Default for NvmeCliArgs {
     fn default() -> Self {
         Self::parse_from(Vec::<String>::new())
     }
@@ -496,6 +518,7 @@ pub struct MayastorEnvironment {
     rdma: bool,
     bs_cluster_unmap: bool,
     pub pool_args: PoolCliArgs,
+    pub nvme: NvmeCliArgs,
 }
 
 impl Default for MayastorEnvironment {
@@ -547,6 +570,7 @@ impl Default for MayastorEnvironment {
             bs_cluster_unmap: false,
             pool_args: PoolCliArgs::default(),
             traces: SpdkTracingArgs::default(),
+            nvme: NvmeCliArgs::default(),
         }
     }
 }
@@ -690,6 +714,7 @@ impl MayastorEnvironment {
             enable_io_all_thrd_nexus_channels: args.enable_io_all_thrd_nexus_channels,
             pool_args: args.pool,
             traces: args.traces,
+            nvme: args.nvme,
             ..Default::default()
         }
         .setup_static()

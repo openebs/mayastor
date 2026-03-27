@@ -244,24 +244,24 @@ impl<'n> NexusIoSubsystem<'n> {
                         if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
                             trace!(
                                 "{self:?}: subsystem '{}' not being resumed",
-                                subsystem.get_nqn()
+                                subsystem.nqn_str()
                             );
                         }
                         self.pause_state.store(NexusPauseState::Frozen);
                     } else {
                         if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
                             self.pause_state.store(NexusPauseState::Unpausing);
-                            trace!("{self:?}: resuming subsystem '{}'...", subsystem.get_nqn());
+                            trace!("{self:?}: resuming subsystem '{}'...", subsystem.nqn_str());
                             if let Err(error) = subsystem.resume().await {
                                 // todo: handle error instead of panic, but in practice only ENOMEM can be seen here?
                                 panic!(
                                     "Failed to resume subsystem '{}: {}",
-                                    subsystem.get_nqn(),
+                                    subsystem.nqn_str(),
                                     error
                                 );
                             }
 
-                            trace!("{self:?}: subsystem '{}' resumed", subsystem.get_nqn());
+                            trace!("{self:?}: subsystem '{}' resumed", subsystem.nqn_str());
                         }
                         // todo: we may have received a Stop request whilst resuming
                         self.pause_state.store(NexusPauseState::Unpaused);

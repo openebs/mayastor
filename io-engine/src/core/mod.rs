@@ -21,7 +21,8 @@ pub use device_events::{
 };
 pub use device_monitor::{device_cmd_queue, device_monitor_loop, DeviceCommand};
 pub use env::{
-    mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, PoolCliArgs, GLOBAL_RC, SIG_RECEIVED,
+    mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, NvmeCliArgs, PoolCliArgs, GLOBAL_RC,
+    SIG_RECEIVED,
 };
 pub use handle::{BdevHandle, UntypedBdevHandle};
 pub use io_device::IoDevice;

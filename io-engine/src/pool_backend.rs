@@ -58,6 +58,27 @@ pub struct ReplicaArgs {
     pub thin: bool,
     pub entity_id: Option<String>,
     pub use_extent_table: Option<bool>,
+    pub wipe_super: bool,
+}
+impl ReplicaArgs {
+    /// Create [`ReplicaArgs`] with the given name and size.
+    pub fn new<S: Into<String>>(name: S, size: u64) -> Self {
+        Self {
+            name: name.into(),
+            size,
+            ..Default::default()
+        }
+    }
+    /// Specify the `wipe_super` argument.
+    pub fn wipe_super(mut self, wipe_super: bool) -> Self {
+        self.wipe_super = wipe_super;
+        self
+    }
+    /// Specify the `thin` argument.
+    pub fn thin(mut self, thin: bool) -> Self {
+        self.thin = thin;
+        self
+    }
 }
 
 /// Generic Errors shared by all backends.
