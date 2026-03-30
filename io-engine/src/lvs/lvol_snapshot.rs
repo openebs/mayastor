@@ -544,12 +544,10 @@ impl LvolSnapshotOps for Lvol {
         let parent_uuid = if let Some(parent_lvol) = parent {
             parent_lvol.uuid()
         } else {
-            match Bdev::lookup_by_uuid_str(snapshot_param.parent_id().unwrap_or_default().as_str())
-                .and_then(|b| Lvol::try_from(b).ok())
-            {
-                Some(parent) => parent.uuid(),
-                None => String::default(),
-            }
+            let parent = snapshot_param
+                .parent_id()
+                .and_then(|p| Bdev::lookup_by_uuid_str(&p).and_then(|b| Lvol::try_from(b).ok()));
+            parent.map(|p| p.uuid()).unwrap_or_default()
         };
         let snapshot_descriptor = SnapshotInfo::new(
             parent_uuid,
