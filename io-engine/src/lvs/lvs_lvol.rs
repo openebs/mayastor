@@ -326,19 +326,18 @@ impl Lvol {
         LvolPtpl::from(self)
     }
 
-    /// Common API to get the xattr from blob.
-    pub fn get_blob_xattr(blob: *mut spdk_blob, attr: &str) -> Option<String> {
-        if blob.is_null() {
-            return None;
-        }
-        let blob_inner = blob;
+    /// Get the attribute value for the specified attribute name.
+    /// # Safety
+    /// You should use the safe [`Self::blob_xattr`] and [`Self::get_blob_xattr`] which ensure the
+    /// value doesn't live beyong the specified blob.
+    unsafe fn blob_xattr_<'a>(blob: *mut spdk_blob, attr: &str) -> Option<&'a str> {
         let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
         let mut size: u64 = 0;
         let attribute = attr.into_cstring();
 
         unsafe {
             let r = spdk_blob_get_xattr_value(
-                blob_inner,
+                blob,
                 attribute.as_ptr(),
                 &mut val as *mut *const c_char as *mut *const c_void,
                 &mut size as *mut u64,
@@ -389,9 +388,24 @@ impl Lvol {
                     );
                     None
                 },
-                |v| Some(v.to_string()),
+                Some,
             )
         }
+    }
+
+    /// Get the given blob's attribute value for the specified attribute name.
+    /// The attribute value's lifecycle is tied to the blob.
+    pub fn get_blob_xattr<'a>(blob: &'a mut *mut spdk_blob, attr: &str) -> Option<&'a str> {
+        if blob.is_null() {
+            return None;
+        }
+        unsafe { Self::blob_xattr_(*blob, attr) }
+    }
+
+    /// Get the attribute value for the specified attribute name.
+    /// The attribute value's lifecycle is tied to the lvol object.
+    pub fn blob_xattr<'a>(&'a self, attr: &str) -> Option<&'a str> {
+        unsafe { Self::blob_xattr_(self.blob_checked(), attr) }
     }
 
     /// Low-level function to set blob attributes.
@@ -607,7 +621,7 @@ impl LogicalVolume for Lvol {
 
     /// Returns entity id of the Logical Volume.
     fn entity_id(&self) -> Option<String> {
-        Lvol::get_blob_xattr(self.blob_checked(), "entity_id")
+        self.blob_xattr("entity_id").map(Into::into)
     }
 
     /// Returns a boolean indicating if the Logical Volume is thin provisioned.
@@ -651,6 +665,8 @@ impl LogicalVolume for Lvol {
             let num_allocated_clusters_snapshots = {
                 let mut c: u64 = 0;
 
+                // this approach is wholy inneficient as we have a large chain we are iterating
+                // the same blobs multiple times
                 match spdk_blob_get_num_clusters_ancestors(bs, blob, &mut c) {
                     0 => c,
                     errno => {
@@ -690,11 +706,8 @@ impl LogicalVolume for Lvol {
     /// Looks like a bug in SPDK, but all snapshot attribute are intact in
     /// SPDK after io-engine restarts.
     fn is_snapshot(&self) -> bool {
-        Lvol::get_blob_xattr(
-            self.blob_checked(),
-            SnapshotXattrs::SnapshotCreateTime.name(),
-        )
-        .is_some()
+        self.blob_xattr(SnapshotXattrs::SnapshotCreateTime.name())
+            .is_some()
     }
 
     fn is_clone(&self) -> bool {
@@ -706,7 +719,8 @@ impl LogicalVolume for Lvol {
     }
 
     fn snapshot_uuid(&self) -> Option<String> {
-        Lvol::get_blob_xattr(self.blob_checked(), CloneXattrs::SourceUuid.name())
+        self.blob_xattr(CloneXattrs::SourceUuid.name())
+            .map(Into::into)
     }
 
     fn share_protocol(&self) -> Protocol {
@@ -742,10 +756,8 @@ impl LvsLvol for Lvol {
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol> {
-        if let Some(source_uuid) =
-            Lvol::get_blob_xattr(self.blob_checked(), CloneXattrs::SourceUuid.name())
-        {
-            let snap_lvol = match UntypedBdev::lookup_by_uuid_str(source_uuid.as_str()) {
+        if let Some(source_uuid) = self.blob_xattr(CloneXattrs::SourceUuid.name()) {
+            let snap_lvol = match UntypedBdev::lookup_by_uuid_str(source_uuid) {
                 Some(bdev) => match Lvol::try_from(bdev) {
                     Ok(l) => l,
                     _ => return None,
