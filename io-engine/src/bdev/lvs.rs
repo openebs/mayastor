@@ -245,11 +245,10 @@ impl Lvs {
     }
 
     async fn wipe_super(args: PoolArgs) -> Result<(), BdevError> {
-        let disk =
-            crate::lvs::Lvs::parse_disk(args.disks.clone()).map_err(|_| BdevError::InvalidUri {
-                uri: String::new(),
-                message: String::new(),
-            })?;
+        let disk = crate::lvs::Lvs::parse_disk(&args.disks).map_err(|_| BdevError::InvalidUri {
+            uri: String::new(),
+            message: String::new(),
+        })?;
 
         let parsed = super::uri::parse(&disk)?;
         let bdev_str = parsed.create().await?;

@@ -14,6 +14,8 @@ use crate::{
 pub enum ImportErrorReason {
     #[snafu(display(""))]
     None,
+    #[snafu(display(": failed to inspect disk contents"))]
+    IoError,
     #[snafu(display(": existing pool disk has different name: {name}"))]
     NameMismatch { name: String },
     #[snafu(display(": another pool already exists with this name: {name}"))]
@@ -206,6 +208,7 @@ impl ToErrno for LvsError {
                 ..
             } => match reason {
                 crate::lvs::ImportErrorReason::None => Errno::EINVAL,
+                crate::lvs::ImportErrorReason::IoError => Errno::EIO,
                 crate::lvs::ImportErrorReason::NameMismatch { .. } => Errno::EMEDIUMTYPE,
                 crate::lvs::ImportErrorReason::NameClash { .. } => Errno::ENOTUNIQ,
                 crate::lvs::ImportErrorReason::UuidMismatch { .. } => Errno::EMEDIUMTYPE,
