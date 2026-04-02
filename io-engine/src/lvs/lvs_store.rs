@@ -584,7 +584,12 @@ impl Lvs {
         // todo: if result is EIO error, then delete the bdevs as well here?
         //  note that in this case we'd have to re-lookup the bdevs again as
         //  they may have been hot-removed!
-        result?;
+        if let Err(error) = result {
+            if Lvs::lookup(&pool).is_none() {
+                Self::lvs_cleanup(&base_bdev, "export").await?;
+            }
+            return Err(error);
+        }
 
         info!("{self_str}: lvs exported successfully. base bdev: {base_bdev}");
 
@@ -668,7 +673,15 @@ impl Lvs {
             Lvs::remove_info(&pool);
         }
 
-        result?;
+        if let Err(error) = result {
+            if Lvs::lookup(&pool).is_none() {
+                // todo: need another spdk fix as blobstore is not fully clean in case of -EIO
+                if error.to_errno() != nix::Error::EIO {
+                    Self::lvs_cleanup(&base_bdev, "destroy").await?;
+                }
+            }
+            return Err(error);
+        }
 
         info!("{self_str}: lvs destroyed successfully. base_bdev: {base_bdev}");
         evt.generate();
