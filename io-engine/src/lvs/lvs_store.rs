@@ -29,7 +29,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType, NvmfShareProps,
-        Share, ToErrno, UntypedBdev,
+        Share, UntypedBdev,
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -675,10 +675,7 @@ impl Lvs {
 
         if let Err(error) = result {
             if Lvs::lookup(&pool).is_none() {
-                // todo: need another spdk fix as blobstore is not fully clean in case of -EIO
-                if error.to_errno() != nix::Error::EIO {
-                    Self::lvs_cleanup(&base_bdev, "destroy").await?;
-                }
+                Self::lvs_cleanup(&base_bdev, "destroy").await?;
             }
             return Err(error);
         }

@@ -680,15 +680,14 @@ async fn lvs_errors() {
 
         lvol.unbork(table).await.unwrap();
 
-        // pending an spdk fix...
-        // let lvs = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+        let lvs = Lvs::create_or_import(pool_args.clone()).await.unwrap();
 
-        // let table = lvol.bork().await.unwrap();
+        let table = lvol.bork().await.unwrap();
 
-        // let result = lvs.destroy().await.expect_err("EIO");
-        // assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+        let result = lvs.destroy().await.expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
 
-        // lvol.unbork(table).await.unwrap();
+        lvol.unbork(table).await.unwrap();
     })
     .await;
 
