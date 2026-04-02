@@ -553,7 +553,7 @@ impl LvolSnapshotOps for Lvol {
             parent_uuid,
             self.allocated(),
             snapshot_param,
-            self.list_clones_by_snapshot_uuid().len() as u64,
+            self.clone_count(),
             valid_snapshot,
         );
         Some(snapshot_descriptor)
@@ -591,7 +591,7 @@ impl LvolSnapshotOps for Lvol {
 
     /// Destroy snapshot.
     async fn destroy_snapshot(mut self) -> Result<(), Self::Error> {
-        if self.list_clones_by_snapshot_uuid().is_empty() {
+        if !self.has_clones() {
             self.destroy().await?;
         } else {
             self.set_blob_attr(SnapshotXattrs::DiscardedSnapshot, true.to_string(), true)
@@ -745,11 +745,7 @@ impl LvolSnapshotOps for Lvol {
         let snap_list = bdev
             .into_iter()
             .filter_map(Lvol::ok_from)
-            .filter(|b| {
-                b.is_snapshot()
-                    && b.is_discarded_snapshot()
-                    && b.list_clones_by_snapshot_uuid().is_empty()
-            })
+            .filter(|b| b.is_snapshot() && b.is_discarded_snapshot() && !b.has_clones())
             .collect::<Vec<Lvol>>();
         for snap in &snap_list {
             snap.reset_snapshot_tree_usage_cache(false);

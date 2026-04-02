@@ -975,7 +975,7 @@ async fn lvol_snap_list() {
 
     // this could vary depending on the system where we're running, but this is large enough that
     // it should run on weaker systems as well as low enough to ensure we're testing the fix.
-    let max_dur = std::time::Duration::from_secs(4);
+    let max_dur = std::time::Duration::from_millis(300);
 
     let list_tm = std::time::Instant::now();
     ms.spawn(async move {

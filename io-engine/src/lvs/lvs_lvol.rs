@@ -480,6 +480,26 @@ impl Lvol {
             }
         }
     }
+
+    /// Check if this snapshot has dependent clones.
+    pub fn has_clones(&self) -> bool {
+        self.clone_count() > 0
+    }
+
+    /// Count how many clones are dependent on this snapshot.
+    pub fn clone_count(&self) -> u64 {
+        let mut count: u64 = 0;
+        unsafe {
+            spdk_rs::libspdk::spdk_blob_get_real_clones(
+                self.lvs().blob_store(),
+                self.as_inner_ref().blob_id,
+                std::ptr::null_mut(),
+                &mut count,
+                CloneXattrs::SourceUuid.name().as_ptr() as *const c_char,
+            )
+        };
+        count
+    }
 }
 
 pub struct LvolPtpl {
@@ -1009,9 +1029,7 @@ impl LvsLvol for Lvol {
         // clone from the snapshot, destroy the snapshot
         // if it is already marked as discarded snapshot.
         if let Some(snapshot_lvol) = snapshot_lvol {
-            if snapshot_lvol.list_clones_by_snapshot_uuid().is_empty()
-                && snapshot_lvol.is_discarded_snapshot()
-            {
+            if !snapshot_lvol.has_clones() && snapshot_lvol.is_discarded_snapshot() {
                 snapshot_lvol.destroy().await?;
             }
         }

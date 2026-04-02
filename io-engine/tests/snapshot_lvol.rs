@@ -1044,10 +1044,7 @@ async fn test_snapshot_clone() {
             .await
             .expect("Failed to create a clone");
         check_clone(clone2, clone_param).await;
-        info!(
-            "Total number of Clones: {:?}",
-            snapshot_lvol.list_clones_by_snapshot_uuid().len()
-        );
+        info!("Total number of Clones: {:?}", snapshot_lvol.clone_count());
         let clones = snapshot_lvol.list_clones_by_snapshot_uuid();
 
         assert_eq!(clones.len(), 2, "Number of Clones Doesn't match");
