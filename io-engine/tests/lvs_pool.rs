@@ -573,7 +573,7 @@ async fn lvs_errors() {
     .await
     .unwrap();
 
-    let mut lvol = vg_pool
+    let glvol = vg_pool
         .create_lvol(ReplicaArgs {
             name: LV_NAME.into(),
             uuid: LV_NAME.into(),
@@ -582,16 +582,18 @@ async fn lvs_errors() {
         })
         .await
         .unwrap();
-    let pool_args = PoolArgs {
+    let gpool_args = PoolArgs {
         name: "tpool".into(),
-        disks: vec![format!("aio://{}", lvol.path())],
+        disks: vec![format!("aio://{}", glvol.path())],
         backend: PoolBackend::Lvs,
         ..Default::default()
     };
+    let pool_args = gpool_args.clone();
+    let mut lvol = glvol.clone();
 
-    let ms = ms();
+    let ms: &MayastorTest<'_> = ms();
     ms.spawn(async move {
-        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+        let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
 
         // We bork the device, making it return -EIO for all I/O
         let table = lvol.bork().await.unwrap();
@@ -644,6 +646,49 @@ async fn lvs_errors() {
         assert_eq!(alerts.status(), PoolAlertStatus::Healthy);
 
         lvs_pool.destroy().await.unwrap();
+        lvol
+    })
+    .await;
+
+    let pool_args = gpool_args;
+    let mut lvol = glvol;
+    ms.spawn(async move {
+        // We bork the device, making it return -EIO for all I/O
+        let table = lvol.bork().await.unwrap();
+
+        let result = Lvs::create_or_import(pool_args.clone())
+            .await
+            .expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        let result = Lvs::import_from_args(pool_args.clone())
+            .await
+            .expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        let backend = UntypedBdev::lookup_by_name(lvol.path());
+        assert!(backend.is_none(), "Disk Bdev should have been cleaned up");
+
+        lvol.unbork(table).await.unwrap();
+
+        let lvs = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+
+        let table = lvol.bork().await.unwrap();
+
+        let result = lvs.export().await.expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        lvol.unbork(table).await.unwrap();
+
+        // pending an spdk fix...
+        // let lvs = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+
+        // let table = lvol.bork().await.unwrap();
+
+        // let result = lvs.destroy().await.expect_err("EIO");
+        // assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        // lvol.unbork(table).await.unwrap();
     })
     .await;
 
