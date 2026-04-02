@@ -104,7 +104,7 @@ async fn check_snapshot(params: SnapshotParams) {
 
     for (attr_name, attr_value) in attrs {
         let v = lvol
-            .blob_xattr(attr_name.name())
+            .blob_xattr(attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, attr_value, "Snapshot attr doesn't match");
     }
@@ -121,7 +121,7 @@ async fn check_clone(clone_lvol: Lvol, params: CloneParams) {
     ];
     for (attr_name, attr_value) in attrs {
         let v = clone_lvol
-            .blob_xattr(attr_name.name())
+            .blob_xattr(attr_name)
             .expect("Failed to get clone attribute");
         assert_eq!(v, attr_value, "clone attr doesn't match");
     }
@@ -1189,17 +1189,18 @@ async fn test_snapshot_attr() {
         .unwrap();
 
         // Set snapshot attribute.
-        let snap_attr_name = String::from("my.attr.name");
+        let snap_attr_name: io_engine::core::PropXattrs =
+            io_engine::core::SnapshotXattrs::TxId.into();
         let snap_attr_value = String::from("top_secret");
 
         snapshot_lvol
-            .set_blob_attr(snap_attr_name.clone(), snap_attr_value.clone(), true)
+            .set_blob_attr(snap_attr_name, snap_attr_value.clone(), true)
             .await
             .expect("Failed to set snapshot attribute");
 
         // Check attribute.
         let v = snapshot_lvol
-            .blob_xattr(&snap_attr_name)
+            .blob_xattr(snap_attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
 
@@ -1241,7 +1242,7 @@ async fn test_snapshot_attr() {
 
         // Get attribute from imported snapshot and check.
         let v = imported_snapshot_lvol
-            .blob_xattr(&snap_attr_name)
+            .blob_xattr(snap_attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
         clean_snapshots(snapshot_list).await;

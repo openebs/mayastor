@@ -27,7 +27,7 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         logical_volume::{LogicalVolume, LvolSpaceUsage},
-        Bdev, CloneXattrs, LvolSnapshotOps, NvmfShareProps, Protocol, PtplProps, Share,
+        Bdev, CloneXattrs, LvolSnapshotOps, NvmfShareProps, PropXattrs, Protocol, PtplProps, Share,
         SnapshotXattrs, UntypedBdev, UpdateProps,
     },
     eventing::Event,
@@ -330,10 +330,14 @@ impl Lvol {
     /// # Safety
     /// You should use the safe [`Self::blob_xattr`] and [`Self::get_blob_xattr`] which ensure the
     /// value doesn't live beyong the specified blob.
-    unsafe fn blob_xattr_<'a>(blob: *mut spdk_blob, attr: &str) -> Option<&'a str> {
+    unsafe fn blob_xattr_<'a, I: Into<PropXattrs>>(
+        blob: *mut spdk_blob,
+        attr: I,
+    ) -> Option<&'a str> {
         let mut val: *const libc::c_char = std::ptr::null::<libc::c_char>();
         let mut size: u64 = 0;
-        let attribute = attr.into_cstring();
+        let attr: PropXattrs = attr.into();
+        let attribute = attr.name();
 
         unsafe {
             let r = spdk_blob_get_xattr_value(
@@ -382,7 +386,7 @@ impl Lvol {
             std::str::from_utf8(sl).map_or_else(
                 |error| {
                     warn!(
-                        attribute = attr,
+                        ?attribute,
                         ?error,
                         "Failed to parse attribute, default to empty string"
                     );
@@ -395,7 +399,7 @@ impl Lvol {
 
     /// Get the given blob's attribute value for the specified attribute name.
     /// The attribute value's lifecycle is tied to the blob.
-    pub fn get_blob_xattr<'a>(blob: &'a mut *mut spdk_blob, attr: &str) -> Option<&'a str> {
+    pub fn get_blob_xattr<I: Into<PropXattrs>>(blob: &mut *mut spdk_blob, attr: I) -> Option<&str> {
         if blob.is_null() {
             return None;
         }
@@ -404,14 +408,14 @@ impl Lvol {
 
     /// Get the attribute value for the specified attribute name.
     /// The attribute value's lifecycle is tied to the lvol object.
-    pub fn blob_xattr<'a>(&'a self, attr: &str) -> Option<&'a str> {
+    pub fn blob_xattr<I: Into<PropXattrs>>(&self, attr: I) -> Option<&str> {
         unsafe { Self::blob_xattr_(self.blob_checked(), attr) }
     }
 
     /// Low-level function to set blob attributes.
-    pub async fn set_blob_attr<A: AsRef<str>>(
+    pub async fn set_blob_attr<I: Into<PropXattrs>>(
         &self,
-        attr: A,
+        attr: I,
         value: String,
         sync_metadata: bool,
     ) -> Result<(), LvsError> {
@@ -419,7 +423,8 @@ impl Lvol {
             done_cb(cb_arg, errno);
         }
 
-        let attr_name = attr.as_ref().into_cstring();
+        let attr: PropXattrs = attr.into();
+        let attr_name = attr.name();
         let attr_val = value.clone().into_cstring();
 
         let r = unsafe {
@@ -432,16 +437,17 @@ impl Lvol {
         };
 
         if r != 0 {
+            let attr = attr.name().to_string_lossy();
             error!(
                 lvol = self.name(),
-                attr = attr.as_ref(),
+                %attr,
                 value,
                 errno = r,
                 "Failed to set blob attribute"
             );
             return Err(LvsError::SetProperty {
                 source: BsError::from_i32(r),
-                prop: attr.as_ref().to_owned(),
+                prop: attr.to_string(),
                 name: self.name(),
             });
         }
@@ -621,7 +627,7 @@ impl LogicalVolume for Lvol {
 
     /// Returns entity id of the Logical Volume.
     fn entity_id(&self) -> Option<String> {
-        self.blob_xattr("entity_id").map(Into::into)
+        self.blob_xattr(PropXattrs::BrokenEntityId).map(Into::into)
     }
 
     /// Returns a boolean indicating if the Logical Volume is thin provisioned.
@@ -706,7 +712,7 @@ impl LogicalVolume for Lvol {
     /// Looks like a bug in SPDK, but all snapshot attribute are intact in
     /// SPDK after io-engine restarts.
     fn is_snapshot(&self) -> bool {
-        self.blob_xattr(SnapshotXattrs::SnapshotCreateTime.name())
+        self.blob_xattr(SnapshotXattrs::SnapshotCreateTime)
             .is_some()
     }
 
@@ -719,8 +725,7 @@ impl LogicalVolume for Lvol {
     }
 
     fn snapshot_uuid(&self) -> Option<String> {
-        self.blob_xattr(CloneXattrs::SourceUuid.name())
-            .map(Into::into)
+        self.blob_xattr(CloneXattrs::SourceUuid).map(Into::into)
     }
 
     fn share_protocol(&self) -> Protocol {
@@ -756,7 +761,7 @@ impl LvsLvol for Lvol {
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol> {
-        if let Some(source_uuid) = self.blob_xattr(CloneXattrs::SourceUuid.name()) {
+        if let Some(source_uuid) = self.blob_xattr(CloneXattrs::SourceUuid) {
             let snap_lvol = match UntypedBdev::lookup_by_uuid_str(source_uuid) {
                 Some(bdev) => match Lvol::try_from(bdev) {
                     Ok(l) => l,

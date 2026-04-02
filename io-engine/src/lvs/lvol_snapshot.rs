@@ -228,7 +228,7 @@ impl AsyncParentIterator for LvolSnapshotIter {
             None
         } else {
             let mut parent_blob = unsafe { self.inner_lvol.bs_iter_parent(self.inner_blob) }?;
-            let uuid = Lvol::get_blob_xattr(&mut parent_blob, SnapshotXattrs::SnapshotUuid.name())?;
+            let uuid = Lvol::get_blob_xattr(&mut parent_blob, SnapshotXattrs::SnapshotUuid)?;
             let snap_lvol =
                 UntypedBdev::lookup_by_uuid_str(uuid).and_then(|bdev| Lvol::try_from(bdev).ok())?;
             self.inner_blob = parent_blob;
@@ -301,7 +301,7 @@ impl LvolSnapshotOps for Lvol {
                 },
                 SnapshotXattrs::DiscardedSnapshot => params.discarded_snapshot().to_string(),
             };
-            let attr_name = attr.name().to_string().into_cstring();
+            let attr_name = attr.name().to_string_lossy().into_cstring();
             let attr_val = av.into_cstring();
             attr_descrs[idx].name = attr_name.as_ptr() as *mut c_char;
             attr_descrs[idx].value = attr_val.as_ptr() as *mut c_void;
@@ -414,7 +414,7 @@ impl LvolSnapshotOps for Lvol {
                     }
                 },
             };
-            let attr_name = attr.name().to_string().into_cstring();
+            let attr_name = std::ffi::CString::from(attr.name());
             let attr_val = av.into_cstring();
             attr_descrs[idx].name = attr_name.as_ptr() as *mut c_char;
             attr_descrs[idx].value = attr_val.as_ptr() as *mut c_void;
@@ -503,7 +503,7 @@ impl LvolSnapshotOps for Lvol {
         let mut valid_snapshot = true;
         let mut snapshot_param: SnapshotParams = Default::default();
         for attr in SnapshotXattrs::iter() {
-            let curr_attr_val = match self.blob_xattr(attr.name()) {
+            let curr_attr_val = match self.blob_xattr(attr) {
                 Some(val) => val,
                 None => {
                     valid_snapshot = false;
@@ -546,7 +546,7 @@ impl LvolSnapshotOps for Lvol {
         } else {
             let parent = snapshot_param
                 .parent_id()
-                .and_then(|p| Bdev::lookup_by_uuid_str(&p).and_then(|b| Lvol::try_from(b).ok()));
+                .and_then(|p| Bdev::lookup_by_uuid_str(&p).and_then(Lvol::ok_from));
             parent.map(|p| p.uuid()).unwrap_or_default()
         };
         let snapshot_descriptor = SnapshotInfo::new(
@@ -594,12 +594,8 @@ impl LvolSnapshotOps for Lvol {
         if self.list_clones_by_snapshot_uuid().is_empty() {
             self.destroy().await?;
         } else {
-            self.set_blob_attr(
-                SnapshotXattrs::DiscardedSnapshot.name(),
-                true.to_string(),
-                true,
-            )
-            .await?;
+            self.set_blob_attr(SnapshotXattrs::DiscardedSnapshot, true.to_string(), true)
+                .await?;
         }
 
         Ok(())
@@ -732,7 +728,7 @@ impl LvolSnapshotOps for Lvol {
 
     /// Check if the snapshot has been discarded.
     fn is_discarded_snapshot(&self) -> bool {
-        self.blob_xattr(SnapshotXattrs::DiscardedSnapshot.name())
+        self.blob_xattr(SnapshotXattrs::DiscardedSnapshot)
             .unwrap_or_default()
             .parse()
             .unwrap_or_default()
@@ -778,7 +774,7 @@ impl LvolSnapshotOps for Lvol {
         // if self is snapshot created from clone.
         if self.is_snapshot() {
             match UntypedBdev::lookup_by_uuid_str(
-                self.blob_xattr(SnapshotXattrs::ParentId.name())
+                self.blob_xattr(SnapshotXattrs::ParentId)
                     .unwrap_or_default(),
             ) {
                 Some(bdev) => match Lvol::try_from(bdev) {
@@ -815,7 +811,7 @@ impl LvolSnapshotOps for Lvol {
             reset_snapshot_tree_usage_cache_with_parent_uuid(self);
             return;
         }
-        if let Some(snapshot_parent_uuid) = self.blob_xattr(SnapshotXattrs::ParentId.name()) {
+        if let Some(snapshot_parent_uuid) = self.blob_xattr(SnapshotXattrs::ParentId) {
             if let Some(bdev) = UntypedBdev::lookup_by_uuid_str(snapshot_parent_uuid) {
                 if let Ok(parent_lvol) = Lvol::try_from(bdev) {
                     unsafe {
@@ -860,7 +856,7 @@ fn reset_snapshot_tree_usage_cache_with_wildcard(lvol: &Lvol, snapshot_parent_uu
         .iter()
         .map(|v| v.snapshot_lvol())
         .filter_map(|l| {
-            let uuid = lvol.blob_xattr(SnapshotXattrs::ParentId.name());
+            let uuid = lvol.blob_xattr(SnapshotXattrs::ParentId);
             match uuid {
                 Some(uuid) if uuid == snapshot_parent_uuid => Some(l.clone()),
                 _ => None,
