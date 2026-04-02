@@ -5,13 +5,13 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// Snapshot Captures all the Snapshot information for Lvol.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotParams {
-    entity_id: Option<String>,
-    parent_id: Option<String>,
-    txn_id: Option<String>,
-    snap_name: Option<String>,
-    snapshot_uuid: Option<String>,
-    create_time: Option<String>,
-    discarded_snapshot: bool,
+    pub entity_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub txn_id: Option<String>,
+    pub snap_name: Option<String>,
+    pub snapshot_uuid: Option<String>,
+    pub create_time: Option<String>,
+    pub discarded_snapshot: bool,
 }
 
 /// Implement Snapshot Common Function.
