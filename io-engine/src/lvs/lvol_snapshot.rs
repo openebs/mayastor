@@ -656,7 +656,7 @@ impl LvolSnapshotOps for Lvol {
 
         let lvol_devices = bdev
             .into_iter()
-            .filter_map(|b| Lvol::try_from(b).ok())
+            .filter_map(Lvol::ok_from)
             .collect::<Vec<Lvol>>();
 
         for snapshot_lvol in lvol_devices {
@@ -700,11 +700,11 @@ impl LvolSnapshotOps for Lvol {
             None => return Vec::new(), /* No devices available, no clones */
         };
         bdev.into_iter()
-            .filter(|b| b.driver() == "lvol")
-            .map(|b| Lvol::try_from(b).unwrap())
             .filter_map(|b| {
-                let snap_lvol = b.is_snapshot_clone();
-                if snap_lvol.is_some() && snap_lvol.unwrap().uuid() == self.uuid() {
+                let b = Lvol::ok_from(b)?;
+                // how many clones from this snapshot
+                let snap_lvol = b.is_snapshot_clone()?;
+                if snap_lvol.is_same(self) {
                     Some(b)
                 } else {
                     None
@@ -720,8 +720,7 @@ impl LvolSnapshotOps for Lvol {
             None => return Vec::new(), /* No devices available, no clones */
         };
         bdev.into_iter()
-            .filter(|b| b.driver() == "lvol")
-            .map(|b| Lvol::try_from(b).unwrap())
+            .filter_map(Lvol::ok_from)
             .filter(|b| b.is_snapshot_clone().is_some())
             .collect::<Vec<Lvol>>()
     }
@@ -745,8 +744,7 @@ impl LvolSnapshotOps for Lvol {
         };
         let snap_list = bdev
             .into_iter()
-            .filter(|b| b.driver() == "lvol")
-            .map(|b| Lvol::try_from(b).unwrap())
+            .filter_map(Lvol::ok_from)
             .filter(|b| {
                 b.is_snapshot()
                     && b.is_discarded_snapshot()
@@ -773,33 +771,21 @@ impl LvolSnapshotOps for Lvol {
     fn calculate_clone_source_snap_usage(&self, total_ancestor_snap_size: u64) -> Option<u64> {
         // if self is snapshot created from clone.
         if self.is_snapshot() {
-            match UntypedBdev::lookup_by_uuid_str(
-                self.blob_xattr(SnapshotXattrs::ParentId)
-                    .unwrap_or_default(),
-            ) {
-                Some(bdev) => match Lvol::try_from(bdev) {
-                    Ok(l) => match l.is_snapshot_clone() {
-                        Some(parent_snap_lvol) => {
-                            let usage = parent_snap_lvol.usage();
-                            Some(
-                                total_ancestor_snap_size
-                                    - (usage.allocated_bytes_snapshots + usage.allocated_bytes),
-                            )
-                        }
-                        None => None,
-                    },
-                    _ => None,
-                },
-                _ => None,
-            }
+            let parent_bdev =
+                UntypedBdev::lookup_by_uuid_str(self.blob_xattr(SnapshotXattrs::ParentId)?)?;
+            let parent_snap_lvol = Lvol::ok_from(parent_bdev)?.is_snapshot_clone()?;
+
+            let usage = parent_snap_lvol.usage();
+            let usage = total_ancestor_snap_size
+                - (usage.allocated_bytes_snapshots + usage.allocated_bytes);
+            Some(usage)
         // if self is clone.
         } else if self.is_snapshot_clone().is_some() {
-            Some(
-                Lvol::list_all_lvol_snapshots(Some(self))
-                    .iter()
-                    .map(|v| v.snapshot_lvol().allocated())
-                    .sum(),
-            )
+            let sum = Lvol::list_all_lvol_snapshots(Some(self))
+                .iter()
+                .map(|v| v.snapshot_lvol().allocated())
+                .sum();
+            Some(sum)
         } else {
             None
         }
@@ -853,14 +839,11 @@ fn reset_snapshot_tree_usage_cache_with_wildcard(lvol: &Lvol, snapshot_parent_uu
     let mut successor_clones: Vec<Lvol> = vec![];
 
     let mut successor_snapshots = Lvol::list_all_lvol_snapshots(None)
-        .iter()
-        .map(|v| v.snapshot_lvol())
-        .filter_map(|l| {
-            let uuid = lvol.blob_xattr(SnapshotXattrs::ParentId);
-            match uuid {
-                Some(uuid) if uuid == snapshot_parent_uuid => Some(l.clone()),
-                _ => None,
-            }
+        .into_iter()
+        .map(|v| v.into_snapshot_lvol())
+        .filter_map(|l| match lvol.blob_xattr(SnapshotXattrs::ParentId) {
+            Some(uuid) if uuid == snapshot_parent_uuid => Some(l),
+            _ => None,
         })
         .collect::<Vec<Lvol>>();
 

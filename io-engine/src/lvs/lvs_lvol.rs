@@ -263,6 +263,11 @@ impl Lvol {
         unsafe { self.inner.as_ref() }
     }
 
+    /// Is the provided Lvol pointing to the same `spdk_lvol` as us?
+    pub fn is_same(&self, b: &Self) -> bool {
+        self.inner.as_ptr() == b.inner.as_ptr()
+    }
+
     pub fn ok_from(mut bdev: UntypedBdev) -> Option<Self> {
         if !Self::is_lvol(&bdev) {
             return None;
@@ -761,17 +766,9 @@ impl LvsLvol for Lvol {
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol> {
-        if let Some(source_uuid) = self.blob_xattr(CloneXattrs::SourceUuid) {
-            let snap_lvol = match UntypedBdev::lookup_by_uuid_str(source_uuid) {
-                Some(bdev) => match Lvol::try_from(bdev) {
-                    Ok(l) => l,
-                    _ => return None,
-                },
-                None => return None,
-            };
-            return Some(snap_lvol);
-        }
-        None
+        let source_uuid = self.blob_xattr(CloneXattrs::SourceUuid)?;
+        let snap_bdev = UntypedBdev::lookup_by_uuid_str(source_uuid)?;
+        Lvol::ok_from(snap_bdev)
     }
 
     /// Get/Read a property of this lvol from the in-memory metadata copy.
