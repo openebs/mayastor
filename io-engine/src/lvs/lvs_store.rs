@@ -29,7 +29,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType, NvmfShareProps,
-        Share, UntypedBdev,
+        Share, ToErrno, UntypedBdev,
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -562,7 +562,7 @@ impl Lvs {
         info!("{self_str}: exporting lvs...");
 
         let pool = self.name().to_string();
-        let mut base_bdev = self.base_bdev();
+        let base_bdev = self.base_bdev().name().to_string();
         let (s, r) = pair::<i32>();
 
         self.unshare_all().await;
@@ -584,43 +584,11 @@ impl Lvs {
         // todo: if result is EIO error, then delete the bdevs as well here?
         //  note that in this case we'd have to re-lookup the bdevs again as
         //  they may have been hot-removed!
-
         result?;
 
-        info!(
-            "{self_str}: lvs exported successfully. base bdev: {}",
-            base_bdev.name()
-        );
+        info!("{self_str}: lvs exported successfully. base bdev: {base_bdev}");
 
-        // If the base_bdev is a crypto vbdev then we need to destroy both - the crypto vbdev and it's base.
-        if base_bdev.driver() == "crypto" {
-            let cbdev = base_bdev.crypto_base_bdev();
-
-            if let Err(e) = destroy_crypto_vbdev(base_bdev.name().to_string(), None).await {
-                error!(
-                    "failed to delete crypto vbdev {:?} during lvs export. {e}",
-                    base_bdev.name()
-                );
-            }
-
-            // A None cbdev here is highly unlikely as the vbdev can't exist in thin air.
-            // If cbdev is somehow None anyway, then the following bdev_destroy will likely
-            // fail, and we can let it.
-            if let Some(c) = cbdev {
-                base_bdev = Bdev::new(c);
-            }
-        }
-        trace!(
-            "Deleting bdev {}, uri {:?}",
-            base_bdev.name(),
-            base_bdev.bdev_uri_original_str()
-        );
-        if let Some(u) = base_bdev.bdev_uri_original_str() {
-            bdev_destroy(&u).await.map_err(|e| LvsError::Destroy {
-                source: e,
-                name: base_bdev.name().to_string(),
-            })?;
-        }
+        Self::lvs_cleanup(&base_bdev, "export").await?;
 
         Ok(())
     }
@@ -682,7 +650,7 @@ impl Lvs {
         // when destroying a pool unshare all volumes
         self.unshare_all().await;
 
-        let mut base_bdev = self.base_bdev();
+        let base_bdev = self.base_bdev().name().to_string();
 
         let evt = self.event(EventAction::Delete);
 
@@ -702,30 +670,42 @@ impl Lvs {
 
         result?;
 
-        info!(
-            "{}: lvs destroyed successfully. base_bdev: {base_bdev:?}",
-            self_str
-        );
-
+        info!("{self_str}: lvs destroyed successfully. base_bdev: {base_bdev}");
         evt.generate();
+
+        Self::lvs_cleanup(&base_bdev, "destroy").await?;
+
+        if let Err(error) = ptpl.destroy() {
+            tracing::error!(
+                "{self_str}: Failed to clean up persistence through power loss for pool: {error}",
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn lvs_cleanup(base_bdev: &str, op: &str) -> Result<(), LvsError> {
+        tracing::debug!(base_bdev, op, "Cleanup of lvs backing storage");
+
+        let Some(mut base_bdev) = UntypedBdev::lookup_by_name(base_bdev) else {
+            return Ok(());
+        };
 
         // If the base_bdev is a crypto vbdev then we need to destroy both - the crypto vbdev and it's base.
         if base_bdev.driver() == "crypto" {
             let cbdev = base_bdev.crypto_base_bdev();
-            let _ = destroy_crypto_vbdev(base_bdev.name().to_string(), None)
-                .await
-                .map_err(|e| {
-                    error!(
-                        "failed to delete crypto vbdev {:?} during pool destroy. {e}",
-                        base_bdev.name()
-                    );
-                });
+            let cbdev_name = cbdev.map(|c| c.name().to_string());
+            let name = base_bdev.name();
+
+            if let Err(e) = destroy_crypto_vbdev(name.to_string(), None).await {
+                error!("failed to delete crypto vbdev {name} during lvs {op}: {e}");
+            }
 
             // A None cbdev here is highly unlikely as the vbdev can't exist in thin air.
             // If cbdev is somehow None anyway, then the following bdev_destroy will likely
             // fail, and we can let it.
-            if let Some(c) = cbdev {
-                base_bdev = Bdev::new(c);
+            if let Some(c) = cbdev_name.and_then(|c| UntypedBdev::lookup_by_name(&c)) {
+                base_bdev = c;
             }
         }
         trace!(
@@ -738,14 +718,6 @@ impl Lvs {
                 source: e,
                 name: base_bdev.name().to_string(),
             })?;
-        }
-
-        if let Err(error) = ptpl.destroy() {
-            tracing::error!(
-                "{}: Failed to clean up persistence through power loss for pool: {}",
-                self_str,
-                error
-            );
         }
 
         Ok(())
