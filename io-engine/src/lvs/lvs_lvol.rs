@@ -285,6 +285,19 @@ impl Lvol {
         bdev.driver() == "lvol"
     }
 
+    /// Lookup an [`Lvol`] by its string uuid.
+    pub fn lookup_by_uuid_str(uuid: &str) -> Option<Self> {
+        let uuid = uuid::Uuid::parse_str(uuid).ok()?;
+        let uuid = crate::spdk_rs::Uuid::from(uuid);
+
+        // todo: add get_by_uuid for our lvs, we don't need to query all of them!
+        let lvol = unsafe { spdk_rs::libspdk::spdk_lvol_get_by_uuid(&uuid.into_raw()) };
+        if lvol.is_null() {
+            return None;
+        }
+        Some(Self::from_inner_ptr(lvol))
+    }
+
     /// Wipe the first 8MB if unmap is not supported on failure the operation
     /// needs to be repeated.
     pub async fn wipe_super(&self) -> Result<(), LvsError> {
@@ -486,7 +499,7 @@ impl Lvol {
         self.clone_count() > 0
     }
 
-    /// Count how many clones are dependent on this snapshot.
+    /// Count how many replica clones are dependent on this snapshot.
     pub fn clone_count(&self) -> u64 {
         let mut count: u64 = 0;
         unsafe {
@@ -787,8 +800,7 @@ impl LvsLvol for Lvol {
     /// snapshot. if it is clone, return the snapshot lvol.
     fn is_snapshot_clone(&self) -> Option<Lvol> {
         let source_uuid = self.blob_xattr(CloneXattrs::SourceUuid)?;
-        let snap_bdev = UntypedBdev::lookup_by_uuid_str(source_uuid)?;
-        Lvol::ok_from(snap_bdev)
+        self.lvs().lookup_lvol_by_uuid_str(source_uuid)
     }
 
     /// Get/Read a property of this lvol from the in-memory metadata copy.

@@ -180,6 +180,20 @@ impl Lvs {
         }
     }
 
+    /// Lookup an [`Lvol`] by its string uuid.
+    pub fn lookup_lvol_by_uuid_str(&self, uuid: &str) -> Option<Lvol> {
+        let uuid = uuid::Uuid::parse_str(uuid).ok()?;
+        let uuid = crate::spdk_rs::Uuid::from(uuid);
+
+        let lvol = unsafe {
+            spdk_rs::libspdk::spdk_lvs_lvol_get_by_uuid(self.as_inner_ptr(), &uuid.into_raw())
+        };
+        if lvol.is_null() {
+            return None;
+        }
+        Some(Lvol::from_inner_ptr(lvol))
+    }
+
     /// return the name of the current store
     pub fn name(&self) -> &str {
         self.as_inner_ref().name.as_str()
@@ -945,7 +959,7 @@ impl Lvs {
             LVOL_CLEAR_WITH_NONE
         };
 
-        if !opts.uuid.is_empty() && UntypedBdev::lookup_by_uuid_str(&opts.uuid).is_some() {
+        if !opts.uuid.is_empty() && self.lookup_lvol_by_uuid_str(&opts.uuid).is_some() {
             return Err(LvsError::RepExists {
                 source: BsError::VolAlreadyExists {},
                 name: opts.uuid,
