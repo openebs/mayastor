@@ -287,9 +287,9 @@ impl From<CloneXattrs> for PropXattrs {
 /// Snapshot attributes used to store its properties.
 #[derive(Debug, Clone, Copy, EnumCountMacro, EnumIter)]
 pub enum SnapshotXattrs {
+    ParentId,
     TxId,
     EntityId,
-    ParentId,
     SnapshotUuid,
     SnapshotCreateTime,
     /// if any snapshot delete gRPC request came and there are valid clones
