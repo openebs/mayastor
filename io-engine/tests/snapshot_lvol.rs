@@ -1050,13 +1050,13 @@ async fn test_snapshot_clone() {
         assert_eq!(clones.len(), 2, "Number of Clones Doesn't match");
         for clone in &clones {
             assert!(
-                clone.is_snapshot_clone().is_some(),
+                clone.clone_source().is_some(),
                 "Wrongly judge as not a clone"
             );
         }
-        assert!(lvol.is_snapshot_clone().is_none(), "Wrongly judge as clone");
+        assert!(lvol.clone_source().is_none(), "Wrongly judge as clone");
         assert!(
-            snapshot_lvol.is_snapshot_clone().is_none(),
+            snapshot_lvol.clone_source().is_none(),
             "Wrongly judge as clone"
         );
         for clone in clones {

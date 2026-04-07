@@ -588,8 +588,9 @@ pub trait LvsLvol: LogicalVolume + Share {
     fn as_bdev(&self) -> UntypedBdev;
 
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
-    /// snapshot. if it is clone, return the snapshot lvol.
-    fn is_snapshot_clone(&self) -> Option<Lvol>;
+    /// snapshot.
+    /// And if it is clone, return the snapshot Lvol.
+    fn clone_source(&self) -> Option<Lvol>;
 
     /// Get/Read a property of this lvol from the in-memory metadata copy.
     async fn get(&self, prop: PropName) -> Result<PropValue, LvsError>;
@@ -770,7 +771,7 @@ impl LogicalVolume for Lvol {
     }
 
     fn is_clone(&self) -> bool {
-        self.is_snapshot_clone().is_some()
+        self.blob_xattr(CloneXattrs::SourceUuid).is_some()
     }
 
     fn backend(&self) -> PoolBackend {
@@ -812,8 +813,9 @@ impl LvsLvol for Lvol {
     }
 
     /// Lvol is considered as clone if its sourceuuid attribute is a valid
-    /// snapshot. if it is clone, return the snapshot lvol.
-    fn is_snapshot_clone(&self) -> Option<Lvol> {
+    /// snapshot.
+    /// And if it is clone, return the snapshot Lvol.
+    fn clone_source(&self) -> Option<Lvol> {
         let source_uuid = self.blob_xattr(CloneXattrs::SourceUuid)?;
         self.lvs().lookup_lvol_by_uuid_str(source_uuid)
     }
@@ -1048,7 +1050,7 @@ impl LvsLvol for Lvol {
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
     async fn destroy_replica(mut self) -> Result<String, LvsError> {
-        let snapshot_lvol = self.is_snapshot_clone();
+        let snapshot_lvol = self.clone_source();
         let name = self.name();
         self.destroy().await?;
 

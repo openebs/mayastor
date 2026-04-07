@@ -729,7 +729,7 @@ impl LvolSnapshotOps for Lvol {
         };
         bdev.into_iter()
             .filter_map(Lvol::ok_from)
-            .filter(|b| b.is_snapshot_clone().is_some())
+            .filter(|b| b.is_clone())
             .collect::<Vec<Lvol>>()
     }
 
@@ -778,14 +778,14 @@ impl LvolSnapshotOps for Lvol {
             let parent = self
                 .lvs()
                 .lookup_lvol_by_uuid_str(self.blob_xattr(SnapshotXattrs::ParentId)?)?;
-            let parent_snap_lvol = parent.is_snapshot_clone()?;
+            let parent_snap_lvol = parent.clone_source()?;
 
             let usage = parent_snap_lvol.usage();
             let usage = total_ancestor_snap_size
                 - (usage.allocated_bytes_snapshots + usage.allocated_bytes);
             Some(usage)
         // if self is clone.
-        } else if self.is_snapshot_clone().is_some() {
+        } else if self.is_clone() {
             let sum = Lvol::list_all_lvol_snapshots(Some(self))
                 .iter()
                 .map(|v| v.snapshot_lvol().allocated())
