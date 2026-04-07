@@ -698,22 +698,27 @@ impl LvolSnapshotOps for Lvol {
 
     /// List clones based on snapshot_uuid.
     fn list_clones_by_snapshot_uuid(&self) -> Vec<Lvol> {
-        let su = self.as_inner_ref().uuid_str.as_ptr();
-        let bdev = match UntypedBdev::bdev_first() {
-            Some(b) => b,
-            None => return Vec::new(), /* No devices available, no clones */
-        };
-        bdev.into_iter()
-            .filter_map(|b| {
-                let b = Lvol::ok_from(b)?;
-                let source_uuid = b.blob_xattr(CloneXattrs::SourceUuid)?;
-                if unsafe { std::ffi::CStr::from_ptr(su) }.to_bytes() == source_uuid.as_bytes() {
-                    Some(b)
-                } else {
-                    None
+        // todo: optimize this process, avoid multiple calls to spdk_blob_get_clones.
+        let clone_count = 100; /* self.blob_clone_count() as usize */
+        let mut clones = Vec::with_capacity(clone_count);
+        unsafe {
+            extern "C" fn cb(cb_arg: *mut c_void, lvol: *mut spdk_lvol) -> i32 {
+                let ctx = cb_arg as *mut Vec<Lvol>;
+                let lvol = Lvol::from_inner_ptr(lvol);
+                if lvol.is_clone() {
+                    unsafe {
+                        (*ctx).push(lvol);
+                    }
                 }
-            })
-            .collect::<Vec<Lvol>>()
+                0
+            }
+            spdk_rs::libspdk::spdk_lvol_iter_immediate_clones(
+                self.as_inner_ptr(),
+                Some(cb),
+                &mut clones as *mut _ as *mut std::ffi::c_void,
+            );
+        }
+        clones
     }
 
     /// List All Clones.

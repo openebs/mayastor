@@ -513,6 +513,21 @@ impl Lvol {
         };
         count
     }
+    /// Count how many clones are dependent on this snapshot.
+    /// # Warning
+    /// These clones may be snapshots or "real_clones".
+    pub fn blob_clone_count(&self) -> u64 {
+        let mut count: u64 = 0;
+        unsafe {
+            spdk_rs::libspdk::spdk_blob_get_clones(
+                self.lvs().blob_store(),
+                self.as_inner_ref().blob_id,
+                std::ptr::null_mut(),
+                &mut count,
+            )
+        };
+        count
+    }
 }
 
 pub struct LvolPtpl {
