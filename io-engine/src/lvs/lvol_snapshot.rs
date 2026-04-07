@@ -698,6 +698,7 @@ impl LvolSnapshotOps for Lvol {
 
     /// List clones based on snapshot_uuid.
     fn list_clones_by_snapshot_uuid(&self) -> Vec<Lvol> {
+        let su = self.as_inner_ref().uuid_str.as_ptr();
         let bdev = match UntypedBdev::bdev_first() {
             Some(b) => b,
             None => return Vec::new(), /* No devices available, no clones */
@@ -705,9 +706,8 @@ impl LvolSnapshotOps for Lvol {
         bdev.into_iter()
             .filter_map(|b| {
                 let b = Lvol::ok_from(b)?;
-                // how many clones from this snapshot
-                let snap_lvol = b.is_snapshot_clone()?;
-                if snap_lvol.is_same(self) {
+                let source_uuid = b.blob_xattr(CloneXattrs::SourceUuid)?;
+                if unsafe { std::ffi::CStr::from_ptr(su) }.to_bytes() == source_uuid.as_bytes() {
                     Some(b)
                 } else {
                     None
