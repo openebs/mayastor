@@ -544,13 +544,7 @@ impl LvolSnapshotOps for Lvol {
         let parent_uuid = if let Some(parent_uuid) = parent_uuid {
             parent_uuid
         } else {
-            // todo: when the parent has been deleted, the parent_uuid is not being
-            // exposed, was this intended like so?
-            let parent = snapshot_param.parent_id.as_ref();
-            parent
-                .and_then(|u| self.lvs().lookup_lvol_by_uuid_str(u))
-                .map(|l| l.uuid())
-                .unwrap_or_default()
+            snapshot_param.parent_id().unwrap_or_default()
         };
         let snapshot_descriptor = SnapshotInfo::new(
             parent_uuid,
