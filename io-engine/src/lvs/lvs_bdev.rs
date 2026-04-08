@@ -37,6 +37,15 @@ impl LvsBdev {
         Lvs::from_inner_ptr(self.as_inner_ref().lvs)
     }
 
+    /// Returns Lvs instance for this LVS Bdev.
+    /// todo: hide lvs which has no base bdev?
+    #[inline]
+    pub fn lvs_opt(&self) -> Option<Lvs> {
+        let lvs = self.lvs();
+        lvs.base_bdev_opt()?;
+        Some(lvs)
+    }
+
     /// Get name of the pool.
     pub fn name(&self) -> String {
         self.lvs().name().to_string()
@@ -49,6 +58,6 @@ impl LvsBdev {
 
     /// Iterate Lvs Bdevs.
     pub fn iter() -> LvsBdevIter {
-        LvsBdevIter::new()
+        LvsBdevIter::new(false)
     }
 }

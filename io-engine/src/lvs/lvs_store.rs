@@ -50,12 +50,17 @@ static MAX_CLUSTER_SIZE: u32 = 1024 * 1024 * 1024;
 
 impl Debug for Lvs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let bdev = self.base_bdev_opt();
+        let (name, uuid) = match &bdev {
+            Some(bdev) => (bdev.name(), bdev.uuid().to_string()),
+            None => ("bdev~removing", "~".into()),
+        };
         write!(
             f,
             "Lvs '{}' [{}/{}] ({:.2}/{:.2})",
             self.name(),
-            self.base_bdev().name(),
-            self.base_bdev().uuid(),
+            name,
+            uuid,
             Byte::from(self.available()).get_appropriate_unit(byte_unit::UnitType::Binary),
             Byte::from(self.capacity()).get_appropriate_unit(byte_unit::UnitType::Binary)
         )
@@ -134,9 +139,14 @@ impl Lvs {
         sender.send(errno).unwrap();
     }
 
-    /// returns a new iterator over all lvols
+    /// returns a new iterator over all lvs
     pub fn iter() -> LvsIter {
-        LvsIter::new()
+        LvsIter::new(false)
+    }
+
+    /// Returns a new iterator over all lvs, including ones which are removing.
+    pub fn iter_all() -> LvsIter {
+        LvsIter::new(true)
     }
 
     /// export all LVS instances
@@ -199,15 +209,43 @@ impl Lvs {
     }
 
     /// returns the base bdev of this lvs
-    pub fn base_bdev(&self) -> UntypedBdev {
+    pub fn base_bdev_(&self) -> UntypedBdev {
         let p = unsafe { (*vbdev_get_lvs_bdev_by_lvs(self.as_inner_ptr())).bdev };
         Bdev::checked_from_ptr(p).unwrap()
     }
 
+    /// returns the base bdev of this lvs
+    pub fn base_bdev_name(&self) -> String {
+        self.base_bdev_opt()
+            .map(|b| b.name().to_string())
+            .unwrap_or_else(|| "~removing".to_string())
+    }
+
+    /// Returns the base bdev of this lvs if not pending removal.
+    pub fn base_bdev_opt(&self) -> Option<UntypedBdev> {
+        let lvs = unsafe { vbdev_get_lvs_bdev_by_lvs(self.as_inner_ptr()) };
+        if lvs.is_null() {
+            return None;
+        }
+        Bdev::checked_from_ptr(unsafe { (*lvs).bdev })
+    }
+
+    /// Returns the base bdev of this lvs if not pending removal.
+    pub fn base_bdev(&self) -> Result<UntypedBdev, LvsError> {
+        match self.base_bdev_opt() {
+            Some(bdev) => Ok(bdev),
+            None => Err(LvsError::Invalid {
+                source: BsError::LvsRemoving {},
+                msg: self.name().to_string(),
+            }),
+        }
+    }
+
     /// Is the Lvs/pool encrypted.
     pub fn encrypted(&self) -> bool {
-        let b = self.base_bdev();
-        b.driver() == "crypto"
+        let base = self.base_bdev_opt();
+        let driver = base.as_ref().map(|b| b.driver());
+        driver == Some("crypto")
     }
 
     /// Returns blobstore cluster size.
@@ -562,7 +600,7 @@ impl Lvs {
         info!("{self_str}: exporting lvs...");
 
         let pool = self.name().to_string();
-        let base_bdev = self.base_bdev().name().to_string();
+        let base_bdev = self.base_bdev()?.name().to_string();
         let (s, r) = pair::<i32>();
 
         self.unshare_all().await;
@@ -655,7 +693,7 @@ impl Lvs {
         // when destroying a pool unshare all volumes
         self.unshare_all().await;
 
-        let base_bdev = self.base_bdev().name().to_string();
+        let base_bdev = self.base_bdev()?.name().to_string();
 
         let evt = self.event(EventAction::Delete);
 
@@ -739,11 +777,11 @@ impl Lvs {
         info!("{self:?}: growing lvs...");
         let lvs_name = self.name();
 
-        let disk_bdev = self
-            .base_bdev()
+        let base_bdev = self.base_bdev()?;
+        let disk_bdev = base_bdev
             .crypto_base_bdev()
             .map(Bdev::new)
-            .unwrap_or_else(|| self.base_bdev());
+            .unwrap_or_else(|| base_bdev);
 
         let uri_str = disk_bdev.bdev_uri_str().unwrap_or_default();
         let url = Url::parse(&uri_str).map_err(|source| LvsError::InvalidBdev {
@@ -767,17 +805,14 @@ impl Lvs {
         if errno != 0 {
             return Err(LvsError::BdevRescanFailed {
                 source: BsError::from_i32(errno),
-                name: self.base_bdev().name().to_string(),
+                name: self.base_bdev_name(),
             });
         }
 
         if self.encrypted() && !self.crypto_vbdev_resized().await {
-            error!(
-                "crypto bdev {} has not resized",
-                self.base_bdev().name().to_string()
-            );
+            error!("crypto bdev {} has not resized", self.base_bdev_name());
             return Err(LvsError::CryptoBdevNotResized {
-                name: self.base_bdev().name().to_string(),
+                name: self.base_bdev_name(),
             });
         }
 
@@ -804,7 +839,7 @@ impl Lvs {
 
         if self.capacity() == capacity_before_grow {
             return Err(LvsError::BdevNotExtended {
-                name: self.base_bdev().name().to_string(),
+                name: self.base_bdev_name(),
             });
         }
 
@@ -819,11 +854,13 @@ impl Lvs {
     /// This delay gives the crypto bdev time to process the resize event asynchronously.
     async fn crypto_vbdev_resized(&self) -> bool {
         for _i in 1..=30 {
-            let base_bdev = self.base_bdev();
+            let Some(base_bdev) = self.base_bdev_opt() else {
+                return false;
+            };
             let disk_bdev = base_bdev
                 .crypto_base_bdev()
                 .map(Bdev::new)
-                .unwrap_or_else(|| self.base_bdev());
+                .unwrap_or_else(|| base_bdev);
             let disk_bdev_size = disk_bdev.num_blocks() * disk_bdev.block_len() as u64;
             let crypto_bdev_size = base_bdev.num_blocks() * base_bdev.block_len() as u64;
             if crypto_bdev_size == disk_bdev_size {
@@ -902,7 +939,7 @@ impl Lvs {
 
     /// create a new lvol on this pool
     pub async fn create_lvol_with_opts(&self, opts: ReplicaArgs) -> Result<Lvol, LvsError> {
-        let clear_method = if self.base_bdev().io_type_supported(IoType::Unmap) {
+        let clear_method = if self.base_bdev()?.io_type_supported(IoType::Unmap) {
             LVOL_CLEAR_WITH_UNMAP
         } else {
             LVOL_CLEAR_WITH_NONE
@@ -1047,7 +1084,7 @@ impl LvsBackendBdevs {
         let pool_bdev_name = args.crypto_vbdev_name.clone().unwrap_or(bdev_name.clone());
 
         if let Some(pool) = Lvs::lookup(&args.name) {
-            let source = if pool.base_bdev().name() == pool_bdev_name {
+            let source = if pool.base_bdev()?.name() == pool_bdev_name {
                 // todo: this error makes no sense
                 BsError::VolAlreadyExists {}
             } else {
@@ -1059,7 +1096,7 @@ impl LvsBackendBdevs {
                     name: args.name.clone(),
                 })
             } else {
-                let pool_name = pool.base_bdev().name().to_string();
+                let pool_name = pool.base_bdev()?.name().to_string();
                 Err(LvsError::Import {
                     source,
                     name: args.name.clone(),

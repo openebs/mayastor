@@ -5,13 +5,15 @@ use super::{Lvs, LvsBdev};
 /// Iterator over available LvsBdevs.
 pub struct LvsBdevIter {
     inner: *mut lvol_store_bdev,
+    list_removing: bool,
 }
 
 impl LvsBdevIter {
     /// Returns a new LvsBdev iterator.
-    pub(super) fn new() -> Self {
+    pub(super) fn new(list_removing: bool) -> Self {
         Self {
             inner: unsafe { vbdev_lvol_store_first() },
+            list_removing,
         }
     }
 }
@@ -37,8 +39,8 @@ pub struct LvsIter(LvsBdevIter);
 
 impl LvsIter {
     /// Returns a new Lvs iterator.
-    pub(super) fn new() -> Self {
-        Self(LvsBdevIter::new())
+    pub(super) fn new(list_removing: bool) -> Self {
+        Self(LvsBdevIter::new(list_removing))
     }
 }
 
@@ -46,6 +48,10 @@ impl Iterator for LvsIter {
     type Item = Lvs;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|l| l.lvs())
+        if self.0.list_removing {
+            self.0.next().map(|l| l.lvs())
+        } else {
+            self.0.next().and_then(|l| l.lvs_opt())
+        }
     }
 }

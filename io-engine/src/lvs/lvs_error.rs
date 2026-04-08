@@ -53,6 +53,8 @@ pub enum BsError {
     CapacityOverflow {},
     #[snafu(display("{source}: crypto vbdev error"))]
     LvsCryptoVbdev { source: Errno },
+    #[snafu(display(": Lvs is removing, bdev not found"))]
+    LvsRemoving {},
 }
 
 impl BsError {
@@ -106,6 +108,7 @@ impl ToErrno for BsError {
             Self::OutOfMetadata {} => Errno::EMFILE,
             Self::CapacityOverflow {} => Errno::EOVERFLOW,
             Self::LvsCryptoVbdev { source } => *source,
+            Self::LvsRemoving {} => Errno::EINPROGRESS,
         }
     }
 }
