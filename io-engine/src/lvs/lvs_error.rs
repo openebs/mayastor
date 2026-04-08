@@ -14,6 +14,8 @@ use crate::{
 pub enum ImportErrorReason {
     #[snafu(display(""))]
     None,
+    #[snafu(display(": failed to inspect disk contents"))]
+    IoError,
     #[snafu(display(": existing pool disk has different name: {name}"))]
     NameMismatch { name: String },
     #[snafu(display(": another pool already exists with this name: {name}"))]
@@ -51,6 +53,8 @@ pub enum BsError {
     CapacityOverflow {},
     #[snafu(display("{source}: crypto vbdev error"))]
     LvsCryptoVbdev { source: Errno },
+    #[snafu(display(": Lvs is removing, bdev not found"))]
+    LvsRemoving {},
 }
 
 impl BsError {
@@ -104,6 +108,7 @@ impl ToErrno for BsError {
             Self::OutOfMetadata {} => Errno::EMFILE,
             Self::CapacityOverflow {} => Errno::EOVERFLOW,
             Self::LvsCryptoVbdev { source } => *source,
+            Self::LvsRemoving {} => Errno::EINPROGRESS,
         }
     }
 }
@@ -206,6 +211,7 @@ impl ToErrno for LvsError {
                 ..
             } => match reason {
                 crate::lvs::ImportErrorReason::None => Errno::EINVAL,
+                crate::lvs::ImportErrorReason::IoError => Errno::EIO,
                 crate::lvs::ImportErrorReason::NameMismatch { .. } => Errno::EMEDIUMTYPE,
                 crate::lvs::ImportErrorReason::NameClash { .. } => Errno::ENOTUNIQ,
                 crate::lvs::ImportErrorReason::UuidMismatch { .. } => Errno::EMEDIUMTYPE,

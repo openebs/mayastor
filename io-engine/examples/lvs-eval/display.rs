@@ -13,7 +13,7 @@ use spdk_rs::libspdk::{
 pub async fn print_lvs(lvs: &Lvs) {
     print_separator("LVS", 0);
 
-    print_bdev(lvs.base_bdev());
+    print_bdev(lvs.base_bdev_());
     print_lvs_data(lvs);
     print_replicas(lvs);
 }

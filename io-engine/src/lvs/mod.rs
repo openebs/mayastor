@@ -158,7 +158,7 @@ impl PoolOps for Lvs {
     }
 
     async fn reset_errors(&self) -> Result<(), crate::pool_backend::Error> {
-        self.base_bdev()
+        self.base_bdev()?
             .reset_stats_ext(spdk_rs::BdevStatsResetMode::Errors)
             .await
             .map_err(|errno| crate::pool_backend::Error::Gen {
@@ -168,22 +168,31 @@ impl PoolOps for Lvs {
     }
 }
 
+fn lvs_bdev(lvs: &Lvs) -> Result<UntypedBdev, CoreError> {
+    match lvs.base_bdev_opt() {
+        Some(bdev) => Ok(bdev),
+        None => Err(CoreError::OpenBdev {
+            source: nix::Error::EINPROGRESS,
+        }),
+    }
+}
+
 #[async_trait::async_trait(?Send)]
 impl BdevStater for Lvs {
     type Stats = BdevStats;
 
     async fn stats(&self) -> Result<BdevStats, CoreError> {
-        let stats = self.base_bdev().stats_async().await?;
+        let stats = lvs_bdev(self)?.stats_async().await?;
         Ok(BdevStats::new(self.name().to_string(), self.uuid(), stats))
     }
 
     async fn error_stats(&self) -> Result<BdevErrorStats, CoreError> {
-        let stats = self.base_bdev().stats_errors_async().await?;
+        let stats = lvs_bdev(self)?.stats_errors_async().await?;
         Ok(BdevErrorStats(stats))
     }
 
     async fn reset_stats(&self) -> Result<(), CoreError> {
-        self.base_bdev().reset_bdev_io_stats().await
+        lvs_bdev(self)?.reset_bdev_io_stats().await
     }
 }
 
@@ -201,18 +210,22 @@ impl IPoolProps for Lvs {
     }
 
     fn disks(&self) -> Vec<String> {
+        let Some(base_bdev) = self.base_bdev_opt() else {
+            return vec![];
+        };
         // Calling crypto_base_bdev() on non crypto bdev returns None.
-        let disk_bdev = self
-            .base_bdev()
+        let disk_bdev = base_bdev
             .crypto_base_bdev()
             .map(Bdev::new)
-            .unwrap_or_else(|| self.base_bdev());
+            .unwrap_or(base_bdev);
 
         vec![disk_bdev.bdev_uri_original_str().unwrap_or_default()]
     }
 
     fn disk_capacity(&self) -> u64 {
-        self.base_bdev().size_in_bytes()
+        self.base_bdev_opt()
+            .map(|b| b.size_in_bytes())
+            .unwrap_or_default()
     }
 
     fn cluster_size(&self) -> u32 {

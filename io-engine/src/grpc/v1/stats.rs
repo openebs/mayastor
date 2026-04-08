@@ -140,6 +140,8 @@ impl StatsRpc for StatsService {
                 let pools_stats = join_all(pools_stats_future).await.into_iter();
                 let stats = pools_stats
                     .map(|d| d.map(Into::into))
+                    // todo: it will error out if any error is encountered
+                    // this may not be ideal since we'd miss out of other stats!
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(PoolIoStatsResponse { stats })

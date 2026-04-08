@@ -39,6 +39,7 @@ fn ms() -> &'static MayastorTest<'static> {
                 io_error_threshold: IO_ERROR_THRESHOLD,
                 ..Default::default()
             },
+            // log_components: vec!["all".into()],
             nvme: NvmeCliArgs {
                 max_namespaces: 8192,
             },
@@ -120,7 +121,7 @@ async fn lvs_pool_test() {
         assert_eq!(pool.name(), "tpool");
         assert_eq!(pool.used(), 0);
         dbg!(pool.uuid());
-        assert_eq!(pool.base_bdev().name(), DISKNAME1);
+        assert_eq!(pool.base_bdev_().name(), DISKNAME1);
     })
     .await;
 
@@ -473,7 +474,7 @@ async fn lvs_pool_test() {
         })
         .await
         .unwrap();
-        assert_eq!(pool.base_bdev().driver(), "aio");
+        assert_eq!(pool.base_bdev_().driver(), "aio");
     })
     .await;
 
@@ -500,7 +501,7 @@ async fn lvs_pool_test() {
         })
         .await
         .unwrap();
-        let pool_base_bdev = pool.base_bdev();
+        let pool_base_bdev = pool.base_bdev_();
         assert_eq!(pool_base_bdev.driver(), "crypto");
         let underlying_bdev = pool_base_bdev.crypto_base_bdev().unwrap();
         // we internally use diskname as aio bdev name.
@@ -573,7 +574,7 @@ async fn lvs_errors() {
     .await
     .unwrap();
 
-    let mut lvol = vg_pool
+    let glvol = vg_pool
         .create_lvol(ReplicaArgs {
             name: LV_NAME.into(),
             uuid: LV_NAME.into(),
@@ -582,16 +583,18 @@ async fn lvs_errors() {
         })
         .await
         .unwrap();
-    let pool_args = PoolArgs {
+    let gpool_args = PoolArgs {
         name: "tpool".into(),
-        disks: vec![format!("aio://{}", lvol.path())],
+        disks: vec![format!("aio://{}", glvol.path())],
         backend: PoolBackend::Lvs,
         ..Default::default()
     };
+    let pool_args = gpool_args.clone();
+    let mut lvol = glvol.clone();
 
-    let ms = ms();
+    let ms: &MayastorTest<'_> = ms();
     ms.spawn(async move {
-        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+        let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
 
         // We bork the device, making it return -EIO for all I/O
         let table = lvol.bork().await.unwrap();
@@ -644,6 +647,48 @@ async fn lvs_errors() {
         assert_eq!(alerts.status(), PoolAlertStatus::Healthy);
 
         lvs_pool.destroy().await.unwrap();
+        lvol
+    })
+    .await;
+
+    let pool_args = gpool_args;
+    let mut lvol = glvol;
+    ms.spawn(async move {
+        // We bork the device, making it return -EIO for all I/O
+        let table = lvol.bork().await.unwrap();
+
+        let result = Lvs::create_or_import(pool_args.clone())
+            .await
+            .expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        let result = Lvs::import_from_args(pool_args.clone())
+            .await
+            .expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        let backend = UntypedBdev::lookup_by_name(lvol.path());
+        assert!(backend.is_none(), "Disk Bdev should have been cleaned up");
+
+        lvol.unbork(table).await.unwrap();
+
+        let lvs = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+
+        let table = lvol.bork().await.unwrap();
+
+        let result = lvs.export().await.expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        lvol.unbork(table).await.unwrap();
+
+        let lvs = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+
+        let table = lvol.bork().await.unwrap();
+
+        let result = lvs.destroy().await.expect_err("EIO");
+        assert_eq!(result.to_errno(), nix::Error::EIO, "{result:#?}");
+
+        lvol.unbork(table).await.unwrap();
     })
     .await;
 
@@ -720,7 +765,18 @@ async fn lvs_hot_remove() {
     ms().start_grpc();
 
     ms().spawn(async move {
-        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+        let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+
+        // NOTE: There's currently an issue when we destroy a replica manually and at the same time the hot-removal
+        // is happening. In this case looks like the check for no lvols is done before the callbacks for this replica
+        // destroy attempt completes, and so we end up with a stuck lvs which needs to be retried again.
+        // To make matters worse, the bdev is removing, so it's not returned by `vbdev_get_lvs_bdev_by_lvs` leaving
+        // us with no base bdev, and no way to determine if we need tear down of the bdevs behind the base...
+        // Creating this dud will allow it's closure to trigger proper lvs unload...
+        let _dud = lvs_pool
+            .create_lvol("dud", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
 
         let repl = lvs_pool
             .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
@@ -739,6 +795,28 @@ async fn lvs_hot_remove() {
 
         let error = repl.destroy().await.expect_err("-EIO");
         assert_eq!(error.to_errno(), nix::Error::EIO);
+
+        lvs_pool.destroy().await.ok();
+
+        assert_eq!(Lvs::iter_all().count(), 1);
+        assert_eq!(Lvs::iter().count(), 0);
+
+        let error = Lvs::create_or_import(pool_args.clone())
+            .await
+            .expect_err("removing");
+        assert_eq!(error.to_errno(), nix::Error::EINPROGRESS);
+
+        for _ in 0..10 {
+            if Lvs::iter_all().count() == 0 {
+                break;
+            }
+            io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(100))
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(Lvs::iter_all().count(), 0);
+        assert_eq!(Lvs::iter().count(), 0);
     })
     .await;
 }
