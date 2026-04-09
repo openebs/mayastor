@@ -379,7 +379,11 @@ impl Lvs {
             .map_err(|err| LvsError::Import {
                 source: BsError::from_errno(err),
                 name: name.into(),
-                reason: ImportErrorReason::IoError,
+                reason: if err == nix::Error::EILSEQ {
+                    ImportErrorReason::NotFound
+                } else {
+                    ImportErrorReason::IoError
+                },
             })?;
 
         if name != lvs.name() {
