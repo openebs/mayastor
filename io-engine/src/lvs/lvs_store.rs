@@ -313,59 +313,56 @@ impl Lvs {
 
     /// Enable stall detection on a given Pool.
     fn enable_stall_detection(&self) {
-        let lvs = self.as_inner_ptr();
+        let lvs = self.name();
         let environ = MayastorEnvironment::global();
-        let stall_deadline = environ.pool_args.io_stall_deadline;
-        let std_d: std::time::Duration = stall_deadline.into();
-        let secs: u64 = std_d.as_secs();
-        let rc = unsafe { vbdev_lvs_set_timeout(lvs, secs, Some(Self::lvstore_timeout_cb)) };
+        let secs: u64 = environ.pool_args.io_stall_deadline.as_secs();
+        let rc = unsafe {
+            vbdev_lvs_set_timeout(self.as_inner_ptr(), secs, Some(Self::lvstore_timeout_cb))
+        };
         if rc != 0 {
             error!(
-                "rc :{rc} while enabling stall deadline on pool {}",
-                self.name()
+                "error while enabling stall deadline on pool {}: {:?}",
+                self.name(),
+                Errno::from_raw(rc)
             );
+        } else {
+            info!("enabled stall detection of {secs}s on {lvs}");
         }
-        info!("enabled stall detection on {}", self.name());
     }
 
-    /// Disable stall detection on a given Pool.
-    /// We do this once we receive first stall notification.
+    /// Disable stall detection on a given Pool if reset is submitted successfullly.
     /// This is to stop receiving flood of callbacks as SPDK sends notification
     /// for all IOs which are stuck on the Pool in loop.
-    fn disable_stall_detection(&self) {
-        let lvs = self.as_inner_ptr();
-        let rc = unsafe { vbdev_lvs_set_timeout(lvs, 0, None) };
-        if rc != 0 {
-            error!(
-                "rc :{rc} while disabling stall deadline on pool {}",
-                self.name()
-            );
-        }
-        info!("disabled stall detection on {}", self.name());
-    }
-
-    /// Marks the pool as stalled in the cache and disables stall detection to avoid callback floods.
-    /// It also triggers a reset of the underlying bdev.
-    fn io_stalled(&self) {
-        let cache = pool_info_read();
-        let lvs = self.name();
-        if let Some(pool_lock) = cache.get(lvs) {
-            let mut pool_mut = pool_lock.write();
-            if !pool_mut.io_stalled {
-                info!("Pool {lvs} has entered IO stall");
+    fn disable_stall_detection(&self, rc: i32) {
+        if rc == 0 {
+            let lvs = self.name();
+            if let Some(pool_lock) = pool_info_read().get(lvs) {
+                let mut pool_mut = pool_lock.write();
                 pool_mut.io_stalled = true;
-                self.disable_stall_detection();
-                let p = std::ptr::null_mut();
-                unsafe { vbdev_lvs_bs_bdev_reset(self.as_inner_ptr(), Some(Self::lvstore_reset_cb), p) };
+            }
+            let rc = unsafe { vbdev_lvs_set_timeout(self.as_inner_ptr(), 0, None) };
+            if rc != 0 {
+                error!("rc {rc} while disabling stall deadline on pool {lvs}");
+            } else {
+                info!("disabled stall detection on {lvs}");
             }
         }
     }
 
+    /// Attempts to reset the pool facing IO stall and disables stall detection
+    /// to avoid flood of callbacks if reset is submitted successfully.
+    fn mark_io_stalled(&self) {
+        let p = std::ptr::null_mut();
+        let rc = unsafe {
+            vbdev_lvs_bs_bdev_reset(self.as_inner_ptr(), Some(Self::lvstore_reset_cb), p)
+        };
+        self.disable_stall_detection(rc);
+    }
+
     /// Marks the pool as recovered in the cache, update transition timestamp and re-enables stall detection.
-    fn io_resume(&self) {
-        let cache = pool_info_read();
+    fn mark_io_resume(&self) {
         let lvs = self.name();
-        if let Some(pool_lock) = cache.get(lvs) {
+        if let Some(pool_lock) = pool_info_read().get(lvs) {
             let mut pool_mut = pool_lock.write();
             pool_mut.io_stalled = false;
             info!("Pool {lvs} recovered from IO stall");
@@ -657,31 +654,33 @@ impl Lvs {
     extern "C" fn lvstore_timeout_cb(ctx: *mut c_void, _bdev_io: *mut spdk_bdev_io) {
         let lv_store = ctx as *mut spdk_lvol_store;
         let lvs: Lvs = Lvs::from_inner_ptr(lv_store);
-        lvs.io_stalled();
+        lvs.mark_io_stalled();
     }
 
     /// Callback function called by SPDK when reset completes.
-    extern "C" fn lvstore_reset_cb(lvs: *mut spdk_lvol_store, _success: bool, _ctx: *mut c_void) {
-        let lvs: Lvs = Lvs::from_inner_ptr(lvs);
-        let bs = lvs.blob_store();
-        let ctx = Box::new(BsTimeoutCtx {
-            pool_name: lvs.name().to_string(),
-        });
-        let ctx_ptr = Box::into_raw(ctx) as *mut c_void;
+    extern "C" fn lvstore_reset_cb(lvs: *mut spdk_lvol_store, success: bool, _ctx: *mut c_void) {
+        let lvs_wrapper: Lvs = Lvs::from_inner_ptr(lvs);
+        let lvs_name = lvs_wrapper.name().to_string();
+        if let Ok(bdev) = lvs_wrapper.base_bdev() {
+            let driver = bdev.driver();
+            info!("reset completed with status: {success} on {lvs_name} of bdev type: {driver}");
+        }
         Reactors::master().send_future(async move {
-            unsafe { spdk_bs_read_super(bs, Some(Self::bs_super_read_cb), ctx_ptr) }
+            if let Some(lvs) = Lvs::lookup(&lvs_name) {
+                let bs = lvs.blob_store();
+                let lvs_ptr = lvs.as_inner_ptr();
+                unsafe {
+                    spdk_bs_read_super(bs, Some(Self::bs_super_read_cb), lvs_ptr as *mut c_void)
+                }
+            }
         });
     }
 
     /// Callback function called by SPDK when superblock read completes.
-    extern "C" fn bs_super_read_cb(ctx: *mut c_void, errno: i32) {
-        if errno == 0 {
-            let ctx_str = unsafe { &*(ctx as *mut BsTimeoutCtx) };
-            let pool = &ctx_str.pool_name;
-            let lvs = Lvs::lookup(pool).unwrap();
-            lvs.io_resume();
-        }
-        // Shall we attempt to read again if it fails?
+    extern "C" fn bs_super_read_cb(ctx: *mut c_void, _errno: i32) {
+        let lvs_raw = ctx as *mut spdk_lvol_store;
+        let lvs: Lvs = Lvs::from_inner_ptr(lvs_raw);
+        lvs.mark_io_resume();
     }
 
     /// Imports the pool if it exists, otherwise tries to create a new pool.
@@ -879,7 +878,7 @@ impl Lvs {
                 base_bdev = c;
             }
         }
-        info!(
+        debug!(
             "Deleting bdev {}, uri {:?}",
             base_bdev.name(),
             base_bdev.bdev_uri_original_str()
@@ -1352,8 +1351,4 @@ impl PtplFileOps for LvsPtpl {
     fn subpath(&self) -> std::path::PathBuf {
         std::path::PathBuf::from("pool/").join(self.uuid())
     }
-}
-
-struct BsTimeoutCtx {
-    pool_name: String,
 }

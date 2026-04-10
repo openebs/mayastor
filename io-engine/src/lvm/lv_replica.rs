@@ -290,8 +290,9 @@ impl LogicalVolume {
     /// # NOTES
     ///
     /// See details from [`DmSetup::resume`].
-    pub async fn dm_resume(&mut self) -> Result<(), Error> {
-        DmSetup::resume(&self.path).await
+    pub async fn dm_resume(&mut self) -> Result<DmState, Error> {
+        DmSetup::resume(&self.path).await?;
+        self.dm_state().await
     }
 
     /// Retrieve the [`DmState`] of the [`LogicalVolume`].
@@ -331,7 +332,7 @@ impl LogicalVolume {
     }
 
     /// Undoes a borked [`LogicalVolume`] by re-applying the previous device-mapper table.
-    pub async fn unbork(&mut self, table: DmTable) -> Result<(), Error> {
+    pub async fn unbork(&mut self, table: DmTable) -> Result<DmState, Error> {
         DmSetup::load(self.path(), table).await?;
         self.dm_resume().await
     }

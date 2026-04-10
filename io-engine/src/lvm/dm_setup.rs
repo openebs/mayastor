@@ -2,7 +2,7 @@
 /// The dmsetup suspend command sets a device state to SUSPENDED.
 /// When a device is suspended, all I/O operations to that device stop.
 /// The dmsetup resume command restores a device state to ACTIVE.
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum DmState {
     Suspended,
     Active,
