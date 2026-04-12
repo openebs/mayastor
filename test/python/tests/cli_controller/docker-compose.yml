@@ -13,7 +13,10 @@ services:
         - NEXUS_NVMF_RESV_ENABLE=1
         - PATH=${LLVM_SYMBOLIZER_DIR:-}
         - ASAN_OPTIONS=detect_leaks=0
-    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 3,4 -r /tmp/ms1.sock
+        - ENABLE_INTERRUPT_MODE=${ENABLE_INTERRUPT_MODE:-false}
+        - NVME_IOQ_POLL_PERIOD=${NVME_IOQ_POLL_PERIOD:-}
+        - RUST_LOG=${RUST_LOG:-info}
+    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l ${MS1_CORES:-3,4} -r /tmp/ms1.sock
     networks:
       mayastor_net:
         ipv4_address: 10.1.0.3
@@ -41,7 +44,10 @@ services:
         - NEXUS_NVMF_RESV_ENABLE=1
         - PATH=${LLVM_SYMBOLIZER_DIR:-}
         - ASAN_OPTIONS=detect_leaks=0
-    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 5,6 -r /tmp/ms2.sock
+        - ENABLE_INTERRUPT_MODE=${ENABLE_INTERRUPT_MODE:-false}
+        - NVME_IOQ_POLL_PERIOD=${NVME_IOQ_POLL_PERIOD:-}
+        - RUST_LOG=${RUST_LOG:-info}
+    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l ${MS2_CORES:-5,6} -r /tmp/ms2.sock
     networks:
       mayastor_net:
         ipv4_address: 10.1.0.4
@@ -70,7 +76,10 @@ services:
         - NEXUS_NVMF_RESV_ENABLE=1
         - PATH=${LLVM_SYMBOLIZER_DIR:-}
         - ASAN_OPTIONS=detect_leaks=0
-    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 0,7 -r /tmp/ms3.sock
+        - ENABLE_INTERRUPT_MODE=${ENABLE_INTERRUPT_MODE:-false}
+        - NVME_IOQ_POLL_PERIOD=${NVME_IOQ_POLL_PERIOD:-}
+        - RUST_LOG=${RUST_LOG:-info}
+    command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l ${MS3_CORES:-0,7} -r /tmp/ms3.sock
     networks:
       mayastor_net:
         ipv4_address: 10.1.0.5
