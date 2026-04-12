@@ -278,6 +278,11 @@ pub struct MayastorCliArgs {
     /// # Warning: Don't use this in production.
     #[clap(long, env = "MAYASTOR_DELAY", hide = true, value_parser = delay_compat)]
     pub developer_delay: bool,
+    /// Enable interrupt mode: reactors use epoll-based waiting instead of
+    /// busy-polling when idle, dramatically reducing CPU usage. {n}
+    /// Warning: Experimental. NVMe-oF TCP targets only.
+    #[clap(long = "enable-interrupt-mode", env = "ENABLE_INTERRUPT_MODE", value_parser = delay_compat)]
+    pub interrupt_mode: bool,
     /// Enables RDMA between initiator and Mayastor Nvmf target.
     #[clap(long = "enable-rdma", env = "ENABLE_RDMA", value_parser = delay_compat)]
     pub rdma: bool,
@@ -515,6 +520,7 @@ pub struct MayastorEnvironment {
     skip_sig_handler: bool,
     enable_io_all_thrd_nexus_channels: bool,
     developer_delay: bool,
+    interrupt_mode: bool,
     rdma: bool,
     bs_cluster_unmap: bool,
     pub pool_args: PoolCliArgs,
@@ -566,6 +572,7 @@ impl Default for MayastorEnvironment {
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,
             developer_delay: false,
+            interrupt_mode: false,
             rdma: false,
             bs_cluster_unmap: false,
             pool_args: PoolCliArgs::default(),
@@ -709,6 +716,7 @@ impl MayastorEnvironment {
             api_versions: args.api_versions,
             skip_sig_handler: args.skip_sig_handler,
             developer_delay: args.developer_delay,
+            interrupt_mode: args.interrupt_mode,
             rdma: args.rdma,
             bs_cluster_unmap: args.bs_cluster_unmap,
             enable_io_all_thrd_nexus_channels: args.enable_io_all_thrd_nexus_channels,
@@ -1156,7 +1164,7 @@ impl MayastorEnvironment {
         }
 
         // allocate a Reactor per core
-        Reactors::init(self.developer_delay);
+        Reactors::init(self.developer_delay, self.interrupt_mode);
 
         // launch the remote cores if any. note that during init these have to
         // be running as during setup cross call will take place.
