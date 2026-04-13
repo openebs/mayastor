@@ -103,7 +103,8 @@ async fn check_snapshot(params: SnapshotParams) {
         .expect("Can't find target snapshot device");
 
     for (attr_name, attr_value) in attrs {
-        let v = Lvol::get_blob_xattr(lvol.blob_checked(), attr_name.name())
+        let v = lvol
+            .blob_xattr(attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, attr_value, "Snapshot attr doesn't match");
     }
@@ -119,7 +120,8 @@ async fn check_clone(clone_lvol: Lvol, params: CloneParams) {
         (CloneXattrs::CloneUuid, params.clone_uuid().unwrap()),
     ];
     for (attr_name, attr_value) in attrs {
-        let v = Lvol::get_blob_xattr(clone_lvol.blob_checked(), attr_name.name())
+        let v = clone_lvol
+            .blob_xattr(attr_name)
             .expect("Failed to get clone attribute");
         assert_eq!(v, attr_value, "clone attr doesn't match");
     }
@@ -1042,22 +1044,19 @@ async fn test_snapshot_clone() {
             .await
             .expect("Failed to create a clone");
         check_clone(clone2, clone_param).await;
-        info!(
-            "Total number of Clones: {:?}",
-            snapshot_lvol.list_clones_by_snapshot_uuid().len()
-        );
+        info!("Total number of Clones: {:?}", snapshot_lvol.clone_count());
         let clones = snapshot_lvol.list_clones_by_snapshot_uuid();
 
         assert_eq!(clones.len(), 2, "Number of Clones Doesn't match");
         for clone in &clones {
             assert!(
-                clone.is_snapshot_clone().is_some(),
+                clone.clone_source().is_some(),
                 "Wrongly judge as not a clone"
             );
         }
-        assert!(lvol.is_snapshot_clone().is_none(), "Wrongly judge as clone");
+        assert!(lvol.clone_source().is_none(), "Wrongly judge as clone");
         assert!(
-            snapshot_lvol.is_snapshot_clone().is_none(),
+            snapshot_lvol.clone_source().is_none(),
             "Wrongly judge as clone"
         );
         for clone in clones {
@@ -1187,16 +1186,18 @@ async fn test_snapshot_attr() {
         .unwrap();
 
         // Set snapshot attribute.
-        let snap_attr_name = String::from("my.attr.name");
+        let snap_attr_name: io_engine::core::PropXattrs =
+            io_engine::core::SnapshotXattrs::TxId.into();
         let snap_attr_value = String::from("top_secret");
 
         snapshot_lvol
-            .set_blob_attr(snap_attr_name.clone(), snap_attr_value.clone(), true)
+            .set_blob_attr(snap_attr_name, snap_attr_value.clone(), true)
             .await
             .expect("Failed to set snapshot attribute");
 
         // Check attribute.
-        let v = Lvol::get_blob_xattr(snapshot_lvol.blob_checked(), &snap_attr_name)
+        let v = snapshot_lvol
+            .blob_xattr(snap_attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
 
@@ -1237,7 +1238,8 @@ async fn test_snapshot_attr() {
         .unwrap();
 
         // Get attribute from imported snapshot and check.
-        let v = Lvol::get_blob_xattr(imported_snapshot_lvol.blob_checked(), &snap_attr_name)
+        let v = imported_snapshot_lvol
+            .blob_xattr(snap_attr_name)
             .expect("Failed to get snapshot attribute");
         assert_eq!(v, snap_attr_value, "Snapshot attribute doesn't match");
         clean_snapshots(snapshot_list).await;

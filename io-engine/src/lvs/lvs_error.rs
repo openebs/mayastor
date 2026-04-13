@@ -14,6 +14,8 @@ use crate::{
 pub enum ImportErrorReason {
     #[snafu(display(""))]
     None,
+    #[snafu(display(": pool metadata is corrupted/invalid"))]
+    NotFound,
     #[snafu(display(": failed to inspect disk contents"))]
     IoError,
     #[snafu(display(": existing pool disk has different name: {name}"))]
@@ -215,6 +217,7 @@ impl ToErrno for LvsError {
                 crate::lvs::ImportErrorReason::NameMismatch { .. } => Errno::EMEDIUMTYPE,
                 crate::lvs::ImportErrorReason::NameClash { .. } => Errno::ENOTUNIQ,
                 crate::lvs::ImportErrorReason::UuidMismatch { .. } => Errno::EMEDIUMTYPE,
+                crate::lvs::ImportErrorReason::NotFound => Errno::EILSEQ,
             },
             Self::Import { source, .. } => source.to_errno(),
             Self::PoolCreate { source, .. } => source.to_errno(),

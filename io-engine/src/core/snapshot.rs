@@ -1,17 +1,17 @@
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::{ffi::CStr, fmt::Debug};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
 /// Snapshot Captures all the Snapshot information for Lvol.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotParams {
-    entity_id: Option<String>,
-    parent_id: Option<String>,
-    txn_id: Option<String>,
-    snap_name: Option<String>,
-    snapshot_uuid: Option<String>,
-    create_time: Option<String>,
-    discarded_snapshot: bool,
+    pub entity_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub txn_id: Option<String>,
+    pub snap_name: Option<String>,
+    pub snapshot_uuid: Option<String>,
+    pub create_time: Option<String>,
+    pub discarded_snapshot: bool,
 }
 
 /// Implement Snapshot Common Function.
@@ -250,12 +250,46 @@ impl SnapshotDescriptor {
     }
 }
 
+/// Lvs Extended Attributes.
+#[derive(Clone, Copy)]
+pub enum PropXattrs {
+    /// Attributes used by snapshots.
+    Snapshot(SnapshotXattrs),
+    /// Attributes used by clones.
+    Clone(CloneXattrs),
+    /// Attribute which was used as a raw string directly.
+    /// todo: check if this representation is correct as it seems to clash with
+    /// another representation.
+    BrokenEntityId,
+}
+impl PropXattrs {
+    /// The name of the property as stored in the lvs extended attributes.
+    pub const fn name(&self) -> &CStr {
+        match self {
+            Self::Snapshot(attrs) => attrs.name(),
+            Self::Clone(attrs) => attrs.name(),
+            Self::BrokenEntityId => unsafe { CStr::from_ptr(b"entity_id\0".as_ptr().cast()) },
+        }
+    }
+}
+
+impl From<SnapshotXattrs> for PropXattrs {
+    fn from(value: SnapshotXattrs) -> Self {
+        PropXattrs::Snapshot(value)
+    }
+}
+impl From<CloneXattrs> for PropXattrs {
+    fn from(value: CloneXattrs) -> Self {
+        PropXattrs::Clone(value)
+    }
+}
+
 /// Snapshot attributes used to store its properties.
-#[derive(Debug, EnumCountMacro, EnumIter)]
+#[derive(Debug, Clone, Copy, EnumCountMacro, EnumIter)]
 pub enum SnapshotXattrs {
+    ParentId,
     TxId,
     EntityId,
-    ParentId,
     SnapshotUuid,
     SnapshotCreateTime,
     /// if any snapshot delete gRPC request came and there are valid clones
@@ -266,20 +300,23 @@ pub enum SnapshotXattrs {
 }
 
 impl SnapshotXattrs {
-    pub fn name(&self) -> &'static str {
-        match *self {
-            Self::TxId => "io-engine.tx_id",
-            Self::EntityId => "io-engine.entity_id",
-            Self::ParentId => "io-engine.parent_id",
-            Self::SnapshotUuid => "uuid",
-            Self::SnapshotCreateTime => "io-engine.snapshot_create_time",
-            Self::DiscardedSnapshot => "io-engine.discarded_snapshot",
+    /// The name of the property as stored in the lvs extended attributes.
+    pub const fn name(&self) -> &CStr {
+        unsafe {
+            CStr::from_ptr(match *self {
+                Self::TxId => b"io-engine.tx_id\0".as_ptr().cast(),
+                Self::EntityId => b"io-engine.entity_id\0".as_ptr().cast(),
+                Self::ParentId => b"io-engine.parent_id\0".as_ptr().cast(),
+                Self::SnapshotUuid => b"uuid\0".as_ptr().cast(),
+                Self::SnapshotCreateTime => b"io-engine.snapshot_create_time\0".as_ptr().cast(),
+                Self::DiscardedSnapshot => b"io-engine.discarded_snapshot\0".as_ptr().cast(),
+            })
         }
     }
 }
 
 /// Clone attributes used to store its properties.
-#[derive(Debug, EnumCountMacro, EnumIter)]
+#[derive(Debug, Clone, Copy, EnumCountMacro, EnumIter)]
 pub enum CloneXattrs {
     CloneUuid,
     SourceUuid,
@@ -287,11 +324,14 @@ pub enum CloneXattrs {
 }
 
 impl CloneXattrs {
-    pub fn name(&self) -> &'static str {
-        match *self {
-            Self::CloneUuid => "uuid",
-            Self::SourceUuid => "io-engine.source_uuid",
-            Self::CloneCreateTime => "io-engine.clone_create_time",
+    /// The name of the property as stored in the lvs extended attributes.
+    pub const fn name(&self) -> &CStr {
+        unsafe {
+            CStr::from_ptr(match *self {
+                Self::CloneUuid => "uuid\0".as_ptr().cast(),
+                Self::SourceUuid => "io-engine.source_uuid\0".as_ptr().cast(),
+                Self::CloneCreateTime => "io-engine.clone_create_time\0".as_ptr().cast(),
+            })
         }
     }
 }

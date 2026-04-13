@@ -19,7 +19,7 @@ pub use lvs_error::{BsError, ImportErrorReason, LvsError};
 pub use lvs_iter::{LvsBdevIter, LvsIter};
 pub use lvs_lvol::{Lvol, LvsLvol, PropName, PropValue};
 pub use lvs_store::Lvs;
-use std::{convert::TryFrom, pin::Pin};
+use std::pin::Pin;
 
 mod lvol_iter;
 mod lvol_snapshot;
@@ -349,9 +349,7 @@ impl IReplicaFactory for ReplLvsFactory {
         &self,
         args: &FindReplicaArgs,
     ) -> Result<Option<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
-        let lvol = crate::core::Bdev::lookup_by_uuid_str(&args.uuid)
-            .map(Lvol::try_from)
-            .transpose()?;
+        let lvol = Lvol::lookup_by_uuid_str(&args.uuid);
         Ok(lvol.map(|l| Box::new(l) as _))
     }
 
@@ -359,9 +357,7 @@ impl IReplicaFactory for ReplLvsFactory {
         &self,
         args: &FindSnapshotArgs,
     ) -> Result<Option<Box<dyn SnapshotOps>>, crate::pool_backend::Error> {
-        let lvol = crate::core::Bdev::lookup_by_uuid_str(&args.uuid)
-            .map(Lvol::try_from)
-            .transpose()?;
+        let lvol = Lvol::lookup_by_uuid_str(&args.uuid);
         if let Some(lvol) = &lvol {
             // should this be an error?
             if !lvol.is_snapshot() {
@@ -390,8 +386,8 @@ impl IReplicaFactory for ReplLvsFactory {
     ) -> Result<Vec<SnapshotDescriptor>, crate::pool_backend::Error> {
         // if snapshot_uuid is input, get specific snapshot result
         Ok(if let Some(ref snapshot_uuid) = args.uuid {
-            let lvol = match crate::core::UntypedBdev::lookup_by_uuid_str(snapshot_uuid) {
-                Some(bdev) => Lvol::try_from(bdev)?,
+            let lvol = match Lvol::lookup_by_uuid_str(snapshot_uuid) {
+                Some(lvol) => lvol,
                 None => {
                     return Err(LvsError::Invalid {
                         source: BsError::LvolNotFound {},
@@ -402,8 +398,8 @@ impl IReplicaFactory for ReplLvsFactory {
             };
             lvol.list_snapshot_by_snapshot_uuid()
         } else if let Some(ref replica_uuid) = args.source_uuid {
-            let lvol = match crate::core::UntypedBdev::lookup_by_uuid_str(replica_uuid) {
-                Some(bdev) => Lvol::try_from(bdev)?,
+            let lvol = match Lvol::lookup_by_uuid_str(replica_uuid) {
+                Some(lvol) => lvol,
                 None => {
                     return Err(LvsError::Invalid {
                         source: BsError::LvolNotFound {},
@@ -423,8 +419,8 @@ impl IReplicaFactory for ReplLvsFactory {
         args: &ListCloneArgs,
     ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
         let clones = if let Some(snapshot_uuid) = &args.snapshot_uuid {
-            let snap_lvol = match crate::core::UntypedBdev::lookup_by_uuid_str(snapshot_uuid) {
-                Some(bdev) => Lvol::try_from(bdev),
+            let snap_lvol = match Lvol::lookup_by_uuid_str(snapshot_uuid) {
+                Some(lvol) => Ok(lvol),
                 None => Err(LvsError::Invalid {
                     source: BsError::LvolNotFound {},
                     msg: format!("Snapshot {snapshot_uuid} not found"),

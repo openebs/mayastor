@@ -113,11 +113,10 @@ where
 
     /// Looks up a Bdev by its uuid.
     pub fn lookup_by_uuid_str(uuid: &str) -> Option<Self> {
+        let uuid = uuid::Uuid::parse_str(uuid).ok()?;
         match Self::bdev_first() {
             None => None,
-            Some(bdev) => bdev
-                .into_iter()
-                .find(|b| b.uuid_as_string() == uuid.to_lowercase()),
+            Some(bdev) => bdev.into_iter().find(|b| b.uuid() == uuid),
         }
     }
 

@@ -43,7 +43,7 @@ pub use thread::Mthread;
 
 use crate::subsys::NvmfError;
 pub use snapshot::{
-    CloneParams, CloneXattrs, ISnapshotDescriptor, LvolSnapshotOps, SnapshotDescriptor,
+    CloneParams, CloneXattrs, ISnapshotDescriptor, LvolSnapshotOps, PropXattrs, SnapshotDescriptor,
     SnapshotParams, SnapshotXattrs,
 };
 
