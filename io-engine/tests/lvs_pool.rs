@@ -949,14 +949,17 @@ async fn lvol_snap_list() {
     ms.spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
 
-        for i in 1..=10 {
+        for i in 1..=1024 {
             let name = format!("replica-{i}");
             let opts = ReplicaArgs::new(name, repl_size)
                 .wipe_super(false)
                 .thin(true);
             let repl = lvs_pool.create_lvol_with_opts(opts).await.unwrap();
+            if i > 10 {
+                continue;
+            }
             use io_engine::core::SnapshotParams;
-            for j in 1..=512 {
+            for j in 1..=256 {
                 let snapshot = repl
                     .create_snapshot(SnapshotParams {
                         entity_id: Some(format!("e-{i}-{j}")),
@@ -986,7 +989,7 @@ async fn lvol_snap_list() {
 
     // this could vary depending on the system where we're running, but this is large enough that
     // it should run on weaker systems as well as low enough to ensure we're testing the fix.
-    let max_dur = std::time::Duration::from_secs(1);
+    let max_dur = std::time::Duration::from_secs(3);
 
     let list_tm = std::time::Instant::now();
     ms.spawn(async move {

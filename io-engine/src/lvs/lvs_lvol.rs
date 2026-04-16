@@ -501,18 +501,16 @@ impl Lvol {
 
     /// Count how many replica clones are dependent on this snapshot.
     pub fn clone_count(&self) -> u64 {
-        let mut count: u64 = 0;
+        let uuid = self.uuid().into_cstring();
         unsafe {
-            spdk_rs::libspdk::spdk_blob_get_real_clones(
+            spdk_rs::libspdk::spdk_blob_count_real_clones(
                 self.lvs().blob_store(),
-                self.as_inner_ref().blob_id,
-                std::ptr::null_mut(),
-                &mut count,
                 CloneXattrs::SourceUuid.name().as_ptr() as *const c_char,
+                uuid.as_ptr() as *const c_char,
             )
-        };
-        count
+        }
     }
+
     /// Count how many clones are dependent on this snapshot.
     /// # Warning
     /// These clones may be snapshots or "real_clones".
