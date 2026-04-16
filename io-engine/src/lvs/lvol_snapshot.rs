@@ -692,27 +692,37 @@ impl LvolSnapshotOps for Lvol {
 
     /// List clones based on snapshot_uuid.
     fn list_clones_by_snapshot_uuid(&self) -> Vec<Lvol> {
-        // todo: optimize this process, avoid multiple calls to spdk_blob_get_clones.
-        let clone_count = 100; /* self.blob_clone_count() as usize */
-        let mut clones = Vec::with_capacity(clone_count);
+        let uuid = self.uuid().into_cstring();
+        let clone_count = 100; /* self.clone_count() as usize */
+        struct SnapClones {
+            lvs: super::Lvs,
+            clones: Vec<Lvol>,
+        }
+        let mut snap_clones = SnapClones {
+            lvs: self.lvs(),
+            clones: Vec::with_capacity(clone_count),
+        };
         unsafe {
-            extern "C" fn cb(cb_arg: *mut c_void, lvol: *mut spdk_lvol) -> i32 {
-                let ctx = cb_arg as *mut Vec<Lvol>;
-                let lvol = Lvol::from_inner_ptr(lvol);
-                if lvol.is_clone() {
-                    unsafe {
-                        (*ctx).push(lvol);
-                    }
+            extern "C" fn cb(cb_arg: *mut c_void, blobid: spdk_rs::libspdk::spdk_blob_id) {
+                let ctx = cb_arg as *mut SnapClones;
+                let lvstore = unsafe { (*ctx).lvs.as_inner_ptr() };
+                let lvol = unsafe { spdk_rs::libspdk::lvs_get_lvol_by_blob_id(lvstore, blobid) };
+                if lvol.is_null() {
+                    return;
                 }
-                0
+                unsafe {
+                    (*ctx).clones.push(Lvol::from_inner_ptr(lvol));
+                }
             }
-            spdk_rs::libspdk::spdk_lvol_iter_immediate_clones(
-                self.as_inner_ptr(),
+            spdk_rs::libspdk::spdk_blob_get_real_clones(
+                self.lvs().blob_store(),
+                CloneXattrs::SourceUuid.name().as_ptr() as *const c_char,
+                uuid.as_ptr() as *const c_char,
                 Some(cb),
-                &mut clones as *mut _ as *mut std::ffi::c_void,
+                &mut snap_clones as *mut _ as *mut std::ffi::c_void,
             );
         }
-        clones
+        snap_clones.clones
     }
 
     /// List All Clones.
