@@ -639,19 +639,47 @@ impl Reactor {
 
     /// Switch all SPDK threads to interrupt mode and nest their
     /// fd_groups into the reactor's fd_group. Called once at startup.
+    ///
+    /// Two-phase to make rollback clean: first nest every thread's
+    /// fd_group, then flip each thread to interrupt mode. If any nest
+    /// fails we unnest what we've done and return without transitioning
+    /// the reactor to Interrupt — a partially-nested reactor would
+    /// leave silent pollers (threads whose fgrps aren't under the
+    /// sleeping reactor's fd_group never fire — see PR #1966 review).
     fn enter_interrupt_mode(&self) {
         let Some(fgrp) = self.fgrp.as_ref() else {
             return;
         };
 
         let threads = self.threads.borrow();
+        // Phase 1: nest every thread's fd_group.
+        let mut nested: Vec<*mut spdk_rs::libspdk::spdk_fd_group> =
+            Vec::with_capacity(threads.len());
         for t in threads.iter() {
             let thread_fgrp = t.get_interrupt_fd_group();
-            if !thread_fgrp.is_null() {
-                if let Err(rc) = fgrp.nest(thread_fgrp) {
-                    warn!("Failed to nest thread '{}' fd_group (rc={rc})", t.name());
-                }
+            if thread_fgrp.is_null() {
+                continue;
             }
+            if let Err(rc) = fgrp.nest(thread_fgrp) {
+                error!(
+                    "Core {}: nest failed for thread '{}' (rc={}) — \
+                     staying in poll mode",
+                    self.lcore,
+                    t.name(),
+                    rc,
+                );
+                for n in nested {
+                    let _ = fgrp.unnest(n);
+                }
+                return;
+            }
+            nested.push(thread_fgrp);
+        }
+
+        // Phase 2: flip every thread to interrupt mode. Only runs if
+        // all nests succeeded above, so there's no partial state to
+        // roll back here.
+        for t in threads.iter() {
             // spdk_thread_set_interrupt_mode operates on the current
             // SPDK thread (spdk_get_thread()) -- no thread arg -- so
             // we must set_current() first.
@@ -677,8 +705,11 @@ impl Reactor {
         self.set_state(ReactorState::Interrupt);
     }
 
-    /// Switch all SPDK threads back to poll mode. Called on shutdown.
-    fn exit_interrupt_mode(&self) {
+    /// Roll this reactor back to poll mode from Interrupt. Unnests every
+    /// thread's fd_group from the reactor's fgrp and flips each thread
+    /// to poll mode. Shared by exit_interrupt_mode (shutdown) and the
+    /// add_incoming nest-failure path (runtime fallback).
+    fn leave_interrupt_mode(&self) {
         let Some(fgrp) = self.fgrp.as_ref() else {
             return;
         };
@@ -694,8 +725,13 @@ impl Reactor {
             }
         }
         drop(threads);
-        info!("Core {}: exited interrupt mode", self.lcore);
         self.set_state(ReactorState::Running);
+    }
+
+    /// Switch all SPDK threads back to poll mode. Called on shutdown.
+    fn exit_interrupt_mode(&self) {
+        self.leave_interrupt_mode();
+        info!("Core {}: exited interrupt mode", self.lcore);
     }
 
     /// Block until I/O events arrive or send_future() signals the
@@ -739,26 +775,44 @@ impl Reactor {
             .then_some(self.fgrp.as_ref())
             .flatten();
 
+        let mut fallback_reason: Option<(String, i32)> = None;
         while let Some(i) = self.incoming.pop() {
-            if let Some(fgrp) = nest_into_fgrp {
-                let thread_fgrp = i.get_interrupt_fd_group();
-                if !thread_fgrp.is_null() {
-                    if let Err(rc) = fgrp.nest(thread_fgrp) {
-                        warn!(
-                            "add_incoming: failed to nest thread '{}' fd_group on core {} (rc={rc})",
-                            i.name(),
-                            self.lcore,
-                        );
-                    } else {
-                        debug!(
-                            "add_incoming: nested thread '{}' fd_group on core {}",
-                            i.name(),
-                            self.lcore,
-                        );
+            if fallback_reason.is_none() {
+                if let Some(fgrp) = nest_into_fgrp {
+                    let thread_fgrp = i.get_interrupt_fd_group();
+                    if !thread_fgrp.is_null() {
+                        match fgrp.nest(thread_fgrp) {
+                            Ok(()) => {
+                                debug!(
+                                    "add_incoming: nested thread '{}' fd_group on core {}",
+                                    i.name(),
+                                    self.lcore,
+                                );
+                            }
+                            Err(rc) => {
+                                // Can't leave the reactor half-nested
+                                // (threads whose fgrps aren't under
+                                // the sleeping reactor's fd_group
+                                // never get polled — PR #1966 review).
+                                // Capture the reason, stop trying to
+                                // nest further incomings, fall back
+                                // below after the drain completes.
+                                fallback_reason = Some((i.name().to_string(), rc));
+                            }
+                        }
                     }
                 }
             }
             self.threads.borrow_mut().push_back(i);
+        }
+
+        if let Some((name, rc)) = fallback_reason {
+            error!(
+                "Core {}: add_incoming nest failed for thread '{}' (rc={}) — \
+                 falling back to poll mode",
+                self.lcore, name, rc,
+            );
+            self.leave_interrupt_mode();
         }
     }
 
