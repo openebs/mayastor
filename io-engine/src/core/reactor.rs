@@ -159,12 +159,9 @@ impl Reactors {
             // and the rest in poll mode is worse than either pure
             // configuration (see PR #1966 review).
             if interrupt_mode {
-                let rc = spdk_rs::Thread::interrupt_mode_enable();
-                assert_eq!(
-                    rc, 0,
-                    "Failed to enable SPDK interrupt mode (rc={}); \
+                spdk_rs::Thread::interrupt_mode_enable().expect(
+                    "Failed to enable SPDK interrupt mode; \
                      aborting rather than running in mixed mode",
-                    rc,
                 );
                 info!("SPDK interrupt mode enabled globally");
             }
@@ -328,11 +325,8 @@ impl Reactor {
         // (see PR #1966 review). ENOMEM or init-order violations at
         // boot are unrecoverable anyway.
         let (fgrp, wakeup_fd) = if interrupt_enabled {
-            let fg = spdk_rs::FdGroup::create().unwrap_or_else(|rc| {
-                panic!(
-                    "Reactor core {}: failed to create fd_group (rc={})",
-                    core, rc
-                )
+            let fg = spdk_rs::FdGroup::create().unwrap_or_else(|err| {
+                panic!("Reactor core {}: failed to create fd_group ({})", core, err)
             });
             let efd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
             assert!(
@@ -350,11 +344,11 @@ impl Reactor {
                 std::ptr::null_mut(),
                 spdk_rs::FD_TYPE_EVENTFD,
             )
-            .unwrap_or_else(|rc| {
+            .unwrap_or_else(|err| {
                 unsafe { libc::close(efd) };
                 panic!(
-                    "Reactor core {}: failed to add wakeup eventfd to fd_group (rc={})",
-                    core, rc
+                    "Reactor core {}: failed to add wakeup eventfd to fd_group ({})",
+                    core, err
                 )
             });
             info!("Reactor core {core}: interrupt mode enabled");
@@ -663,13 +657,13 @@ impl Reactor {
             if thread_fgrp.is_null() {
                 continue;
             }
-            if let Err(rc) = fgrp.nest(thread_fgrp) {
+            if let Err(err) = fgrp.nest(thread_fgrp) {
                 error!(
-                    "Core {}: nest failed for thread '{}' (rc={}) — \
+                    "Core {}: nest failed for thread '{}' ({}) — \
                      staying in poll mode",
                     self.lcore,
                     t.name(),
-                    rc,
+                    err,
                 );
                 for n in nested {
                     let _ = fgrp.unnest(n);
@@ -778,7 +772,7 @@ impl Reactor {
             .then_some(self.fgrp.as_ref())
             .flatten();
 
-        let mut fallback_reason: Option<(String, i32)> = None;
+        let mut fallback_reason: Option<(String, Errno)> = None;
         while let Some(i) = self.incoming.pop() {
             if fallback_reason.is_none() {
                 if let Some(fgrp) = nest_into_fgrp {
@@ -792,7 +786,7 @@ impl Reactor {
                                     self.lcore,
                                 );
                             }
-                            Err(rc) => {
+                            Err(err) => {
                                 // Can't leave the reactor half-nested
                                 // (threads whose fgrps aren't under
                                 // the sleeping reactor's fd_group
@@ -800,7 +794,7 @@ impl Reactor {
                                 // Capture the reason, stop trying to
                                 // nest further incomings, fall back
                                 // below after the drain completes.
-                                fallback_reason = Some((i.name().to_string(), rc));
+                                fallback_reason = Some((i.name().to_string(), err));
                             }
                         }
                     }
@@ -809,11 +803,11 @@ impl Reactor {
             self.threads.borrow_mut().push_back(i);
         }
 
-        if let Some((name, rc)) = fallback_reason {
+        if let Some((name, err)) = fallback_reason {
             error!(
-                "Core {}: add_incoming nest failed for thread '{}' (rc={}) — \
+                "Core {}: add_incoming nest failed for thread '{}' ({}) — \
                  falling back to poll mode",
-                self.lcore, name, rc,
+                self.lcore, name, err,
             );
             self.leave_interrupt_mode();
         }
