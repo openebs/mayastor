@@ -342,7 +342,7 @@ impl Reactor {
                 efd,
                 Self::wakeup_handler,
                 std::ptr::null_mut(),
-                spdk_rs::FD_TYPE_EVENTFD,
+                spdk_rs::libspdk::SPDK_FD_TYPE_EVENTFD,
             )
             .unwrap_or_else(|err| {
                 unsafe { libc::close(efd) };
