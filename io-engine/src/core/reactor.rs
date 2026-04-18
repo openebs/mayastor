@@ -157,9 +157,8 @@ impl Reactors {
                 let rc = spdk_rs::Thread::interrupt_mode_enable();
                 if rc != 0 {
                     error!(
-                        "Failed to enable SPDK interrupt mode (rc={}), \
-                         falling back to poll mode",
-                        rc
+                        "Failed to enable SPDK interrupt mode (rc={rc}), \
+                         falling back to poll mode"
                     );
                 } else {
                     info!("SPDK interrupt mode enabled globally");
@@ -349,23 +348,22 @@ impl Reactor {
                         ) {
                             Ok(()) => {
                                 wakeup_fd = efd;
-                                info!("Reactor core {}: interrupt mode enabled", core);
+                                info!("Reactor core {core}: interrupt mode enabled");
                                 fgrp = Some(fg);
                             }
                             Err(rc) => {
-                                error!("Failed to add wakeup eventfd to fd_group (rc={})", rc,);
+                                error!("Failed to add wakeup eventfd to fd_group (rc={rc})");
                                 unsafe { libc::close(efd) };
                             }
                         }
                     } else {
-                        error!("Failed to create wakeup eventfd for core {}", core);
+                        error!("Failed to create wakeup eventfd for core {core}");
                     }
                 }
                 Err(rc) => {
                     error!(
-                        "Failed to create fd_group for core {} (rc={}), \
-                         interrupt mode disabled",
-                        core, rc,
+                        "Failed to create fd_group for core {core} (rc={rc}), \
+                         interrupt mode disabled"
                     );
                 }
             }
@@ -585,6 +583,13 @@ impl Reactor {
                     // Block until I/O events or wakeup from send_future.
                     // fd_group_wait dispatches events to the registered
                     // interrupt callbacks (which are the poller functions).
+                    //
+                    // No explicit t.poll() afterwards: in interrupt mode,
+                    // spdk_thread_poll's interrupt path is invoked via the
+                    // nested thread fd_groups during fd_group_wait itself
+                    // (see spdk/lib/event/reactor.c spdk_thread_poll), so
+                    // an extra per-thread poll would just re-enter the
+                    // same code path with nothing to do.
                     self.wait_for_events();
                     // Restore init_thread context before running Rust
                     // futures. fd_group_wait wrappers save/restore the
@@ -641,9 +646,8 @@ impl Reactor {
     /// Switch all SPDK threads to interrupt mode and nest their
     /// fd_groups into the reactor's fd_group. Called once at startup.
     fn enter_interrupt_mode(&self) {
-        let fgrp = match &self.fgrp {
-            Some(fg) => fg,
-            None => return,
+        let Some(fgrp) = self.fgrp.as_ref() else {
+            return;
         };
 
         let threads = self.threads.borrow();
@@ -651,9 +655,12 @@ impl Reactor {
             let thread_fgrp = t.get_interrupt_fd_group();
             if !thread_fgrp.is_null() {
                 if let Err(rc) = fgrp.nest(thread_fgrp) {
-                    warn!("Failed to nest thread '{}' fd_group (rc={})", t.name(), rc,);
+                    warn!("Failed to nest thread '{}' fd_group (rc={rc})", t.name());
                 }
             }
+            // spdk_thread_set_interrupt_mode operates on the current
+            // SPDK thread (spdk_get_thread()) -- no thread arg -- so
+            // we must set_current() first.
             t.set_current();
             spdk_rs::Thread::set_interrupt_mode(true);
         }
@@ -678,9 +685,8 @@ impl Reactor {
 
     /// Switch all SPDK threads back to poll mode. Called on shutdown.
     fn exit_interrupt_mode(&self) {
-        let fgrp = match &self.fgrp {
-            Some(fg) => fg,
-            None => return,
+        let Some(fgrp) = self.fgrp.as_ref() else {
+            return;
         };
 
         let threads = self.threads.borrow();
@@ -745,13 +751,12 @@ impl Reactor {
                 if !thread_fgrp.is_null() {
                     if let Err(rc) = fgrp.nest(thread_fgrp) {
                         warn!(
-                            "add_incoming: failed to nest thread '{}' fd_group on core {} (rc={})",
+                            "add_incoming: failed to nest thread '{}' fd_group on core {} (rc={rc})",
                             i.name(),
                             self.lcore,
-                            rc,
                         );
                     } else {
-                        info!(
+                        debug!(
                             "add_incoming: nested thread '{}' fd_group on core {}",
                             i.name(),
                             self.lcore,
