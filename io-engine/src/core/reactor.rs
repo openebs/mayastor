@@ -646,7 +646,10 @@ impl Reactor {
     /// the reactor to Interrupt — a partially-nested reactor would
     /// leave silent pollers (threads whose fgrps aren't under the
     /// sleeping reactor's fd_group never fire — see PR #1966 review).
-    fn enter_interrupt_mode(&self) {
+    ///
+    /// No-op if interrupt mode isn't enabled on this reactor (fgrp is
+    /// None). Safe to call unconditionally.
+    pub fn enter_interrupt_mode(&self) {
         let Some(fgrp) = self.fgrp.as_ref() else {
             return;
         };
@@ -974,8 +977,13 @@ impl Future for &'static Reactor {
                 Poll::Pending
             }
             ReactorState::Interrupt => {
-                // Interrupt state is handled by poll_reactor(), not here.
-                // Fall through to Running behavior for safety.
+                // Master core in interrupt mode: master is driven by
+                // the tokio runtime (via this Future impl), not by a
+                // dedicated thread in fd_group_wait, so we can't block
+                // here — tokio expects quick poll returns. CPU savings
+                // on master come from spdk_thread_poll's interrupt-
+                // mode path (pollers that wake via fds, not via every
+                // tick), not from the reactor sleeping.
                 self.poll_times(3);
                 cx.waker().wake_by_ref();
                 Poll::Pending

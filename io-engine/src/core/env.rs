@@ -1254,6 +1254,13 @@ impl MayastorEnvironment {
             }
 
             let master = Reactors::current();
+            // Put the master core into interrupt mode too if the
+            // feature was enabled. The slave reactors transition via
+            // poll_reactor(); master is driven by tokio through the
+            // Future impl below, so we have to call it explicitly.
+            // No-op if interrupt mode isn't enabled on master.
+            // Threads added later are handled via add_incoming.
+            master.enter_interrupt_mode();
             master.send_future(async { f() });
             let mut futures: Vec<Pin<Box<dyn future::Future<Output = FutureResult>>>> = Vec::new();
             if let Some(grpc_endpoint) = grpc_endpoint {
