@@ -153,16 +153,20 @@ impl Reactors {
             }
             // Enable SPDK interrupt mode globally if requested.
             // Must be called BEFORE spdk_thread_lib_init_ext().
+            // Failure here (typically -ENOMEM or init-order violation)
+            // is unrecoverable and we must not silently fall back to
+            // poll mode: running a subset of reactors in interrupt mode
+            // and the rest in poll mode is worse than either pure
+            // configuration (see PR #1966 review).
             if interrupt_mode {
                 let rc = spdk_rs::Thread::interrupt_mode_enable();
-                if rc != 0 {
-                    error!(
-                        "Failed to enable SPDK interrupt mode (rc={rc}), \
-                         falling back to poll mode"
-                    );
-                } else {
-                    info!("SPDK interrupt mode enabled globally");
-                }
+                assert_eq!(
+                    rc, 0,
+                    "Failed to enable SPDK interrupt mode (rc={}); \
+                     aborting rather than running in mixed mode",
+                    rc,
+                );
+                info!("SPDK interrupt mode enabled globally");
             }
 
             let rc = unsafe {
@@ -170,19 +174,10 @@ impl Reactors {
             };
             assert_eq!(rc, 0);
 
-            let interrupt_available = interrupt_mode
-                && spdk_rs::Thread::interrupt_mode_is_enabled();
-
             Reactors(
                 Cores::count()
                     .into_iter()
-                    .map(|core| {
-                        Reactor::new(
-                            core,
-                            developer_delay,
-                            interrupt_available,
-                        )
-                    })
+                    .map(|core| Reactor::new(core, developer_delay, interrupt_mode))
                     .collect::<Vec<_>>(),
             )
         });
@@ -325,49 +320,48 @@ impl Reactor {
         // create a channel to receive futures on
         let (sx, rx) = unbounded::<Pin<Box<dyn Future<Output = ()> + 'static>>>();
 
-        let mut fgrp = None;
-        let mut wakeup_fd: RawFd = -1;
-
-        if interrupt_enabled {
-            match spdk_rs::FdGroup::create() {
-                Ok(fg) => {
-                    // Create an eventfd and register it in the reactor's
-                    // fd_group so send_future() can wake us from
-                    // fd_group_wait().
-                    let efd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
-                    if efd >= 0 {
-                        // Register as EVENTFD type so fd_group_wait()
-                        // auto-drains it. Without this, a single
-                        // send_future() write makes the fd permanently
-                        // readable (level-triggered), spinning the reactor.
-                        match fg.add_with_fd_type(
-                            efd,
-                            Self::wakeup_handler,
-                            std::ptr::null_mut(),
-                            spdk_rs::FD_TYPE_EVENTFD,
-                        ) {
-                            Ok(()) => {
-                                wakeup_fd = efd;
-                                info!("Reactor core {core}: interrupt mode enabled");
-                                fgrp = Some(fg);
-                            }
-                            Err(rc) => {
-                                error!("Failed to add wakeup eventfd to fd_group (rc={rc})");
-                                unsafe { libc::close(efd) };
-                            }
-                        }
-                    } else {
-                        error!("Failed to create wakeup eventfd for core {core}");
-                    }
-                }
-                Err(rc) => {
-                    error!(
-                        "Failed to create fd_group for core {core} (rc={rc}), \
-                         interrupt mode disabled"
-                    );
-                }
-            }
-        }
+        // Initialise the per-reactor fd_group + wakeup eventfd for
+        // interrupt mode. We fail the process on any setup error
+        // rather than silently falling back to poll mode: a mixed
+        // configuration where some reactors interrupt and others poll
+        // has been a source of hard-to-diagnose deadlocks in the past
+        // (see PR #1966 review). ENOMEM or init-order violations at
+        // boot are unrecoverable anyway.
+        let (fgrp, wakeup_fd) = if interrupt_enabled {
+            let fg = spdk_rs::FdGroup::create().unwrap_or_else(|rc| {
+                panic!(
+                    "Reactor core {}: failed to create fd_group (rc={})",
+                    core, rc
+                )
+            });
+            let efd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+            assert!(
+                efd >= 0,
+                "Reactor core {}: failed to create wakeup eventfd",
+                core,
+            );
+            // Register as EVENTFD type so fd_group_wait() auto-drains
+            // it. Without this, a single send_future() write makes the
+            // fd permanently readable (level-triggered), spinning the
+            // reactor.
+            fg.add_with_fd_type(
+                efd,
+                Self::wakeup_handler,
+                std::ptr::null_mut(),
+                spdk_rs::FD_TYPE_EVENTFD,
+            )
+            .unwrap_or_else(|rc| {
+                unsafe { libc::close(efd) };
+                panic!(
+                    "Reactor core {}: failed to add wakeup eventfd to fd_group (rc={})",
+                    core, rc
+                )
+            });
+            info!("Reactor core {core}: interrupt mode enabled");
+            (Some(fg), efd)
+        } else {
+            (None, -1)
+        };
 
         Self {
             threads: RefCell::new(VecDeque::new()),
@@ -378,7 +372,7 @@ impl Reactor {
             tid: Cell::new(0),
             sx,
             rx,
-            interrupt_enabled: fgrp.is_some(),
+            interrupt_enabled,
             fgrp,
             wakeup_fd,
         }
