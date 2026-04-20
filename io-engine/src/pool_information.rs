@@ -14,7 +14,7 @@ pub static POOL_INFO: Lazy<RwLock<HashMap<String, RwLock<PoolInfo>>>> =
 pub struct PoolInfo {
     /// Set when Pools io is under stall.
     pub io_stalled: bool,
-    /// Contains list of timestamps when pool went into stall state.
+    /// Contains list of timestamps when pool resumed from stall state.
     pub transition_timestamps: VecDeque<Instant>,
 }
 

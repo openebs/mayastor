@@ -7,7 +7,8 @@ use io_engine::{
         Protocol, Share, ToErrno, UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
-    lvs::{LvolSnapshotOps, Lvs, LvsLvol, PropName, PropValue},
+    lvm::dm_setup::DmState,
+    lvs::{LvolSnapshotOps, Lvs, LvsError, LvsLvol, PropName, PropValue},
     pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
     subsys::NvmfSubsystem,
 };
@@ -16,7 +17,8 @@ use io_engine_api::v1::{
     replica::ListReplicaOptions,
 };
 use once_cell::sync::OnceCell;
-use std::pin::Pin;
+use std::{pin::Pin, str::FromStr};
+use tokio::time::sleep;
 
 pub mod common;
 
@@ -28,6 +30,9 @@ static DISK_CRYPTO: &str = "/tmp/io-engine-tests/crypto_disk.img";
 static XTS_KEY: &str = "2b7e151628aed2a6abf7158809cf4f3c";
 static XTS_KEY2: &str = "2b7e151628aed2a6abf7158809cf4f3d";
 const IO_ERROR_THRESHOLD: u64 = 5;
+const IO_STALL_TRANSITION_WINDOW: &str = "12s";
+const IO_STALL_DEADLINE: &str = "1s";
+const IO_STALL_TRANSITION_THRESHOLD: u64 = 3;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -37,7 +42,11 @@ fn ms() -> &'static MayastorTest<'static> {
             reactor_mask: "0x3".into(),
             pool: PoolCliArgs {
                 io_error_threshold: IO_ERROR_THRESHOLD,
-                ..Default::default()
+                io_stall_transition_threshold: IO_STALL_TRANSITION_THRESHOLD,
+                io_stall_transition_window: IO_STALL_TRANSITION_WINDOW
+                    .parse::<humantime::Duration>()
+                    .unwrap(),
+                io_stall_deadline: IO_STALL_DEADLINE.parse::<humantime::Duration>().unwrap(),
             },
             // log_components: vec!["all".into()],
             nvme: NvmeCliArgs {
@@ -693,6 +702,175 @@ async fn lvs_errors() {
     .await;
 
     vg_pool.purge().await.unwrap();
+}
+
+#[tokio::test]
+async fn lvs_stall() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    common::delete_file(&[DISKNAME1.into()]);
+    common::truncate_file(DISKNAME1, 128 * 1024);
+
+    const VG_NAME: &str = "vg-1";
+    const LV_NAME: &str = "lvol1";
+
+    struct TestGuard {
+        loop_dev: Option<String>,
+    }
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            if let Some(loop_dev) = self.loop_dev.take() {
+                let script = r#"
+                    export LVM_SUPPRESS_FD_WARNINGS=1
+                    dmsetup resume $2/lvol1
+                    lvremove -f vg-1/lvol1
+                    vgremove -f -y $2
+                    pvremove -f $3
+                "#;
+                let args = vec![DISKNAME2.into(), VG_NAME.into(), loop_dev.clone()];
+                run_script::run_script!(script, args, run_script::ScriptOptions::new()).ok();
+                common::detach_loopdev(&loop_dev);
+            }
+        }
+    }
+    let mut guard = TestGuard { loop_dev: None };
+
+    //setup disk1 via loop device using a sector size of 4096.
+    let ldev = common::setup_loopdev_file(DISKNAME1, Some(4096));
+    guard.loop_dev = Some(ldev.clone());
+
+    let vg_pool = io_engine::lvm::VolumeGroup::create(PoolArgs {
+        name: VG_NAME.into(),
+        disks: vec![ldev.clone()],
+        no_spdk: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let mut lvol = vg_pool
+        .create_lvol(ReplicaArgs {
+            name: LV_NAME.into(),
+            uuid: LV_NAME.into(),
+            size: 64 * 1024 * 1024,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![format!("aio://{}", lvol.path())],
+        backend: PoolBackend::Lvs,
+        ..Default::default()
+    };
+
+    let ms = ms();
+    ms.spawn(async move {
+        Lvs::create_or_import(pool_args).await.unwrap();
+    })
+    .await;
+
+    ms.spawn(async move {
+        let lvs = Lvs::lookup("tpool").unwrap();
+        let r = lvs.grow().await.unwrap_err();
+        assert!(matches!(r, LvsError::BdevNotExtended { .. }));
+    })
+    .await;
+
+    for i in 1..(IO_STALL_TRANSITION_THRESHOLD + 1) {
+        let state = lvol.dm_suspend().await.unwrap();
+
+        assert_eq!(state, DmState::Suspended);
+        ms.spawn_detached(async move {
+            let lvs = Lvs::lookup("tpool").unwrap();
+            let _ = lvs.grow().await;
+        });
+
+        let duration: std::time::Duration = humantime::Duration::from_str(IO_STALL_DEADLINE)
+            .unwrap()
+            .into();
+
+        sleep(duration * 2).await;
+
+        let (pool, _errors, alerts) = ms
+            .spawn(async {
+                let lvs = Lvs::lookup("tpool").unwrap();
+                pool_info(&lvs).await
+            })
+            .await;
+
+        assert_eq!(pool.state(), PoolState::PoolSuspected);
+        assert_eq!(alerts.critical, vec![PoolAlert::IoStalled as i32]);
+        assert_eq!(alerts.status(), PoolAlertStatus::Critical);
+
+        let state = lvol.dm_resume().await.unwrap();
+        assert_eq!(state, DmState::Active);
+
+        ms.spawn(async move {
+            let lvs = Lvs::lookup("tpool").unwrap();
+            let r = lvs.grow().await.unwrap_err();
+            assert!(matches!(r, LvsError::BdevNotExtended { .. }));
+        })
+        .await;
+
+        if 1 < i && i < IO_STALL_TRANSITION_THRESHOLD {
+            let (pool, errors, alerts) = ms
+                .spawn(async {
+                    let lvs = Lvs::lookup("tpool").unwrap();
+                    pool_info(&lvs).await
+                })
+                .await;
+
+            assert_eq!(pool.state(), PoolState::PoolOnline);
+            assert_eq!(errors.io_stall_transition_count, i);
+            assert_eq!(
+                alerts.attention,
+                vec![PoolAlert::IoStallIntermittent as i32]
+            );
+            assert_eq!(alerts.status(), PoolAlertStatus::Attention);
+        }
+    }
+
+    ms.spawn(async move {
+        let lvs = Lvs::lookup("tpool").unwrap();
+        let (pool, errors, alerts) = pool_info(&lvs).await;
+        assert_eq!(pool.state(), PoolState::PoolSuspected);
+        assert_eq!(
+            errors.io_stall_transition_count,
+            IO_STALL_TRANSITION_THRESHOLD
+        );
+        assert_eq!(
+            alerts.warning,
+            vec![PoolAlert::IoStallIntermittentExc as i32]
+        );
+        assert_eq!(alerts.status(), PoolAlertStatus::Warning);
+    })
+    .await;
+
+    sleep(
+        humantime::Duration::from_str(IO_STALL_TRANSITION_WINDOW)
+            .unwrap()
+            .into(),
+    )
+    .await;
+
+    ms.spawn(async move {
+        let lvs = Lvs::lookup("tpool").unwrap();
+        let (pool, errors, _alerts) = pool_info(&lvs).await;
+        assert_eq!(pool.state(), PoolState::PoolOnline);
+        assert_eq!(errors.io_stall_transition_count, 0);
+    })
+    .await;
+
+    ms.spawn(async move {
+        let lvs = Lvs::lookup("tpool").unwrap();
+        lvs.destroy().await.unwrap();
+    })
+    .await;
 }
 
 async fn pool_info(pool: &dyn PoolOps) -> (Pool, PoolErrors, PoolAlerts) {

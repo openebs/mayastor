@@ -5,18 +5,22 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use parking_lot::RwLock;
 use pin_utils::core_reexport::fmt::Formatter;
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr};
+use std::{
+    convert::TryFrom, fmt::Debug, os::raw::c_void, pin::Pin, ptr::NonNull, str::FromStr,
+    time::Instant,
+};
 use url::Url;
 
 use spdk_rs::libspdk::{
-    bdev_aio_rescan, bdev_uring_rescan, spdk_bdev_update_bs_blockcnt, spdk_blob_store,
-    spdk_bs_free_cluster_count, spdk_bs_get_cluster_size, spdk_bs_get_max_growable_size,
-    spdk_bs_get_md_len, spdk_bs_get_page_size, spdk_bs_get_used_md,
-    spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_opts, spdk_lvol_opts_init,
-    spdk_lvol_store, spdk_lvs_grow_live, vbdev_get_lvol_store_by_name,
+    bdev_aio_rescan, bdev_uring_rescan, spdk_bdev_io, spdk_bdev_update_bs_blockcnt,
+    spdk_blob_store, spdk_bs_free_cluster_count, spdk_bs_get_cluster_size,
+    spdk_bs_get_max_growable_size, spdk_bs_get_md_len, spdk_bs_get_page_size, spdk_bs_get_used_md,
+    spdk_bs_read_super, spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_opts,
+    spdk_lvol_opts_init, spdk_lvol_store, spdk_lvs_grow_live, vbdev_get_lvol_store_by_name,
     vbdev_get_lvol_store_by_uuid, vbdev_get_lvs_bdev_by_lvs, vbdev_lvol_create_with_opts,
-    vbdev_lvs_create_ext, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct, vbdev_lvs_import,
-    vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
+    vbdev_lvs_bs_bdev_reset, vbdev_lvs_create_ext, vbdev_lvs_create_with_uuid, vbdev_lvs_destruct,
+    vbdev_lvs_import, vbdev_lvs_set_timeout, vbdev_lvs_unload, LVOL_CLEAR_WITH_NONE,
+    LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
 };
 
 use super::{BsError, ImportErrorReason, Lvol, LvsError, LvsIter, PropName, PropValue};
@@ -28,8 +32,8 @@ use crate::{
     },
     bdev_api::{bdev_destroy, BdevError},
     core::{
-        logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType, NvmfShareProps,
-        Share, UntypedBdev,
+        logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType,
+        MayastorEnvironment, NvmfShareProps, Reactors, Share, UntypedBdev,
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -38,7 +42,7 @@ use crate::{
         LvolSnapshotDescriptor,
     },
     pool_backend::{PoolArgs, ReplicaArgs},
-    pool_information::{pool_info_write, PoolInfo},
+    pool_information::{pool_info_read, pool_info_write, PoolInfo},
     sleep::mayastor_sleep,
 };
 
@@ -307,6 +311,71 @@ impl Lvs {
         cache.remove(pool);
     }
 
+    /// Enable stall detection on a given Pool.
+    fn enable_stall_detection(&self) {
+        let lvs = self.name();
+        let environ = MayastorEnvironment::global();
+        let secs: u64 = environ.pool_args.io_stall_deadline.as_secs();
+        let rc = unsafe {
+            vbdev_lvs_set_timeout(self.as_inner_ptr(), secs, Some(Self::lvstore_timeout_cb))
+        };
+        if rc != 0 {
+            error!(
+                "error while enabling stall deadline on pool {}: {:?}",
+                self.name(),
+                Errno::from_raw(rc)
+            );
+        } else {
+            info!("enabled stall detection of {secs}s on {lvs}");
+        }
+    }
+
+    /// Disable stall detection on a given Pool if reset is submitted successfullly.
+    /// This is to stop receiving flood of callbacks as SPDK sends notification
+    /// for all IOs which are stuck on the Pool in loop.
+    fn disable_stall_detection(&self, rc: i32) {
+        if rc == 0 {
+            let lvs = self.name();
+            if let Some(pool_lock) = pool_info_read().get(lvs) {
+                let mut pool_mut = pool_lock.write();
+                pool_mut.io_stalled = true;
+            }
+            let rc = unsafe { vbdev_lvs_set_timeout(self.as_inner_ptr(), 0, None) };
+            if rc != 0 {
+                error!("rc {rc} while disabling stall deadline on pool {lvs}");
+            } else {
+                info!("disabled stall detection on {lvs}");
+            }
+        }
+    }
+
+    /// Attempts to reset the pool facing IO stall and disables stall detection
+    /// to avoid flood of callbacks if reset is submitted successfully.
+    fn mark_io_stalled(&self) {
+        let p = std::ptr::null_mut();
+        let rc = unsafe {
+            vbdev_lvs_bs_bdev_reset(self.as_inner_ptr(), Some(Self::lvstore_reset_cb), p)
+        };
+        self.disable_stall_detection(rc);
+    }
+
+    /// Marks the pool as recovered in the cache, update transition timestamp and re-enables stall detection.
+    fn mark_io_resume(&self) {
+        let lvs = self.name();
+        if let Some(pool_lock) = pool_info_read().get(lvs) {
+            let mut pool_mut = pool_lock.write();
+            pool_mut.io_stalled = false;
+            info!("Pool {lvs} recovered from IO stall");
+            let cli_args = MayastorEnvironment::global();
+            let max_entries = cli_args.pool_args.io_stall_transition_threshold * 10;
+            if pool_mut.transition_timestamps.len() == max_entries as usize {
+                let _ = pool_mut.transition_timestamps.pop_front();
+            }
+            pool_mut.transition_timestamps.push_back(Instant::now());
+        }
+        self.enable_stall_detection();
+    }
+
     // checks for the disks length and parses to correct format
     pub fn parse_disk(disks: &[String]) -> Result<String, LvsError> {
         let disk = match disks.first() {
@@ -402,6 +471,7 @@ impl Lvs {
             lvs.share_all().await;
             info!("{:?}: existing lvs imported successfully", lvs);
             lvs.add_info();
+            lvs.enable_stall_detection();
             Ok(lvs)
         }
     }
@@ -570,6 +640,7 @@ impl Lvs {
             Some(pool) => {
                 info!("{pool:?}: new lvs created successfully");
                 pool.add_info();
+                pool.enable_stall_detection();
                 Ok(pool)
             }
             None => Err(LvsError::PoolCreate {
@@ -577,6 +648,39 @@ impl Lvs {
                 name: args.name.clone(),
             }),
         }
+    }
+
+    /// Callback function called by SPDK when IO stalls beyond stall deadline period.
+    extern "C" fn lvstore_timeout_cb(ctx: *mut c_void, _bdev_io: *mut spdk_bdev_io) {
+        let lv_store = ctx as *mut spdk_lvol_store;
+        let lvs: Lvs = Lvs::from_inner_ptr(lv_store);
+        lvs.mark_io_stalled();
+    }
+
+    /// Callback function called by SPDK when reset completes.
+    extern "C" fn lvstore_reset_cb(lvs: *mut spdk_lvol_store, success: bool, _ctx: *mut c_void) {
+        let lvs_wrapper: Lvs = Lvs::from_inner_ptr(lvs);
+        let lvs_name = lvs_wrapper.name().to_string();
+        if let Ok(bdev) = lvs_wrapper.base_bdev() {
+            let driver = bdev.driver();
+            info!("reset completed with status: {success} on {lvs_name} of bdev type: {driver}");
+        }
+        Reactors::master().send_future(async move {
+            if let Some(lvs) = Lvs::lookup(&lvs_name) {
+                let bs = lvs.blob_store();
+                let lvs_ptr = lvs.as_inner_ptr();
+                unsafe {
+                    spdk_bs_read_super(bs, Some(Self::bs_super_read_cb), lvs_ptr as *mut c_void)
+                }
+            }
+        });
+    }
+
+    /// Callback function called by SPDK when superblock read completes.
+    extern "C" fn bs_super_read_cb(ctx: *mut c_void, _errno: i32) {
+        let lvs_raw = ctx as *mut spdk_lvol_store;
+        let lvs: Lvs = Lvs::from_inner_ptr(lvs_raw);
+        lvs.mark_io_resume();
     }
 
     /// Imports the pool if it exists, otherwise tries to create a new pool.
@@ -627,7 +731,7 @@ impl Lvs {
 
         let result = r
             .await
-            .expect("callback gone while exporting lvs")
+            .expect("callback gone while destroying lvs")
             .to_result(|e| LvsError::Export {
                 source: BsError::from_i32(e),
                 name: pool.clone(),
@@ -774,7 +878,7 @@ impl Lvs {
                 base_bdev = c;
             }
         }
-        trace!(
+        debug!(
             "Deleting bdev {}, uri {:?}",
             base_bdev.name(),
             base_bdev.bdev_uri_original_str()

@@ -42,6 +42,14 @@ impl<'a> MayastorTest<'a> {
         rx.await.unwrap()
     }
 
+    /// spawn a future on this mayastor instance without waiting for completion.
+    pub fn spawn_detached<F>(&self, future: F)
+    where
+        F: Future<Output = ()> + 'static,
+    {
+        self.reactor.send_future(future);
+    }
+
     pub fn send<F>(&self, future: F)
     where
         F: Future<Output = ()> + 'static,
