@@ -1,7 +1,6 @@
-use std::{cell::RefCell, os::raw::c_void, ptr::NonNull};
-
-use clap::{Arg, Command};
+use clap::Parser;
 use rand::Rng;
+use std::{cell::RefCell, os::raw::c_void, ptr::NonNull};
 
 use io_engine::{
     bdev_api::bdev_create,
@@ -19,21 +18,16 @@ use spdk_rs::{
     },
     DmaBuf, IoChannelGuard,
 };
-use version_info::version_info_str;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, clap::ValueEnum, strum_macros::Display)]
+#[clap(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 enum IoType {
-    /// perform random read operations
-    Read,
-    /// perform random write operations
-    #[allow(dead_code)]
-    Write,
+    /// Perform random read operations.
+    RandRead,
+    /// Perform random write operations.
+    RandWrite,
 }
-
-/// default queue depth
-const QD: u64 = 64;
-/// default io_size
-const IO_SIZE: u64 = 512;
 
 /// a Job refers to a set of work typically defined by either time or size
 /// that drives IO to a bdev using its own channel.
@@ -119,8 +113,9 @@ impl Job {
     }
 
     /// construct a new job
-    async fn new(bdev: &str, size: u64, qd: u64, io_type: IoType) -> Box<Self> {
-        let bdev = bdev_create(bdev)
+    async fn new(bdev: &url::Url, size: u64, qd: u64, io_type: IoType) -> Box<Self> {
+        let bdev = bdev.to_string();
+        let bdev = bdev_create(&bdev)
             .await
             .map_err(|e| {
                 eprintln!("Failed to open URI {bdev}: {e}");
@@ -198,16 +193,16 @@ impl Io {
     fn run(&mut self, job: *mut Job) {
         self.job = NonNull::new(job).unwrap();
         match self.iot {
-            IoType::Read => self.read(0),
-            IoType::Write => self.write(0),
+            IoType::RandRead => self.read(0),
+            IoType::RandWrite => self.write(0),
         };
     }
 
     /// dispatch the next IO, this is called from within the completion callback
     pub fn next(&mut self, offset: u64) {
         match self.iot {
-            IoType::Read => self.read(offset),
-            IoType::Write => self.write(offset),
+            IoType::RandRead => self.read(offset),
+            IoType::RandWrite => self.write(offset),
         }
     }
 
@@ -312,6 +307,40 @@ extern "C" fn perf_tick(_: *mut c_void) -> i32 {
     0
 }
 
+/// Simple mayastor performance tool.
+#[derive(Parser)]
+struct CliArgs {
+    #[clap(flatten, next_help_heading = "Mayastor Common Options")]
+    cmn: MayastorCliArgs,
+
+    #[clap(flatten, next_help_heading = "I/O Performance tool Options")]
+    perf: PerfArgs,
+}
+impl CliArgs {
+    fn split(self) -> (MayastorCliArgs, PerfArgs) {
+        (self.cmn, self.perf)
+    }
+}
+
+/// Simple mayastor performance tool.
+#[derive(Parser)]
+struct PerfArgs {
+    /// Block size in bytes or with units, example: 100GiB.
+    #[clap(short = 'b', long, default_value_t = 512u64.into())]
+    io_size: byte_unit::Byte,
+
+    /// Block size in bytes or with units, example: 100GiB.
+    #[clap(short = 't', long, default_value_t = IoType::RandRead)]
+    io_type: IoType,
+
+    /// Depth of the I/O queues.
+    #[clap(short = 'q', long, default_value_t = 64)]
+    q_depth: u64,
+
+    /// Storage URIs to send I/O to.
+    uris: Vec<url::Url>,
+}
+
 fn main() {
     logger::init("INFO");
 
@@ -322,76 +351,23 @@ fn main() {
         cfg
     });
 
-    let matches = Command::new("Mayastor performance tool")
-        .version(version_info_str!())
-        .about("Perform IO to storage URIs")
-        .arg(
-            Arg::new("io-size")
-                .value_name("io-size")
-                .short('b')
-                .help("block size in bytes"),
-        )
-        .arg(
-            Arg::new("io-type")
-                .value_name("io-type")
-                .short('t')
-                .help("type of IOs")
-                .value_parser(["randread", "randwrite"]),
-        )
-        .arg(
-            Arg::new("queue-depth")
-                .value_name("queue-depth")
-                .short('q')
-                .value_parser(clap::value_parser!(u64))
-                .help("queue depth"),
-        )
-        .arg(
-            Arg::new("URI")
-                .value_name("URI")
-                .help("storage URI's")
-                .required(true)
-                .index(1)
-                .action(clap::ArgAction::Append),
-        )
-        .subcommand_required(false)
-        .get_matches();
-
-    let mut uris = matches
-        .get_many::<String>("URI")
-        .unwrap()
-        .map(|u| u.to_string())
-        .collect::<Vec<_>>();
-
-    let io_size = match matches.get_one::<String>("io-size") {
-        Some(io_size) => byte_unit::Byte::parse_str(io_size, true).unwrap().as_u64(),
-        None => IO_SIZE,
-    };
-    let io_type = match matches
-        .get_one::<String>("io-type")
-        .map(|s| s.as_str())
-        .unwrap_or("randread")
-    {
-        "randread" => IoType::Read,
-        "randwrite" => IoType::Write,
-        io_type => panic!("Invalid io_type: {}", io_type),
-    };
-
-    let qd = *matches.get_one::<u64>("queue-depth").unwrap_or(&QD);
-    let args = MayastorCliArgs {
-        reactor_mask: "0x2".to_string(),
+    let mut args = CliArgs::parse();
+    args.cmn = MayastorCliArgs {
         skip_sig_handler: true,
         enable_io_all_thrd_nexus_channels: true,
         no_pci: false,
-        ..Default::default()
+        ..args.cmn
     };
+    let (env_args, args) = args.split();
 
-    MayastorEnvironment::new(args).init();
+    MayastorEnvironment::new(env_args).init();
     sig_override();
     io_engine::bdev::nexus::register_module(false);
     Reactors::master().send_future(async move {
-        let jobs = uris
-            .iter_mut()
-            .map(|u| Job::new(u, io_size, qd, io_type))
+        let jobs = args
+            .uris
+            .iter()
+            .map(|u| Job::new(u, args.io_size.as_u64(), args.q_depth, args.io_type))
             .collect::<Vec<_>>();
 
         for j in jobs {
