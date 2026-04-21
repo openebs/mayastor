@@ -183,7 +183,13 @@ impl GetName for NvmfDeviceTemplate {
         format!("{}n1", self.name)
     }
 }
-impl crate::bdev::Probe for NvmfDeviceTemplate {}
+impl crate::bdev::Probe for NvmfDeviceTemplate {
+    fn probe(&self, _opts: &crate::bdev::ProbeOpts) -> Result<(), crate::bdev::ProbeError> {
+        // eventually this means we need probe to be async, and check if we can
+        // at least discover the device.
+        Ok(())
+    }
+}
 
 // Context for an NVMe controller being created.
 pub(crate) struct NvmeControllerContext<'probe> {

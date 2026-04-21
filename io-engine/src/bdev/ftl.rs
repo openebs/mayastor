@@ -160,7 +160,13 @@ impl GetName for Ftl {
         self.name.clone()
     }
 }
-impl super::Probe for Ftl {}
+impl super::Probe for Ftl {
+    fn probe(&self, opts: &super::ProbeOpts) -> Result<(), super::ProbeError> {
+        super::probe_uri(&self.bbdev_uri, opts)?;
+        super::probe_uri(&self.cbdev_uri, opts)?;
+        Ok(())
+    }
+}
 
 pub extern "C" fn ftl_bdev_init_fn_cb(
     _ptr: *const ftl_bdev_info,

@@ -7,8 +7,9 @@ pub use nvmx::{nvme_io_ctx_pool_init, NvmeController, NvmeControllerState, NVME_
 
 mod aio;
 pub(crate) mod dev;
-use crate::core::{MayastorEnvironment, PtplProps};
+use crate::core::{MayastorEnvironment, PtplProps, UntypedBdev};
 pub(crate) use dev::uri;
+pub use io_engine_api::v1::pool::{ProbeError, ProbeErrorCode};
 
 pub mod crypto;
 pub(crate) mod device;
@@ -45,26 +46,52 @@ pub trait GetName {
     fn get_name(&self) -> String;
 }
 
+/// Probe options for each device.
+pub struct ProbeOpts {
+    /// If we're probing for create or import.
+    pub import: bool,
+}
+
 /// The following trait must also be implemented for every supported
 /// device type.
 pub trait Probe {
-    fn probe(&self) -> Result<(), io_engine_api::v1::pool::ProbeError> {
-        Err(io_engine_api::v1::pool::ProbeError {
-            code: io_engine_api::v1::pool::ProbeErrorCode::InvalidDiskUri as i32,
-            msg: None,
-        })
+    fn probe(&self, _opts: &ProbeOpts) -> Result<(), ProbeError> {
+        Err(mk_probe_error(ProbeErrorCode::UriNotHandled))
     }
 }
 
-fn probe_file(file: &str) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+fn mk_probe_error(code: ProbeErrorCode) -> ProbeError {
+    ProbeError {
+        code: code as i32,
+        msg: None,
+    }
+}
+fn mk_probe_error_ex(code: ProbeErrorCode, msg: impl Into<String>) -> ProbeError {
+    ProbeError {
+        code: code as i32,
+        msg: Some(msg.into()),
+    }
+}
+
+fn probe_file(file: &str) -> Result<(), ProbeError> {
     let disk_path = std::path::Path::new(file);
     if !disk_path.exists() {
-        return Err(io_engine_api::v1::pool::ProbeError {
-            code: io_engine_api::v1::pool::ProbeErrorCode::DiskNotFound as i32,
-            msg: None,
-        });
+        return Err(mk_probe_error(ProbeErrorCode::DiskNotFound));
     }
     Ok(())
+}
+
+fn probe_bdev(bdev: &str) -> Result<(), ProbeError> {
+    if UntypedBdev::lookup_by_name(bdev).is_none() {
+        return Err(mk_probe_error(ProbeErrorCode::DiskNotFound));
+    }
+    Ok(())
+}
+
+fn probe_uri(uri: &str, opts: &ProbeOpts) -> Result<(), ProbeError> {
+    uri::parse(uri)
+        .map_err(|e| mk_probe_error_ex(ProbeErrorCode::InvalidDiskUri, e.to_string()))?
+        .probe(opts)
 }
 
 /// Exposes functionality to prepare for persisting reservations in the event
