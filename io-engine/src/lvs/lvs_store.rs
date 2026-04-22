@@ -339,6 +339,7 @@ impl Lvs {
             if let Some(pool_lock) = pool_info_read().get(lvs) {
                 let mut pool_mut = pool_lock.write();
                 pool_mut.io_stalled = true;
+                info!("Pool {lvs} entered IO stall");
             }
             let rc = unsafe { vbdev_lvs_set_timeout(self.as_inner_ptr(), 0, None) };
             if rc != 0 {
