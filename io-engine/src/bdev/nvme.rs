@@ -175,17 +175,17 @@ impl CreateDestroy for NVMe {
 }
 
 impl super::Probe for NVMe {
-    fn probe(&self) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+    fn probe(&self, _opts: &super::ProbeOpts) -> Result<(), super::ProbeError> {
         const PCIE_DRVS: [&str; 2] = ["vfio-pci", "uio_pci_generic"];
 
         let driver = match self.pci_driver() {
             Ok(Some(driver)) if !driver.is_empty() => Ok(driver),
-            Ok(_) => Err(io_engine_api::v1::pool::ProbeError {
-                code: io_engine_api::v1::pool::ProbeErrorCode::DiskNotFound as i32,
+            Ok(_) => Err(super::ProbeError {
+                code: super::ProbeErrorCode::DiskNotFound as i32,
                 msg: None,
             }),
-            Err(error) => Err(io_engine_api::v1::pool::ProbeError {
-                code: io_engine_api::v1::pool::ProbeErrorCode::ProbeUnknown as i32,
+            Err(error) => Err(super::ProbeError {
+                code: super::ProbeErrorCode::ProbeUnknown as i32,
                 msg: Some(error.to_string()),
             }),
         }?;
@@ -195,19 +195,19 @@ impl super::Probe for NVMe {
         }
 
         if driver == "nvme" {
-            return Err(io_engine_api::v1::pool::ProbeError {
-                code: io_engine_api::v1::pool::ProbeErrorCode::PciKernelBound as i32,
+            return Err(super::ProbeError {
+                code: super::ProbeErrorCode::PciKernelBound as i32,
                 msg: None,
             });
         }
 
         let code = if self.is_pci_nvme() {
-            io_engine_api::v1::pool::ProbeErrorCode::PciDriverUnsupported
+            super::ProbeErrorCode::PciDriverUnsupported
         } else {
-            io_engine_api::v1::pool::ProbeErrorCode::PciNotNvme
+            super::ProbeErrorCode::PciNotNvme
         } as i32;
 
-        Err(io_engine_api::v1::pool::ProbeError { code, msg: None })
+        Err(super::ProbeError { code, msg: None })
     }
 }
 

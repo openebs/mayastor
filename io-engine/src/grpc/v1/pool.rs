@@ -947,6 +947,9 @@ impl PoolRpc for PoolService {
                 "Pool probes are not implemented",
             ));
         }
+        let opts = crate::bdev::ProbeOpts {
+            import: request.import,
+        };
         let Some(request) = request.request else {
             return Err(Status::new(
                 Code::InvalidArgument,
@@ -975,7 +978,7 @@ impl PoolRpc for PoolService {
                     continue;
                 }
             };
-            let Err(error) = parsed.probe() else {
+            let Err(error) = parsed.probe(&opts) else {
                 continue;
             };
 

@@ -586,13 +586,17 @@ impl Reactor {
             Reactors::current()
                 .spawn_local(async move {
                     let result = ctx.future.await;
-                    if let Err(e) = ctx
+                    if ctx
                         .sender
                         .take()
                         .expect("sender already taken")
                         .send(result)
+                        .is_err()
                     {
-                        error!("Failed to send response future result {:?}", e);
+                        error!(
+                            "Failed to send response future result {}",
+                            std::any::type_name::<F::Output>()
+                        );
                     }
                 })
                 .detach();

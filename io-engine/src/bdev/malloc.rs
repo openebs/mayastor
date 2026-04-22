@@ -170,7 +170,18 @@ impl GetName for Malloc {
         self.name.clone()
     }
 }
-impl super::Probe for Malloc {}
+impl super::Probe for Malloc {
+    fn probe(&self, opts: &super::ProbeOpts) -> Result<(), super::ProbeError> {
+        if opts.import {
+            Err(super::mk_probe_error_ex(
+                super::ProbeErrorCode::DiskNotImportable,
+                "Can't import malloc device",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Malloc {

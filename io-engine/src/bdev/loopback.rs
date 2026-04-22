@@ -64,7 +64,11 @@ impl GetName for Loopback {
         self.name.clone()
     }
 }
-impl super::Probe for Loopback {}
+impl super::Probe for Loopback {
+    fn probe(&self, _opts: &super::ProbeOpts) -> Result<(), super::ProbeError> {
+        super::probe_bdev(&self.name)
+    }
+}
 
 #[async_trait(?Send)]
 impl CreateDestroy for Loopback {

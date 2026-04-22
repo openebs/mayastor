@@ -298,6 +298,12 @@ pub fn subcommands() -> Command {
                 .help("encryption key2 required for AES_XTS")
                 .required_if_eq("cipher", "AES_XTS")
                 .required(false),
+        )
+        .arg(
+            Arg::new("import")
+                .long("import")
+                .help("Probe for imports")
+                .action(clap::ArgAction::SetTrue),
         );
 
     Command::new("pool")
@@ -856,6 +862,7 @@ async fn probe(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .to_owned();
     let uuid = matches.get_one::<String>("uuid");
     let cipher = matches.get_one::<String>("cipher");
+    let import = matches.get_flag("import");
 
     if let Some(c) = cipher {
         if !c.eq_ignore_ascii_case("AES_XTS") && !c.eq_ignore_ascii_case("AES_CBC") {
@@ -911,6 +918,7 @@ async fn probe(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                 pooltype: v1rpc::pool::PoolType::from(pooltype) as i32,
                 encryption: enc_msg,
             }),
+            import,
             probes: None,
         })
         .await

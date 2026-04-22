@@ -186,7 +186,7 @@ impl CreateDestroy for Aio {
 }
 
 impl super::Probe for Aio {
-    fn probe(&self) -> Result<(), io_engine_api::v1::pool::ProbeError> {
+    fn probe(&self, _opts: &super::ProbeOpts) -> Result<(), super::ProbeError> {
         super::probe_file(&self.name)
     }
 }
