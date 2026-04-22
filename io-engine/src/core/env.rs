@@ -640,12 +640,15 @@ pub fn mayastor_env_stop(rc: i32) {
     let r = Reactors::master();
 
     match r.get_state() {
-        ReactorState::Running | ReactorState::Delayed | ReactorState::Init => {
+        ReactorState::Running
+        | ReactorState::Delayed
+        | ReactorState::Init
+        | ReactorState::Interrupt => {
             r.send_future(async move {
                 do_shutdown(rc as *const i32 as *mut c_void).await;
             });
         }
-        _ => {
+        ReactorState::Shutdown => {
             panic!("invalid reactor state during shutdown");
         }
     }
