@@ -112,7 +112,7 @@ impl Lvs {
 
     /// TODO
     #[inline(always)]
-    fn as_inner_ref(&self) -> &spdk_lvol_store {
+    pub(super) fn as_inner_ref(&self) -> &spdk_lvol_store {
         unsafe { self.inner.as_ref() }
     }
 
@@ -1024,18 +1024,7 @@ impl Lvs {
     /// return an iterator that filters out all bdevs that patch the pool
     /// signature
     pub fn lvols(&self) -> Option<impl Iterator<Item = Lvol>> {
-        if let Some(bdev) = UntypedBdev::bdev_first() {
-            let pool_name = format!("{}/", self.name());
-            Some(
-                bdev.into_iter()
-                    .filter(move |b| {
-                        b.driver() == "lvol" && b.aliases().iter().any(|a| a.contains(&pool_name))
-                    })
-                    .map(|b| Lvol::try_from(b).unwrap()),
-            )
-        } else {
-            None
-        }
+        Some(super::lvol_iter::LvsLvolIter::new(self))
     }
 
     /// create a new lvol on this pool
