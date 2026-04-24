@@ -502,8 +502,6 @@ impl PoolErrorsNt {
         if self.io_stalled {
             self.set_alert(PoolAlertStatus::Critical, PoolAlert::IoStalled);
         }
-
-        // todo: add sliding window parameters
         match self.io_stall_transition_count {
             // todo: Notice should be raised on 1 transition.
             0 | 1 => {}
