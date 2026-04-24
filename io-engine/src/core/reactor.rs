@@ -34,7 +34,7 @@ use std::{
     collections::VecDeque,
     fmt::{self, Debug, Display, Formatter},
     future::Future,
-    os::raw::c_void,
+    os::{fd::RawFd, raw::c_void},
     pin::Pin,
     slice::Iter,
     time::Duration,
@@ -69,6 +69,8 @@ pub enum ReactorState {
     Running,
     Shutdown,
     Delayed,
+    /// Epoll-based interrupt mode: reactor sleeps until I/O events arrive.
+    Interrupt,
 }
 
 impl Display for ReactorState {
@@ -78,6 +80,7 @@ impl Display for ReactorState {
             ReactorState::Running => "Running",
             ReactorState::Shutdown => "Shutdown",
             ReactorState::Delayed => "Delayed",
+            ReactorState::Interrupt => "Interrupt",
         };
         write!(f, "{s}")
     }
@@ -122,6 +125,14 @@ pub struct Reactor {
     /// through FFI
     sx: Sender<Pin<Box<dyn Future<Output = ()> + 'static>>>,
     rx: Receiver<Pin<Box<dyn Future<Output = ()> + 'static>>>,
+    /// Whether interrupt mode is enabled for this reactor.
+    interrupt_enabled: bool,
+    /// Reactor-level fd_group for interrupt mode. Thread fd_groups are
+    /// nested into this, and spdk_fd_group_wait() blocks until events.
+    fgrp: Option<spdk_rs::FdGroup>,
+    /// eventfd registered in the reactor's fd_group to wake from
+    /// fd_group_wait when Rust futures arrive via send_future().
+    wakeup_fd: RawFd,
 }
 
 thread_local! {
@@ -131,7 +142,7 @@ thread_local! {
 
 impl Reactors {
     /// initialize the reactor subsystem for each core assigned to us
-    pub fn init(developer_delay: bool) {
+    pub fn init(developer_delay: bool, interrupt_mode: bool) {
         REACTOR_LIST.get_or_init(|| {
             let mempool_sz = try_from_env(
                 "SPDK_DEFAULT_MSG_MEMPOOL_SIZE",
@@ -140,6 +151,21 @@ impl Reactors {
             if !(mempool_sz+1).is_power_of_two() {
                 tracing::warn!("The provided SPDK_DEFAULT_MSG_MEMPOOL_SIZE ({SPDK_DEFAULT_MSG_MEMPOOL_SIZE}) is not a power of 2 - 1. This is not optimal for memory consumption");
             }
+            // Enable SPDK interrupt mode globally if requested.
+            // Must be called BEFORE spdk_thread_lib_init_ext().
+            // Failure here (typically -ENOMEM or init-order violation)
+            // is unrecoverable and we must not silently fall back to
+            // poll mode: running a subset of reactors in interrupt mode
+            // and the rest in poll mode is worse than either pure
+            // configuration (see PR #1966 review).
+            if interrupt_mode {
+                spdk_rs::Thread::interrupt_mode_enable().expect(
+                    "Failed to enable SPDK interrupt mode; \
+                     aborting rather than running in mixed mode",
+                );
+                info!("SPDK interrupt mode enabled globally");
+            }
+
             let rc = unsafe {
                 spdk_thread_lib_init_ext(Some(Self::do_op), Some(Self::can_op), 0, mempool_sz)
             };
@@ -148,7 +174,7 @@ impl Reactors {
             Reactors(
                 Cores::count()
                     .into_iter()
-                    .map(|core| Reactor::new(core, developer_delay))
+                    .map(|core| Reactor::new(core, developer_delay, interrupt_mode))
                     .collect::<Vec<_>>(),
             )
         });
@@ -187,6 +213,14 @@ impl Reactors {
                     r.lcore,
                 );
                 r.incoming.push(mt);
+                // Wake the target reactor if it's another core sitting
+                // in fd_group_wait — it can't drain `incoming` until it
+                // returns from the blocking wait. Without this kick a
+                // slave reactor that entered interrupt mode with zero
+                // threads would never see threads scheduled to it later.
+                if r.lcore != Cores::current() {
+                    r.wake();
+                }
                 return true;
             }
             false
@@ -279,9 +313,49 @@ impl<'a> IntoIterator for &'a Reactors {
 
 impl Reactor {
     /// create a new ['Reactor'] instance
-    fn new(core: u32, developer_delay: bool) -> Self {
+    fn new(core: u32, developer_delay: bool, interrupt_enabled: bool) -> Self {
         // create a channel to receive futures on
         let (sx, rx) = unbounded::<Pin<Box<dyn Future<Output = ()> + 'static>>>();
+
+        // Initialise the per-reactor fd_group + wakeup eventfd for
+        // interrupt mode. We fail the process on any setup error
+        // rather than silently falling back to poll mode: a mixed
+        // configuration where some reactors interrupt and others poll
+        // has been a source of hard-to-diagnose deadlocks in the past
+        // (see PR #1966 review). ENOMEM or init-order violations at
+        // boot are unrecoverable anyway.
+        let (fgrp, wakeup_fd) = if interrupt_enabled {
+            let fg = spdk_rs::FdGroup::create().unwrap_or_else(|err| {
+                panic!("Reactor core {}: failed to create fd_group ({})", core, err)
+            });
+            let efd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+            assert!(
+                efd >= 0,
+                "Reactor core {}: failed to create wakeup eventfd",
+                core,
+            );
+            // Register as EVENTFD type so fd_group_wait() auto-drains
+            // it. Without this, a single send_future() write makes the
+            // fd permanently readable (level-triggered), spinning the
+            // reactor.
+            fg.add_with_fd_type(
+                efd,
+                Self::wakeup_handler,
+                std::ptr::null_mut(),
+                spdk_rs::libspdk::SPDK_FD_TYPE_EVENTFD,
+            )
+            .unwrap_or_else(|err| {
+                unsafe { libc::close(efd) };
+                panic!(
+                    "Reactor core {}: failed to add wakeup eventfd to fd_group ({})",
+                    core, err
+                )
+            });
+            info!("Reactor core {core}: interrupt mode enabled");
+            (Some(fg), efd)
+        } else {
+            (None, -1)
+        };
 
         Self {
             threads: RefCell::new(VecDeque::new()),
@@ -292,7 +366,18 @@ impl Reactor {
             tid: Cell::new(0),
             sx,
             rx,
+            interrupt_enabled,
+            fgrp,
+            wakeup_fd,
         }
+    }
+
+    /// Callback for the wakeup eventfd. The eventfd is auto-drained
+    /// by `fd_group_wait()` because it is registered as
+    /// `SPDK_FD_TYPE_EVENTFD`. The actual futures are processed by
+    /// `receive_futures()` in the poll loop.
+    extern "C" fn wakeup_handler(_ctx: *mut c_void) -> i32 {
+        0
     }
 
     /// this function gets called by DPDK
@@ -333,6 +418,17 @@ impl Reactor {
         F: Future<Output = ()> + 'static,
     {
         self.sx.send(Box::pin(future)).unwrap();
+        // Wake the reactor if it's sleeping in fd_group_wait.
+        if self.wakeup_fd >= 0 {
+            let val: u64 = 1;
+            unsafe {
+                libc::write(
+                    self.wakeup_fd,
+                    &val as *const u64 as *const libc::c_void,
+                    std::mem::size_of::<u64>(),
+                );
+            }
+        }
     }
 
     /// spawn a future locally on this core; note that you can *not* use the
@@ -404,7 +500,8 @@ impl Reactor {
             ReactorState::Init
             | ReactorState::Delayed
             | ReactorState::Shutdown
-            | ReactorState::Running => {
+            | ReactorState::Running
+            | ReactorState::Interrupt => {
                 self.flags.set(state);
             }
         }
@@ -458,14 +555,46 @@ impl Reactor {
         // Initialize TID for this reactor.
         self.tid.set(gettid());
 
+        // If interrupt mode is enabled, enter it immediately. The
+        // reactor will block in fd_group_wait() until events arrive,
+        // then poll, then block again.
+        if self.interrupt_enabled {
+            self.enter_interrupt_mode();
+        }
+
         loop {
             match self.get_state() {
-                // running is the default mode for all cores. All cores, except
-                // the master core spin within this specific loop
                 ReactorState::Running => {
                     self.poll_once();
                 }
+                ReactorState::Interrupt => {
+                    // Block until I/O events or wakeup from send_future.
+                    // fd_group_wait dispatches events to the registered
+                    // interrupt callbacks (which are the poller functions).
+                    //
+                    // No explicit t.poll() afterwards: in interrupt mode,
+                    // spdk_thread_poll's interrupt path is invoked via the
+                    // nested thread fd_groups during fd_group_wait itself
+                    // (see spdk/lib/event/reactor.c spdk_thread_poll), so
+                    // an extra per-thread poll would just re-enter the
+                    // same code path with nothing to do.
+                    self.wait_for_events();
+                    // Restore init_thread context before running Rust
+                    // futures. fd_group_wait wrappers save/restore the
+                    // context for each event, but we set it explicitly
+                    // so gRPC futures see the app thread (required by
+                    // spdk_bdev_register and other app-thread-only APIs).
+                    if let Some(init_t) = self.threads.borrow().front() {
+                        init_t.set_current();
+                    }
+                    self.receive_futures();
+                    self.run_futures();
+                    self.add_incoming();
+                }
                 ReactorState::Shutdown => {
+                    if self.interrupt_enabled {
+                        self.exit_interrupt_mode();
+                    }
                     info!("reactor {} shutdown requested", self.lcore);
                     break;
                 }
@@ -502,6 +631,115 @@ impl Reactor {
         self.add_incoming();
     }
 
+    /// Switch all SPDK threads to interrupt mode and nest their
+    /// fd_groups into the reactor's fd_group. Called once at startup.
+    ///
+    /// Two-phase to make rollback clean: first nest every thread's
+    /// fd_group, then flip each thread to interrupt mode. If any nest
+    /// fails we unnest what we've done and return without transitioning
+    /// the reactor to Interrupt — a partially-nested reactor would
+    /// leave silent pollers (threads whose fgrps aren't under the
+    /// sleeping reactor's fd_group never fire — see PR #1966 review).
+    ///
+    /// No-op if interrupt mode isn't enabled on this reactor (fgrp is
+    /// None). Safe to call unconditionally.
+    pub fn enter_interrupt_mode(&self) {
+        let Some(fgrp) = self.fgrp.as_ref() else {
+            return;
+        };
+
+        let threads = self.threads.borrow();
+        // Phase 1: nest every thread's fd_group.
+        let mut nested: Vec<*mut spdk_rs::libspdk::spdk_fd_group> =
+            Vec::with_capacity(threads.len());
+        for t in threads.iter() {
+            let thread_fgrp = t.get_interrupt_fd_group();
+            if thread_fgrp.is_null() {
+                continue;
+            }
+            if let Err(err) = fgrp.nest(thread_fgrp) {
+                error!(
+                    "Core {}: nest failed for thread '{}' ({}) — \
+                     staying in poll mode",
+                    self.lcore,
+                    t.name(),
+                    err,
+                );
+                for n in nested {
+                    let _ = fgrp.unnest(n);
+                }
+                return;
+            }
+            nested.push(thread_fgrp);
+        }
+
+        // Phase 2: flip every thread to interrupt mode. Only runs if
+        // all nests succeeded above, so there's no partial state to
+        // roll back here.
+        for t in threads.iter() {
+            // spdk_thread_set_interrupt_mode operates on the current
+            // SPDK thread (spdk_get_thread()) -- no thread arg -- so
+            // we must set_current() first.
+            t.set_current();
+            spdk_rs::Thread::set_interrupt_mode(true);
+        }
+
+        // Restore init_thread (first thread) as the current SPDK thread.
+        // The loop above leaves the last thread as current, but Rust
+        // futures (gRPC handlers) need the app thread context —
+        // spdk_bdev_register() requires spdk_thread_is_app_thread().
+        if let Some(init_t) = threads.front() {
+            init_t.set_current();
+        }
+
+        let count = threads.len();
+        drop(threads);
+
+        info!(
+            "Core {}: entered interrupt mode ({} threads)",
+            self.lcore, count,
+        );
+        self.set_state(ReactorState::Interrupt);
+    }
+
+    /// Roll this reactor back to poll mode from Interrupt. Unnests every
+    /// thread's fd_group from the reactor's fgrp and flips each thread
+    /// to poll mode. Shared by exit_interrupt_mode (shutdown) and the
+    /// add_incoming nest-failure path (runtime fallback).
+    fn leave_interrupt_mode(&self) {
+        let Some(fgrp) = self.fgrp.as_ref() else {
+            return;
+        };
+
+        let threads = self.threads.borrow();
+        for t in threads.iter() {
+            t.set_current();
+            spdk_rs::Thread::set_interrupt_mode(false);
+
+            let thread_fgrp = t.get_interrupt_fd_group();
+            if !thread_fgrp.is_null() {
+                let _ = fgrp.unnest(thread_fgrp);
+            }
+        }
+        drop(threads);
+        self.set_state(ReactorState::Running);
+    }
+
+    /// Switch all SPDK threads back to poll mode. Called on shutdown.
+    fn exit_interrupt_mode(&self) {
+        self.leave_interrupt_mode();
+        info!("Core {}: exited interrupt mode", self.lcore);
+    }
+
+    /// Block until I/O events arrive or send_future() signals the
+    /// wakeup eventfd. Uses SPDK's fd_group which aggregates all
+    /// nested thread fd_groups.
+    fn wait_for_events(&self) {
+        if let Some(fgrp) = &self.fgrp {
+            fgrp.wait(-1);
+        }
+    }
+
     /// poll the threads n times but only poll the futures queue once and look
     /// for incoming only once.
     ///
@@ -524,8 +762,70 @@ impl Reactor {
     }
 
     fn add_incoming(&self) {
+        // Only nest if the reactor has actually transitioned into
+        // Interrupt state. Reactors that are still busy-polling
+        // (e.g. the master core, which is driven by Future::poll
+        // and never calls enter_interrupt_mode) must NOT have
+        // their threads' fgrps nested — spdk_thread_poll on those
+        // threads would then hit a nested fgrp and warn / no-op.
+        let nest_into_fgrp = (self.get_state() == ReactorState::Interrupt)
+            .then_some(self.fgrp.as_ref())
+            .flatten();
+
+        let mut fallback_reason: Option<(String, Errno)> = None;
         while let Some(i) = self.incoming.pop() {
+            if fallback_reason.is_none() {
+                if let Some(fgrp) = nest_into_fgrp {
+                    let thread_fgrp = i.get_interrupt_fd_group();
+                    if !thread_fgrp.is_null() {
+                        match fgrp.nest(thread_fgrp) {
+                            Ok(()) => {
+                                debug!(
+                                    "add_incoming: nested thread '{}' fd_group on core {}",
+                                    i.name(),
+                                    self.lcore,
+                                );
+                            }
+                            Err(err) => {
+                                // Can't leave the reactor half-nested
+                                // (threads whose fgrps aren't under
+                                // the sleeping reactor's fd_group
+                                // never get polled — PR #1966 review).
+                                // Capture the reason, stop trying to
+                                // nest further incomings, fall back
+                                // below after the drain completes.
+                                fallback_reason = Some((i.name().to_string(), err));
+                            }
+                        }
+                    }
+                }
+            }
             self.threads.borrow_mut().push_back(i);
+        }
+
+        if let Some((name, err)) = fallback_reason {
+            error!(
+                "Core {}: add_incoming nest failed for thread '{}' ({}) — \
+                 falling back to poll mode",
+                self.lcore, name, err,
+            );
+            self.leave_interrupt_mode();
+        }
+    }
+
+    /// Wake the reactor if it's blocked in fd_group_wait. Used by
+    /// schedule() so a slave reactor sleeping with no threads gets
+    /// kicked when one is added.
+    fn wake(&self) {
+        if self.wakeup_fd >= 0 {
+            let val: u64 = 1;
+            unsafe {
+                libc::write(
+                    self.wakeup_fd,
+                    &val as *const u64 as *const libc::c_void,
+                    std::mem::size_of::<u64>(),
+                );
+            }
         }
     }
 
@@ -671,6 +971,18 @@ impl Future for &'static Reactor {
             ReactorState::Delayed => {
                 std::thread::sleep(Duration::from_millis(1));
                 self.poll_once();
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            ReactorState::Interrupt => {
+                // Master core in interrupt mode: master is driven by
+                // the tokio runtime (via this Future impl), not by a
+                // dedicated thread in fd_group_wait, so we can't block
+                // here — tokio expects quick poll returns. CPU savings
+                // on master come from spdk_thread_poll's interrupt-
+                // mode path (pollers that wake via fds, not via every
+                // tick), not from the reactor sleeping.
+                self.poll_times(3);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
