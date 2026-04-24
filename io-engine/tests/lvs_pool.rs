@@ -13,7 +13,7 @@ use io_engine::{
     subsys::NvmfSubsystem,
 };
 use io_engine_api::v1::{
-    pool::{Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState},
+    pool::{ListPoolOptions, Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState},
     replica::ListReplicaOptions,
 };
 use once_cell::sync::OnceCell;
@@ -1005,6 +1005,7 @@ async fn lvol_list() {
 
     let pool_size = "4GiB";
     let repl_size = 4 * 1024 * 1024;
+    let replicas = 8000;
 
     use io_engine::pool_backend::PoolMetadataArgs;
     let pool_args = PoolArgs {
@@ -1023,7 +1024,7 @@ async fn lvol_list() {
     ms.spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
 
-        for i in 1..8000 {
+        for i in 1..=replicas {
             let name = format!("replica-{i}");
             let opts = ReplicaArgs::new(name, repl_size)
                 .wipe_super(false)
@@ -1041,6 +1042,15 @@ async fn lvol_list() {
     let list_tm = std::time::Instant::now();
     ms.spawn(async move {
         for lvs_pool in Lvs::iter() {
+            println!();
+            for _ in 0..100 {
+                let mut count = 0;
+                for _lvol in lvs_pool.lvols().unwrap() {
+                    count += 1;
+                }
+                assert_eq!(count, replicas);
+            }
+
             for lvol in lvs_pool.lvols().unwrap() {
                 let _replica: io_engine_api::v1::replica::Replica = lvol.into();
             }
@@ -1093,6 +1103,21 @@ async fn lvol_list() {
         // adds some extra buffer for gRPC
         grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
         "Listing replicas took too long"
+    );
+
+    use io_engine_api::v1::pool::PoolRpcClient;
+    let mut h = PoolRpcClient::connect("http://localhost:10124")
+        .await
+        .unwrap();
+
+    let list_tm = std::time::Instant::now();
+    h.list_pools(ListPoolOptions::default()).await.unwrap();
+    let grpc_elapsed = list_tm.elapsed();
+    println!("gRPC Lvs List: {grpc_elapsed:?}");
+    assert!(
+        // adds some extra buffer for gRPC
+        grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
+        "Listing pools took too long"
     );
 
     ms.spawn(async move {
