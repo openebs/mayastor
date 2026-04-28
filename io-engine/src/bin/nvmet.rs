@@ -10,7 +10,7 @@
 //! This will start a nexus which is shared over MY_POD_IP. Another env variable
 //! is set to ignore labeling errors. This does not work for rebuild tests
 //! however.
-use clap::{Arg, ArgMatches, Command};
+use clap::Parser;
 use futures::FutureExt;
 use io_engine::{
     bdev::nexus::{nexus_create, nexus_lookup_mut},
@@ -53,16 +53,26 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     });
 }
 
-async fn create_nexus(args: &ArgMatches) {
-    let ep = args.get_many::<String>("uri").expect("invalid endpoints");
+/// NVMe test utility to quickly create a nexus over existing nvme targets.
+#[derive(Debug, Parser)]
+#[command(
+    name = "NVMeT CLI",
+    version = version_info_str!(),
+    about = "NVMe test utility to quickly create a nexus over existing nvme targets"
+)]
+struct Args {
+    /// Size of the nexus to create in MB.
+    #[arg(short = 's', long, default_value_t = 64)]
+    size: u64,
 
-    let size = args
-        .get_one::<String>("size")
-        .unwrap()
-        .parse::<u64>()
-        .unwrap();
+    /// NVMe-OF TCP targets to connect to.
+    #[arg(short = 'u', long = "uris", required = true, num_args = 1..)]
+    uri: Vec<url::Url>,
+}
 
-    let children = ep.into_iter().map(|v| v.into()).collect::<Vec<String>>();
+async fn create_nexus(args: &Args) {
+    let size = args.size;
+    let children = args.uri.iter().map(|u| u.to_string()).collect::<Vec<_>>();
 
     nexus_create(NEXUS, size * 1024 * 1024, Some(NEXUS), &children)
         .await
@@ -73,24 +83,7 @@ async fn create_nexus(args: &ArgMatches) {
 }
 
 fn main() {
-    let matches = Command::new("NVMeT CLI")
-        .version(version_info_str!())
-        .about("NVMe test utility to quickly create a nexus over existing nvme targets")
-        .arg(
-            Arg::new("size")
-                .default_value("64")
-                .short('s')
-                .long("size")
-                .help("Size of the nexus to create in MB"),
-        )
-        .arg(
-            Arg::new("uri")
-                .short('u')
-                .required(true)
-                .long("uris")
-                .help("NVMe-OF TCP targets to connect to"),
-        )
-        .get_matches();
+    let args = Args::parse();
 
     let margs = MayastorCliArgs {
         rpc_address: "0.0.0.0:10124".to_string(),
@@ -102,7 +95,7 @@ fn main() {
 
     let ms = MayastorEnvironment::new(margs.clone()).init();
     start_tokio_runtime(&margs);
-    Reactors::current().send_future(async move { create_nexus(&matches).await });
+    Reactors::current().send_future(async move { create_nexus(&args).await });
 
     Reactors::current().running();
     Reactors::current().poll_reactor();

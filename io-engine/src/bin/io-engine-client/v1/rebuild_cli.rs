@@ -3,180 +3,78 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    ClientError, GrpcStatus,
+    GrpcStatus,
 };
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v1;
 use snafu::ResultExt;
 use std::convert::TryFrom;
-use tonic::Status;
+use uuid::Uuid;
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("start", args) => start(ctx, args).await,
-        ("stop", args) => stop(ctx, args).await,
-        ("pause", args) => pause(ctx, args).await,
-        ("resume", args) => resume(ctx, args).await,
-        ("state", args) => state(ctx, args).await,
-        ("stats", args) => stats(ctx, args).await,
-        ("progress", args) => progress(ctx, args).await,
-        ("history", args) => history(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct RebuildArgs {
+    #[command(subcommand)]
+    command: RebuildCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum RebuildCommands {
+    /// Starts a rebuild
+    Start(UuidUriArgs),
+    /// Stops a rebuild
+    Stop(UuidUriArgs),
+    /// Pauses a rebuild
+    Pause(UuidUriArgs),
+    /// Resumes a rebuild
+    Resume(UuidUriArgs),
+    /// Gets the rebuild state of the child
+    State(UuidUriArgs),
+    /// Gets the rebuild stats of the child
+    Stats(UuidUriArgs),
+    /// Shows the progress of a rebuild
+    Progress(UuidUriArgs),
+    /// Shows the rebuild history for children of a nexus
+    History(UuidArgs),
+}
+
+#[derive(Debug, Args)]
+struct UuidUriArgs {
+    /// uuid of the nexus
+    uuid: Uuid,
+    /// uri of child
+    uri: String,
+}
+
+#[derive(Debug, Args)]
+struct UuidArgs {
+    /// uuid of the nexus
+    uuid: Uuid,
+}
+
+pub async fn handler(ctx: Context, args: RebuildArgs) -> crate::Result<()> {
+    match args.command {
+        RebuildCommands::Start(args) => start(ctx, args).await,
+        RebuildCommands::Stop(args) => stop(ctx, args).await,
+        RebuildCommands::Pause(args) => pause(ctx, args).await,
+        RebuildCommands::Resume(args) => resume(ctx, args).await,
+        RebuildCommands::State(args) => state(ctx, args).await,
+        RebuildCommands::Stats(args) => stats(ctx, args).await,
+        RebuildCommands::Progress(args) => progress(ctx, args).await,
+        RebuildCommands::History(args) => history(ctx, args).await,
     }
 }
 
-pub fn subcommands() -> Command {
-    let start = Command::new("start")
-        .about("starts a rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to start rebuilding"),
-        );
-
-    let stop = Command::new("stop")
-        .about("stops a rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to stop rebuilding"),
-        );
-
-    let pause = Command::new("pause")
-        .about("pauses a rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to pause rebuilding"),
-        );
-
-    let resume = Command::new("resume")
-        .about("resumes a rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to resume rebuilding"),
-        );
-
-    let state = Command::new("state")
-        .about("gets the rebuild state of the child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to get the rebuild state from"),
-        );
-
-    let stats = Command::new("stats")
-        .about("gets the rebuild stats of the child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to get the rebuild stats from"),
-        );
-
-    let progress = Command::new("progress")
-        .about("shows the progress of a rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to get the rebuild progress from"),
-        );
-
-    let history = Command::new("history")
-        .about("shows the rebuild history for children of a nexus")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        );
-
-    Command::new("rebuild")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Rebuild management")
-        .subcommand(start)
-        .subcommand(stop)
-        .subcommand(pause)
-        .subcommand(resume)
-        .subcommand(state)
-        .subcommand(stats)
-        .subcommand(progress)
-        .subcommand(history)
-}
-
-async fn start(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
+async fn start(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
+    let uri = args.uri.clone();
 
     let response = ctx
         .v1
         .nexus
         .start_rebuild(v1::nexus::StartRebuildRequest {
-            nexus_uuid: uuid,
-            uri: uri.clone(),
+            nexus_uuid: args.uuid.to_string(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;
@@ -191,33 +89,22 @@ async fn start(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &uri);
+            println!("{uri}");
         }
     };
 
     Ok(())
 }
 
-async fn stop(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
+async fn stop(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
+    let uri = args.uri.clone();
 
     let response = ctx
         .v1
         .nexus
         .stop_rebuild(v1::nexus::StopRebuildRequest {
-            nexus_uuid: uuid,
-            uri: uri.clone(),
+            nexus_uuid: args.uuid.to_string(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;
@@ -232,33 +119,22 @@ async fn stop(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &uri);
+            println!("{uri}");
         }
     };
 
     Ok(())
 }
 
-async fn pause(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
+async fn pause(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
+    let uri = args.uri.clone();
 
     let response = ctx
         .v1
         .nexus
         .pause_rebuild(v1::nexus::PauseRebuildRequest {
-            nexus_uuid: uuid,
-            uri: uri.clone(),
+            nexus_uuid: args.uuid.to_string(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;
@@ -274,33 +150,22 @@ async fn pause(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &uri);
+            println!("{uri}");
         }
     };
 
     Ok(())
 }
 
-async fn resume(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
+async fn resume(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
+    let uri = args.uri.clone();
 
     let response = ctx
         .v1
         .nexus
         .resume_rebuild(v1::nexus::ResumeRebuildRequest {
-            nexus_uuid: uuid,
-            uri: uri.clone(),
+            nexus_uuid: args.uuid.to_string(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;
@@ -316,33 +181,20 @@ async fn resume(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &uri);
+            println!("{uri}");
         }
     };
 
     Ok(())
 }
 
-async fn state(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
-
+async fn state(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
     let response = ctx
         .v1
         .nexus
         .get_rebuild_state(v1::nexus::RebuildStateRequest {
-            nexus_uuid: uuid,
-            uri,
+            nexus_uuid: args.uuid.to_string(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;
@@ -364,13 +216,8 @@ async fn state(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn history(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
+async fn history(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let response = ctx
         .v1
         .nexus
@@ -437,19 +284,9 @@ async fn history(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn stats(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
+async fn stats(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
+    let uri = args.uri.clone();
+    let uuid = args.uuid.to_string();
 
     ctx.v2(&format!(
         "Getting the rebuild stats of child {uri} on nexus {uuid}"
@@ -459,7 +296,7 @@ async fn stats(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         .nexus
         .get_rebuild_stats(v1::nexus::RebuildStatsRequest {
             nexus_uuid: uuid,
-            uri: uri.clone(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;
@@ -507,26 +344,13 @@ async fn stats(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn progress(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
-
+async fn progress(mut ctx: Context, args: UuidUriArgs) -> crate::Result<()> {
     let response = ctx
         .v1
         .nexus
         .get_rebuild_stats(v1::nexus::RebuildStatsRequest {
-            nexus_uuid: uuid,
-            uri: uri.clone(),
+            nexus_uuid: args.uuid.to_string(),
+            uri: args.uri,
         })
         .await
         .context(GrpcStatus)?;

@@ -1,71 +1,57 @@
 use crate::{
     context::{Context, OutputFormat},
-    ClientError, GrpcStatus,
+    GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
 use std::convert::TryFrom;
-use tonic::Status;
 
-pub fn subcommands() -> Command {
-    let create = Command::new("create")
-        .about("Create storage pool")
-        .arg(
-            Arg::new("pool")
-                .required(true)
-                .index(1)
-                .help("Storage pool name"),
-        )
-        .arg(
-            Arg::new("disk")
-                .required(true)
-                .action(clap::ArgAction::Append)
-                .index(2)
-                .help("Disk device files"),
-        );
-    let destroy = Command::new("destroy").about("Destroy storage pool").arg(
-        Arg::new("pool")
-            .required(true)
-            .index(1)
-            .help("Storage pool name"),
-    );
-    Command::new("pool")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Storage pool management")
-        .subcommand(create)
-        .subcommand(destroy)
-        .subcommand(Command::new("list").about("List storage pools"))
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct PoolArgs {
+    #[command(subcommand)]
+    command: PoolCommands,
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("create", args) => create(ctx, args).await,
-        ("destroy", args) => destroy(ctx, args).await,
-        ("list", args) => list(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Subcommand)]
+enum PoolCommands {
+    /// Create storage pool
+    Create(CreateArgs),
+    /// Destroy storage pool
+    Destroy(DestroyArgs),
+    /// List storage pools
+    List,
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// Storage pool name
+    pool: String,
+    /// Disk device files
+    #[arg(action = clap::ArgAction::Append)]
+    disk: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct DestroyArgs {
+    /// Storage pool name
+    pool: String,
+}
+
+pub async fn handler(ctx: Context, args: PoolArgs) -> crate::Result<()> {
+    match args.command {
+        PoolCommands::Create(args) => create(ctx, args).await,
+        PoolCommands::Destroy(args) => destroy(ctx, args).await,
+        PoolCommands::List => list(ctx).await,
     }
 }
 
-async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let name = matches
-        .get_one::<String>("pool")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "pool".to_string(),
-        })?
-        .to_owned();
-    let disks = matches
-        .get_many::<String>("disk")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "disk".to_string(),
-        })?
-        .cloned()
-        .collect();
+async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
+    let name = args.pool;
+    let disks = args.disk;
 
     let response = ctx
         .client
@@ -87,20 +73,15 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &name);
+            println!("{name}");
         }
     };
 
     Ok(())
 }
 
-async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let name = matches
-        .get_one::<String>("pool")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "pool".to_string(),
-        })?
-        .to_owned();
+async fn destroy(mut ctx: Context, args: DestroyArgs) -> crate::Result<()> {
+    let name = args.pool;
 
     let response = ctx
         .client
@@ -119,14 +100,14 @@ async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &name);
+            println!("{name}");
         }
     };
 
     Ok(())
 }
 
-async fn list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn list(mut ctx: Context) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
 
     let response = ctx

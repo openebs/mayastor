@@ -3,38 +3,37 @@
 
 use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
 use std::convert::TryFrom;
-use tonic::Status;
 
-pub fn subcommands() -> Command {
-    let list = Command::new("list").about("List existing NVMe controllers");
-    let stats = Command::new("stats")
-        .about("Display I/O statistics for NVMe controllers")
-        .arg(
-            Arg::new("name")
-                .required(true)
-                .help("name of the controller"),
-        );
-
-    Command::new("controller")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("NVMe controllers")
-        .subcommand(list)
-        .subcommand(stats)
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct ControllerArgs {
+    #[command(subcommand)]
+    command: ControllerCommands,
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("list", args) => list_controllers(ctx, args).await,
-        ("stats", args) => controller_stats(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Subcommand)]
+enum ControllerCommands {
+    /// List existing NVMe controllers
+    List,
+    /// Display I/O statistics for NVMe controllers
+    Stats(StatsArgs),
+}
+
+#[derive(Debug, Args)]
+struct StatsArgs {
+    /// name of the controller
+    name: String,
+}
+
+pub async fn handler(ctx: Context, args: ControllerArgs) -> crate::Result<()> {
+    match args.command {
+        ControllerCommands::List => list_controllers(ctx).await,
+        ControllerCommands::Stats(args) => controller_stats(ctx, args).await,
     }
 }
 
@@ -50,11 +49,8 @@ fn controller_state_to_str(idx: i32) -> String {
     .to_string()
 }
 
-async fn controller_stats(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let name = matches
-        .get_one::<String>("name")
-        .cloned()
-        .unwrap_or_default();
+async fn controller_stats(mut ctx: Context, args: StatsArgs) -> crate::Result<()> {
+    let name = args.name;
     let response = ctx
         .v1
         .host
@@ -121,7 +117,7 @@ async fn controller_stats(mut ctx: Context, matches: &ArgMatches) -> crate::Resu
     Ok(())
 }
 
-async fn list_controllers(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn list_controllers(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .v1
         .host

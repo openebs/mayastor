@@ -1,303 +1,137 @@
+//!
+//! methods to interact with the replica's of the mayastor
+
 use crate::{
     context::{Context, OutputFormat},
-    parse_size, ClientError, GrpcStatus,
+    GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
-use std::convert::TryFrom;
-use tonic::{Code, Status};
 
-pub fn subcommands() -> Command {
-    let create = Command::new("create")
-        .about("Create replica on pool")
-        .arg(
-            Arg::new("pool")
-                .required(true)
-                .index(1)
-                .help("Storage pool name"),
-        )
-        .arg(
-            Arg::new("name")
-                .required(true)
-                .index(2)
-                .help("Replica name"),
-        )
-        .arg(
-            Arg::new("protocol")
-                .short('p')
-                .long("protocol")
-                .value_name("PROTOCOL")
-                .help("Name of a protocol (nvmf) used for sharing the replica (default none)"),
-        )
-        .arg(
-            Arg::new("size")
-                .short('s')
-                .long("size")
-                .required(true)
-                .value_name("NUMBER")
-                .help("Size of the replica"),
-        )
-        .arg(
-            Arg::new("thin")
-                .short('t')
-                .long("thin")
-                .action(clap::ArgAction::SetTrue)
-                .help("Whether replica is thin provisioned (default false)"),
-        )
-        .arg(
-            Arg::new("allowed-host")
-                .long("allowed-host")
-                .action(clap::ArgAction::Append)
-                .required(false)
-                .help("NQN of hosts which are allowed to connect to the target"),
-        );
-
-    let create_v2 = Command::new("create2")
-        .about("Create replica on pool")
-        .arg(
-            Arg::new("pool")
-                .required(true)
-                .index(1)
-                .help("Storage pool name"),
-        )
-        .arg(
-            Arg::new("name")
-                .required(true)
-                .index(2)
-                .help("Replica name"),
-        )
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(3)
-                .help("Unique replica uuid"),
-        )
-        .arg(
-            Arg::new("protocol")
-                .short('p')
-                .long("protocol")
-                .value_name("PROTOCOL")
-                .help("Name of a protocol (nvmf) used for sharing the replica (default none)"),
-        )
-        .arg(
-            Arg::new("size")
-                .short('s')
-                .long("size")
-                .required(true)
-                .value_name("NUMBER")
-                .help("Size of the replica"),
-        )
-        .arg(
-            Arg::new("thin")
-                .short('t')
-                .long("thin")
-                .action(clap::ArgAction::SetTrue)
-                .help("Whether replica is thin provisioned (default false)"),
-        )
-        .arg(
-            Arg::new("allowed-host")
-                .long("allowed-host")
-                .action(clap::ArgAction::Append)
-                .required(false)
-                .help("NQN of hosts which are allowed to connect to the target"),
-        );
-
-    let destroy = Command::new("destroy").about("Destroy replica").arg(
-        Arg::new("uuid")
-            .required(true)
-            .index(1)
-            .help("Replica uuid"),
-    );
-
-    let share =
-        Command::new("share")
-            .about("Share or unshare replica")
-            .arg(
-                Arg::new("name")
-                    .required(true)
-                    .index(1)
-                    .help("Replica name"),
-            )
-            .arg(Arg::new("protocol").required(true).index(2).help(
-                "Name of a protocol (nvmf) used for sharing or \"none\" to unshare the replica",
-            ))
-            .arg(
-                Arg::new("allowed-host")
-                    .long("allowed-host")
-                    .action(clap::ArgAction::Append)
-                    .required(false)
-                    .help("NQN of hosts which are allowed to connect to the target"),
-            );
-
-    Command::new("replica")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Replica management")
-        .subcommand(create)
-        .subcommand(create_v2)
-        .subcommand(destroy)
-        .subcommand(share)
-        .subcommand(Command::new("list").about("List replicas"))
-        .subcommand(Command::new("list2").about("List replicas"))
-        .subcommand(Command::new("stats").about("IO stats of replicas"))
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct ReplicaArgs {
+    #[command(subcommand)]
+    command: ReplicaCommands,
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("create", args) => replica_create(ctx, args).await,
-        ("create2", args) => replica_create_v2(ctx, args).await,
-        ("destroy", args) => replica_destroy(ctx, args).await,
-        ("list", args) => replica_list(ctx, args).await,
-        ("list2", args) => replica_list2(ctx, args).await,
-        ("share", args) => replica_share(ctx, args).await,
-        ("stats", args) => replica_stat(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Subcommand)]
+enum ReplicaCommands {
+    /// Create a replica
+    Create(CreateArgs),
+    /// Create a replica (v2)
+    Create2(Create2Args),
+    /// Destroy a replica
+    Destroy(UuidArgs),
+    /// List replicas
+    List,
+    /// List replicas (v2)
+    List2,
+    /// Share a replica
+    Share(ShareArgs),
+    /// Get replica IO stats
+    Stats,
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// storage pool name
+    pool: String,
+    /// name of the replica
+    name: String,
+    /// size of the replica
+    #[arg(long, short = 's', value_parser = parse_byte)]
+    size: Byte,
+    /// sharing protocol (nvmf or none)
+    #[arg(long, short = 'p')]
+    protocol: Option<ShareProtocol>,
+    /// enable thin provisioning
+    #[arg(long, short)]
+    thin: bool,
+    /// NQN of hosts allowed to connect to the target
+    #[arg(long = "allowed-host", action = clap::ArgAction::Append)]
+    allowed_hosts: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct Create2Args {
+    /// storage pool name
+    pool: String,
+    /// name of the replica
+    name: String,
+    /// uuid of the replica
+    uuid: String,
+    /// size of the replica
+    #[arg(long, short = 's', value_parser = parse_byte)]
+    size: Byte,
+    /// sharing protocol (nvmf or none)
+    #[arg(long, short = 'p')]
+    protocol: Option<ShareProtocol>,
+    /// enable thin provisioning
+    #[arg(long, short)]
+    thin: bool,
+    /// NQN of hosts allowed to connect to the target
+    #[arg(long = "allowed-host", action = clap::ArgAction::Append)]
+    allowed_hosts: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct UuidArgs {
+    /// uuid of the replica
+    uuid: String,
+}
+
+/// Share protocol for replicas
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum ShareProtocol {
+    None,
+    Nvmf,
+}
+
+#[derive(Debug, Args)]
+struct ShareArgs {
+    /// uuid of the replica
+    uuid: String,
+    /// protocol for sharing
+    protocol: ShareProtocol,
+}
+
+pub async fn handler(ctx: Context, args: ReplicaArgs) -> crate::Result<()> {
+    match args.command {
+        ReplicaCommands::Create(args) => create(ctx, args).await,
+        ReplicaCommands::Create2(args) => create2(ctx, args).await,
+        ReplicaCommands::Destroy(args) => destroy(ctx, args).await,
+        ReplicaCommands::List => list(ctx).await,
+        ReplicaCommands::List2 => list2(ctx).await,
+        ReplicaCommands::Share(args) => share(ctx, args).await,
+        ReplicaCommands::Stats => stats(ctx).await,
     }
 }
 
-async fn replica_create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let pool = matches
-        .get_one::<String>("pool")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "pool".to_string(),
-        })?
-        .to_owned();
-    let name = matches
-        .get_one::<String>("name")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "name".to_string(),
-        })?
-        .to_owned();
-    let size =
-        parse_size(
-            matches
-                .get_one::<String>("size")
-                .ok_or_else(|| ClientError::MissingValue {
-                    field: "size".to_string(),
-                })?,
-        )
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-        .context(GrpcStatus)?;
-    let thin = matches.get_flag("thin");
-    let share =
-        parse_replica_protocol(matches.get_one::<String>("protocol")).context(GrpcStatus)?;
-    let allowed_hosts = matches
-        .get_many::<String>("allowed-host")
-        .unwrap_or_default()
-        .cloned()
-        .collect();
-
-    let rq = rpc::CreateReplicaRequest {
-        uuid: name.clone(),
-        pool,
-        thin,
-        share,
-        size: size.as_u64(),
-        allowed_hosts,
-    };
-    let response = ctx.client.create_replica(rq).await.context(GrpcStatus)?;
-
-    match ctx.output {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
-        }
-        OutputFormat::Default => {
-            println!("{}", &response.get_ref().uri);
-        }
-    };
-
-    Ok(())
+fn parse_byte(s: &str) -> Result<Byte, String> {
+    Byte::parse_str(s, true).map_err(|e| e.to_string())
 }
 
-async fn replica_create_v2(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let pool = matches
-        .get_one::<String>("pool")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "pool".to_string(),
-        })?
-        .to_owned();
-    let name = matches
-        .get_one::<String>("name")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "name".to_string(),
-        })?
-        .to_owned();
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_owned();
-    let size =
-        parse_size(
-            matches
-                .get_one::<String>("size")
-                .ok_or_else(|| ClientError::MissingValue {
-                    field: "size".to_string(),
-                })?,
-        )
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-        .context(GrpcStatus)?;
-    let thin = matches.get_flag("thin");
-    let share =
-        parse_replica_protocol(matches.get_one::<String>("protocol")).context(GrpcStatus)?;
-    let allowed_hosts = matches
-        .get_many::<String>("allowed-host")
-        .unwrap_or_default()
-        .cloned()
-        .collect();
-
-    let rq = rpc::CreateReplicaRequestV2 {
-        name,
-        uuid: uuid.clone(),
-        pool,
-        thin,
-        share,
-        size: size.as_u64(),
-        allowed_hosts,
+async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
+    let name = args.name;
+    let share: i32 = match args.protocol {
+        None | Some(ShareProtocol::None) => 0,
+        Some(ShareProtocol::Nvmf) => 1,
     };
-    let response = ctx.client.create_replica_v2(rq).await.context(GrpcStatus)?;
-
-    match ctx.output {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
-        }
-        OutputFormat::Default => {
-            println!("{}", &response.get_ref().uri);
-        }
-    };
-
-    Ok(())
-}
-
-async fn replica_destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_owned();
 
     let response = ctx
         .client
-        .destroy_replica(rpc::DestroyReplicaRequest { uuid: uuid.clone() })
+        .create_replica(rpc::CreateReplicaRequest {
+            pool: args.pool,
+            uuid: name.clone(),
+            size: args.size.as_u64(),
+            thin: args.thin,
+            share,
+            allowed_hosts: args.allowed_hosts,
+        })
         .await
         .context(GrpcStatus)?;
 
@@ -312,14 +146,72 @@ async fn replica_destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Resul
             );
         }
         OutputFormat::Default => {
-            println!("{}", &uuid);
+            let uri = &response.get_ref().uri;
+            println!("{uri}");
         }
     };
 
     Ok(())
 }
 
-async fn replica_list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn create2(mut ctx: Context, args: Create2Args) -> crate::Result<()> {
+    let share: i32 = match args.protocol {
+        None | Some(ShareProtocol::None) => 0,
+        Some(ShareProtocol::Nvmf) => 1,
+    };
+
+    let response = ctx
+        .client
+        .create_replica_v2(rpc::CreateReplicaRequestV2 {
+            pool: args.pool,
+            uuid: args.uuid,
+            size: args.size.as_u64(),
+            thin: args.thin,
+            share,
+            name: args.name,
+            allowed_hosts: args.allowed_hosts,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let uri = &response.get_ref().uri;
+            println!("{uri}");
+        }
+    };
+
+    Ok(())
+}
+
+async fn destroy(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid;
+
+    ctx.client
+        .destroy_replica(rpc::DestroyReplicaRequest { uuid: uuid.clone() })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {}
+        OutputFormat::Default => {
+            println!("{uuid}");
+        }
+    };
+
+    Ok(())
+}
+
+async fn list(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .client
         .list_replicas(rpc::Null {})
@@ -338,8 +230,8 @@ async fn replica_list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<
         }
         OutputFormat::Default => {
             let replicas = &response.get_ref().replicas;
+
             if replicas.is_empty() {
-                ctx.v1("No replicas found");
                 return Ok(());
             }
 
@@ -347,28 +239,25 @@ async fn replica_list(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<
                 .iter()
                 .map(|r| {
                     let proto = replica_protocol_to_str(r.share);
-                    let size = ctx.units(Byte::from_u64(r.size));
+
                     vec![
                         r.pool.clone(),
                         r.uuid.clone(),
                         r.thin.to_string(),
                         proto.to_string(),
-                        size,
+                        ctx.units(Byte::from_u64(r.size)),
                         r.uri.clone(),
                     ]
                 })
                 .collect();
-            ctx.print_list(
-                vec!["POOL", "NAME", ">THIN", ">SHARE", ">SIZE", "URI"],
-                table,
-            );
+            ctx.print_list(vec!["POOL", "NAME", "THIN", "SHARE", ">SIZE", "URI"], table);
         }
     };
 
     Ok(())
 }
 
-async fn replica_list2(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn list2(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .client
         .list_replicas_v2(rpc::Null {})
@@ -387,8 +276,8 @@ async fn replica_list2(mut ctx: Context, _matches: &ArgMatches) -> crate::Result
         }
         OutputFormat::Default => {
             let replicas = &response.get_ref().replicas;
+
             if replicas.is_empty() {
-                ctx.v1("No replicas found");
                 return Ok(());
             }
 
@@ -396,20 +285,19 @@ async fn replica_list2(mut ctx: Context, _matches: &ArgMatches) -> crate::Result
                 .iter()
                 .map(|r| {
                     let proto = replica_protocol_to_str(r.share);
-                    let size = ctx.units(Byte::from_u64(r.size));
+
                     vec![
                         r.pool.clone(),
-                        r.name.clone(),
                         r.uuid.clone(),
-                        r.thin.to_string(),
+                        r.name.clone(),
                         proto.to_string(),
-                        size,
+                        r.size.to_string(),
                         r.uri.clone(),
                     ]
                 })
                 .collect();
             ctx.print_list(
-                vec!["POOL", "NAME", "UUID", ">THIN", ">SHARE", ">SIZE", "URI"],
+                vec!["POOL", "UUID", "NAME", "PROTOCOL", ">SIZE", "URI"],
                 table,
             );
         }
@@ -418,22 +306,19 @@ async fn replica_list2(mut ctx: Context, _matches: &ArgMatches) -> crate::Result
     Ok(())
 }
 
-async fn replica_share(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let name = matches.get_one::<String>("name").unwrap().to_owned();
-    let share =
-        parse_replica_protocol(matches.get_one::<String>("protocol")).context(GrpcStatus)?;
-    let allowed_hosts = matches
-        .get_many::<String>("allowed-host")
-        .unwrap_or_default()
-        .cloned()
-        .collect();
+async fn share(mut ctx: Context, args: ShareArgs) -> crate::Result<()> {
+    let uuid = args.uuid;
+    let protocol_num: i32 = match args.protocol {
+        ShareProtocol::None => 0,
+        ShareProtocol::Nvmf => 1,
+    };
 
     let response = ctx
         .client
         .share_replica(rpc::ShareReplicaRequest {
-            uuid: name.clone(),
-            share,
-            allowed_hosts,
+            uuid: uuid.clone(),
+            share: protocol_num,
+            allowed_hosts: vec![],
         })
         .await
         .context(GrpcStatus)?;
@@ -449,14 +334,15 @@ async fn replica_share(mut ctx: Context, matches: &ArgMatches) -> crate::Result<
             );
         }
         OutputFormat::Default => {
-            println!("{}", &response.get_ref().uri);
+            let val = &response.get_ref().uri;
+            println!("{val}");
         }
     };
 
     Ok(())
 }
 
-async fn replica_stat(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn stats(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .client
         .stat_replicas(rpc::Null {})
@@ -467,7 +353,7 @@ async fn replica_stat(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<
         OutputFormat::Json => {
             println!(
                 "{}",
-                serde_json::to_string_pretty(response.get_ref())
+                serde_json::to_string_pretty(&response.get_ref())
                     .unwrap()
                     .to_colored_json_auto()
                     .unwrap()
@@ -475,52 +361,40 @@ async fn replica_stat(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<
         }
         OutputFormat::Default => {
             let replicas = &response.get_ref().replicas;
+
             if replicas.is_empty() {
-                ctx.v1("No replicas have been created");
                 return Ok(());
             }
 
-            let header = vec!["POOL", "NAME", "RDCNT", "WRCNT", "RDBYTES", "WRBYTES"];
             let table = replicas
                 .iter()
-                .map(|replica| {
-                    let stats = replica.stats.as_ref().unwrap();
-                    let read = ctx.units(Byte::from_u64(stats.bytes_read));
-                    let written = ctx.units(Byte::from_u64(stats.bytes_written));
+                .map(|r| {
+                    let stats = r.stats.as_ref().unwrap();
                     vec![
-                        replica.pool.clone(),
-                        replica.uuid.clone(),
+                        r.pool.clone(),
+                        r.uuid.clone(),
                         stats.num_read_ops.to_string(),
                         stats.num_write_ops.to_string(),
-                        read,
-                        written,
+                        stats.bytes_read.to_string(),
+                        stats.bytes_written.to_string(),
                     ]
                 })
                 .collect();
-            ctx.print_list(header, table);
+            ctx.print_list(
+                vec!["POOL", "NAME", ">READS", ">WRITES", ">RBYTES", ">WBYTES"],
+                table,
+            );
         }
     };
 
     Ok(())
 }
 
-fn parse_replica_protocol(pcol: Option<&String>) -> Result<i32, Status> {
-    match pcol.map(|s| s.as_str()) {
-        None => Ok(rpc::ShareProtocolReplica::ReplicaNone as i32),
-        Some("nvmf") => Ok(rpc::ShareProtocolReplica::ReplicaNvmf as i32),
-        Some("none") => Ok(rpc::ShareProtocolReplica::ReplicaNone as i32),
-        Some(_) => Err(Status::new(
-            Code::Internal,
-            "Invalid value of share protocol".to_owned(),
-        )),
-    }
-}
-
-fn replica_protocol_to_str(idx: i32) -> &'static str {
-    match rpc::ShareProtocolReplica::try_from(idx) {
-        Ok(rpc::ShareProtocolReplica::ReplicaNone) => "none",
-        Ok(rpc::ShareProtocolReplica::ReplicaNvmf) => "nvmf",
-        Ok(rpc::ShareProtocolReplica::ReplicaIscsi) => "iscsi",
-        Err(_) => "unknown",
+fn replica_protocol_to_str(i: i32) -> &'static str {
+    match i {
+        0 => "none",
+        1 => "nvmf",
+        2 => "iscsi",
+        _ => "unknown",
     }
 }

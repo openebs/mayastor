@@ -1,68 +1,56 @@
-//!
-//! methods to interact with snapshot management
-
 use crate::{
     context::{Context, OutputFormat},
-    ClientError, GrpcStatus,
+    GrpcStatus,
 };
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
-use tonic::Status;
+use uuid::Uuid;
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("create", args) => create(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct SnapshotArgs {
+    #[command(subcommand)]
+    command: SnapshotCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum SnapshotCommands {
+    /// create a snapshot
+    Create(CreateArgs),
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// uuid of the nexus
+    uuid: Uuid,
+}
+
+pub async fn handler(ctx: Context, args: SnapshotArgs) -> crate::Result<()> {
+    match args.command {
+        SnapshotCommands::Create(args) => create(ctx, args).await,
     }
 }
 
-pub fn subcommands() -> Command {
-    let create = Command::new("create").about("create a snapshot").arg(
-        Arg::new("uuid")
-            .required(true)
-            .index(1)
-            .help("uuid of the nexus"),
-    );
-
-    Command::new("snapshot")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Snapshot management")
-        .subcommand(create)
-}
-
-async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-
+async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let response = ctx
         .client
         .create_snapshot(rpc::CreateSnapshotRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
-
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("{}", &uuid);
+            println!("{uuid}");
         }
     };
-
     Ok(())
 }

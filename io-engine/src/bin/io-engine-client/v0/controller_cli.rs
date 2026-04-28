@@ -3,32 +3,31 @@
 
 use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
-use clap::{ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
 use std::convert::TryFrom;
-use tonic::Status;
 
-pub fn subcommands() -> Command {
-    let list = Command::new("list").about("List existing NVMe controllers");
-    let stats = Command::new("stats").about("Display I/O statistics for NVMe controllers");
-
-    Command::new("controller")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("NVMe controllers")
-        .subcommand(list)
-        .subcommand(stats)
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct ControllerArgs {
+    #[command(subcommand)]
+    command: ControllerCommands,
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("list", args) => list_controllers(ctx, args).await,
-        ("stats", args) => controller_stats(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Subcommand)]
+enum ControllerCommands {
+    /// List existing NVMe controllers
+    List,
+    /// Display I/O statistics for NVMe controllers
+    Stats,
+}
+
+pub async fn handler(ctx: Context, args: ControllerArgs) -> crate::Result<()> {
+    match args.command {
+        ControllerCommands::List => list_controllers(ctx).await,
+        ControllerCommands::Stats => controller_stats(ctx).await,
     }
 }
 
@@ -44,7 +43,7 @@ fn controller_state_to_str(idx: i32) -> String {
     .to_string()
 }
 
-async fn controller_stats(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn controller_stats(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .client
         .stat_nvme_controllers(rpc::Null {})
@@ -96,7 +95,7 @@ async fn controller_stats(mut ctx: Context, _matches: &ArgMatches) -> crate::Res
     Ok(())
 }
 
-async fn list_controllers(mut ctx: Context, _matches: &ArgMatches) -> crate::Result<()> {
+async fn list_controllers(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .client
         .list_nvme_controllers(rpc::Null {})

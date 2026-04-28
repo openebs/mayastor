@@ -1,76 +1,84 @@
-//!
-//! methods to directly interact with the bdev layer
-
 use crate::{
     context::{Context, OutputFormat},
-    ClientError, GrpcStatus,
+    GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::prelude::*;
 use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
-use tonic::Status;
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("list", args) => list(ctx, args).await,
-        ("create", args) => create(ctx, args).await,
-        ("share", args) => share(ctx, args).await,
-        ("destroy", args) => destroy(ctx, args).await,
-        ("unshare", args) => unshare(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct BdevArgs {
+    #[command(subcommand)]
+    command: BdevCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum BdevCommands {
+    /// List all bdevs
+    List,
+    /// Create a new bdev by specifying a URI
+    Create(CreateArgs),
+    /// Share the given bdev
+    Share(ShareArgs),
+    /// Destroy the given bdev
+    Destroy(DestroyArgs),
+    /// Unshare the given bdev
+    Unshare(UnshareArgs),
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// URI to create
+    uri: url::Url,
+}
+
+/// Share protocol for bdevs
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum BdevShareProtocol {
+    Nvmf,
+}
+
+#[derive(Debug, Args)]
+struct ShareArgs {
+    /// bdev name
+    name: String,
+    #[arg(
+        long,
+        short = 'p',
+        default_value = "nvmf",
+        help = "the protocol to use to share the given bdev."
+    )]
+    protocol: BdevShareProtocol,
+    #[arg(long = "allowed-host", action = clap::ArgAction::Append, help = "NQN of hosts which are allowed to connect to the target")]
+    allowed_host: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct DestroyArgs {
+    /// bdev name
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct UnshareArgs {
+    /// bdev name
+    name: String,
+}
+
+pub async fn handler(ctx: Context, args: BdevArgs) -> crate::Result<()> {
+    match args.command {
+        BdevCommands::List => list(ctx).await,
+        BdevCommands::Create(args) => create(ctx, args).await,
+        BdevCommands::Share(args) => share(ctx, args).await,
+        BdevCommands::Destroy(args) => destroy(ctx, args).await,
+        BdevCommands::Unshare(args) => unshare(ctx, args).await,
     }
 }
 
-pub fn subcommands() -> Command {
-    let list = Command::new("list").about("List all bdevs");
-    let create = Command::new("create")
-        .about("Create a new bdev by specifying a URI")
-        .arg(Arg::new("uri").required(true).index(1));
-
-    let destroy = Command::new("destroy")
-        .about("destroy the given bdev")
-        .arg(Arg::new("name").required(true).index(1));
-
-    let share = Command::new("share")
-        .about("share the given bdev")
-        .arg(Arg::new("name").required(true).index(1))
-        .arg(
-            Arg::new("protocol")
-                .long("protocol")
-                .short('p')
-                .help("the protocol to used to share the given bdev.")
-                .required(false)
-                .value_parser(["Nvmf"])
-                .default_value("Nvmf"),
-        )
-        .arg(
-            Arg::new("allowed-host")
-                .long("allowed-host")
-                .action(clap::ArgAction::Append)
-                .required(false)
-                .help("NQN of hosts which are allowed to connect to the target"),
-        );
-
-    let unshare = Command::new("unshare")
-        .about("unshare the given bdev")
-        .arg(Arg::new("name").required(true).index(1));
-
-    Command::new("bdev")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Block device management")
-        .subcommand(list)
-        .subcommand(share)
-        .subcommand(unshare)
-        .subcommand(create)
-        .subcommand(destroy)
-}
-
-async fn list(mut ctx: Context, _args: &ArgMatches) -> crate::Result<()> {
+async fn list(mut ctx: Context) -> crate::Result<()> {
     let response = ctx
         .v1
         .bdev
@@ -121,22 +129,16 @@ async fn list(mut ctx: Context, _args: &ArgMatches) -> crate::Result<()> {
             ctx.print_list(header, table);
         }
     };
-
     Ok(())
 }
 
-async fn create(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
-    let uri = args
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_owned();
-
+async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
     let response = ctx
         .v1
         .bdev
-        .create(v1rpc::bdev::CreateBdevRequest { uri })
+        .create(v1rpc::bdev::CreateBdevRequest {
+            uri: args.uri.to_string(),
+        })
         .await
         .context(GrpcStatus)?;
 
@@ -151,21 +153,15 @@ async fn create(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &response.get_ref().bdev.as_ref().unwrap().name);
+            let val = &response.get_ref().bdev.as_ref().unwrap().name;
+            println!("{val}");
         }
     };
-
     Ok(())
 }
 
-async fn destroy(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
-    let name = args
-        .get_one::<String>("name")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "name".to_string(),
-        })?
-        .to_owned();
-
+async fn destroy(mut ctx: Context, args: DestroyArgs) -> crate::Result<()> {
+    let name = args.name;
     let bdevs = ctx
         .v1
         .bdev
@@ -178,10 +174,9 @@ async fn destroy(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
         .bdevs
         .iter()
         .find(|b| b.name == name)
-        .ok_or_else(|| Status::not_found(name.clone()))
+        .ok_or_else(|| tonic::Status::not_found(name.clone()))
         .context(GrpcStatus)?;
 
-    // un share the bdev
     let _ = ctx
         .v1
         .bdev
@@ -209,45 +204,25 @@ async fn destroy(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", found.name,);
+            let name = &found.name;
+            println!("{name}");
         }
     };
-
     Ok(())
 }
 
-async fn share(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
-    let name = args
-        .get_one::<String>("name")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "name".to_string(),
-        })?
-        .to_owned();
-    let protocol = args
-        .get_one::<String>("protocol")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "protocol".to_string(),
-        })?
-        .to_owned();
-    let allowed_hosts = args
-        .get_many::<String>("allowed-host")
-        .unwrap_or_default()
-        .cloned()
-        .collect();
-
-    let val = if protocol == "Nvmf" {
-        v1rpc::common::ShareProtocol::Nvmf as i32
-    } else {
-        v1rpc::common::ShareProtocol::None as i32
+async fn share(mut ctx: Context, args: ShareArgs) -> crate::Result<()> {
+    let protocol = match args.protocol {
+        BdevShareProtocol::Nvmf => v1rpc::common::ShareProtocol::Nvmf as i32,
     };
 
     let response = ctx
         .v1
         .bdev
         .share(v1rpc::bdev::BdevShareRequest {
-            name,
-            protocol: val,
-            allowed_hosts,
+            name: args.name,
+            protocol,
+            allowed_hosts: args.allowed_host,
         })
         .await
         .context(GrpcStatus)?;
@@ -263,20 +238,15 @@ async fn share(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{}", &response.get_ref().bdev.as_ref().unwrap().uri);
+            let val = &response.get_ref().bdev.as_ref().unwrap().uri;
+            println!("{val}");
         }
     }
     Ok(())
 }
 
-async fn unshare(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
-    let name = args
-        .get_one::<String>("name")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "name".to_string(),
-        })?
-        .to_owned();
-
+async fn unshare(mut ctx: Context, args: UnshareArgs) -> crate::Result<()> {
+    let name = args.name;
     let response = ctx
         .v1
         .bdev
@@ -295,7 +265,7 @@ async fn unshare(mut ctx: Context, args: &ArgMatches) -> crate::Result<()> {
             );
         }
         OutputFormat::Default => {
-            println!("{name}",);
+            println!("{name}");
         }
     }
     Ok(())
