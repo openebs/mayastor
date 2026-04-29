@@ -49,7 +49,8 @@ impl RebuildTask {
     }
 
     /// Copies one segment worth of data from source into destination.
-    /// Returns true if write transfer took place, false otherwise.
+    /// Returns true if a destination I/O (data write or discard) took place,
+    /// false otherwise.
     ///
     /// When the source segment reads as unallocated, no data is copied; instead
     /// the destination segment is discarded (UNMAP, falling back to
@@ -73,9 +74,9 @@ impl RebuildTask {
             // Source segment is unallocated: discard the destination segment
             // to keep the replicas in sync without copying data.
             desc.discard_dst_segment(offset_blk).await?;
-            return Ok(false);
+        } else {
+            desc.write_dst_segment(offset_blk, iovs).await?;
         }
-        desc.write_dst_segment(offset_blk, iovs).await?;
 
         if !matches!(desc.options.verify_mode, RebuildVerifyMode::None) {
             desc.verify_segment(offset_blk, iovs).await?;

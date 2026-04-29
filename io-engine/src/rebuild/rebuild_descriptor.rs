@@ -7,7 +7,7 @@ use crate::{
     bdev_api::bdev_get_name,
     core::{
         BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, CoreError, IoCompletionStatus,
-        IoType, ReadOptions, SegmentMap,
+        IoType, MayastorEnvironment, ReadOptions, SegmentMap,
     },
     rebuild::{
         rebuild_error::{BdevInvalidUri, NoCopyBuffer},
@@ -42,6 +42,12 @@ pub(super) struct RebuildDescriptor {
     #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
     pub(super) dst_handle: Box<dyn BlockDeviceHandle>,
+    /// Whether the global blob-store cluster-on-unmap feature is enabled. When
+    /// disabled, UNMAP at the lvol layer does not release clusters, so we
+    /// prefer WRITE_ZEROES to bring an unallocated source segment in sync with
+    /// the destination instead of issuing a no-op (from a reclaim standpoint)
+    /// UNMAP.
+    pub(super) bs_cluster_unmap: bool,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
 }
@@ -112,6 +118,7 @@ impl RebuildDescriptor {
             src_handle,
             dst_descriptor,
             dst_handle,
+            bs_cluster_unmap: MayastorEnvironment::global_or_default().bs_cluster_unmap,
             start_time: Utc::now(),
         })
     }
@@ -258,11 +265,21 @@ impl RebuildDescriptor {
     /// Discards the segment at the given offset on the destination replica,
     /// bringing it in sync with an unallocated source segment.
     ///
-    /// Prefers UNMAP (which preserves thin provisioning on the destination);
-    /// falls back to WRITE_ZEROES if UNMAP is not supported by the destination
-    /// device. If neither is supported, the rebuild fails — we cannot leave
-    /// the destination holding arbitrary stale content while the source reads
-    /// as unallocated, since that would silently diverge the replicas.
+    /// Selection logic:
+    /// - If the global blob-store cluster-on-unmap feature is enabled and the
+    ///   destination supports UNMAP, issue UNMAP (releases clusters on the
+    ///   underlying lvol while also zeroing reads).
+    /// - Otherwise, if the destination supports WRITE_ZEROES, use it. This
+    ///   covers both the "cluster-unmap disabled" case (where UNMAP wouldn't
+    ///   release space anyway) and the "device has no UNMAP" case.
+    /// - Otherwise, fail the rebuild — we cannot leave the destination holding
+    ///   arbitrary stale content while the source reads as unallocated, since
+    ///   that would silently diverge the replicas.
+    ///
+    /// Note: we have no in-band signal telling us whether the destination
+    /// region is already unmapped/zeroed, so the operation may be redundant in
+    /// the common create-time case. That's the (cheap) cost of getting a rule
+    /// that is impossible to get subtly wrong.
     pub(super) async fn discard_dst_segment(
         &self,
         offset_blk: u64,
@@ -271,14 +288,17 @@ impl RebuildDescriptor {
         let dst = self.dst_io_handle();
         let dev = dst.get_device();
 
-        if dev.io_type_supported(IoType::Unmap) {
+        let supports_unmap = dev.io_type_supported(IoType::Unmap);
+        let supports_write_zeros = dev.io_type_supported(IoType::WriteZeros);
+
+        if self.bs_cluster_unmap && supports_unmap {
             dst.unmap_blocks_async(offset_blk, num_blocks)
                 .await
                 .map_err(|err| RebuildError::DiscardIoFailed {
                     source: err,
                     bdev: self.dst_uri.clone(),
                 })
-        } else if dev.io_type_supported(IoType::WriteZeros) {
+        } else if supports_write_zeros {
             dst.write_zeroes_blocks_async(offset_blk, num_blocks)
                 .await
                 .map_err(|err| RebuildError::DiscardIoFailed {
