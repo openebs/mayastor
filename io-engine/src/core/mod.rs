@@ -171,6 +171,8 @@ pub enum CoreError {
     ResetFailed {},
     #[snafu(display("write zeroes failed at offset {offset} length {len}"))]
     WriteZeroesFailed { offset: u64, len: u64 },
+    #[snafu(display("unmap failed at offset {offset} length {len}"))]
+    UnmapFailed { offset: u64, len: u64 },
     #[snafu(display("NVMe Admin command {opcode:x}h failed: {source}"))]
     NvmeAdminFailed { source: Errno, opcode: u16 },
     #[snafu(display("NVMe IO Passthru command {opcode:x}h failed"))]
@@ -232,6 +234,7 @@ impl ToErrno for CoreError {
             | Self::ReadingUnallocatedBlock { .. }
             | Self::ResetFailed { .. }
             | Self::WriteZeroesFailed { .. }
+            | Self::UnmapFailed { .. }
             | Self::NvmeIoPassthruFailed { .. }
             | Self::UnshareNvmf { .. } => Errno::EIO,
             Self::ShareNvmf { source } => source.to_errno(),

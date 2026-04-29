@@ -7,7 +7,7 @@ use crate::{
     bdev_api::bdev_get_name,
     core::{
         BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, CoreError, IoCompletionStatus,
-        ReadOptions, SegmentMap,
+        IoType, ReadOptions, SegmentMap,
     },
     rebuild::{
         rebuild_error::{BdevInvalidUri, NoCopyBuffer},
@@ -200,6 +200,13 @@ impl RebuildDescriptor {
     /// Reads a rebuild segment at the given offset from the source replica.
     /// In the case the segment is not allocated on the source, returns false,
     /// and true otherwise.
+    ///
+    /// Note: an `Ok(false)` return does NOT mean the destination write can be
+    /// skipped. The data plane cannot prove that the destination region is
+    /// pristine (the underlying replica may be thick, may have been previously
+    /// written, snapshotted, restored, etc.), so the caller must still bring
+    /// the destination region into sync with the source by issuing a discard
+    /// (UNMAP, falling back to WRITE_ZEROES) — see [`Self::discard_dst_segment`].
     pub(super) async fn read_src_segment(
         &self,
         offset_blk: u64,
@@ -246,6 +253,43 @@ impl RebuildDescriptor {
                 source: err,
                 bdev: self.dst_uri.clone(),
             })
+    }
+
+    /// Discards the segment at the given offset on the destination replica,
+    /// bringing it in sync with an unallocated source segment.
+    ///
+    /// Prefers UNMAP (which preserves thin provisioning on the destination);
+    /// falls back to WRITE_ZEROES if UNMAP is not supported by the destination
+    /// device. If neither is supported, the rebuild fails — we cannot leave
+    /// the destination holding arbitrary stale content while the source reads
+    /// as unallocated, since that would silently diverge the replicas.
+    pub(super) async fn discard_dst_segment(
+        &self,
+        offset_blk: u64,
+    ) -> Result<(), RebuildError> {
+        let num_blocks = self.get_segment_size_blks(offset_blk);
+        let dst = self.dst_io_handle();
+        let dev = dst.get_device();
+
+        if dev.io_type_supported(IoType::Unmap) {
+            dst.unmap_blocks_async(offset_blk, num_blocks)
+                .await
+                .map_err(|err| RebuildError::DiscardIoFailed {
+                    source: err,
+                    bdev: self.dst_uri.clone(),
+                })
+        } else if dev.io_type_supported(IoType::WriteZeros) {
+            dst.write_zeroes_blocks_async(offset_blk, num_blocks)
+                .await
+                .map_err(|err| RebuildError::DiscardIoFailed {
+                    source: err,
+                    bdev: self.dst_uri.clone(),
+                })
+        } else {
+            Err(RebuildError::DiscardNotSupported {
+                bdev: self.dst_uri.clone(),
+            })
+        }
     }
 
     /// Verify segment copy operation by reading destination, and comparing with
