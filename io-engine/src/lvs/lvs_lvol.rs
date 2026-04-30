@@ -28,7 +28,7 @@ use crate::{
     core::{
         logical_volume::{LogicalVolume, LvolSpaceUsage},
         Bdev, CloneXattrs, LvolSnapshotOps, NvmfShareProps, PropXattrs, Protocol, PtplProps, Share,
-        SnapshotXattrs, UntypedBdev, UpdateProps,
+        SnapshotXattrs, UnshareProps, UntypedBdev, UpdateProps,
     },
     eventing::Event,
     ffihelper::{
@@ -204,16 +204,24 @@ impl Share for Lvol {
     }
 
     /// unshare the nvmf target
-    async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
+    async fn unshare(
+        mut self: Pin<&mut Self>,
+        opts: Option<UnshareProps>,
+    ) -> Result<(), Self::Error> {
+        let opts = opts.unwrap_or_default();
+        let persist = opts.persist;
+
         Pin::new(&mut self.as_bdev())
-            .unshare()
+            .unshare(Some(opts))
             .await
             .map_err(|e| LvsError::LvolUnShare {
                 source: e,
                 name: self.name(),
             })?;
 
-        self.as_mut().set(PropValue::Shared(false)).await?;
+        if persist {
+            self.as_mut().set(PropValue::Shared(false)).await?;
+        }
 
         info!("{:?}: unshared", self);
         Ok(())
@@ -874,7 +882,9 @@ impl LvsLvol for Lvol {
         }
         self.reset_snapshot_tree_usage_cache(!self.is_snapshot());
         // We must always unshare before destroying bdev.
-        let _ = Pin::new(&mut self).unshare().await;
+        let _ = Pin::new(&mut self)
+            .unshare(Some(UnshareProps::new(false)))
+            .await;
 
         let name = self.name();
         let ptpl = self.ptpl();

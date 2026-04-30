@@ -1,4 +1,4 @@
-use crate::bdev::PtplFileOps;
+use crate::{bdev::PtplFileOps, core::UnshareProps};
 use async_trait::async_trait;
 use snafu::ResultExt;
 use std::pin::Pin;
@@ -72,13 +72,16 @@ impl Share for Nexus<'_> {
     }
 
     /// TODO
-    async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
+    async fn unshare(
+        mut self: Pin<&mut Self>,
+        opts: Option<UnshareProps>,
+    ) -> Result<(), Self::Error> {
         info!("{:?}: unsharing nexus bdev...", self);
 
         let name = self.name.clone();
         self.as_mut()
             .pin_bdev_mut()
-            .unshare()
+            .unshare(opts)
             .await
             .context(nexus_err::UnshareNexus { name })?;
 
@@ -211,7 +214,7 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        self.as_mut().unshare().await
+        self.as_mut().unshare(None).await
     }
 
     /// TODO

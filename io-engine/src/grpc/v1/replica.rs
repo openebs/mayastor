@@ -294,7 +294,7 @@ impl ReplicaGrpc {
         let _lock_guard = acquire_subsystem_lock(pool_subsystem, Some(&pool_name)).await?;
 
         if self.replica.shared().is_some() {
-            self.replica.unshare().await?;
+            self.replica.unshare(None).await?;
         }
         Ok(())
     }

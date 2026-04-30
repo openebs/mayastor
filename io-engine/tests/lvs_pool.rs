@@ -4,7 +4,7 @@ use io_engine::{
     bdev_api::bdev_create,
     core::{
         logical_volume::LogicalVolume, MayastorCliArgs, NvmeCliArgs, NvmfShareProps, PoolCliArgs,
-        Protocol, Share, ToErrno, UntypedBdev,
+        Protocol, Share, ToErrno, UnshareProps, UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
     lvm::dm_setup::DmState,
@@ -309,11 +309,30 @@ async fn lvs_pool_test() {
                 PropValue::Shared(true)
             );
 
-            lvol.as_mut().unshare().await.unwrap();
+            lvol.as_mut().unshare(None).await.unwrap();
 
             assert_eq!(
                 lvol.get(PropName::Shared).await.unwrap(),
                 PropValue::Shared(false)
+            );
+
+            // sharing without persisting
+
+            lvol.as_mut().share_nvmf(None).await.unwrap();
+
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(true)
+            );
+
+            lvol.as_mut()
+                .unshare(Some(UnshareProps::new(false)))
+                .await
+                .unwrap();
+
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(true)
             );
         }
 
@@ -920,7 +939,6 @@ async fn lvs_hot_remove() {
             if out.0 != 0 {
                 eprintln!("TestGuard=>{out:#?}");
             }
-            common::delete_file(&[DISKNAME1.into()]);
         }
     }
     let guard = TestGuard { ublk_n };
@@ -947,6 +965,11 @@ async fn lvs_hot_remove() {
             .create_lvol("dud", 8 * 1024 * 1024, None, true, None)
             .await
             .unwrap();
+        let mut _dud2 = lvs_pool
+            .create_lvol("dud2", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
+        Pin::new(&mut _dud2).share_nvmf(None).await.unwrap();
 
         let repl = lvs_pool
             .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
@@ -987,6 +1010,19 @@ async fn lvs_hot_remove() {
 
         assert_eq!(Lvs::iter_all().count(), 0);
         assert_eq!(Lvs::iter().count(), 0);
+
+        let mut pool_args = pool_args;
+        pool_args.disks = vec![format!("aio://{DISKNAME1}?blk_size=4096")];
+        let lvs = Lvs::create_or_import(pool_args).await.expect("removed");
+
+        let _repl = lvs
+            .create_lvol("new", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
+
+        lvs.destroy().await.unwrap();
+
+        common::delete_file(&[DISKNAME1.into()]);
     })
     .await;
 }

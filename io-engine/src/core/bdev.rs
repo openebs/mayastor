@@ -17,6 +17,7 @@ use crate::{
         block_device::BlockDeviceIoErrorStats,
         share::{NvmfShareProps, Protocol, Share, UpdateProps},
         BlockDeviceIoStats, CoreError, DescriptorGuard, PtplProps, ShareNvmf, UnshareNvmf,
+        UnshareProps,
     },
     subsys::NvmfSubsystem,
     target::nvmf,
@@ -261,7 +262,7 @@ where
     }
 
     /// unshare the bdev regardless of current active share
-    async fn unshare(self: Pin<&mut Self>) -> Result<(), Self::Error> {
+    async fn unshare(self: Pin<&mut Self>, _opts: Option<UnshareProps>) -> Result<(), Self::Error> {
         match shared(self.deref()) {
             Some(Protocol::Nvmf) => {
                 if let Some(ss) = NvmfSubsystem::nqn_lookup(self.name()) {

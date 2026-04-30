@@ -51,7 +51,8 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         snapshot::SnapshotDescriptor, BdevStater, BdevStats, CloneParams, CoreError,
-        NvmfShareProps, Protocol, PtplProps, SnapshotParams, UntypedBdev, UpdateProps,
+        NvmfShareProps, Protocol, PtplProps, SnapshotParams, UnshareProps, UntypedBdev,
+        UpdateProps,
     },
     lvm::property::Property,
     pool_backend::{
@@ -165,8 +166,11 @@ impl ReplicaOps for LogicalVolume {
     ) -> Result<String, crate::pool_backend::Error> {
         self.share_nvmf(Some(props)).await.map_err(Into::into)
     }
-    async fn unshare(&mut self) -> Result<(), crate::pool_backend::Error> {
-        self.unshare().await.map_err(Into::into)
+    async fn unshare(
+        &mut self,
+        opts: Option<UnshareProps>,
+    ) -> Result<(), crate::pool_backend::Error> {
+        self.unshare(opts).await.map_err(Into::into)
     }
     async fn update_properties(
         &mut self,

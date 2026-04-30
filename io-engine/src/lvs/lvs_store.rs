@@ -33,7 +33,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType,
-        MayastorEnvironment, NvmfShareProps, Reactors, Share, UntypedBdev,
+        MayastorEnvironment, NvmfShareProps, Reactors, Share, UnshareProps, UntypedBdev,
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -766,7 +766,10 @@ impl Lvs {
             // notice we dont use the unshare impl of the bdev
             // here. we do this to avoid the on disk persistence
             let mut bdev = l.as_bdev();
-            if let Err(e) = Pin::new(&mut bdev).unshare().await {
+            if let Err(e) = Pin::new(&mut bdev)
+                .unshare(Some(UnshareProps::new(false)))
+                .await
+            {
                 error!("{:?}: failed to unshare: {}", l, e.to_string())
             }
         }
@@ -780,11 +783,15 @@ impl Lvs {
                 Ok(PropValue::AllowedHosts(hosts)) => hosts,
                 _ => vec![],
             };
+
             // First we unshare to ensure we clean up resources on re-import when the backend
             // is hot-removed and then hot-attached again.
-            let prop = l.get(PropName::Shared).await;
-            Pin::new(&mut l).unshare().await.ok();
-            match prop {
+            Pin::new(&mut l)
+                .unshare(Some(UnshareProps::new(false)))
+                .await
+                .ok();
+
+            match l.get(PropName::Shared).await {
                 Ok(PropValue::Shared(true)) => {
                     let name = l.name().clone();
                     let props = NvmfShareProps::new()
