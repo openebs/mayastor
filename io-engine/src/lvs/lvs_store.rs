@@ -780,23 +780,24 @@ impl Lvs {
                 Ok(PropValue::AllowedHosts(hosts)) => hosts,
                 _ => vec![],
             };
-
-            if let Ok(prop) = l.get(PropName::Shared).await {
-                match prop {
-                    PropValue::Shared(true) => {
-                        let name = l.name().clone();
-                        let props = NvmfShareProps::new()
-                            .with_allowed_hosts(allowed_hosts)
-                            .with_ptpl(l.ptpl().create().unwrap_or_default());
-                        if let Err(e) = Pin::new(&mut l).share_nvmf(Some(props)).await {
-                            error!("failed to share {} {}", name, e.to_string());
-                        }
+            // First we unshare to ensure we clean up resources on re-import when the backend
+            // is hot-removed and then hot-attached again.
+            let prop = l.get(PropName::Shared).await;
+            Pin::new(&mut l).unshare().await.ok();
+            match prop {
+                Ok(PropValue::Shared(true)) => {
+                    let name = l.name().clone();
+                    let props = NvmfShareProps::new()
+                        .with_allowed_hosts(allowed_hosts)
+                        .with_ptpl(l.ptpl().create().unwrap_or_default());
+                    if let Err(e) = Pin::new(&mut l).share_nvmf(Some(props)).await {
+                        error!("failed to share {} {}", name, e.to_string());
                     }
-                    PropValue::Shared(false) => {
-                        debug!("{} not shared on disk", l.name())
-                    }
-                    _ => {}
                 }
+                Ok(PropValue::Shared(false)) => {
+                    debug!("{} not shared on disk", l.name())
+                }
+                _ => {}
             }
         }
     }
