@@ -823,8 +823,16 @@ impl<'n> Nexus<'n> {
         if let Some(mut nexus) = nexus_lookup_mut(&nexus_name) {
             match nexus.as_mut().lookup_child_by_device_mut(&child_device) {
                 Some(child) => {
-                    info!(nexus_name, child_device, "Unplugging nexus child device");
-                    child.unplug().await;
+                    if child.hot_removed() {
+                        error!(
+                            nexus_name,
+                            child_device, "Retiring nexus child device on hot-remove"
+                        );
+                        nexus.retire_child_device(&child_device, FaultReason::HotRemove, false);
+                    } else {
+                        info!(nexus_name, child_device, "Unplugging nexus child device");
+                        child.unplug().await;
+                    }
                 }
                 None => {
                     warn!(nexus_name, child_device, "Nexus child device not found");
@@ -995,7 +1003,7 @@ impl<'n> Nexus<'n> {
                 match num_healthy {
                     0 => {
                         warn!(
-                            "{self:?}: no healthy replicas persent \
+                            "{self:?}: no healthy replicas present \
                             in persistent store when retiring replica '{uri}':
                             not persisting the replica state",
                         );

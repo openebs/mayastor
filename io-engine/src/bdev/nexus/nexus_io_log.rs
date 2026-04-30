@@ -141,7 +141,13 @@ impl Debug for IOLog {
 impl IOLog {
     /// Creates a new I/O log instance for the given device.
     pub(crate) fn new(device_name: &str, num_blocks: u64, block_len: u64) -> Self {
-        assert!(!device_name.is_empty() && num_blocks > 0 && block_len > 0);
+        assert!(
+            !device_name.is_empty() && num_blocks > 0 && block_len > 0,
+            "{} => {} {}",
+            device_name,
+            num_blocks,
+            block_len
+        );
 
         let mut channels = HashMap::new();
 

@@ -151,6 +151,10 @@ pub enum FaultReason {
     Offline,
     /// The child has been permanently offlined by a client API call.
     OfflinePermanent,
+    /// The child has been hot-removed.
+    /// This may be as a result of mistaken child deletion (ie xxx)
+    /// or as result of the backend pool itself getting hot-removed.
+    HotRemove,
 }
 
 impl Display for FaultReason {
@@ -165,6 +169,7 @@ impl Display for FaultReason {
             Self::AdminCommandFailed => write!(f, "admin command failed"),
             Self::Offline => write!(f, "offline"),
             Self::OfflinePermanent => write!(f, "offline permanent"),
+            Self::HotRemove => write!(f, "hot-remove"),
         }
     }
 }
@@ -180,6 +185,7 @@ impl FaultReason {
                 | Self::Offline
                 | Self::AdminCommandFailed
                 | Self::RebuildFailed
+                | Self::HotRemove
         )
     }
 }
@@ -1046,6 +1052,18 @@ impl<'c> NexusChild<'c> {
         }
     }
 
+    /// At the moment it's not enterely straightforward to determine if a child bdev
+    /// has been hot-removed.
+    /// This can happen as a result of a lvol/bdev destruction whilst the child is still in
+    /// use or as a result of the pool's hot-removal due to backend errors
+    /// which will also hot-remove the lvol/bdev.
+    /// Here we try to determine "unintended" hot-removal by checking if the child was still
+    /// open and not already being destroyed.
+    pub(crate) fn hot_removed(&mut self) -> bool {
+        let state = self.state();
+        matches!(state, ChildState::Open) && !self.is_destroying()
+    }
+
     /// Called in response to a device removal event.
     /// All the necessary teardown should be performed here before the
     /// underlying device is removed.
@@ -1247,12 +1265,8 @@ impl<'c> NexusChild<'c> {
 
         if io_log.is_none() {
             if let Some(d) = &self.device {
-                // todo: fixme
-                if d.block_len() > 0 {
-                    *io_log = Some(IOLog::new(&d.device_name(), d.num_blocks(), d.block_len()));
-
-                    debug!("{self:?}: started new I/O log: {log:?}", log = *io_log);
-                }
+                *io_log = Some(IOLog::new(&d.device_name(), d.num_blocks(), d.block_len()));
+                debug!("{self:?}: started new I/O log: {log:?}", log = *io_log);
             }
         }
 

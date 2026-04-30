@@ -21,6 +21,8 @@ use crate::{
 pub struct NvmeBlockDevice {
     ns: Arc<NvmeNamespace>,
     name: String,
+    num_blocks: u64,
+    block_len: u64,
 }
 
 /// Descriptor for an opened NVMe device that represents a namespace for
@@ -132,6 +134,8 @@ impl NvmeBlockDevice {
 
     pub fn from_ns(name: &str, ns: Arc<NvmeNamespace>) -> NvmeBlockDevice {
         NvmeBlockDevice {
+            block_len: ns.block_len(),
+            num_blocks: ns.num_blocks(),
             ns,
             name: String::from(name),
         }
@@ -145,11 +149,21 @@ impl BlockDevice for NvmeBlockDevice {
     }
 
     fn block_len(&self) -> u64 {
-        self.ns.block_len()
+        let blks = self.ns.block_len();
+        if blks > 0 {
+            blks
+        } else {
+            self.block_len
+        }
     }
 
     fn num_blocks(&self) -> u64 {
-        self.ns.num_blocks()
+        let blks = self.ns.num_blocks();
+        if blks > 0 {
+            blks
+        } else {
+            self.num_blocks
+        }
     }
 
     fn uuid(&self) -> Uuid {

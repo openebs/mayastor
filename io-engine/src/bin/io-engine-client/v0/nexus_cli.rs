@@ -950,5 +950,6 @@ fn child_reason_to_str_v1(r: v1::nexus::ChildStateReason) -> &'static str {
         v1::nexus::ChildStateReason::NoSpace => "no space",
         v1::nexus::ChildStateReason::TimedOut => "timed out",
         v1::nexus::ChildStateReason::AdminFailed => "admin failed",
+        v1::nexus::ChildStateReason::HotRemoved => "hot removed",
     }
 }
