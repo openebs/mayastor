@@ -304,7 +304,7 @@ pub struct NexusChild<'c> {
     faulted_at: parking_lot::Mutex<Option<DateTime<Utc>>>,
     /// TODO
     #[serde(skip_serializing)]
-    remove_channel: (async_channel::Sender<()>, async_channel::Receiver<()>),
+    remove_channel: (async_channel::Sender<bool>, async_channel::Receiver<bool>),
     /// Name of the child is the URI used to create it.
     /// Name of the underlying block device can differ from it.
     ///
@@ -1024,10 +1024,14 @@ impl<'c> NexusChild<'c> {
             Ok(_) => {
                 info!("{self:?}: block device destroyed, waiting for removal...");
 
-                // Only wait for block device removal if the child has been
-                // initialised.
+                // Only wait for block device removal if the child has been initialised.
                 if self.state.load() != ChildState::Init {
-                    self.remove_channel.1.recv().await.ok();
+                    // In case unplug happens before we close the child, it will not destroy the
+                    // block device.
+                    // Destroying the device *should* lead to another device removal event, which
+                    // will again trigger unplug. By leaving the destroy state in place, we ensure
+                    // the unplug will remove the block device this time.
+                    while !self.remove_channel.1.recv().await.unwrap_or(true) {}
                 }
 
                 self.set_destroy_state(ChildDestroyState::None);
@@ -1094,7 +1098,8 @@ impl<'c> NexusChild<'c> {
 
     /// Signal that the child unplug is complete.
     async fn unplug_complete(&self) {
-        if let Err(error) = self.remove_channel.0.send(()).await {
+        let destroyed = self.device_descriptor.is_none();
+        if let Err(error) = self.remove_channel.0.send(destroyed).await {
             info!("{self:?}: failed to send unplug complete: {error}");
         } else {
             info!("{self:?}: child successfully unplugged");
@@ -1117,7 +1122,7 @@ impl<'c> NexusChild<'c> {
             sync_state: AtomicCell::new(ChildSyncState::Synced),
             destroy_state: AtomicCell::new(ChildDestroyState::None),
             faulted_at: parking_lot::Mutex::new(None),
-            remove_channel: async_channel::bounded(1),
+            remove_channel: async_channel::bounded(2),
             io_log: Mutex::new(None),
             _c: Default::default(),
         }
@@ -1242,9 +1247,12 @@ impl<'c> NexusChild<'c> {
 
         if io_log.is_none() {
             if let Some(d) = &self.device {
-                *io_log = Some(IOLog::new(&d.device_name(), d.num_blocks(), d.block_len()));
+                // todo: fixme
+                if d.block_len() > 0 {
+                    *io_log = Some(IOLog::new(&d.device_name(), d.num_blocks(), d.block_len()));
 
-                debug!("{self:?}: started new I/O log: {log:?}", log = *io_log);
+                    debug!("{self:?}: started new I/O log: {log:?}", log = *io_log);
+                }
             }
         }
 
