@@ -188,7 +188,7 @@ where
 }
 
 /// Returns the share protocol if the bdev is currently shared.
-fn shared<T: spdk_rs::BdevOps>(bdev: &Bdev<T>) -> Option<Protocol> {
+pub fn is_shared<T: spdk_rs::BdevOps>(bdev: &Bdev<T>) -> Option<Protocol> {
     // TODO: we could do better here
     match bdev.shared() {
         Some(Protocol::Nvmf) => Some(Protocol::Nvmf),
@@ -263,7 +263,7 @@ where
 
     /// unshare the bdev regardless of current active share
     async fn unshare(self: Pin<&mut Self>, _opts: Option<UnshareProps>) -> Result<(), Self::Error> {
-        match shared(self.deref()) {
+        match is_shared(self.deref()) {
             Some(Protocol::Nvmf) => {
                 if let Some(ss) = NvmfSubsystem::nqn_lookup(self.name()) {
                     ss.stop().await.context(UnshareNvmf {})?;

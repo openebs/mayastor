@@ -8,7 +8,7 @@ use std::{
 use nix::errno::Errno;
 use snafu::Snafu;
 
-pub use bdev::{Bdev, BdevErrorStats, BdevIter, BdevStater, BdevStats, UntypedBdev};
+pub use bdev::{is_shared, Bdev, BdevErrorStats, BdevIter, BdevStater, BdevStats, UntypedBdev};
 pub use block_device::{
     BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, BlockDeviceIoStats, DeviceIoController,
     DeviceTimeoutAction, IoCompletionCallback, IoCompletionCallbackArg, LbaRangeController,
