@@ -106,7 +106,8 @@ impl<'n> Nexus<'n> {
     pub(crate) async fn persist(&self, op: PersistOp<'_>) -> Result<(), Error> {
         if !PersistentStore::enabled() {
             // This is useful for testing without a pstor configured.
-            tracing::warn!("\n\n\nwould persist: {op:?}\n\n\n");
+            // todo: move to the save o we can have a more correct output.
+            tracing::warn!("PersistentStore::persist: {op:?}");
             return Ok(());
         }
 

@@ -37,7 +37,7 @@ const IO_STALL_TRANSITION_THRESHOLD: u64 = 3;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
 fn ms() -> &'static MayastorTest<'static> {
-    MAYASTOR.get_or_init(|| {
+    let ms = MAYASTOR.get_or_init(|| {
         MayastorTest::new(MayastorCliArgs {
             reactor_mask: "0x3".into(),
             pool: PoolCliArgs {
@@ -54,7 +54,10 @@ fn ms() -> &'static MayastorTest<'static> {
             },
             ..Default::default()
         })
-    })
+    });
+    ms.start_grpc();
+    ms.start_device_monitor();
+    ms
 }
 
 #[tokio::test]
@@ -902,55 +905,16 @@ async fn lvs_hot_remove() {
     common::delete_file(&[DISKNAME1.into()]);
     common::truncate_file(DISKNAME1, 128 * 1024);
 
-    let script = r#"
-        set -euo pipefail
-        modprobe ublk_drv
-        o=$(ublk add -t loop -f $1)
-        echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
-    "#;
-    let args = vec![DISKNAME1.into()];
-    let result = run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
-    if result.0 == 1 && result.2.contains("ublk_drv not found") {
-        eprint!(" skipped because UBLK kernel module not found, not");
+    let Some(guard) = TestHotRmGuard::new(DISKNAME1) else {
         return;
-    }
-    assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
-
-    let ublk_n: u64 = result.1.trim_end().parse().unwrap();
-    let ublk_dev = format!("/dev/ublkb{ublk_n}");
-
-    struct TestGuard {
-        ublk_n: u64,
-    }
-    impl Drop for TestGuard {
-        fn drop(&mut self) {
-            let script = r#"
-                if ! ublk del -n $1 --async; then
-                    echo "Ublk delete async not supported..."
-                    ublk del -n $1 &
-                    PID=$!
-                    sleep 1
-                    kill $PID || kill -9 $PID
-                fi
-            "#;
-            let args = vec![self.ublk_n.to_string()];
-            let out =
-                run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
-            if out.0 != 0 {
-                eprintln!("TestGuard=>{out:#?}");
-            }
-        }
-    }
-    let guard = TestGuard { ublk_n };
+    };
 
     let pool_args = PoolArgs {
         name: "tpool".into(),
-        disks: vec![ublk_dev],
+        disks: vec![guard.ublk_dev.clone()],
         backend: PoolBackend::Lvs,
         ..Default::default()
     };
-
-    ms().start_grpc();
 
     ms().spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
@@ -1028,6 +992,215 @@ async fn lvs_hot_remove() {
 }
 
 #[tokio::test]
+async fn lvs_hot_detach_and_reattach() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
+
+    let mk_guard = || TestHotRmGuard::new(DISKNAME1);
+    let Some(guard) = mk_guard() else {
+        return;
+    };
+    hot_detach_retach(guard, true, true).await;
+    hot_detach_retach(mk_guard().unwrap(), true, false).await;
+    hot_detach_retach(mk_guard().unwrap(), false, true).await;
+    hot_detach_retach(mk_guard().unwrap(), false, false).await;
+}
+
+struct TestHotRmGuard {
+    ublk_n: u64,
+    ublk_dev: String,
+}
+impl Drop for TestHotRmGuard {
+    fn drop(&mut self) {
+        let script = r#"
+            if ! ublk del -n $1 --async; then
+                echo "Ublk delete async not supported..."
+                ublk del -n $1 &
+                PID=$!
+                sleep 1
+                kill $PID || kill -9 $PID
+            fi
+        "#;
+        let args = vec![self.ublk_n.to_string()];
+        let out = run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+        if out.0 != 0 {
+            eprintln!("TestGuard=>{out:#?}");
+        }
+    }
+}
+impl TestHotRmGuard {
+    fn new(disk: &str) -> Option<Self> {
+        common::delete_file(&[disk.into()]);
+        common::truncate_file(disk, 128 * 1024);
+
+        let script = r#"
+        set -euo pipefail
+        modprobe ublk_drv
+        o=$(ublk add -t loop -f $1)
+        echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
+    "#;
+        let args = vec![disk.into()];
+        let result =
+            run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+        if result.0 == 1 && result.2.contains("ublk_drv not found") {
+            match std::env::var("CI")
+                .unwrap_or_default()
+                .to_lowercase()
+                .as_str()
+            {
+                "1" | "true" => {
+                    panic!("UBLK kernel module not found in CI environment!!");
+                }
+                _ => {
+                    eprint!(" skipped because UBLK kernel module not found");
+                    return None;
+                }
+            }
+        }
+        assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
+
+        let ublk_n: u64 = result.1.trim_end().parse().unwrap();
+        let ublk_dev = format!("/dev/ublkb{ublk_n}");
+
+        Some(TestHotRmGuard { ublk_n, ublk_dev })
+    }
+}
+
+async fn hot_detach_retach(guard: TestHotRmGuard, share: bool, io: bool) {
+    println!("\n\n\nhot_detach_retach with {share}/{io}\n\n\n");
+
+    ms().spawn(async move {
+        hot_detach_retach_(guard, share, io).await;
+    })
+    .await;
+}
+
+async fn hot_detach_retach_(guard: TestHotRmGuard, share: bool, io: bool) {
+    let pool_args = PoolArgs {
+        name: "tpool".into(),
+        disks: vec![guard.ublk_dev.clone()],
+        backend: PoolBackend::Lvs,
+        ..Default::default()
+    };
+
+    let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
+
+    // NOTE: There's currently an issue when we destroy a replica manually and at the same time the hot-removal
+    // is happening. In this case looks like the check for no lvols is done before the callbacks for this replica
+    // destroy attempt completes, and so we end up with a stuck lvs which needs to be retried again.
+    // To make matters worse, the bdev is removing, so it's not returned by `vbdev_get_lvs_bdev_by_lvs` leaving
+    // us with no base bdev, and no way to determine if we need tear down of the bdevs behind the base...
+    // Creating this dud will allow it's closure to trigger proper lvs unload...
+    let _dud = lvs_pool
+        .create_lvol("dud", 8 * 1024 * 1024, None, true, None)
+        .await
+        .unwrap();
+    let mut dud2 = lvs_pool
+        .create_lvol("dud2", 8 * 1024 * 1024, None, true, None)
+        .await
+        .unwrap();
+    if share {
+        Pin::new(&mut dud2).share_nvmf(None).await.unwrap();
+    }
+    let uri = dud2.share_uri().unwrap();
+
+    if io {
+        common::bdev_io::write_some("dud2", 0, 2, 0xaa)
+            .await
+            .unwrap();
+    }
+
+    // we create a nexus with a handle open for the nexus via nvmf
+    let ch = vec!["malloc:///d?size=100MiB&blk_size=4096".into(), uri.clone()];
+    io_engine::bdev::nexus::nexus_create("nx", 1024 * 1024, None, &ch)
+        .await
+        .unwrap();
+
+    // We bork the device, leading to hot-removal
+    drop(guard);
+
+    let error = lvs_pool.grow().await.expect_err("msg");
+    assert_eq!(error.to_errno(), nix::Error::EIO);
+
+    assert_eq!(Lvs::iter_all().count(), 1);
+
+    for _ in 0..500 {
+        if Lvs::iter_all().count() == 0 {
+            break;
+        }
+        io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(10))
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(Lvs::iter_all().count(), 0);
+    assert_eq!(Lvs::iter().count(), 0);
+
+    {
+        let nx = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+
+        tracing::error!("{:#?}", nx.children());
+        let nx = nx.into_grpc().await;
+        tracing::error!("{nx:#?}");
+    }
+
+    let mut pool_args = pool_args;
+    pool_args.disks = vec![format!("aio://{DISKNAME1}?blk_size=4096")];
+
+    let lvs = Lvs::import_from_args(pool_args.clone())
+        .await
+        .expect("re-attach");
+
+    let start = std::time::Instant::now();
+    loop {
+        let nexus = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+        let nexus = nexus.into_grpc().await;
+        let child = nexus.children.iter().find(|c| c.uri == uri).unwrap();
+
+        if child.state() == io_engine_api::v1::nexus::ChildState::Faulted {
+            tracing::error!("{nexus:#?}");
+            break;
+        }
+
+        if start.elapsed().as_secs() > 2 {
+            tracing::error!("{nexus:#?}");
+            panic!("Child not in correct state");
+        }
+
+        io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(10))
+            .await
+            .unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    loop {
+        let mut nexus = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+        let result = nexus.as_mut().online_child(&uri).await;
+        let nexus = nexus.into_grpc().await;
+
+        if result.is_ok() {
+            tracing::error!("{nexus:#?}");
+            break;
+        }
+
+        if start.elapsed().as_secs() > 1 {
+            panic!("Child not in correct state: {:#?}", nexus);
+        }
+
+        io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(10))
+            .await
+            .unwrap();
+    }
+
+    let nexus = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+    nexus.destroy().await.unwrap();
+    lvs.destroy().await.unwrap();
+}
+
+#[tokio::test]
 async fn lvol_list() {
     let ms = ms();
 
@@ -1045,9 +1218,6 @@ async fn lvol_list() {
         }),
         ..Default::default()
     };
-
-    ms.start_grpc();
-    ms.start_device_monitor();
 
     ms.spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
@@ -1173,9 +1343,6 @@ async fn lvol_snap_list() {
         }),
         ..Default::default()
     };
-
-    ms.start_grpc();
-    ms.start_device_monitor();
 
     ms.spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
