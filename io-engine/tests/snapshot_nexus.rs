@@ -287,6 +287,9 @@ async fn test_replica_handle_snapshot() {
             .create_snapshot(snapshot_params)
             .await
             .expect("Failed to create snapshot");
+
+        // clean up to avoid weirdness since this is still used by another nexus
+        device_destroy(&urls[0]).await.unwrap();
     })
     .await;
 

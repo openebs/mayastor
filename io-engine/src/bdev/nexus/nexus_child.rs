@@ -1037,7 +1037,29 @@ impl<'c> NexusChild<'c> {
                     // Destroying the device *should* lead to another device removal event, which
                     // will again trigger unplug. By leaving the destroy state in place, we ensure
                     // the unplug will remove the block device this time.
-                    while !self.remove_channel.1.recv().await.unwrap_or(true) {}
+                    //
+                    // Update: in the snapshot tests, a nexus nvmf child faults, but is not removed
+                    // fully as the device gets recreated with manual device creation.
+                    // This leaves the device still linked to the nexus child but with no listener
+                    // events to trigger the unplug from the device destroy.
+                    // Whilst this is probably something that won't happen in prod, let's be a bit
+                    // conservative here, and give up after *sometime*.
+                    let mut tries = 0;
+                    let mut destroyed = self.remove_channel.1.recv().await.unwrap_or(true);
+                    while !destroyed && tries < 20 {
+                        if self.remove_channel.1.is_empty() {
+                            let tm = std::time::Duration::from_millis(tries);
+                            crate::sleep::mayastor_sleep(tm).await.ok();
+                            tries += 1;
+                            continue;
+                        }
+                        destroyed = self.remove_channel.1.recv().await.unwrap_or(true);
+                    }
+                    if !destroyed {
+                        tracing::warn!(
+                            "{self:?}: child closing but the block-device handles remained"
+                        );
+                    }
                 }
 
                 self.set_destroy_state(ChildDestroyState::None);
