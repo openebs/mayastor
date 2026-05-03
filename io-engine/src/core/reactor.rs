@@ -958,13 +958,18 @@ impl Reactor {
 
         unsafe {
             let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
+            // pid 0 means "calling thread" for sched_getaffinity.
             if libc::sched_getaffinity(
                 0,
                 std::mem::size_of::<libc::cpu_set_t>(),
                 &mut cpuset,
             ) != 0
             {
-                warn!(core = self.lcore, "sched_getaffinity failed");
+                warn!(
+                    core = self.lcore,
+                    error = %std::io::Error::last_os_error(),
+                    "sched_getaffinity failed",
+                );
                 return;
             }
 
@@ -983,13 +988,18 @@ impl Reactor {
 
             let mut new_cpuset: libc::cpu_set_t = std::mem::zeroed();
             libc::CPU_SET(self.lcore as usize, &mut new_cpuset);
+            // pid 0 means "calling thread" for sched_setaffinity.
             if libc::sched_setaffinity(
                 0,
                 std::mem::size_of::<libc::cpu_set_t>(),
                 &new_cpuset,
             ) != 0
             {
-                error!(core = self.lcore, "sched_setaffinity failed");
+                error!(
+                    core = self.lcore,
+                    error = %std::io::Error::last_os_error(),
+                    "sched_setaffinity failed",
+                );
             } else {
                 info!(
                     core = self.lcore,
