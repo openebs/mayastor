@@ -37,7 +37,7 @@ use std::{
     os::{fd::RawFd, raw::c_void},
     pin::Pin,
     slice::Iter,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use once_cell::sync::OnceCell;
@@ -133,6 +133,10 @@ pub struct Reactor {
     /// eventfd registered in the reactor's fd_group to wake from
     /// fd_group_wait when Rust futures arrive via send_future().
     wakeup_fd: RawFd,
+    /// Timestamp of the most recent CPU affinity check. Used to throttle
+    /// periodic re-pinning after a cgroup cpuset rewrite (e.g. kubelet
+    /// cpuManagerPolicy: static) wipes DPDK's pthread_setaffinity_np.
+    affinity_last_check: Cell<Instant>,
 }
 
 thread_local! {
@@ -369,6 +373,7 @@ impl Reactor {
             interrupt_enabled,
             fgrp,
             wakeup_fd,
+            affinity_last_check: Cell::new(Instant::now()),
         }
     }
 
@@ -606,6 +611,14 @@ impl Reactor {
             }
 
             self.destroy_exited();
+
+            // Periodically verify and restore CPU affinity. On Kubernetes
+            // nodes with cpuManagerPolicy: static, kubelet's CPU Manager
+            // rewrites the container's cgroup cpuset, wiping the per-thread
+            // pinning DPDK set via rte_eal_init.
+            if self.affinity_last_check.get().elapsed() >= AFFINITY_CHECK_INTERVAL {
+                self.check_and_restore_affinity();
+            }
         }
 
         debug!("initiating shutdown for core {}", Cores::current());
@@ -933,6 +946,59 @@ impl Reactor {
     {
         Self::spawn_at(&spdk_rs::Thread::primary(), f)
     }
+
+    /// Check whether this reactor's OS thread is still pinned to its assigned
+    /// lcore. On Kubernetes nodes with `cpuManagerPolicy: static`, kubelet's
+    /// CPU Manager can rewrite the container's cgroup `cpuset.cpus`, which
+    /// causes the kernel to silently widen every thread's affinity back to
+    /// the full cgroup cpuset, undoing DPDK's `pthread_setaffinity_np`. When
+    /// that drift is detected, this method re-pins using `sched_setaffinity`.
+    fn check_and_restore_affinity(&self) {
+        self.affinity_last_check.set(Instant::now());
+
+        unsafe {
+            let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
+            if libc::sched_getaffinity(
+                0,
+                std::mem::size_of::<libc::cpu_set_t>(),
+                &mut cpuset,
+            ) != 0
+            {
+                warn!(core = self.lcore, "sched_getaffinity failed");
+                return;
+            }
+
+            // Affinity is correct when exactly one CPU — our lcore — is set.
+            let count = libc::CPU_COUNT(&cpuset);
+            if count == 1 && libc::CPU_ISSET(self.lcore as usize, &cpuset) {
+                return;
+            }
+
+            warn!(
+                core = self.lcore,
+                cpus = count,
+                "CPU affinity wipe detected; re-pinning reactor to CPU {}",
+                self.lcore,
+            );
+
+            let mut new_cpuset: libc::cpu_set_t = std::mem::zeroed();
+            libc::CPU_SET(self.lcore as usize, &mut new_cpuset);
+            if libc::sched_setaffinity(
+                0,
+                std::mem::size_of::<libc::cpu_set_t>(),
+                &new_cpuset,
+            ) != 0
+            {
+                error!(core = self.lcore, "sched_setaffinity failed");
+            } else {
+                info!(
+                    core = self.lcore,
+                    "Reactor CPU affinity restored to CPU {}",
+                    self.lcore,
+                );
+            }
+        }
+    }
 }
 
 /// This implements the poll() method of the for the reactor future. Only the
@@ -997,6 +1063,14 @@ impl Future for &'static Reactor {
 
 /// Heartbeat timeout (in seconds) to classify a reactor as frozen.
 const REACTOR_HEARTBEAT_TIMEOUT: u64 = 3;
+
+/// How often a reactor checks and, if necessary, restores its CPU affinity.
+/// On Kubernetes nodes with `cpuManagerPolicy: static`, kubelet's CPU Manager
+/// can rewrite the container's cgroup `cpuset.cpus`, silently wiping the
+/// per-thread affinity set by DPDK's `rte_eal_init`. Checking every few
+/// seconds catches any such rewrite quickly while keeping the overhead
+/// negligible.
+const AFFINITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Monitor health for all reactors: all available reactors are constantly
 /// monitored for liveness.
