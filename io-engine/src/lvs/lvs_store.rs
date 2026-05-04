@@ -222,8 +222,7 @@ impl Lvs {
 
     /// returns committed size
     pub fn committed(&self) -> u64 {
-        self.lvols()
-            .map_or(0, |vols| vols.fold(0, |acc, r| acc + r.committed()))
+        self.lvols().fold(0, |acc, r| acc + r.committed())
     }
 
     /// returns the base bdev of this lvs
@@ -760,7 +759,7 @@ impl Lvs {
 
     /// unshare all lvols prior to export or destroy
     async fn unshare_all(&self) {
-        for l in self.lvols().unwrap() {
+        for l in self.lvols() {
             // notice we dont use the unshare impl of the bdev
             // here. we do this to avoid the on disk persistence
             let mut bdev = l.as_bdev();
@@ -773,29 +772,27 @@ impl Lvs {
     /// share all lvols who have the shared property set, this is implicitly
     /// shared over nvmf
     async fn share_all(&self) {
-        if let Some(lvols) = self.lvols() {
-            for mut l in lvols {
-                let allowed_hosts = match l.get(PropName::AllowedHosts).await {
-                    Ok(PropValue::AllowedHosts(hosts)) => hosts,
-                    _ => vec![],
-                };
+        for mut l in self.lvols() {
+            let allowed_hosts = match l.get(PropName::AllowedHosts).await {
+                Ok(PropValue::AllowedHosts(hosts)) => hosts,
+                _ => vec![],
+            };
 
-                if let Ok(prop) = l.get(PropName::Shared).await {
-                    match prop {
-                        PropValue::Shared(true) => {
-                            let name = l.name().clone();
-                            let props = NvmfShareProps::new()
-                                .with_allowed_hosts(allowed_hosts)
-                                .with_ptpl(l.ptpl().create().unwrap_or_default());
-                            if let Err(e) = Pin::new(&mut l).share_nvmf(Some(props)).await {
-                                error!("failed to share {} {}", name, e.to_string());
-                            }
+            if let Ok(prop) = l.get(PropName::Shared).await {
+                match prop {
+                    PropValue::Shared(true) => {
+                        let name = l.name().clone();
+                        let props = NvmfShareProps::new()
+                            .with_allowed_hosts(allowed_hosts)
+                            .with_ptpl(l.ptpl().create().unwrap_or_default());
+                        if let Err(e) = Pin::new(&mut l).share_nvmf(Some(props)).await {
+                            error!("failed to share {} {}", name, e.to_string());
                         }
-                        PropValue::Shared(false) => {
-                            debug!("{} not shared on disk", l.name())
-                        }
-                        _ => {}
                     }
+                    PropValue::Shared(false) => {
+                        debug!("{} not shared on disk", l.name())
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1023,8 +1020,8 @@ impl Lvs {
 
     /// return an iterator that filters out all bdevs that patch the pool
     /// signature
-    pub fn lvols(&self) -> Option<impl Iterator<Item = Lvol>> {
-        Some(super::lvol_iter::LvsLvolIter::new(self))
+    pub fn lvols(&self) -> impl Iterator<Item = Lvol> {
+        super::lvol_iter::LvsLvolIter::new(self)
     }
 
     /// create a new lvol on this pool

@@ -299,10 +299,7 @@ impl Lvs {
                 name: self.name.to_owned(),
             });
         };
-        let Some(lvols) = lvs.lvols() else {
-            return Ok(());
-        };
-        let Some(lvol) = lvols.into_iter().find(|l| l.name() == name) else {
+        let Some(lvol) = lvs.lvols().find(|l| l.name() == name) else {
             return Ok(());
         };
         lvol.destroy()

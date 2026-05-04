@@ -93,7 +93,7 @@ pub fn print_lvs_data(lvs: &Lvs) {
 pub fn print_replicas(lvs: &Lvs) {
     print_separator("Replicas", 0);
 
-    for (idx, lvol) in lvs.lvols().unwrap().enumerate() {
+    for (idx, lvol) in lvs.lvols().enumerate() {
         print_separator(&format!("Replica #{idx}:"), 1);
         print_replica(&lvol);
     }
