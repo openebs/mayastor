@@ -893,7 +893,7 @@ describe('nexus', function () {
       });
     });
 
-    it('should have nexus in faulted state and its child in degraded state', (done) => {
+    it('should have nexus in faulted state and its child in faulted state', (done) => {
       client.listNexus({}, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(res.nexus_list, 1);
@@ -902,7 +902,7 @@ describe('nexus', function () {
         assert.equal(nexus.uuid, UUID);
         assert.equal(nexus.state, 'NEXUS_FAULTED');
         assert.lengthOf(nexus.children, 1);
-        assert.equal(nexus.children[0].state, 'CHILD_DEGRADED');
+        assert.equal(nexus.children[0].state, 'CHILD_FAULTED');
         done();
       });
     });

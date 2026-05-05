@@ -143,6 +143,7 @@ fn map_fault_reason(r: FaultReason) -> ChildStateReason {
         FaultReason::RebuildFailed => RebuildFailed,
         FaultReason::AdminCommandFailed => AdminFailed,
         FaultReason::OfflinePermanent => ByClient,
+        FaultReason::HotRemove => HotRemoved,
     }
 }
 

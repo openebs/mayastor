@@ -84,10 +84,30 @@ pub(crate) enum PersistOp<'a> {
     Shutdown,
 }
 
+impl std::fmt::Debug for PersistOp<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            PersistOp::Create => write!(f, "Create"),
+            PersistOp::AddChild { child_uri, .. } => write!(f, "AddChild: {child_uri}"),
+            PersistOp::RemoveChild { child_uri } => write!(f, "RemoveChild: {child_uri}"),
+            PersistOp::Update { child_uri, healthy } => {
+                write!(f, "UpdateChild: {child_uri}: {healthy}")
+            }
+            PersistOp::UpdateCond {
+                child_uri, healthy, ..
+            } => write!(f, "UpdateChildCond: {child_uri}: {healthy}"),
+            PersistOp::Shutdown => write!(f, "Shutdown"),
+        }
+    }
+}
+
 impl<'n> Nexus<'n> {
     /// Persists nexus's information to the store.
     pub(crate) async fn persist(&self, op: PersistOp<'_>) -> Result<(), Error> {
         if !PersistentStore::enabled() {
+            // This is useful for testing without a pstor configured.
+            // todo: move to the save o we can have a more correct output.
+            tracing::warn!("PersistentStore::persist: {op:?}");
             return Ok(());
         }
 

@@ -2,7 +2,7 @@ use super::{cli::de, error::Error, vg_pool::VolumeGroup, CmnQueryArgs};
 use crate::{
     bdev::PtplFileOps,
     bdev_api::{bdev_create, BdevError},
-    core::{NvmfShareProps, Protocol, PtplProps, Share, UntypedBdev, UpdateProps},
+    core::{NvmfShareProps, Protocol, PtplProps, Share, UnshareProps, UntypedBdev, UpdateProps},
     lvm::{
         cli::LvmCmd,
         dm_setup::{DmSetup, DmState, DmTable},
@@ -736,7 +736,7 @@ impl LogicalVolume {
         match bdev.shared() {
             Some(Protocol::Nvmf) => {
                 bdev.as_mut()
-                    .unshare()
+                    .unshare(None)
                     .await
                     .map_err(|source| Error::BdevUnshare { source })?;
             }
@@ -796,7 +796,7 @@ impl LogicalVolume {
     }
 
     /// Unshare the nvmf target.
-    pub(crate) async fn unshare(&mut self) -> Result<(), Error> {
+    pub(crate) async fn unshare(&mut self, opts: Option<UnshareProps>) -> Result<(), Error> {
         let (bdev, uri) = self.bdev_mut_uri()?;
         let share = crate::spdk_run!(async move {
             let mut bdev = Self::bdev(&uri)?;
@@ -805,7 +805,10 @@ impl LogicalVolume {
 
         bdev.share_uri = share;
         bdev.share = Protocol::Off;
-        self.sync_share_protocol(Protocol::Off).await?;
+
+        if opts.unwrap_or_default().persist {
+            self.sync_share_protocol(Protocol::Off).await?;
+        }
 
         info!("{self:?}: unshared");
         Ok(())
@@ -986,8 +989,11 @@ impl Share for LogicalVolume {
         self.as_mut().update_share_props(props).await
     }
 
-    async fn unshare(mut self: Pin<&mut Self>) -> Result<(), Self::Error> {
-        self.unshare().await
+    async fn unshare(
+        mut self: Pin<&mut Self>,
+        opts: Option<UnshareProps>,
+    ) -> Result<(), Self::Error> {
+        self.deref_mut().unshare(opts).await
     }
 
     fn shared(&self) -> Option<Protocol> {

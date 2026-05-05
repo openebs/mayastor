@@ -77,6 +77,24 @@ impl PtplProps {
 }
 
 /// Share properties when sharing a device.
+#[derive(Debug)]
+pub struct UnshareProps {
+    /// Persist the unsharing.
+    pub persist: bool,
+}
+impl Default for UnshareProps {
+    fn default() -> Self {
+        Self::new(true)
+    }
+}
+impl UnshareProps {
+    /// Create new `UnshareProps` with the given persistence property.
+    pub fn new(persist: bool) -> Self {
+        Self { persist }
+    }
+}
+
+/// Share properties when sharing a device.
 #[derive(Default, Debug)]
 pub struct NvmfShareProps {
     /// Controller Id range.
@@ -216,7 +234,7 @@ pub trait Share: std::fmt::Debug {
     ) -> Result<(), Self::Error>;
 
     /// TODO
-    async fn unshare(self: Pin<&mut Self>) -> Result<(), Self::Error>;
+    async fn unshare(self: Pin<&mut Self>, opts: Option<UnshareProps>) -> Result<(), Self::Error>;
 
     /// TODO
     fn shared(&self) -> Option<Protocol>;

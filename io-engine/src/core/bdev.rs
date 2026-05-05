@@ -17,6 +17,7 @@ use crate::{
         block_device::BlockDeviceIoErrorStats,
         share::{NvmfShareProps, Protocol, Share, UpdateProps},
         BlockDeviceIoStats, CoreError, DescriptorGuard, PtplProps, ShareNvmf, UnshareNvmf,
+        UnshareProps,
     },
     subsys::NvmfSubsystem,
     target::nvmf,
@@ -186,6 +187,16 @@ where
     }
 }
 
+/// Returns the share protocol if the bdev is currently shared.
+pub fn is_shared<T: spdk_rs::BdevOps>(bdev: &Bdev<T>) -> Option<Protocol> {
+    // TODO: we could do better here
+    match bdev.shared() {
+        Some(Protocol::Nvmf) => Some(Protocol::Nvmf),
+        _else if NvmfSubsystem::nqn_lookup(bdev.name()).is_some() => Some(Protocol::Nvmf),
+        _else => _else,
+    }
+}
+
 #[async_trait(? Send)]
 impl<T> Share for Bdev<T>
 where
@@ -251,8 +262,8 @@ where
     }
 
     /// unshare the bdev regardless of current active share
-    async fn unshare(self: Pin<&mut Self>) -> Result<(), Self::Error> {
-        match self.shared() {
+    async fn unshare(self: Pin<&mut Self>, _opts: Option<UnshareProps>) -> Result<(), Self::Error> {
+        match is_shared(self.deref()) {
             Some(Protocol::Nvmf) => {
                 if let Some(ss) = NvmfSubsystem::nqn_lookup(self.name()) {
                     ss.stop().await.context(UnshareNvmf {})?;

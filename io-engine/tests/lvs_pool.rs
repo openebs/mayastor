@@ -3,18 +3,17 @@ use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
     core::{
-        logical_volume::LogicalVolume, MayastorCliArgs, NvmeCliArgs, NvmfShareProps, PoolCliArgs,
-        Protocol, Share, ToErrno, UntypedBdev,
+        logical_volume::LogicalVolume, MayastorCliArgs, NvmeCliArgs, PoolCliArgs, Protocol, Share,
+        ToErrno, UnshareProps, UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
     lvm::dm_setup::DmState,
-    lvs::{LvolSnapshotOps, Lvs, LvsError, LvsLvol, PropName, PropValue},
+    lvs::{Lvs, LvsError, LvsLvol, PropName, PropValue},
     pool_backend::{PoolArgs, PoolBackend, PoolOps, ReplicaArgs},
     subsys::NvmfSubsystem,
 };
-use io_engine_api::v1::{
-    pool::{ListPoolOptions, Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState},
-    replica::ListReplicaOptions,
+use io_engine_api::v1::pool::{
+    Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState,
 };
 use once_cell::sync::OnceCell;
 use std::{pin::Pin, str::FromStr};
@@ -37,7 +36,7 @@ const IO_STALL_TRANSITION_THRESHOLD: u64 = 3;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
 fn ms() -> &'static MayastorTest<'static> {
-    MAYASTOR.get_or_init(|| {
+    let ms = MAYASTOR.get_or_init(|| {
         MayastorTest::new(MayastorCliArgs {
             reactor_mask: "0x3".into(),
             pool: PoolCliArgs {
@@ -54,7 +53,10 @@ fn ms() -> &'static MayastorTest<'static> {
             },
             ..Default::default()
         })
-    })
+    });
+    ms.start_grpc();
+    ms.start_device_monitor();
+    ms
 }
 
 #[tokio::test]
@@ -309,11 +311,30 @@ async fn lvs_pool_test() {
                 PropValue::Shared(true)
             );
 
-            lvol.as_mut().unshare().await.unwrap();
+            lvol.as_mut().unshare(None).await.unwrap();
 
             assert_eq!(
                 lvol.get(PropName::Shared).await.unwrap(),
                 PropValue::Shared(false)
+            );
+
+            // sharing without persisting
+
+            lvol.as_mut().share_nvmf(None).await.unwrap();
+
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(true)
+            );
+
+            lvol.as_mut()
+                .unshare(Some(UnshareProps::new(false)))
+                .await
+                .unwrap();
+
+            assert_eq!(
+                lvol.get(PropName::Shared).await.unwrap(),
+                PropValue::Shared(true)
             );
         }
 
@@ -883,56 +904,16 @@ async fn lvs_hot_remove() {
     common::delete_file(&[DISKNAME1.into()]);
     common::truncate_file(DISKNAME1, 128 * 1024);
 
-    let script = r#"
-        set -euo pipefail
-        modprobe ublk_drv
-        o=$(ublk add -t loop -f $1)
-        echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
-    "#;
-    let args = vec![DISKNAME1.into()];
-    let result = run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
-    if result.0 == 1 && result.2.contains("ublk_drv not found") {
-        eprint!(" skipped because UBLK kernel module not found, not");
+    let Some(guard) = TestHotRmGuard::new(DISKNAME1) else {
         return;
-    }
-    assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
-
-    let ublk_n: u64 = result.1.trim_end().parse().unwrap();
-    let ublk_dev = format!("/dev/ublkb{ublk_n}");
-
-    struct TestGuard {
-        ublk_n: u64,
-    }
-    impl Drop for TestGuard {
-        fn drop(&mut self) {
-            let script = r#"
-                if ! ublk del -n $1 --async; then
-                    echo "Ublk delete async not supported..."
-                    ublk del -n $1 &
-                    PID=$!
-                    sleep 1
-                    kill $PID || kill -9 $PID
-                fi
-            "#;
-            let args = vec![self.ublk_n.to_string()];
-            let out =
-                run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
-            if out.0 != 0 {
-                eprintln!("TestGuard=>{out:#?}");
-            }
-            common::delete_file(&[DISKNAME1.into()]);
-        }
-    }
-    let guard = TestGuard { ublk_n };
+    };
 
     let pool_args = PoolArgs {
         name: "tpool".into(),
-        disks: vec![ublk_dev],
+        disks: vec![guard.ublk_dev.clone()],
         backend: PoolBackend::Lvs,
         ..Default::default()
     };
-
-    ms().start_grpc();
 
     ms().spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
@@ -947,6 +928,11 @@ async fn lvs_hot_remove() {
             .create_lvol("dud", 8 * 1024 * 1024, None, true, None)
             .await
             .unwrap();
+        let mut _dud2 = lvs_pool
+            .create_lvol("dud2", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
+        Pin::new(&mut _dud2).share_nvmf(None).await.unwrap();
 
         let repl = lvs_pool
             .create_lvol("ok", 8 * 1024 * 1024, None, true, None)
@@ -987,221 +973,228 @@ async fn lvs_hot_remove() {
 
         assert_eq!(Lvs::iter_all().count(), 0);
         assert_eq!(Lvs::iter().count(), 0);
+
+        let mut pool_args = pool_args;
+        pool_args.disks = vec![format!("aio://{DISKNAME1}?blk_size=4096")];
+        let lvs = Lvs::create_or_import(pool_args).await.expect("removed");
+
+        let _repl = lvs
+            .create_lvol("new", 8 * 1024 * 1024, None, true, None)
+            .await
+            .unwrap();
+
+        lvs.destroy().await.unwrap();
+
+        common::delete_file(&[DISKNAME1.into()]);
     })
     .await;
 }
 
 #[tokio::test]
-async fn lvol_list() {
-    let ms = ms();
+async fn lvs_hot_detach_and_reattach() {
+    let _ = std::process::Command::new("mkdir")
+        .args(["-p"])
+        .args([TESTDIR])
+        .output()
+        .expect("failed to execute mkdir");
 
-    let pool_size = "4GiB";
-    let repl_size = 4 * 1024 * 1024;
-    let replicas = 8000;
-
-    use io_engine::pool_backend::PoolMetadataArgs;
-    let pool_args = PoolArgs {
-        name: "tpool".into(),
-        disks: vec![format!("malloc:///m?size={pool_size}")],
-        backend: PoolBackend::Lvs,
-        md_args: Some(PoolMetadataArgs {
-            max_expansion: Some("300GiB".into()),
-        }),
-        ..Default::default()
+    let mk_guard = || TestHotRmGuard::new(DISKNAME1);
+    let Some(guard) = mk_guard() else {
+        return;
     };
+    hot_detach_retach(guard, true, true).await;
+    hot_detach_retach(mk_guard().unwrap(), true, false).await;
+    hot_detach_retach(mk_guard().unwrap(), false, true).await;
+    hot_detach_retach(mk_guard().unwrap(), false, false).await;
+}
 
-    ms.start_grpc();
-    ms.start_device_monitor();
-
-    ms.spawn(async move {
-        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
-
-        for i in 1..=replicas {
-            let name = format!("replica-{i}");
-            let opts = ReplicaArgs::new(name, repl_size)
-                .wipe_super(false)
-                .thin(true);
-            let _repl = lvs_pool.create_lvol_with_opts(opts).await.unwrap();
+struct TestHotRmGuard {
+    ublk_n: u64,
+    ublk_dev: String,
+}
+impl Drop for TestHotRmGuard {
+    fn drop(&mut self) {
+        let script = r#"
+            if ! ublk del -n $1 --async; then
+                echo "Ublk delete async not supported..."
+                ublk del -n $1 &
+                PID=$!
+                sleep 1
+                kill $PID || kill -9 $PID
+            fi
+        "#;
+        let args = vec![self.ublk_n.to_string()];
+        let out = run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+        if out.0 != 0 {
+            eprintln!("TestGuard=>{out:#?}");
         }
-    })
-    .await;
+    }
+}
+impl TestHotRmGuard {
+    fn new(disk: &str) -> Option<Self> {
+        common::delete_file(&[disk.into()]);
+        common::truncate_file(disk, 128 * 1024);
 
-    // this could vary depending on the system where we're running, but this is large enough that
-    // it should run on weaker systems as well as low enough to ensure we're testing the fix.
-    let max_dur = std::time::Duration::from_millis(300);
-
-    // 1. this list is "quicker" as there's no nvmf subsystems
-    let list_tm = std::time::Instant::now();
-    ms.spawn(async move {
-        for lvs_pool in Lvs::iter() {
-            println!();
-            for _ in 0..100 {
-                let mut count = 0;
-                for _lvol in lvs_pool.lvols() {
-                    count += 1;
+        let script = r#"
+        set -euo pipefail
+        modprobe ublk_drv
+        o=$(ublk add -t loop -f $1)
+        echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
+    "#;
+        let args = vec![disk.into()];
+        let result =
+            run_script::run_script!(script, args, run_script::ScriptOptions::new()).unwrap();
+        if result.0 == 1 && result.2.contains("ublk_drv not found") {
+            match std::env::var("CI")
+                .unwrap_or_default()
+                .to_lowercase()
+                .as_str()
+            {
+                "1" | "true" => {
+                    panic!("UBLK kernel module not found in CI environment!!");
                 }
-                assert_eq!(count, replicas);
-            }
-
-            for lvol in lvs_pool.lvols() {
-                let _replica: io_engine_api::v1::replica::Replica = lvol.into();
-            }
-        }
-    })
-    .await;
-    let no_uri_elapsed = list_tm.elapsed();
-    println!("Lvol List: {no_uri_elapsed:?}");
-    assert!(no_uri_elapsed <= max_dur, "Listing replicas took too long");
-
-    // 2. we share all replicas, so each replica now must search its subsystems
-    ms.spawn(async move {
-        for lvs_pool in Lvs::iter() {
-            for mut lvol in lvs_pool.lvols() {
-                use io_engine::replica_backend::ReplicaOps;
-                lvol.share_nvmf(NvmfShareProps::new()).await.unwrap();
+                _ => {
+                    eprint!(" skipped because UBLK kernel module not found");
+                    return None;
+                }
             }
         }
-    })
-    .await;
+        assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
 
-    // 3. we have to iter but also convert each lvol to a Replica so we can exercise the subsystem listing
-    let list_tm = std::time::Instant::now();
-    ms.spawn(async move {
-        let list_tm = std::time::Instant::now();
-        for lvs_pool in Lvs::iter() {
-            for lvol in lvs_pool.lvols() {
-                let _replica: io_engine_api::v1::replica::Replica = lvol.into();
-            }
-        }
-        println!("Lvol List time: {:?}", list_tm.elapsed());
-    })
-    .await;
-    let uri_elapsed = list_tm.elapsed();
-    println!("Lvol List: {uri_elapsed:?}");
-    assert!(uri_elapsed <= max_dur, "Listing replicas took too long");
+        let ublk_n: u64 = result.1.trim_end().parse().unwrap();
+        let ublk_dev = format!("/dev/ublkb{ublk_n}");
 
-    use io_engine_api::v1::replica::ReplicaRpcClient;
-    let mut h = ReplicaRpcClient::connect("http://localhost:10124")
-        .await
-        .unwrap();
+        Some(TestHotRmGuard { ublk_n, ublk_dev })
+    }
+}
 
-    let list_tm = std::time::Instant::now();
-    h.list_replicas(ListReplicaOptions::default())
-        .await
-        .unwrap();
-    let grpc_elapsed = list_tm.elapsed();
-    println!("gRPC Lvol List: {grpc_elapsed:?}");
-    assert!(
-        // adds some extra buffer for gRPC
-        grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
-        "Listing replicas took too long"
-    );
+async fn hot_detach_retach(guard: TestHotRmGuard, share: bool, io: bool) {
+    println!("\n\n\nhot_detach_retach with {share}/{io}\n\n\n");
 
-    use io_engine_api::v1::pool::PoolRpcClient;
-    let mut h = PoolRpcClient::connect("http://localhost:10124")
-        .await
-        .unwrap();
-
-    let list_tm = std::time::Instant::now();
-    h.list_pools(ListPoolOptions::default()).await.unwrap();
-    let grpc_elapsed = list_tm.elapsed();
-    println!("gRPC Lvs List: {grpc_elapsed:?}");
-    assert!(
-        // adds some extra buffer for gRPC
-        grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
-        "Listing pools took too long"
-    );
-
-    ms.spawn(async move {
-        for lvs_pool in Lvs::iter() {
-            lvs_pool.destroy().await.unwrap();
-        }
+    ms().spawn(async move {
+        hot_detach_retach_(guard, share, io).await;
     })
     .await;
 }
 
-#[tokio::test]
-async fn lvol_snap_list() {
-    let ms = ms();
-
-    let pool_size = "4GiB";
-    let repl_size = 4 * 1024 * 1024;
-
-    use io_engine::pool_backend::PoolMetadataArgs;
+async fn hot_detach_retach_(guard: TestHotRmGuard, share: bool, io: bool) {
     let pool_args = PoolArgs {
         name: "tpool".into(),
-        disks: vec![format!("malloc:///m?size={pool_size}")],
+        disks: vec![guard.ublk_dev.clone()],
         backend: PoolBackend::Lvs,
-        md_args: Some(PoolMetadataArgs {
-            max_expansion: Some("300GiB".into()),
-        }),
         ..Default::default()
     };
 
-    ms.start_grpc();
-    ms.start_device_monitor();
+    let lvs_pool = Lvs::create_or_import(pool_args.clone()).await.unwrap();
 
-    ms.spawn(async move {
-        let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
+    // NOTE: There's currently an issue when we destroy a replica manually and at the same time the hot-removal
+    // is happening. In this case looks like the check for no lvols is done before the callbacks for this replica
+    // destroy attempt completes, and so we end up with a stuck lvs which needs to be retried again.
+    // To make matters worse, the bdev is removing, so it's not returned by `vbdev_get_lvs_bdev_by_lvs` leaving
+    // us with no base bdev, and no way to determine if we need tear down of the bdevs behind the base...
+    // Creating this dud will allow it's closure to trigger proper lvs unload...
+    let _dud = lvs_pool
+        .create_lvol("dud", 8 * 1024 * 1024, None, true, None)
+        .await
+        .unwrap();
+    let mut dud2 = lvs_pool
+        .create_lvol("dud2", 8 * 1024 * 1024, None, true, None)
+        .await
+        .unwrap();
+    if share {
+        Pin::new(&mut dud2).share_nvmf(None).await.unwrap();
+    }
+    let uri = dud2.share_uri().unwrap();
 
-        for i in 1..=1024 {
-            let name = format!("replica-{i}");
-            let opts = ReplicaArgs::new(name, repl_size)
-                .wipe_super(false)
-                .thin(true);
-            let repl = lvs_pool.create_lvol_with_opts(opts).await.unwrap();
-            if i > 10 {
-                continue;
-            }
-            use io_engine::core::SnapshotParams;
-            for j in 1..=256 {
-                let snapshot = repl
-                    .create_snapshot(SnapshotParams {
-                        entity_id: Some(format!("e-{i}-{j}")),
-                        parent_id: Some(repl.uuid()),
-                        txn_id: Some(format!("txn-{i}-{j}")),
-                        snap_name: Some(format!("snap-{i}-{j}")),
-                        snapshot_uuid: Some(uuid::Uuid::new_v4().to_string()),
-                        create_time: Some(chrono::Utc::now().to_string()),
-                        discarded_snapshot: false,
-                    })
-                    .await
-                    .unwrap();
-                let n = uuid::Uuid::new_v4().to_string();
-                let _clone = snapshot
-                    .create_clone(io_engine::core::CloneParams {
-                        clone_name: Some(n.clone()),
-                        clone_uuid: Some(n.clone()),
-                        source_uuid: Some(snapshot.uuid()),
-                        clone_create_time: Some(chrono::Utc::now().to_string()),
-                    })
-                    .await
-                    .unwrap();
-            }
+    if io {
+        common::bdev_io::write_some("dud2", 0, 2, 0xaa)
+            .await
+            .unwrap();
+    }
+
+    // we create a nexus with a handle open for the nexus via nvmf
+    let ch = vec!["malloc:///d?size=100MiB&blk_size=4096".into(), uri.clone()];
+    io_engine::bdev::nexus::nexus_create("nx", 1024 * 1024, None, &ch)
+        .await
+        .unwrap();
+
+    // We bork the device, leading to hot-removal
+    drop(guard);
+
+    let error = lvs_pool.grow().await.expect_err("msg");
+    assert_eq!(error.to_errno(), nix::Error::EIO);
+
+    assert_eq!(Lvs::iter_all().count(), 1);
+
+    for _ in 0..500 {
+        if Lvs::iter_all().count() == 0 {
+            break;
         }
-    })
-    .await;
+        io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(10))
+            .await
+            .unwrap();
+    }
 
-    // this could vary depending on the system where we're running, but this is large enough that
-    // it should run on weaker systems as well as low enough to ensure we're testing the fix.
-    let max_dur = std::time::Duration::from_secs(3);
+    assert_eq!(Lvs::iter_all().count(), 0);
+    assert_eq!(Lvs::iter().count(), 0);
 
-    let list_tm = std::time::Instant::now();
-    ms.spawn(async move {
-        use io_engine::lvs::Lvol;
-        for snap in Lvol::list_all_snapshots(None) {
-            assert_eq!(snap.info().num_clones, 1);
+    {
+        let nx = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+
+        tracing::error!("{:#?}", nx.children());
+        let nx = nx.into_grpc().await;
+        tracing::error!("{nx:#?}");
+    }
+
+    let mut pool_args = pool_args;
+    pool_args.disks = vec![format!("aio://{DISKNAME1}?blk_size=4096")];
+
+    let lvs = Lvs::import_from_args(pool_args.clone())
+        .await
+        .expect("re-attach");
+
+    let start = std::time::Instant::now();
+    loop {
+        let nexus = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+        let nexus = nexus.into_grpc().await;
+        let child = nexus.children.iter().find(|c| c.uri == uri).unwrap();
+
+        if child.state() == io_engine_api::v1::nexus::ChildState::Faulted {
+            tracing::error!("{nexus:#?}");
+            break;
         }
-    })
-    .await;
-    let elapsed = list_tm.elapsed();
-    println!("Snapshot List: {elapsed:?}");
-    assert!(elapsed <= max_dur, "Listing snapshots took too long");
 
-    ms.spawn(async move {
-        for lvs_pool in Lvs::iter() {
-            lvs_pool.destroy().await.unwrap();
+        if start.elapsed().as_secs() > 2 {
+            tracing::error!("{nexus:#?}");
+            panic!("Child not in correct state");
         }
-    })
-    .await;
+
+        io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(10))
+            .await
+            .unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    loop {
+        let mut nexus = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+        let result = nexus.as_mut().online_child(&uri).await;
+        let nexus = nexus.into_grpc().await;
+
+        if result.is_ok() {
+            tracing::error!("{nexus:#?}");
+            break;
+        }
+
+        if start.elapsed().as_secs() > 1 {
+            panic!("Child not in correct state: {:#?}", nexus);
+        }
+
+        io_engine::sleep::mayastor_sleep(std::time::Duration::from_millis(10))
+            .await
+            .unwrap();
+    }
+
+    let nexus = io_engine::bdev::nexus::nexus_lookup_mut("nx").unwrap();
+    nexus.destroy().await.unwrap();
+    lvs.destroy().await.unwrap();
 }

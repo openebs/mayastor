@@ -921,7 +921,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                             let mut lvol = Pin::new(&mut lvol);
                             match Protocol::try_from(args.share)? {
                                 Protocol::Off => {
-                                    lvol.as_mut().unshare().await?;
+                                    lvol.as_mut().unshare(None).await?;
                                 }
                                 Protocol::Nvmf => {
                                     let props = NvmfShareProps::new()

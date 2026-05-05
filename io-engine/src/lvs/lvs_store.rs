@@ -33,7 +33,7 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType,
-        MayastorEnvironment, NvmfShareProps, Reactors, Share, UntypedBdev,
+        MayastorEnvironment, NvmfShareProps, Protocol, Reactors, Share, UnshareProps, UntypedBdev,
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -766,7 +766,10 @@ impl Lvs {
             // notice we dont use the unshare impl of the bdev
             // here. we do this to avoid the on disk persistence
             let mut bdev = l.as_bdev();
-            if let Err(e) = Pin::new(&mut bdev).unshare().await {
+            if let Err(e) = Pin::new(&mut bdev)
+                .unshare(Some(UnshareProps::new(false)))
+                .await
+            {
                 error!("{:?}: failed to unshare: {}", l, e.to_string())
             }
         }
@@ -775,29 +778,56 @@ impl Lvs {
     /// share all lvols who have the shared property set, this is implicitly
     /// shared over nvmf
     async fn share_all(&self) {
-        for mut l in self.lvols() {
-            let allowed_hosts = match l.get(PropName::AllowedHosts).await {
-                Ok(PropValue::AllowedHosts(hosts)) => hosts,
-                _ => vec![],
-            };
+        let lvols = self.lvols().collect::<Vec<_>>();
+        let mut share_lvols = Vec::with_capacity(lvols.len());
 
-            if let Ok(prop) = l.get(PropName::Shared).await {
-                match prop {
-                    PropValue::Shared(true) => {
-                        let name = l.name().clone();
-                        let props = NvmfShareProps::new()
-                            .with_allowed_hosts(allowed_hosts)
-                            .with_ptpl(l.ptpl().create().unwrap_or_default());
-                        if let Err(e) = Pin::new(&mut l).share_nvmf(Some(props)).await {
-                            error!("failed to share {} {}", name, e.to_string());
-                        }
-                    }
-                    PropValue::Shared(false) => {
-                        debug!("{} not shared on disk", l.name())
-                    }
-                    _ => {}
+        for mut l in lvols {
+            // First we unshare to ensure we clean up resources on re-import when the backend
+            // is hot-removed and then hot-attached again.
+            let unshare = Some(UnshareProps::new(false));
+            Pin::new(&mut l).unshare(unshare).await.ok();
+
+            match l.get(PropName::Shared).await {
+                Ok(PropValue::Shared(true)) => {
+                    share_lvols.push(l);
+                }
+                Ok(PropValue::Shared(false)) => {
+                    debug!("{l:?} not shared on disk")
+                }
+                _ => {}
+            }
+        }
+
+        let start = Instant::now();
+        loop {
+            let lvols = std::mem::take(&mut share_lvols);
+            for mut l in lvols {
+                // Unsharing is completing asynchronously, but whilst that is happening we can't
+                // reshare, and must wait until the bdev is fully unshared.
+                // In this case, we add push the share back to the list, and will retry later.
+                if crate::core::is_shared(&l.as_bdev()) == Some(Protocol::Nvmf) {
+                    share_lvols.push(l);
+                    continue;
+                }
+
+                let allowed_hosts = match l.get(PropName::AllowedHosts).await {
+                    Ok(PropValue::AllowedHosts(hosts)) => hosts,
+                    _ => vec![],
+                };
+                let props = NvmfShareProps::new()
+                    .with_allowed_hosts(allowed_hosts)
+                    .with_ptpl(l.ptpl().create().unwrap_or_default());
+                if let Err(e) = Pin::new(&mut l).share_nvmf(Some(props)).await {
+                    error!("failed to share {l:?}: {e}");
                 }
             }
+            if start.elapsed().as_secs() > 2 {
+                let lvol_count = share_lvols.len();
+                tracing::warn!("{self:?} failed to auto share {lvol_count} lvols on import");
+                break;
+            }
+            let sleep_for = std::time::Duration::from_millis(50);
+            mayastor_sleep(sleep_for).await.ok();
         }
     }
 
