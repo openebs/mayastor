@@ -23,6 +23,13 @@ done
 for device in $(losetup -l -J | jq -r --arg tmp_dir $back_dir '.loopdevices[]|select(."back-file" | startswith($tmp_dir)) | .name'); do
   echo "Found stale loop device: $device"
 
+  vgs=$(nix-sudo vgs --noheadings -o vg_name --select "pv_name=$device")
+  for vg in $vgs; do
+      for lvpath in $(nix-sudo lvs --noheadings --select="vg_name=$vg" -o lv_path "$vg"); do
+          nix-sudo dmsetup resume "$lvpath" || echo "Could not resume: $lvpath"
+      done
+  done
+
   nix-sudo $(which vgremove) -y --select="pv_name=$device" || :
   nix-sudo $(which pvremove) -y "$device" || :
   sudo losetup -d "$device" || :
