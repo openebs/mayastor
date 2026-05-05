@@ -571,7 +571,9 @@ impl PtplFileOps for LvolPtpl {
 
     fn destroy(&self) -> Result<(), std::io::Error> {
         if let Some(path) = self.path() {
-            std::fs::remove_file(path)?;
+            if path.exists() {
+                std::fs::remove_file(path)?;
+            }
         }
         Ok(())
     }
