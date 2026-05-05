@@ -13,7 +13,7 @@ use io_engine::{
     subsys::NvmfSubsystem,
 };
 use io_engine_api::v1::{
-    pool::{Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState},
+    pool::{ListPoolOptions, Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState},
     replica::ListReplicaOptions,
 };
 use once_cell::sync::OnceCell;
@@ -198,7 +198,7 @@ async fn lvs_pool_test() {
                 .unwrap();
         }
 
-        assert_eq!(pool.lvols().unwrap().count(), 10);
+        assert_eq!(pool.lvols().count(), 10);
     })
     .await;
 
@@ -226,10 +226,10 @@ async fn lvs_pool_test() {
                 .unwrap();
         }
 
-        assert_eq!(pool2.lvols().unwrap().count(), 5);
+        assert_eq!(pool2.lvols().count(), 5);
 
         let pool = Lvs::lookup("tpool").unwrap();
-        assert_eq!(pool.lvols().unwrap().count(), 10);
+        assert_eq!(pool.lvols().count(), 10);
     })
     .await;
 
@@ -249,13 +249,9 @@ async fn lvs_pool_test() {
         .await
         .unwrap();
 
-        assert_eq!(pool.lvols().unwrap().count(), 10);
+        assert_eq!(pool.lvols().count(), 10);
 
-        let df = pool
-            .lvols()
-            .unwrap()
-            .map(|r| r.destroy())
-            .collect::<Vec<_>>();
+        let df = pool.lvols().map(|r| r.destroy()).collect::<Vec<_>>();
         assert_eq!(df.len(), 10);
         futures::future::join_all(df).await;
     })
@@ -264,7 +260,7 @@ async fn lvs_pool_test() {
     // share all the replica's on the pool tpool2
     ms.spawn(async {
         let pool2 = Lvs::lookup("tpool2").unwrap();
-        for mut l in pool2.lvols().unwrap() {
+        for mut l in pool2.lvols() {
             Pin::new(&mut l).share_nvmf(None).await.unwrap();
         }
     })
@@ -335,7 +331,7 @@ async fn lvs_pool_test() {
                 .unwrap();
         }
 
-        for mut l in pool.lvols().unwrap() {
+        for mut l in pool.lvols() {
             let l = Pin::new(&mut l);
             l.share_nvmf(None).await.unwrap();
         }
@@ -358,7 +354,7 @@ async fn lvs_pool_test() {
             .await
             .unwrap();
 
-        for l in pool.lvols().unwrap() {
+        for l in pool.lvols() {
             if l.name() == "notshared" {
                 assert_eq!(l.shared().unwrap(), Protocol::Off);
             } else {
@@ -388,7 +384,7 @@ async fn lvs_pool_test() {
 
         assert_eq!(NvmfSubsystem::first().unwrap().into_iter().count(), 1);
 
-        assert_eq!(pool.lvols().unwrap().count(), 0);
+        assert_eq!(pool.lvols().count(), 0);
         pool.export().await.unwrap();
     })
     .await;
@@ -523,12 +519,8 @@ async fn lvs_pool_test() {
                 .await
                 .unwrap();
         }
-        assert_eq!(pool.lvols().unwrap().count(), 5);
-        let dest = pool
-            .lvols()
-            .unwrap()
-            .map(|r| r.destroy())
-            .collect::<Vec<_>>();
+        assert_eq!(pool.lvols().count(), 5);
+        let dest = pool.lvols().map(|r| r.destroy()).collect::<Vec<_>>();
         assert_eq!(dest.len(), 5);
         futures::future::join_all(dest).await;
         pool.destroy().await.unwrap();
@@ -1005,6 +997,7 @@ async fn lvol_list() {
 
     let pool_size = "4GiB";
     let repl_size = 4 * 1024 * 1024;
+    let replicas = 8000;
 
     use io_engine::pool_backend::PoolMetadataArgs;
     let pool_args = PoolArgs {
@@ -1023,7 +1016,7 @@ async fn lvol_list() {
     ms.spawn(async move {
         let lvs_pool = Lvs::create_or_import(pool_args).await.unwrap();
 
-        for i in 1..8000 {
+        for i in 1..=replicas {
             let name = format!("replica-{i}");
             let opts = ReplicaArgs::new(name, repl_size)
                 .wipe_super(false)
@@ -1041,7 +1034,16 @@ async fn lvol_list() {
     let list_tm = std::time::Instant::now();
     ms.spawn(async move {
         for lvs_pool in Lvs::iter() {
-            for lvol in lvs_pool.lvols().unwrap() {
+            println!();
+            for _ in 0..100 {
+                let mut count = 0;
+                for _lvol in lvs_pool.lvols() {
+                    count += 1;
+                }
+                assert_eq!(count, replicas);
+            }
+
+            for lvol in lvs_pool.lvols() {
                 let _replica: io_engine_api::v1::replica::Replica = lvol.into();
             }
         }
@@ -1054,7 +1056,7 @@ async fn lvol_list() {
     // 2. we share all replicas, so each replica now must search its subsystems
     ms.spawn(async move {
         for lvs_pool in Lvs::iter() {
-            for mut lvol in lvs_pool.lvols().unwrap() {
+            for mut lvol in lvs_pool.lvols() {
                 use io_engine::replica_backend::ReplicaOps;
                 lvol.share_nvmf(NvmfShareProps::new()).await.unwrap();
             }
@@ -1067,7 +1069,7 @@ async fn lvol_list() {
     ms.spawn(async move {
         let list_tm = std::time::Instant::now();
         for lvs_pool in Lvs::iter() {
-            for lvol in lvs_pool.lvols().unwrap() {
+            for lvol in lvs_pool.lvols() {
                 let _replica: io_engine_api::v1::replica::Replica = lvol.into();
             }
         }
@@ -1093,6 +1095,21 @@ async fn lvol_list() {
         // adds some extra buffer for gRPC
         grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
         "Listing replicas took too long"
+    );
+
+    use io_engine_api::v1::pool::PoolRpcClient;
+    let mut h = PoolRpcClient::connect("http://localhost:10124")
+        .await
+        .unwrap();
+
+    let list_tm = std::time::Instant::now();
+    h.list_pools(ListPoolOptions::default()).await.unwrap();
+    let grpc_elapsed = list_tm.elapsed();
+    println!("gRPC Lvs List: {grpc_elapsed:?}");
+    assert!(
+        // adds some extra buffer for gRPC
+        grpc_elapsed <= (max_dur + std::time::Duration::from_millis(100)),
+        "Listing pools took too long"
     );
 
     ms.spawn(async move {

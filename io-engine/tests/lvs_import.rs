@@ -120,7 +120,7 @@ async fn lvs_import_many_volume() {
 
         // Check that all volumes were properly imported.
         let mut imported = HashSet::new();
-        lvs.lvols().unwrap().for_each(|v| {
+        lvs.lvols().for_each(|v| {
             imported.insert(v.name());
         });
 
