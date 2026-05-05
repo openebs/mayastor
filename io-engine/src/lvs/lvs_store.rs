@@ -42,7 +42,7 @@ use crate::{
         LvolSnapshotDescriptor,
     },
     pool_backend::{PoolArgs, ReplicaArgs},
-    pool_information::{pool_info_read, pool_info_write, PoolInfo},
+    pool_information::{pool_info_write, PoolInfo},
     sleep::mayastor_sleep,
 };
 
@@ -312,70 +312,129 @@ impl Lvs {
 
     /// Enable stall detection on a given Pool.
     fn enable_stall_detection(&self) {
-        let lvs = self.name();
         let environ = MayastorEnvironment::global();
-        let secs: u64 = environ.pool_args.io_stall_deadline.as_secs();
+        self.enable_stall_detection_(&environ)
+    }
+
+    /// Enable stall detection on a given Pool.
+    fn enable_stall_detection_(&self, environ: &MayastorEnvironment) {
+        let secs = environ.pool_args.io_stall_deadline.as_secs();
         let rc = unsafe {
             vbdev_lvs_set_timeout(self.as_inner_ptr(), secs, Some(Self::lvstore_timeout_cb))
         };
         if rc != 0 {
-            error!(
-                "error while enabling stall deadline on pool {}: {:?}",
-                self.name(),
-                Errno::from_raw(rc)
-            );
+            let error = Errno::from_raw(rc);
+            error!("{self:?}: failed to enable I/O stall detection: {error:?}");
         } else {
-            info!("enabled stall detection of {secs}s on {lvs}");
+            info!("{self:?}: enabled I/O stall detection @{secs}s");
         }
     }
 
-    /// Disable stall detection on a given Pool if reset is submitted successfullly.
+    /// Disable stall detection on a given Pool if reset is submitted successfully.
     /// This is to stop receiving flood of callbacks as SPDK sends notification
     /// for all IOs which are stuck on the Pool in loop.
-    fn disable_stall_detection(&self, rc: i32) {
-        if rc == 0 {
-            let lvs = self.name();
-            if let Some(pool_lock) = pool_info_read().get(lvs) {
-                let mut pool_mut = pool_lock.write();
-                if !pool_mut.io_stalled {
-                    info!("pool {lvs} entered IO stall");
-                    pool_mut.io_stalled = true;
-                }
-            }
-            let rc = unsafe { vbdev_lvs_set_timeout(self.as_inner_ptr(), 0, None) };
-            if rc != 0 {
-                error!("rc {rc} while disabling stall deadline on pool {lvs}");
-            } else {
-                info!("disabled stall detection on {lvs}");
-            }
+    fn disable_stall_detection(&self) {
+        if !self.is_stalled() {
+            // we only disable the detection when we're already stalled
+            return;
         }
+
+        let rc = unsafe { vbdev_lvs_set_timeout(self.as_inner_ptr(), 0, None) };
+        if rc != 0 {
+            // This can't fail when timeout_in_sec is 0.
+            let error = Errno::from_raw(rc.abs());
+            error!("{self:?}: failed to disable stall detection: {error}");
+        } else {
+            info!("{self:?}: disabled I/O stall detection");
+        }
+    }
+
+    /// Check if the pool metadata indicates we're stalled.
+    fn is_stalled(&self) -> bool {
+        PoolInfo::get(self.name())
+            .map(|guard| guard.read().io_stalled)
+            .unwrap_or_default()
+    }
+    /// Update the pool metadata to indicate we're stalled.
+    fn set_stalled(&self) -> Option<bool> {
+        PoolInfo::get(self.name()).map(|guard| {
+            let mut info = guard.write();
+            if !info.io_stalled {
+                warn!("{self:?}: detected I/O stall");
+                info.io_stalled = true;
+                true
+            } else {
+                false
+            }
+        })
+    }
+    /// Update the pool metadata to indicate we're not stalled.
+    fn clear_stalled(&self) {
+        let Some(pool_lock) = PoolInfo::get(self.name()) else {
+            return;
+        };
+        pool_lock.write().io_stalled = false;
     }
 
     /// Attempts to reset the pool facing IO stall and disables stall detection
     /// to avoid flood of callbacks if reset is submitted successfully.
     fn mark_io_stalled(&self) {
+        let Some(set_stalled) = self.set_stalled() else {
+            tracing::error!("{self:?}: not found in cache");
+            return;
+        };
+
+        // When multiple I/Os are stalled, we get callbacks for each I/O.
+        // In this case, we proceed only for the stalled I/O which has set the pool as stalled.
+        if !set_stalled {
+            return;
+        }
+
         let p = std::ptr::null_mut();
         let rc = unsafe {
             vbdev_lvs_bs_bdev_reset(self.as_inner_ptr(), Some(Self::lvstore_reset_cb), p)
         };
-        self.disable_stall_detection(rc);
+        if rc != 0 {
+            // For some reason we've failed to trigger the reset, so we clear the stalled flag
+            // since we currently have no way of clearing it otherwise.
+            // todo: add out of band way of clearing the stall to handle this corner case.
+            self.clear_stalled();
+            let error = nix::Error::from_raw(rc.abs());
+            tracing::warn!("{self:?}: clearing I/O stall due to reset failure: {error}");
+            return;
+        }
+
+        let name = self.name().to_string();
+        Reactors::master().send_future(async move {
+            if let Some(lvs) = Lvs::lookup(&name) {
+                // we now disable the stall detection since we don't need to get notified
+                // of the stall until such time we recover (ie when the reset completes)
+                lvs.disable_stall_detection();
+            }
+        });
     }
 
     /// Marks the pool as recovered in the cache, update transition timestamp and re-enables stall detection.
-    fn mark_io_resume(&self) {
-        let lvs = self.name();
-        if let Some(pool_lock) = pool_info_read().get(lvs) {
-            let mut pool_mut = pool_lock.write();
-            pool_mut.io_stalled = false;
-            info!("Pool {lvs} recovered from IO stall");
-            let cli_args = MayastorEnvironment::global();
-            let max_entries = cli_args.pool_args.io_stall_transition_threshold * 10;
-            if pool_mut.transition_timestamps.len() == max_entries as usize {
-                let _ = pool_mut.transition_timestamps.pop_front();
-            }
-            pool_mut.transition_timestamps.push_back(Instant::now());
+    fn mark_io_resumed(&self) {
+        let Some(pool_guard) = PoolInfo::get(self.name()) else {
+            return;
+        };
+        let mut pool_info = pool_guard.write();
+        if !pool_info.io_stalled {
+            return;
         }
-        self.enable_stall_detection();
+
+        pool_info.io_stalled = false;
+        info!("{self:?}: recovered from I/O stall");
+
+        let environ = MayastorEnvironment::global();
+        let max_entries = environ.pool_args.io_stall_transition_threshold * 10;
+        if pool_info.transition_timestamps.len() == max_entries as usize {
+            let _ = pool_info.transition_timestamps.pop_front();
+        }
+        pool_info.transition_timestamps.push_back(Instant::now());
+
+        self.enable_stall_detection_(&environ);
     }
 
     // checks for the disks length and parses to correct format
@@ -661,11 +720,11 @@ impl Lvs {
 
     /// Callback function called by SPDK when reset completes.
     extern "C" fn lvstore_reset_cb(lvs: *mut spdk_lvol_store, success: bool, _ctx: *mut c_void) {
-        let lvs_wrapper: Lvs = Lvs::from_inner_ptr(lvs);
-        let lvs_name = lvs_wrapper.name().to_string();
-        if let Ok(bdev) = lvs_wrapper.base_bdev() {
+        let lvs: Lvs = Lvs::from_inner_ptr(lvs);
+        let lvs_name = lvs.name().to_string();
+        if let Ok(bdev) = lvs.base_bdev() {
             let driver = bdev.driver();
-            info!("reset completed with status: {success} on {lvs_name} of bdev type: {driver}");
+            info!("{lvs:?}: reset completed with success={success}, bdev_type={driver}");
         }
         Reactors::master().send_future(async move {
             if let Some(lvs) = Lvs::lookup(&lvs_name) {
@@ -682,7 +741,7 @@ impl Lvs {
     extern "C" fn bs_super_read_cb(ctx: *mut c_void, _errno: i32) {
         let lvs_raw = ctx as *mut spdk_lvol_store;
         let lvs: Lvs = Lvs::from_inner_ptr(lvs_raw);
-        lvs.mark_io_resume();
+        lvs.mark_io_resumed();
     }
 
     /// Imports the pool if it exists, otherwise tries to create a new pool.
