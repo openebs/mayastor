@@ -1767,3 +1767,135 @@ async fn test_clone_snapshot_usage_post_clone_destroy() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn test_unmap_cluster_granularity_on_replica() {
+    let ms = MayastorTest::new(MayastorCliArgs {
+        bs_cluster_unmap: true,
+        enable_io_all_thrd_nexus_channels: true,
+        ..Default::default()
+    });
+    const LVOL_NAME: &str = "lvol_unmap_cluster_granularity";
+
+    ms.spawn(async move {
+        let pool = create_test_pool(
+            "pool_unmap_cluster_granularity",
+            "malloc:///disk_unmap_cluster_granularity?size_mb=128".to_string(),
+            Some(1024 * 1024),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                LVOL_NAME,
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                true,
+                None,
+            )
+            .await
+            .expect("Failed to create test lvol");
+        let cluster_size = pool.blob_cluster_size();
+
+        bdev_io::write_some(LVOL_NAME, 2 * cluster_size, 16, 0xaau8)
+            .await
+            .expect("Failed to write data to volume");
+        bdev_io::write_some(LVOL_NAME, 3 * cluster_size, 16, 0xbbu8)
+            .await
+            .expect("Failed to write data to volume");
+
+        let usage_after_write = lvol.usage();
+        assert!(
+            usage_after_write.num_allocated_clusters >= 2,
+            "Test volume didn't allocate enough clusters after writes"
+        );
+
+        bdev_io::unmap_some(LVOL_NAME, 2 * cluster_size, cluster_size / 2)
+            .await
+            .expect("Failed to unmap sub-cluster range");
+        let usage_after_small_unmap = lvol.usage();
+        assert_eq!(
+            usage_after_write.num_allocated_clusters,
+            usage_after_small_unmap.num_allocated_clusters,
+            "Sub-cluster unmap unexpectedly changed allocated clusters"
+        );
+
+        bdev_io::unmap_some(LVOL_NAME, 3 * cluster_size, cluster_size)
+            .await
+            .expect("Failed to unmap full-cluster range");
+        let usage_after_full_unmap = lvol.usage();
+        assert_eq!(
+            usage_after_small_unmap.num_allocated_clusters,
+            usage_after_full_unmap.num_allocated_clusters + 1,
+            "Full-cluster unmap failed to deallocate exactly one cluster"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_unmap_does_not_change_snapshot_clusters() {
+    let ms = MayastorTest::new(MayastorCliArgs {
+        bs_cluster_unmap: true,
+        enable_io_all_thrd_nexus_channels: true,
+        ..Default::default()
+    });
+    const LVOL_NAME: &str = "lvol_unmap_snapshot_clusters";
+
+    ms.spawn(async move {
+        let pool = create_test_pool(
+            "pool_unmap_snapshot_clusters",
+            "malloc:///disk_unmap_snapshot_clusters?size_mb=128".to_string(),
+            Some(1024 * 1024),
+        )
+        .await;
+        let lvol = pool
+            .create_lvol(
+                LVOL_NAME,
+                32 * 1024 * 1024,
+                Some(&Uuid::new_v4().to_string()),
+                true,
+                None,
+            )
+            .await
+            .expect("Failed to create test lvol");
+        let cluster_size = pool.blob_cluster_size();
+
+        bdev_io::write_some(LVOL_NAME, 2 * cluster_size, 16, 0xaau8)
+            .await
+            .expect("Failed to write initial data");
+
+        let snap_name = "lvol_unmap_snapshot_clusters_snap1".to_string();
+        let snapshot_params = SnapshotParams::new(
+            Some("lvol_unmap_snapshot_clusters_entity".to_string()),
+            Some(lvol.uuid()),
+            Some(Uuid::new_v4().to_string()),
+            Some(snap_name.clone()),
+            Some(Uuid::new_v4().to_string()),
+            Some(Utc::now().to_string()),
+            false,
+        );
+        lvol.create_snapshot(snapshot_params)
+            .await
+            .expect("Failed to create snapshot");
+
+        bdev_io::write_some(LVOL_NAME, 2 * cluster_size, 16, 0xbbu8)
+            .await
+            .expect("Failed to write post-snapshot data");
+
+        let snapshot = find_snapshot_device(&snap_name)
+            .await
+            .expect("Can't lookup snapshot lvol");
+        let snapshot_alloc_before_unmap = snapshot.usage().allocated_bytes;
+
+        bdev_io::unmap_some(LVOL_NAME, 2 * cluster_size, cluster_size)
+            .await
+            .expect("Failed to unmap replica range");
+
+        let snapshot_alloc_after_unmap = snapshot.usage().allocated_bytes;
+        assert_eq!(
+            snapshot_alloc_before_unmap, snapshot_alloc_after_unmap,
+            "Snapshot cluster usage changed after unmap on replica"
+        );
+    })
+    .await;
+}
