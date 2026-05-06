@@ -71,7 +71,8 @@ pub async fn unmap_some(nexus_name: &str, offset: u64, len: u64) -> Result<(), C
     assert_eq!(offset % blk_len, 0, "Offset must be block aligned");
     assert_eq!(len % blk_len, 0, "Length must be block aligned");
 
-    h.unmap_blocks_async(offset / blk_len, len / blk_len).await?;
+    h.unmap_blocks_async(offset / blk_len, len / blk_len)
+        .await?;
     Ok(())
 }
 
