@@ -858,7 +858,7 @@ impl Lvs {
         }
 
         let start = Instant::now();
-        loop {
+        while !share_lvols.is_empty() {
             let lvols = std::mem::take(&mut share_lvols);
             for mut l in lvols {
                 // Unsharing is completing asynchronously, but whilst that is happening we can't
