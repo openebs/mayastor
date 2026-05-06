@@ -89,9 +89,11 @@ impl NvmfTransportOpts {
     fn for_rdma(mut self) -> Self {
         self.in_capsule_data_size =
             try_from_env("NVMF_RDMA_IN_CAPSULE_DATA_SIZE", self.in_capsule_data_size);
+        self.max_io_size = try_from_env("NVMF_RDMA_MAX_IO_SIZE", self.max_io_size);
         self.io_unit_size = try_from_env("NVMF_RDMA_IO_UNIT_SIZE", 8192); // SPDK_NVMF_RDMA_MIN_IO_BUFFER_SIZE
         self.data_wr_pool_size = try_from_env("NVMF_RDMA_DATA_WR_POOL_SIZE", 4095); // SPDK_NVMF_RDMA_DEFAULT_DATA_WR_POOL_SIZE
         self.num_shared_buf = try_from_env("NVMF_RDMA_NUM_SHARED_BUF", self.num_shared_buf);
+        self.buf_cache_size = try_from_env("NVMF_RDMA_BUF_CACHE_SIZE", self.buf_cache_size);
         self
     }
 }
@@ -136,14 +138,15 @@ impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
 impl Default for NvmfTgtConfig {
     fn default() -> Self {
         let args = MayastorEnvironment::global_or_default();
+        let opts_tcp = NvmfTransportOpts::default();
         Self {
             name: "mayastor_target".to_string(),
             max_namespaces: args.nvme.max_namespaces,
             crdt: args.nvmf_tgt_crdt,
-            opts_tcp: NvmfTransportOpts::default(),
+            opts_tcp,
             interface: None,
             rdma: None,
-            opts_rdma: NvmfTransportOpts::default().for_rdma(),
+            opts_rdma: opts_tcp.for_rdma(),
         }
     }
 }
@@ -282,9 +285,9 @@ impl Default for NvmfTransportOpts {
     fn default() -> Self {
         Self {
             max_queue_depth: try_from_env("NVMF_TCP_MAX_QUEUE_DEPTH", 32),
-            in_capsule_data_size: 4096,
-            max_io_size: 131_072,
-            io_unit_size: 131_072,
+            in_capsule_data_size: try_from_env("NVMF_TCP_IN_CAPSULE_DATA_SIZE", 4096),
+            max_io_size: try_from_env("NVMF_TCP_MAX_IO_SIZE", 131_072),
+            io_unit_size: try_from_env("NVMF_TCP_IO_UNIT_SIZE", 131_072),
             max_qpairs_per_ctrl: try_from_env("NVMF_TCP_MAX_QPAIRS_PER_CTRL", 32),
             num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2047),
             buf_cache_size: try_from_env("NVMF_TCP_BUF_CACHE_SIZE", 64),
