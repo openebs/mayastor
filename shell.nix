@@ -45,6 +45,7 @@ let
         xfsprogs
         nixpkgs-fmt
         ublksrv
+        jq
       ];
 
       shellEnv = with pkgs; {

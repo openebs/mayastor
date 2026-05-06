@@ -13,7 +13,7 @@ use crate::{
 
 /// RAII Wrapper for spdk_rs::BdevDesc<T>.
 /// When this structure is dropped, the descriptor is closed.
-pub struct DescriptorGuard<T: BdevOps>(BdevDesc<T>);
+pub struct DescriptorGuard<T: BdevOps>(BdevDesc<T>, Option<Thread>);
 
 pub type UntypedDescriptorGuard = DescriptorGuard<()>;
 
@@ -28,7 +28,7 @@ impl<T: BdevOps> Deref for DescriptorGuard<T> {
 impl<T: BdevOps> DescriptorGuard<T> {
     /// TODO
     pub(crate) fn new(d: BdevDesc<T>) -> Self {
-        Self(d)
+        Self(d, Thread::current())
     }
 
     /// claim the bdev for exclusive access, when the descriptor is in read-only
@@ -76,7 +76,9 @@ impl<T: BdevOps> DescriptorGuard<T> {
 /// running on their own thread.
 impl<T: BdevOps> Drop for DescriptorGuard<T> {
     fn drop(&mut self) {
-        if Thread::current().unwrap() == Thread::primary() {
+        if let Some(th) = &self.1 {
+            th.send_msg(self.0.clone(), |mut d| d.close());
+        } else if Thread::current().unwrap() == Thread::primary() {
             self.0.close()
         } else {
             Thread::primary().send_msg(self.0.clone(), |mut d| d.close());
@@ -88,9 +90,10 @@ impl<T: BdevOps> Debug for DescriptorGuard<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "Descriptor {:p} for bdev: {}",
+            "Descriptor {:p} for bdev: {}, thread: {:?}",
             self.legacy_as_ptr(),
-            self.0.bdev().name()
+            self.0.bdev().name(),
+            self.1
         )
     }
 }

@@ -24,6 +24,10 @@ impl PoolInfo {
         self.transition_timestamps
             .retain(|ts| ts.elapsed() < stall_transition_window);
     }
+    /// Get the [`PoolInfo`] for the given pool, if present.
+    pub fn get(id: &str) -> Option<parking_lot::MappedRwLockReadGuard<'static, RwLock<PoolInfo>>> {
+        pool_info(id)
+    }
 }
 
 /// Returns write lock of the hashmap.
@@ -34,4 +38,10 @@ pub fn pool_info_write() -> RwLockWriteGuard<'static, HashMap<String, RwLock<Poo
 /// Returns read lock of the hashmap.
 pub fn pool_info_read() -> RwLockReadGuard<'static, HashMap<String, RwLock<PoolInfo>>> {
     POOL_INFO.read()
+}
+
+fn pool_info(id: &str) -> Option<parking_lot::MappedRwLockReadGuard<'static, RwLock<PoolInfo>>> {
+    let read = POOL_INFO.read();
+
+    parking_lot::RwLockReadGuard::try_map(read, |info| info.get(id)).ok()
 }
