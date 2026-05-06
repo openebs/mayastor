@@ -841,13 +841,14 @@ impl Lvs {
         let mut share_lvols = Vec::with_capacity(lvols.len());
 
         for mut l in lvols {
-            // First we unshare to ensure we clean up resources on re-import when the backend
-            // is hot-removed and then hot-attached again.
-            let unshare = Some(UnshareProps::new(false));
-            Pin::new(&mut l).unshare(unshare).await.ok();
-
             match l.get(PropName::Shared).await {
                 Ok(PropValue::Shared(true)) => {
+                    if crate::core::is_shared(&l.as_bdev()) == Some(Protocol::Nvmf) {
+                        // First we unshare to ensure we clean up resources on re-import when the backend
+                        // is hot-removed and then hot-attached again.
+                        let unshare = Some(UnshareProps::new(false));
+                        Pin::new(&mut l).unshare(unshare).await.ok();
+                    }
                     share_lvols.push(l);
                 }
                 Ok(PropValue::Shared(false)) => {
