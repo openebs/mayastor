@@ -720,3 +720,120 @@ async fn rebuild_thin_unmap_propagates_to_dst() {
         r0_final.num_allocated_clusters,
     );
 }
+
+/// Regression test for concurrent UNMAP handling:
+/// 1) issue multiple UNMAPs concurrently through a thin nexus,
+/// 2) restart io-engine container,
+/// 3) re-import the same pool from the backing disk.
+/// The final pool import must succeed.
+#[tokio::test]
+async fn concurrent_unmap_restart_and_pool_reimport() {
+    common::composer_init();
+
+    use io_engine_tests::{
+        file_io::DataSize,
+        nexus::{test_trim_to_nexus, test_write_to_nexus},
+    };
+
+    const DISK_FILE: &str = "/tmp/concurrent-unmap-reimport.img";
+    const POOL_BDEV: &str = "aio:///tmp/concurrent-unmap-reimport.img?blk_size=512";
+    const POOL_NAME: &str = "pool_concurrent_unmap";
+    const POOL_UUID: &str = "843d5cb3-3308-49aa-a43d-16f5956500db";
+    const REPL_SIZE_MB: u64 = 64;
+    const CLUSTER_SIZE: u32 = 1024 * 1024;
+    const POOL_SIZE_MB: u64 = 200;
+
+    common::delete_file(&[DISK_FILE.to_string()]);
+    common::truncate_file_bytes(DISK_FILE, POOL_SIZE_MB * 1024 * 1024);
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "1,2,3,4",
+                "--bs-cluster-unmap",
+                "-Fcolor,compact,host,nodate",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let hdl = conn.grpc_handle_shared("ms_0").await.unwrap();
+
+    let mut pool = PoolBuilder::new(hdl.clone())
+        .with_name(POOL_NAME)
+        .with_uuid(POOL_UUID)
+        .with_bdev(POOL_BDEV)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool.create().await.unwrap();
+
+    let mut repl = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool)
+        .with_name("repl_concurrent_unmap")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE_MB)
+        .with_thin(true);
+    repl.create().await.unwrap();
+    repl.share().await.unwrap();
+
+    let mut nex = NexusBuilder::new(hdl.clone())
+        .with_name("nexus_concurrent_unmap")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE_MB)
+        .with_replica(&repl);
+    nex.create().await.unwrap();
+    nex.publish().await.unwrap();
+
+    let cluster_bytes = CLUSTER_SIZE as u64;
+    test_write_to_nexus(
+        &nex,
+        DataSize::from_bytes(8 * cluster_bytes),
+        2,
+        DataSize::from_bytes(cluster_bytes),
+    )
+    .await
+    .unwrap();
+
+    let f0 = test_trim_to_nexus(
+        &nex,
+        DataSize::from_bytes(2 * cluster_bytes),
+        DataSize::from_bytes(cluster_bytes),
+    );
+    let f1 = test_trim_to_nexus(
+        &nex,
+        DataSize::from_bytes(3 * cluster_bytes),
+        DataSize::from_bytes(cluster_bytes),
+    );
+    let f2 = test_trim_to_nexus(
+        &nex,
+        DataSize::from_bytes(4 * cluster_bytes),
+        DataSize::from_bytes(cluster_bytes),
+    );
+    let f3 = test_trim_to_nexus(
+        &nex,
+        DataSize::from_bytes(5 * cluster_bytes),
+        DataSize::from_bytes(cluster_bytes),
+    );
+    let (r0, r1, r2, r3) = tokio::join!(f0, f1, f2, f3);
+    r0.unwrap();
+    r1.unwrap();
+    r2.unwrap();
+    r3.unwrap();
+
+    test.restart("ms_0").await.unwrap();
+
+    let hdl_after_restart = conn.grpc_handle_shared("ms_0").await.unwrap();
+    let mut reimport_pool = PoolBuilder::new(hdl_after_restart)
+        .with_name(POOL_NAME)
+        .with_uuid(POOL_UUID)
+        .with_bdev(POOL_BDEV)
+        .with_cluster_size(CLUSTER_SIZE);
+    reimport_pool.create().await.unwrap();
+}
