@@ -544,3 +544,179 @@ async fn rebuild_across_mixed_cluster_sizes() {
         .await
         .is_ok());
 }
+
+/// Verifies that nexus rebuild propagates UNMAP semantics: when a region of the
+/// source is unmapped, after a rebuild the destination must also be
+/// (de)allocated to match the source — i.e. unmapped clusters must not be
+/// re-allocated on the destination during rebuild.
+///
+/// All replicas live in a single io-engine container to minimise the cost of
+/// docker compose setup/teardown.
+#[tokio::test]
+async fn rebuild_thin_unmap_propagates_to_dst() {
+    common::composer_init();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "1,2,3,4",
+                "--bs-cluster-unmap",
+                "-Fcolor,compact,host,nodate",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let hdl = conn.grpc_handle_shared("ms_0").await.unwrap();
+
+    use io_engine_tests::{
+        file_io::DataSize,
+        nexus::{test_trim_to_nexus, test_write_to_nexus},
+    };
+
+    const POOL_SIZE: u64 = 100;
+    const REPL_SIZE: u64 = 22;
+    // Use an explicit 1 MiB cluster size so that the test can write/unmap
+    // exactly one cluster at a time without relying on the pool default.
+    const CLUSTER_SIZE: u32 = 1024 * 1024;
+
+    let mut pool_0 = PoolBuilder::new(hdl.clone())
+        .with_name("pool0")
+        .with_new_uuid()
+        .with_malloc("mem0", POOL_SIZE)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool_0.create().await.unwrap();
+
+    let mut pool_1 = PoolBuilder::new(hdl.clone())
+        .with_name("pool1")
+        .with_new_uuid()
+        .with_malloc("mem1", POOL_SIZE)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool_1.create().await.unwrap();
+
+    let mut pool_2 = PoolBuilder::new(hdl.clone())
+        .with_name("pool2")
+        .with_new_uuid()
+        .with_malloc("mem2", POOL_SIZE)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool_2.create().await.unwrap();
+
+    let mut repl_0 = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool_0)
+        .with_name("r0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+    repl_0.create().await.unwrap();
+    repl_0.share().await.unwrap();
+
+    let mut repl_1 = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool_1)
+        .with_name("r1")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+    repl_1.create().await.unwrap();
+    repl_1.share().await.unwrap();
+
+    let mut repl_2 = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool_2)
+        .with_name("r2")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+    repl_2.create().await.unwrap();
+    repl_2.share().await.unwrap();
+
+    let mut nex = NexusBuilder::new(hdl.clone())
+        .with_name("nexus0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_replica(&repl_0)
+        .with_replica(&repl_1);
+    nex.create().await.unwrap();
+    nex.publish().await.unwrap();
+
+    let cluster_bytes = CLUSTER_SIZE as u64;
+
+    // Write two full clusters worth of data (clusters 2 and 3, skipping
+    // cluster 0 which is reserved for the superblock / metadata).
+    test_write_to_nexus(
+        &nex,
+        DataSize::from_bytes(2 * cluster_bytes),
+        2,
+        DataSize::from_bytes(cluster_bytes),
+    )
+    .await
+    .unwrap();
+
+    // Confirm that each source replica has allocated some clusters.
+    let r0_before = repl_0.get_replica().await.unwrap().usage.unwrap();
+    let r1_before = repl_1.get_replica().await.unwrap().usage.unwrap();
+    assert!(
+        r0_before.num_allocated_clusters >= 2,
+        "Source replica 0 should have at least 2 allocated clusters after write, got {}",
+        r0_before.num_allocated_clusters
+    );
+    assert!(
+        r1_before.num_allocated_clusters >= 2,
+        "Source replica 1 should have at least 2 allocated clusters after write, got {}",
+        r1_before.num_allocated_clusters
+    );
+
+    // Unmap exactly one cluster (cluster 3) through the nexus. The nexus
+    // forwards the unmap to both source replicas; with --bs-cluster-unmap
+    // enabled the underlying blobstore releases the corresponding cluster.
+    test_trim_to_nexus(
+        &nex,
+        DataSize::from_bytes(3 * cluster_bytes),
+        DataSize::from_bytes(cluster_bytes),
+    )
+    .await
+    .unwrap();
+
+    // Wait briefly for the asynchronous cluster-release to settle.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Each source replica must now have one fewer allocated cluster.
+    let r0_after_trim = repl_0.get_replica().await.unwrap().usage.unwrap();
+    let r1_after_trim = repl_1.get_replica().await.unwrap().usage.unwrap();
+    assert_eq!(
+        r0_before.num_allocated_clusters,
+        r0_after_trim.num_allocated_clusters + 1,
+        "Source replica 0: expected one cluster released after unmap"
+    );
+    assert_eq!(
+        r1_before.num_allocated_clusters,
+        r1_after_trim.num_allocated_clusters + 1,
+        "Source replica 1: expected one cluster released after unmap"
+    );
+
+    // Add the destination replica. This triggers a nexus rebuild: the
+    // destination is synchronised with the sources. Unmapped clusters in the
+    // source must be unmapped (not allocated) in the destination.
+    nex.add_replica(&repl_2, false).await.unwrap();
+
+    nex.wait_children_online(Duration::from_secs(60))
+        .await
+        .unwrap();
+
+    // After rebuild the destination must match source allocation.
+    let r0_final = repl_0.get_replica().await.unwrap().usage.unwrap();
+    let r2_final = repl_2.get_replica().await.unwrap().usage.unwrap();
+    assert_eq!(
+        r0_final.num_allocated_clusters,
+        r2_final.num_allocated_clusters,
+        "After nexus rebuild destination cluster count ({}) must match source ({})",
+        r2_final.num_allocated_clusters,
+        r0_final.num_allocated_clusters,
+    );
+}
