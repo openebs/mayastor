@@ -735,16 +735,17 @@ async fn concurrent_unmap_restart_and_pool_reimport() {
         nexus::{test_trim_to_nexus, test_write_to_nexus},
     };
 
-    const DISK_FILE: &str = "/tmp/concurrent-unmap-reimport.img";
-    const POOL_BDEV: &str = "aio:///tmp/concurrent-unmap-reimport.img?blk_size=512";
     const POOL_NAME: &str = "pool_concurrent_unmap";
-    const POOL_UUID: &str = "843d5cb3-3308-49aa-a43d-16f5956500db";
     const REPL_SIZE_MB: u64 = 64;
     const CLUSTER_SIZE: u32 = 1024 * 1024;
     const POOL_SIZE_MB: u64 = 200;
 
-    common::delete_file(&[DISK_FILE.to_string()]);
-    common::truncate_file_bytes(DISK_FILE, POOL_SIZE_MB * 1024 * 1024);
+    let pool_uuid = common::generate_uuid();
+    let disk_file = format!("/tmp/concurrent-unmap-reimport-{pool_uuid}.img");
+    let pool_bdev = format!("aio://{disk_file}?blk_size=512");
+
+    common::delete_file(&[disk_file.clone()]);
+    common::truncate_file_bytes(&disk_file, POOL_SIZE_MB * 1024 * 1024);
 
     let test = Builder::new()
         .name("cargo-test")
@@ -769,8 +770,8 @@ async fn concurrent_unmap_restart_and_pool_reimport() {
 
     let mut pool = PoolBuilder::new(hdl.clone())
         .with_name(POOL_NAME)
-        .with_uuid(POOL_UUID)
-        .with_bdev(POOL_BDEV)
+        .with_uuid(&pool_uuid)
+        .with_bdev(&pool_bdev)
         .with_cluster_size(CLUSTER_SIZE);
     pool.create().await.unwrap();
 
@@ -832,8 +833,8 @@ async fn concurrent_unmap_restart_and_pool_reimport() {
     let hdl_after_restart = conn.grpc_handle_shared("ms_0").await.unwrap();
     let mut reimport_pool = PoolBuilder::new(hdl_after_restart)
         .with_name(POOL_NAME)
-        .with_uuid(POOL_UUID)
-        .with_bdev(POOL_BDEV)
+        .with_uuid(&pool_uuid)
+        .with_bdev(&pool_bdev)
         .with_cluster_size(CLUSTER_SIZE);
     reimport_pool.create().await.unwrap();
 }
