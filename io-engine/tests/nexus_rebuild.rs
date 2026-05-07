@@ -721,24 +721,41 @@ async fn rebuild_thin_unmap_propagates_to_dst() {
     );
 }
 
-/// Regression test for concurrent UNMAP handling:
-/// 1) issue multiple UNMAPs concurrently through a thin nexus,
-/// 2) restart io-engine container,
-/// 3) re-import the same pool from the backing disk.
-/// The final pool import must succeed.
+/// Regression test for SPDK concurrent UNMAP issues.
+///
+/// Creates a 100 GiB thin volume on a 1 MiB-cluster pool, drives a very large
+/// number of concurrent cluster-sized UNMAPs through the nexus using fio
+/// (`rw=randtrim`, `bs=1M`, `iodepth=128`, `numjobs=8` => up to 1024 in-flight
+/// UNMAP commands sustained over a 20s window), then exports the pool and
+/// re-imports it from the same backing disk.
+///
+/// Concurrent UNMAPs at cluster boundaries used to corrupt blobstore
+/// metadata, which made the subsequent pool import fail. After the fix the
+/// re-import must succeed.
 #[tokio::test]
-async fn concurrent_unmap_restart_and_pool_reimport() {
+async fn concurrent_unmap_export_and_pool_reimport() {
     common::composer_init();
 
     use io_engine_tests::{
+        compose::rpc::v1::pool::{ExportPoolRequest, ImportPoolRequest},
         file_io::DataSize,
-        nexus::{test_trim_to_nexus, test_write_to_nexus},
+        fio::{FioBuilder, FioJobBuilder},
+        nexus::test_fio_to_nexus_aio,
     };
 
     const POOL_NAME: &str = "pool_concurrent_unmap";
-    const REPL_SIZE_MB: u64 = 64;
+    // 100 GiB thin volume, exposed over NVMf as the nexus device.
+    const REPL_SIZE_MB: u64 = 100 * 1024;
+    // 1 MiB cluster size so that bs=1M trims are exactly one cluster each.
     const CLUSTER_SIZE: u32 = 1024 * 1024;
-    const POOL_SIZE_MB: u64 = 200;
+    // Sparse backing file with some headroom over the replica size for pool
+    // metadata.
+    const POOL_SIZE_MB: u64 = REPL_SIZE_MB + 1024;
+
+    // Range pre-written by the writer fio job and then trimmed by the
+    // randtrim job so that UNMAPs actually traverse allocated blobstore
+    // clusters (not no-ops on a fully-thin region).
+    const TRIM_RANGE_MB: u64 = 4 * 1024;
 
     let pool_uuid = common::generate_uuid();
     let disk_file = format!("/tmp/concurrent-unmap-reimport-{pool_uuid}.img");
@@ -792,49 +809,70 @@ async fn concurrent_unmap_restart_and_pool_reimport() {
     nex.create().await.unwrap();
     nex.publish().await.unwrap();
 
-    let cluster_bytes = CLUSTER_SIZE as u64;
-    test_write_to_nexus(
-        &nex,
-        DataSize::from_bytes(8 * cluster_bytes),
-        2,
-        DataSize::from_bytes(cluster_bytes),
-    )
-    .await
-    .unwrap();
+    // Pre-allocate clusters in the trimmed range so that the subsequent
+    // randtrim phase exercises real blobstore cluster releases rather than
+    // hitting unallocated regions.
+    let writer = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::default()
+                .with_name("preallocate")
+                .with_rw("write")
+                .with_bs(DataSize::from_bytes(CLUSTER_SIZE as u64))
+                .with_iodepth(64)
+                .with_size(DataSize::from_mb(TRIM_RANGE_MB))
+                .build(),
+        )
+        .with_verbose_err(true)
+        .build();
+    test_fio_to_nexus_aio(&nex, writer).await.unwrap();
 
-    let f0 = test_trim_to_nexus(
-        &nex,
-        DataSize::from_bytes(2 * cluster_bytes),
-        DataSize::from_bytes(cluster_bytes),
-    );
-    let f1 = test_trim_to_nexus(
-        &nex,
-        DataSize::from_bytes(3 * cluster_bytes),
-        DataSize::from_bytes(cluster_bytes),
-    );
-    let f2 = test_trim_to_nexus(
-        &nex,
-        DataSize::from_bytes(4 * cluster_bytes),
-        DataSize::from_bytes(cluster_bytes),
-    );
-    let f3 = test_trim_to_nexus(
-        &nex,
-        DataSize::from_bytes(5 * cluster_bytes),
-        DataSize::from_bytes(cluster_bytes),
-    );
-    let (r0, r1, r2, r3) = tokio::join!(f0, f1, f2, f3);
-    r0.unwrap();
-    r1.unwrap();
-    r2.unwrap();
-    r3.unwrap();
+    // Issue a very large number of concurrent cluster-sized UNMAPs.
+    // numjobs=8 * iodepth=128 = up to 1024 UNMAPs in flight at any moment,
+    // sustained for runtime seconds across the pre-allocated range.
+    let trimmer = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::default()
+                .with_name("concurrent_unmap")
+                .with_rw("randtrim")
+                .with_bs(DataSize::from_bytes(CLUSTER_SIZE as u64))
+                .with_iodepth(128)
+                .with_numjobs(8)
+                .with_size(DataSize::from_mb(TRIM_RANGE_MB))
+                .with_runtime(20)
+                .build(),
+        )
+        .with_verbose_err(true)
+        .build();
+    test_fio_to_nexus_aio(&nex, trimmer).await.unwrap();
 
-    test.restart("ms_0").await.unwrap();
+    // Tear down the nexus and replica so the pool can be exported.
+    nex.shutdown().await.unwrap();
+    nex.destroy().await.unwrap();
+    repl.destroy().await.unwrap();
 
-    let hdl_after_restart = conn.grpc_handle_shared("ms_0").await.unwrap();
-    let mut reimport_pool = PoolBuilder::new(hdl_after_restart)
-        .with_name(POOL_NAME)
-        .with_uuid(&pool_uuid)
-        .with_bdev(&pool_bdev)
-        .with_cluster_size(CLUSTER_SIZE);
-    reimport_pool.create().await.unwrap();
+    // Export the pool: this flushes and closes the on-disk blobstore.
+    hdl.lock()
+        .await
+        .pool
+        .export_pool(ExportPoolRequest {
+            name: POOL_NAME.to_string(),
+            uuid: Some(pool_uuid.clone()),
+        })
+        .await
+        .expect("Pool export must succeed after concurrent UNMAPs");
+
+    // Re-import the pool from the same backing disk. This is the failure
+    // mode the SPDK concurrent UNMAP bugs caused; it must succeed.
+    hdl.lock()
+        .await
+        .pool
+        .import_pool(ImportPoolRequest {
+            name: POOL_NAME.to_string(),
+            uuid: Some(pool_uuid.clone()),
+            disks: vec![pool_bdev.clone()],
+            pooltype: 0,
+            encryption: None,
+        })
+        .await
+        .expect("Pool re-import after concurrent UNMAPs must succeed");
 }
