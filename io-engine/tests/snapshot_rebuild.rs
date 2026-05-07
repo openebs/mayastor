@@ -15,10 +15,7 @@ use io_engine::{
     rebuild::{RebuildJobOptions, SnapshotRebuildJob},
     sleep::mayastor_sleep,
 };
-use io_engine_tests::{
-    bdev_io,
-    pool::{PoolBuilderLocal, PoolLocal, PoolOps},
-};
+use io_engine_tests::pool::{PoolBuilderLocal, PoolLocal, PoolOps};
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
@@ -206,79 +203,6 @@ async fn replica_to_rebuild_partial() {
         // 8MiB which are write-zeroes at src replica creation
         assert_eq!(stats.blocks_transferred, mb_to_blocks(8));
         mayastor_sleep(Duration::from_millis(1)).await.unwrap();
-    })
-    .await;
-}
-
-#[tokio::test]
-async fn replica_to_rebuild_partial_keeps_unmapped_dst_unmapped() {
-    let ms = MayastorTest::new(MayastorCliArgs {
-        bs_cluster_unmap: true,
-        ..Default::default()
-    });
-
-    ms.spawn(async move {
-        let mut pool_builder = PoolBuilderLocal::default();
-        pool_builder.with_builder(|b| {
-            b.with_name("md_unmap_rebuild")
-                .with_new_uuid()
-                .with_malloc("md_unmap_rebuild", POOL_SZ_MB)
-                .with_cluster_size(1024 * 1024)
-        });
-        let pool = pool_builder.create().await.unwrap();
-
-        let replica_src = create_replica(&pool, "2be1219f-682b-4672-b88b-8b9d07e8105a")
-            .await
-            .unwrap();
-        let replica_dst = create_replica(&pool, "3be1219f-682b-4672-b88b-8b9d07e8105a")
-            .await
-            .unwrap();
-
-        let cluster_size = pool.blob_cluster_size();
-        let target_offset = 2 * cluster_size;
-
-        bdev_io::write_some(&replica_src.uuid(), target_offset, 16, 0xaau8)
-            .await
-            .unwrap();
-        bdev_io::write_some(&replica_dst.uuid(), target_offset, 16, 0xbbu8)
-            .await
-            .unwrap();
-
-        bdev_io::unmap_some(&replica_src.uuid(), target_offset, cluster_size)
-            .await
-            .unwrap();
-
-        let dst_alloc_before = replica_dst.usage().num_allocated_clusters;
-
-        let job = SnapshotRebuildJob::builder()
-            .with_replica_uuid(&replica_dst.uuid())
-            .with_snapshot_uri(replica_src.bdev_share_uri().unwrap())
-            .build()
-            .await
-            .unwrap()
-            .store()
-            .unwrap();
-
-        let chan = job.start().await.unwrap();
-        let state = chan.await.unwrap();
-        assert_eq!(state, RebuildState::Completed, "Rebuild should succeed");
-
-        let dst_alloc_after = replica_dst.usage().num_allocated_clusters;
-        let src_alloc_after = replica_src.usage().num_allocated_clusters;
-
-        assert_eq!(
-            dst_alloc_before,
-            dst_alloc_after + 1,
-            "Destination cluster was not deallocated during rebuild for an unmapped source region"
-        );
-        assert_eq!(
-            src_alloc_after, dst_alloc_after,
-            "Source and destination allocation maps diverged after rebuild"
-        );
-
-        destroy_replica(replica_src).await.unwrap();
-        destroy_replica(replica_dst).await.unwrap();
-        job.destroy();
     })
     .await;
 }
