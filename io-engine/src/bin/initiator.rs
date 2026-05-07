@@ -4,10 +4,11 @@
 use std::{
     fmt, fs,
     io::{self, Write},
+    path::{Path, PathBuf},
 };
 
 use chrono::Utc;
-use clap::{Arg, Command};
+use clap::{Parser, Subcommand};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use version_info::version_info_str;
@@ -75,15 +76,15 @@ impl From<io::Error> for Error {
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Create initiator bdev.
-async fn create_bdev(uri: &str) -> Result<UntypedBdev> {
-    let bdev_name = bdev_create(uri).await?;
+async fn create_bdev(uri: &url::Url) -> Result<UntypedBdev> {
+    let bdev_name = bdev_create(uri.as_str()).await?;
     let bdev = UntypedBdev::lookup_by_name(&bdev_name).expect("Failed to lookup the created bdev");
     Ok(bdev)
 }
 
 /// Read block of data from bdev at given offset to a file.
-async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
-    let bdev = device_create(uri).await?;
+async fn read(uri: &url::Url, offset: u64, file: &Path) -> Result<()> {
+    let bdev = device_create(uri.as_str()).await?;
     let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
     let mut buf = h.dma_malloc(h.get_device().block_len()).unwrap();
     #[allow(deprecated)]
@@ -94,8 +95,8 @@ async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
 }
 
 /// Write block of data from file to bdev at given offset.
-async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
-    let bdev = device_create(uri).await?;
+async fn write(uri: &url::Url, offset: u64, file: &Path) -> Result<()> {
+    let bdev = device_create(uri.as_str()).await?;
     let bytes = fs::read(file)?;
     let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
     let mut buf = h.dma_malloc(h.get_device().block_len()).unwrap();
@@ -110,16 +111,16 @@ async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
 }
 
 /// NVMe Admin. Only works with read commands without a buffer requirement.
-async fn nvme_admin(uri: &str, opcode: u8) -> Result<()> {
-    let bdev = device_create(uri).await?;
+async fn nvme_admin(uri: &url::Url, opcode: u8) -> Result<()> {
+    let bdev = device_create(uri.as_str()).await?;
     let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
     h.nvme_admin_custom(opcode).await?;
     Ok(())
 }
 
 /// NVMe Admin identify controller, write output to a file.
-async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
-    let bdev = device_create(uri).await?;
+async fn identify_ctrlr(uri: &url::Url, file: &Path) -> Result<()> {
+    let bdev = device_create(uri.as_str()).await?;
     let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
     let buf = h.nvme_identify_ctrlr().await.unwrap();
     fs::write(file, buf.as_slice())?;
@@ -127,8 +128,8 @@ async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
 }
 
 /// Create a snapshot.
-async fn create_snapshot(uri: &str) -> Result<()> {
-    let bdev = device_create(uri).await?;
+async fn create_snapshot(uri: &url::Url) -> Result<()> {
+    let bdev = device_create(uri.as_str()).await?;
     let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
 
     // TODO: fill all the fields properly once nexus-level
@@ -149,82 +150,70 @@ async fn create_snapshot(uri: &str) -> Result<()> {
 }
 
 /// Connect to the target.
-async fn connect(uri: &str) -> Result<()> {
+async fn connect(uri: &url::Url) -> Result<()> {
     let _bdev = create_bdev(uri).await?;
     info!("Connected!");
     Ok(())
 }
 
+/// Connect, read or write a block to a nexus replica using its URI.
+#[derive(Debug, Parser)]
+#[command(
+    name = "Test initiator for nexus replica",
+    version = version_info_str!(),
+    about = "Connect, read or write a block to a nexus replica using its URI"
+)]
+struct Args {
+    /// URI of the replica to connect to.
+    uri: url::Url,
+
+    /// Offset of IO operation on the replica in bytes.
+    #[arg(short = 'o', long, value_name = "NUMBER", default_value_t = 0)]
+    offset: u64,
+
+    #[command(subcommand)]
+    command: SubCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum SubCommand {
+    /// Connect to and disconnect from the replica.
+    Connect,
+
+    /// Read bytes from the replica.
+    Read {
+        /// File to write data that were read from the replica.
+        file: PathBuf,
+    },
+
+    /// Write bytes to the replica.
+    Write {
+        /// File to read data from that will be written to the replica.
+        file: PathBuf,
+    },
+
+    /// Send a custom NVMe Admin command.
+    #[command(name = "nvme-admin")]
+    NvmeAdmin {
+        /// Admin command opcode to send.
+        opcode: u8,
+    },
+
+    /// Send NVMe Admin identify controller command.
+    #[command(name = "id-ctrlr")]
+    IdCtrlr {
+        /// File to write output of identify controller command.
+        file: PathBuf,
+    },
+
+    /// Create a snapshot on the replica.
+    CreateSnapshot,
+}
+
 fn main() {
-    let matches = Command::new("Test initiator for nexus replica")
-        .version(version_info_str!())
-        .about("Connect, read or write a block to a nexus replica using its URI")
-        .arg(
-            Arg::new("URI")
-                .help("URI of the replica to connect to")
-                .required(true)
-                .index(1),
-        )
-        .arg(
-            Arg::new("offset")
-                .short('o')
-                .long("offset")
-                .value_name("NUMBER")
-                .help("Offset of IO operation on the replica in bytes (default 0)"),
-        )
-        .subcommand(Command::new("connect").about("Connect to and disconnect from the replica"))
-        .subcommand(
-            Command::new("read")
-                .about("Read bytes from the replica")
-                .arg(
-                    Arg::new("FILE")
-                        .help("File to write data that were read from the replica")
-                        .required(true)
-                        .index(1),
-                ),
-        )
-        .subcommand(
-            Command::new("write")
-                .about("Write bytes to the replica")
-                .arg(
-                    Arg::new("FILE")
-                        .help("File to read data from that will be written to the replica")
-                        .required(true)
-                        .index(1),
-                ),
-        )
-        .subcommand(
-            Command::new("nvme-admin")
-                .about("Send a custom NVMe Admin command")
-                .arg(
-                    Arg::new("opcode")
-                        .help("Admin command opcode to send")
-                        .required(true)
-                        .index(1),
-                ),
-        )
-        .subcommand(
-            Command::new("id-ctrlr")
-                .about("Send NVMe Admin identify controller command")
-                .arg(
-                    Arg::new("FILE")
-                        .help("File to write output of identify controller command")
-                        .required(true)
-                        .index(1),
-                ),
-        )
-        .subcommand(Command::new("create-snapshot").about("Create a snapshot on the replica"))
-        .subcommand_required(true)
-        .subcommand_required(true)
-        .get_matches();
+    let args = Args::parse();
 
     logger::init("INFO");
-
-    let uri = matches.get_one::<String>("URI").unwrap().to_owned();
-    let offset: u64 = match matches.get_one::<String>("offset") {
-        Some(val) => val.parse().expect("Offset must be a number"),
-        None => 0,
-    };
 
     // This tool is just a client, so don't start NVMe-oF services.
     Config::get_or_init(|| {
@@ -237,22 +226,13 @@ fn main() {
 
     ms.init();
     let fut = async move {
-        let res = if let Some(matches) = matches.subcommand_matches("read") {
-            read(&uri, offset, matches.get_one::<String>("FILE").unwrap()).await
-        } else if let Some(matches) = matches.subcommand_matches("write") {
-            write(&uri, offset, matches.get_one::<String>("FILE").unwrap()).await
-        } else if let Some(matches) = matches.subcommand_matches("nvme-admin") {
-            let opcode: u8 = match matches.get_one::<String>("opcode") {
-                Some(val) => val.parse().expect("Opcode must be a number"),
-                None => 0,
-            };
-            nvme_admin(&uri, opcode).await
-        } else if let Some(matches) = matches.subcommand_matches("id-ctrlr") {
-            identify_ctrlr(&uri, matches.get_one::<String>("FILE").unwrap()).await
-        } else if matches.subcommand_matches("create-snapshot").is_some() {
-            create_snapshot(&uri).await
-        } else {
-            connect(&uri).await
+        let res = match &args.command {
+            SubCommand::Read { file } => read(&args.uri, args.offset, file).await,
+            SubCommand::Write { file } => write(&args.uri, args.offset, file).await,
+            SubCommand::NvmeAdmin { opcode } => nvme_admin(&args.uri, *opcode).await,
+            SubCommand::IdCtrlr { file } => identify_ctrlr(&args.uri, file).await,
+            SubCommand::CreateSnapshot => create_snapshot(&args.uri).await,
+            SubCommand::Connect => connect(&args.uri).await,
         };
         if let Err(err) = res {
             error!("{}", err);

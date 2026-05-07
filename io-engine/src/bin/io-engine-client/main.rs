@@ -1,6 +1,4 @@
-use byte_unit::Byte;
 use snafu::{Backtrace, Snafu};
-use strum::ParseError;
 use tonic::transport::Channel;
 
 use io_engine_api::v0::{
@@ -22,11 +20,6 @@ pub enum ClientError {
         source: tonic::Status,
         backtrace: Option<Backtrace>,
     },
-    #[snafu(display("gRPC status: {}", source))]
-    GrpcParseStatus {
-        source: ParseError,
-        backtrace: Option<Backtrace>,
-    },
     #[snafu(display("Context building error: {}", source))]
     ContextCreate {
         source: context::Error,
@@ -34,10 +27,6 @@ pub enum ClientError {
     },
     #[snafu(display("Missing value for {}", field))]
     MissingValue { field: String },
-}
-
-pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
-    Byte::parse_str(src, true).map_err(|_| src.to_string())
 }
 
 type Result<T, E = ClientError> = std::result::Result<T, E>;

@@ -109,13 +109,13 @@ describe('io-engine-client', function () {
           input: {
             uuid: UUID,
             size: { low: 10 * (1024 * 1024), high: 0, unsigned: true },
-            children: ['aaa']
+            children: ['bdev:///aaa']
           },
           output: {
             uuid: UUID,
             size: { low: 10 * (1024 * 1024), high: 0, unsigned: true },
             state: 1,
-            children: [{ uri: 'aaa', state: 0 }],
+            children: [{ uri: 'bdev:///aaa', state: 0 }],
             rebuilds: 0
           }
         },
@@ -140,10 +140,10 @@ describe('io-engine-client', function () {
           method: 'AddChildNexus',
           input: {
             uuid: UUID,
-            uri: 'child_a'
+            uri: 'bdev:///child_a'
           },
           output: {
-            uri: 'child_a',
+            uri: 'bdev:///child_a',
             state: 1
           }
         },
@@ -151,7 +151,7 @@ describe('io-engine-client', function () {
           method: 'RemoveChildNexus',
           input: {
             uuid: UUID,
-            uri: 'child_a'
+            uri: 'bdev:///child_a'
           },
           output: {}
         },
@@ -388,7 +388,7 @@ describe('io-engine-client', function () {
 
     it('should create a nexus', function (done) {
       const cmd = util.format(
-        '%s nexus create %s 10MiB aaa',
+        '%s nexus create --uuid %s 10MiB bdev:///aaa',
         EGRESS_CMD,
         UUID
       );
@@ -434,7 +434,7 @@ describe('io-engine-client', function () {
     });
 
     it('should add a child to nexus', function (done) {
-      const cmd = util.format('%s nexus add %s child_a', EGRESS_CMD, UUID);
+      const cmd = util.format('%s nexus add %s bdev:///child_a', EGRESS_CMD, UUID);
 
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
@@ -447,14 +447,14 @@ describe('io-engine-client', function () {
     });
 
     it('should remove a child from nexus', function (done) {
-      const cmd = util.format('%s nexus remove %s child_a', EGRESS_CMD, UUID);
+      const cmd = util.format('%s nexus remove %s bdev:///child_a', EGRESS_CMD, UUID);
 
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /child_a/);
+        assert.match(stdout, /bdev:\/\/\/child_a/);
         done();
       });
     });
