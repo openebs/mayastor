@@ -723,9 +723,9 @@ async fn rebuild_thin_unmap_propagates_to_dst() {
 
 /// Regression test for SPDK concurrent UNMAP issues.
 ///
-/// Creates a 100 GiB thin volume on a 1 MiB-cluster pool, drives a very large
+/// Creates a 100 GiB thin volume on a 4 MiB-cluster pool, drives a very large
 /// number of concurrent cluster-sized UNMAPs through the nexus using fio
-/// (`rw=randtrim`, `bs=1M`, `iodepth=128`, `numjobs=8` => up to 1024 in-flight
+/// (`rw=randtrim`, `bs=4M`, `iodepth=128`, `numjobs=8` => up to 1024 in-flight
 /// UNMAP commands sustained over a 20s window), then exports the pool and
 /// re-imports it from the same backing disk.
 ///
@@ -746,8 +746,9 @@ async fn concurrent_unmap_export_and_pool_reimport() {
     const POOL_NAME: &str = "pool_concurrent_unmap";
     // 100 GiB thin volume, exposed over NVMf as the nexus device.
     const REPL_SIZE_MB: u64 = 100 * 1024;
-    // 1 MiB cluster size so that bs=1M trims are exactly one cluster each.
-    const CLUSTER_SIZE: u32 = 1024 * 1024;
+    // 4 MiB cluster size (matches the LVS default) so that bs=4M trims are
+    // exactly one cluster each.
+    const CLUSTER_SIZE: u32 = 4 * 1024 * 1024;
     // Sparse backing file with some headroom over the replica size for pool
     // metadata.
     const POOL_SIZE_MB: u64 = REPL_SIZE_MB + 1024;
@@ -843,7 +844,25 @@ async fn concurrent_unmap_export_and_pool_reimport() {
         )
         .with_verbose_err(true)
         .build();
+    let r_after_write = repl.get_replica().await.unwrap().usage.unwrap();
+    assert!(
+        r_after_write.num_allocated_clusters > 0,
+        "Pre-allocation phase did not allocate any clusters"
+    );
+
     test_fio_to_nexus_aio(&nex, trimmer).await.unwrap();
+
+    // The randtrim phase must have actually released clusters at the
+    // blobstore layer; otherwise the test wouldn't be exercising the
+    // concurrent-UNMAP path it claims to.
+    let r_after_trim = repl.get_replica().await.unwrap().usage.unwrap();
+    assert!(
+        r_after_trim.num_allocated_clusters < r_after_write.num_allocated_clusters,
+        "Concurrent UNMAPs did not deallocate any clusters \
+         (allocated before trim: {}, after trim: {})",
+        r_after_write.num_allocated_clusters,
+        r_after_trim.num_allocated_clusters,
+    );
 
     // Tear down the nexus and replica so the pool can be exported.
     nex.shutdown().await.unwrap();
