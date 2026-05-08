@@ -21,8 +21,8 @@ use spdk_rs::{
         spdk_nvmf_subsystem_get_first_listener, spdk_nvmf_subsystem_get_first_ns,
         spdk_nvmf_subsystem_get_next, spdk_nvmf_subsystem_get_next_host,
         spdk_nvmf_subsystem_get_next_listener, spdk_nvmf_subsystem_get_nqn,
-        spdk_nvmf_subsystem_listener_get_trid, spdk_nvmf_subsystem_pause,
-        spdk_nvmf_subsystem_remove_host, spdk_nvmf_subsystem_remove_ns, spdk_nvmf_subsystem_resume,
+        spdk_nvmf_subsystem_listener_get_trid, spdk_nvmf_subsystem_pause, spdk_nvmf_subsystem_pause_ext,
+        spdk_nvmf_subsystem_remove_host, spdk_nvmf_subsystem_remove_ns, spdk_nvmf_subsystem_resume, spdk_nvmf_subsystem_resume_ext,
         spdk_nvmf_subsystem_set_allow_any_host, spdk_nvmf_subsystem_set_ana_reporting,
         spdk_nvmf_subsystem_set_ana_state, spdk_nvmf_subsystem_set_cntlid_range,
         spdk_nvmf_subsystem_set_event_cb, spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn,
@@ -907,7 +907,7 @@ impl NvmfSubsystem {
     /// intended to be a temporary state while changes are made
     pub async fn pause(&self) -> Result<(), Error> {
         self.change_state("pause", |ss, cb, arg| unsafe {
-            spdk_nvmf_subsystem_pause(ss, 1, cb, arg)
+            spdk_nvmf_subsystem_pause_ext(ss, 1, 1, cb, arg)
         })
         .await
     }
@@ -915,7 +915,7 @@ impl NvmfSubsystem {
     /// transition the subsystem to active state
     pub async fn resume(&self) -> Result<(), Error> {
         self.change_state("resume", |ss, cb, arg| unsafe {
-            spdk_nvmf_subsystem_resume(ss, cb, arg)
+            spdk_nvmf_subsystem_resume_ext(ss, cb, arg)
         })
         .await
     }
