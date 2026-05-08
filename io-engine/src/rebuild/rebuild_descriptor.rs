@@ -118,7 +118,7 @@ impl RebuildDescriptor {
             src_handle,
             dst_descriptor,
             dst_handle,
-            bs_cluster_unmap: MayastorEnvironment::global_or_default().bs_cluster_unmap,
+            bs_cluster_unmap: MayastorEnvironment::global_or_default().bs_cluster_unmap(),
             start_time: Utc::now(),
         })
     }
