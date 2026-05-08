@@ -100,10 +100,10 @@ jobs:
           fail-on-empty: true
           title: Test results
       - run: nix-shell --run "./scripts/ci-report.sh"
-        if: failure()
+        if: failure() || cancelled()
 
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: ci-report-int
           path: ./ci-report/ci-report.tar.gz

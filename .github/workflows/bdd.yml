@@ -85,10 +85,10 @@ jobs:
             mv test/python/reports ci-report/python
           fi
           nix-shell --run "./scripts/ci-report.sh"
-        if: failure()
+        if: failure() || cancelled()
 
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: ci-report-bdd
           path: ./ci-report/ci-report.tar.gz
