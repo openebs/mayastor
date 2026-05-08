@@ -394,7 +394,10 @@ impl Lvs {
         let rc = unsafe {
             vbdev_lvs_bs_bdev_reset(self.as_inner_ptr(), Some(Self::lvstore_reset_cb), p)
         };
-        if rc != 0 {
+        if rc == -libc::ENOTSUP {
+            tracing::warn!("{self:?}: reset not supported - probing superblock");
+            self.sched_superblock_read();
+        } else if rc != 0 {
             // For some reason we've failed to trigger the reset, so we clear the stalled flag
             // since we currently have no way of clearing it otherwise.
             // todo: add out of band way of clearing the stall to handle this corner case.
@@ -721,11 +724,15 @@ impl Lvs {
     /// Callback function called by SPDK when reset completes.
     extern "C" fn lvstore_reset_cb(lvs: *mut spdk_lvol_store, success: bool, _ctx: *mut c_void) {
         let lvs: Lvs = Lvs::from_inner_ptr(lvs);
-        let lvs_name = lvs.name().to_string();
         if let Ok(bdev) = lvs.base_bdev() {
             let driver = bdev.driver();
             info!("{lvs:?}: reset completed with success={success}, bdev_type={driver}");
         }
+        lvs.sched_superblock_read()
+    }
+
+    fn sched_superblock_read(&self) {
+        let lvs_name = self.name().to_owned();
         Reactors::master().send_future(async move {
             if let Some(lvs) = Lvs::lookup(&lvs_name) {
                 let bs = lvs.blob_store();
