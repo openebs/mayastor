@@ -4,8 +4,8 @@ use io_engine::{
     bdev::crypto::{Cipher, EncryptionKey},
     bdev_api::bdev_create,
     core::{
-        logical_volume::LogicalVolume, CoreError, MayastorCliArgs, NvmeCliArgs, PoolCliArgs,
-        Protocol, Reactors, Share, ToErrno, UnshareProps, UntypedBdev,
+        logical_volume::LogicalVolume, CoreError, MayastorCliArgs, PoolCliArgs, Protocol, Reactors,
+        Share, ToErrno, UnshareProps, UntypedBdev,
     },
     grpc::v1::pool::pool_to_proto,
     lvm::dm_setup::DmState,
@@ -18,7 +18,6 @@ use io_engine_api::v1::pool::{
 };
 use once_cell::sync::OnceCell;
 use std::{pin::Pin, time::Duration};
-use tokio::time::sleep;
 
 pub mod common;
 
@@ -30,7 +29,7 @@ static DISK_CRYPTO: &str = "/tmp/io-engine-tests/crypto_disk.img";
 static XTS_KEY: &str = "2b7e151628aed2a6abf7158809cf4f3c";
 static XTS_KEY2: &str = "2b7e151628aed2a6abf7158809cf4f3d";
 const IO_ERROR_THRESHOLD: u64 = 5;
-const IO_STALL_TRANSITION_WINDOW: Duration = Duration::from_secs(12);
+const IO_STALL_TRANSITION_WINDOW: Duration = Duration::from_secs(6);
 const IO_STALL_DEADLINE: Duration = Duration::from_secs(1);
 const IO_STALL_TRANSITION_THRESHOLD: u64 = 3;
 
@@ -47,9 +46,6 @@ fn ms() -> &'static MayastorTest<'static> {
                 io_stall_deadline: IO_STALL_DEADLINE.into(),
             },
             // log_components: vec!["all".into()],
-            nvme: NvmeCliArgs {
-                max_namespaces: 8192,
-            },
             ..Default::default()
         })
     });
@@ -728,7 +724,6 @@ async fn lvs_stall() {
     common::truncate_file(DISKNAME1, 128 * 1024);
 
     const VG_NAME: &str = "vg-1";
-    const LV_NAME: &str = "lvol1";
 
     struct TestGuard {
         loop_dev: Option<String>,
@@ -739,7 +734,9 @@ async fn lvs_stall() {
                 let script = r#"
                     export LVM_SUPPRESS_FD_WARNINGS=1
                     dmsetup resume $2/lvol1
+                    dmsetup resume $2/lvol2
                     lvremove -f vg-1/lvol1
+                    lvremove -f vg-1/lvol2
                     vgremove -f -y $2
                     pvremove -f $3
                 "#;
@@ -764,21 +761,60 @@ async fn lvs_stall() {
     .await
     .unwrap();
 
-    const REPL: &str = "replica-1";
-    const POOL: &str = "pool-1";
+    let vg_cln = vg_pool.clone();
+    ms().spawn_detached(async move {
+        stall_test(vg_cln, StallBdev::Aio).await;
+    });
+    stall_test(vg_pool, StallBdev::Uring).await;
+}
 
-    let mut lvol = vg_pool
+enum StallBdev {
+    Aio,
+    Uring,
+}
+impl StallBdev {
+    fn lv_name(&self) -> &'static str {
+        match self {
+            StallBdev::Aio => "lvm-lv-aio",
+            StallBdev::Uring => "lvm-lv-uring",
+        }
+    }
+    const fn pool_name(&self) -> &'static str {
+        match self {
+            StallBdev::Aio => "lvs-aio",
+            StallBdev::Uring => "lvs-uring",
+        }
+    }
+    const fn repl_name(&self) -> &'static str {
+        match self {
+            StallBdev::Aio => "lvs-lv-aio",
+            StallBdev::Uring => "lvs-lv-uring",
+        }
+    }
+    fn disk_uri(&self, path: &str) -> String {
+        match self {
+            StallBdev::Aio => format!("aio://{path}"),
+            StallBdev::Uring => format!("uring://{path}"),
+        }
+    }
+}
+
+async fn stall_test(vg: io_engine::lvm::VolumeGroup, bdev: StallBdev) {
+    let mut lvol = vg
         .create_lvol(ReplicaArgs {
-            name: LV_NAME.into(),
-            uuid: LV_NAME.into(),
-            size: 64 * 1024 * 1024,
+            name: bdev.lv_name().into(),
+            uuid: bdev.lv_name().into(),
+            size: 32 * 1024 * 1024,
             ..Default::default()
         })
         .await
         .unwrap();
+
+    let pool_n: &'static str = bdev.pool_name();
+    let repl: &'static str = bdev.repl_name();
     let pool_args = PoolArgs {
-        name: POOL.into(),
-        disks: vec![format!("aio://{}", lvol.path())],
+        name: pool_n.into(),
+        disks: vec![bdev.disk_uri(lvol.path())],
         backend: PoolBackend::Lvs,
         ..Default::default()
     };
@@ -787,11 +823,15 @@ async fn lvs_stall() {
     ms.spawn(async move {
         let lvs = Lvs::create_or_import(pool_args).await.unwrap();
         let _repl = lvs
-            .create_lvol(REPL, 8 * 1024 * 1024, None, true, None)
+            .create_lvol(repl, 8 * 1024 * 1024, None, true, None)
             .await
             .unwrap();
     })
     .await;
+
+    async fn sleep(duration: Duration) {
+        _ = io_engine::sleep::mayastor_sleep(duration).await;
+    }
 
     for i in 1..(IO_STALL_TRANSITION_THRESHOLD + 1) {
         let state = lvol.dm_suspend().await.unwrap();
@@ -802,18 +842,18 @@ async fn lvs_stall() {
         let cores = 2;
         let mut io_completions = vec![];
         for core in 0..cores {
-            write_reactor(REPL, core, io_completions.as_mut());
+            write_reactor(repl, core, io_completions.as_mut());
         }
 
         sleep(IO_STALL_DEADLINE).await;
 
         // staggard write I/O
-        write_reactor(REPL, cores - 1, io_completions.as_mut());
+        write_reactor(repl, cores - 1, io_completions.as_mut());
 
         sleep(IO_STALL_DEADLINE).await;
 
         let (pool, _errors, alerts) = ms
-            .spawn(async { pool_info(&Lvs::lookup(POOL).unwrap()).await })
+            .spawn(async move { pool_info(&Lvs::lookup(pool_n).unwrap()).await })
             .await;
 
         assert_eq!(pool.state(), PoolState::PoolSuspected);
@@ -825,7 +865,7 @@ async fn lvs_stall() {
 
         // Backend device is active, I/Os should now complete inline here...
         let result = ms
-            .spawn(async move { common::bdev_io::write_some(REPL, 8192, 1, 0xbb).await })
+            .spawn(async move { common::bdev_io::write_some(repl, 8192, 1, 0xbb).await })
             .await;
         assert!(result.is_ok(), "I/O: {:?}", result);
         // Original stalled I/Os should also have completed!
@@ -836,7 +876,7 @@ async fn lvs_stall() {
 
         if 1 < i && i < IO_STALL_TRANSITION_THRESHOLD {
             let (pool, errors, alerts) = ms
-                .spawn(async { pool_info(&Lvs::lookup(POOL).unwrap()).await })
+                .spawn(async move { pool_info(&Lvs::lookup(pool_n).unwrap()).await })
                 .await;
 
             assert_eq!(pool.state(), PoolState::PoolOnline);
@@ -850,7 +890,7 @@ async fn lvs_stall() {
     }
 
     ms.spawn(async move {
-        let lvs = Lvs::lookup(POOL).unwrap();
+        let lvs = Lvs::lookup(pool_n).unwrap();
         let (pool, errors, alerts) = pool_info(&lvs).await;
         assert_eq!(pool.state(), PoolState::PoolSuspected);
         assert_eq!(
@@ -865,10 +905,11 @@ async fn lvs_stall() {
     })
     .await;
 
+    tracing::info!("Waiting for stall transition window of {IO_STALL_TRANSITION_WINDOW:?}");
     sleep(IO_STALL_TRANSITION_WINDOW).await;
 
     ms.spawn(async move {
-        let lvs = Lvs::lookup(POOL).unwrap();
+        let lvs = Lvs::lookup(pool_n).unwrap();
         let (pool, errors, _alerts) = pool_info(&lvs).await;
         assert_eq!(pool.state(), PoolState::PoolOnline);
         assert_eq!(errors.io_stall_transition_count, 0);
@@ -876,7 +917,7 @@ async fn lvs_stall() {
     .await;
 
     ms.spawn(async move {
-        let lvs = Lvs::lookup(POOL).unwrap();
+        let lvs = Lvs::lookup(pool_n).unwrap();
         lvs.destroy().await.unwrap();
     })
     .await;
