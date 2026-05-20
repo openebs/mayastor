@@ -1,8 +1,8 @@
 [submodule "spdk-rs"]
 	path = spdk-rs
 	url = ../spdk-rs.git
-	branch = develop
+	branch = release/2.11
 [submodule "utils/dependencies"]
 	path = utils/dependencies
 	url = ../mayastor-dependencies.git
-	branch = develop
+	branch = release/2.11
