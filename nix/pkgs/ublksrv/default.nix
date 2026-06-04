@@ -5,10 +5,11 @@ stdenv.mkDerivation rec {
   pname = "ublksrv";
 
   src = fetchFromGitHub {
+    name = "${pname}-${version}";
     owner = "ublk-org";
     repo = "ublksrv";
     tag = version;
-    sha256 = "sha256-g/qRWe3BReJ9RbEw/cFqpgUSMPzn/haS4WY4Hz9t+fw=";
+    sha256 = "sha256-CNYrz2ewl72Kswrq1LTzGFoW+Dn0kZsYwP8efLtUNlA=";
   };
 
   nativeBuildInputs = with pkgs; [ pkg-config autoreconfHook ];
