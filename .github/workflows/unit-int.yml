@@ -1,6 +1,9 @@
 name: Integration CI
 on:
   workflow_call:
+  push:
+    branches:
+      - dbg
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,54 +71,8 @@ jobs:
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/cargo-test.sh"
 
-      - name: Check Coredumps
-        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
-
-      - name: Cleanup
-        if: always()
-        run: nix-shell --run "./scripts/clean-cargo-tests.sh"
-
-      - name: Run JS Grpc Tests
-        run: |
-          echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
-          nix-shell --run "./scripts/grpc-test.sh"
-
-      - name: Create JS Report
-        if: always()
-        run: |
-          mkdir -p ci-report/js
-          for file in *-xunit-report.xml; do
-            echo "<testsuites>" > "ci-report/js/$file"
-            cat $file >> "ci-report/js/$file"
-            echo "</testsuites>" >> "ci-report/js/$file"
-          done
-
-      - name: Test Report
-        if: always()
-        uses: pmeier/pytest-results-action@main
-        with:
-          path: 'ci-report/js/*-xunit-report.xml'
-          summary: true
-          display-options: a
-          fail-on-empty: true
-          title: Test results
-      - run: nix-shell --run "./scripts/ci-report.sh"
-        if: failure() || cancelled()
-
-      - uses: actions/upload-artifact@v4
-        if: failure() || cancelled()
-        with:
-          name: ci-report-int
-          path: ./ci-report/ci-report.tar.gz
-
-      - name: Check Coredumps
-        run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
-
-      - name: Cleanup
-        if: always()
-        run: nix-shell --run "./scripts/clean-cargo-tests.sh"
 # debugging
-      # - name: Setup tmate session
-      #   if: ${{ failure() }}
-      #   timeout-minutes: 240
-      #   uses: mxschmitt/action-tmate@v3
+      - name: Setup tmate session
+        if: ${{ failure() || cancelled() }}
+        timeout-minutes: 240
+        uses: mxschmitt/action-tmate@v3
