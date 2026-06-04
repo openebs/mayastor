@@ -17,7 +17,7 @@ jobs:
       - uses: cachix/install-nix-action@v31.3.0
       - name: Pre-populate nix-shell
         run: |
-          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' nix/sources.json -r)
+          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' spdk-rs/nix/sources.json -r)
           echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
           nix-shell ./utils/dependencies/scripts/staging/shell.nix --pure --run "echo"
 
@@ -46,7 +46,7 @@ jobs:
       - uses: cachix/install-nix-action@v31.3.0
       - name: Pre-populate nix-shell
         run: |
-          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' nix/sources.json -r)
+          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' spdk-rs/nix/sources.json -r)
           echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
           nix-shell ./utils/dependencies/scripts/staging/shell.nix --pure --run "echo"
 
