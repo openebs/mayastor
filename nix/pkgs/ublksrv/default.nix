@@ -1,7 +1,7 @@
 { stdenv, lib, fetchFromGitHub, pkgs }:
 
 stdenv.mkDerivation rec {
-  version = "v1.7";
+  version = "v1.6";
   pname = "ublksrv";
 
   src = fetchFromGitHub {
