@@ -1091,6 +1091,10 @@ impl TestHotRmGuard {
         let script = r#"
         set -euo pipefail
         modprobe ublk_drv
+        if [ "$(uname -r)" = "6.17.0-1016-oracle" ]; then
+          echo "ublk_drv bug Oops in ublk_init_queues" >&2
+          exit 2
+        fi
         o=$(ublk add -t loop -f $1)
         echo $o | head -n 1 | awk '{print $3}' | tr -d ':'
     "#;
@@ -1111,6 +1115,9 @@ impl TestHotRmGuard {
                     return None;
                 }
             }
+        } else if result.0 == 2 && result.2.contains("ublk_drv bug Oops in ublk_init_queues") {
+            eprint!(" skipped because UBLK kernel module has a bug: https://github.com/actions/runner-images/issues/14175");
+            return None;
         }
         assert_eq!(result.0, 0, "Failed to setup ublk device: {result:#?}");
 
