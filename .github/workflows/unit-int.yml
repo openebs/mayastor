@@ -9,7 +9,7 @@ env:
 
 jobs:
   int-tests:
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    runs-on: cncf-ubuntu-16-64-x86
     permissions:
       contents: read
       id-token: write
