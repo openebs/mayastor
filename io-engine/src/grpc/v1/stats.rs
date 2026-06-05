@@ -256,6 +256,8 @@ impl From<ReplicaBdevStats> for ReplicaIoStats {
         Self {
             entity_id: value.entity_id,
             stats: Some(value.stats.into()),
+            poolname: value.poolname,
+            pooluuid: value.pooluuid,
         }
     }
 }

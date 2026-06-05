@@ -107,7 +107,12 @@ impl BdevStater for Lvol {
 
     async fn stats(&self) -> Result<ReplicaBdevStats, CoreError> {
         let stats = self.as_bdev().stats().await?;
-        Ok(ReplicaBdevStats::new(stats, self.entity_id()))
+        Ok(ReplicaBdevStats::new(
+            stats,
+            self.entity_id(),
+            Some(self.pool_name()),
+            Some(self.pool_uuid()),
+        ))
     }
 
     async fn reset_stats(&self) -> Result<(), CoreError> {
