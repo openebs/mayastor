@@ -76,3 +76,6 @@ regex = "1.11.1"
 
 async-nats = { version = "0.37.0", default-features = false }
 
+k8s-openapi = { version = "0.22.0", features = ["v1_24"] }
+kube = { version = "0.94.2", features = ["derive", "runtime"] }
+

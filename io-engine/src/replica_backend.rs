@@ -191,11 +191,23 @@ pub trait IReplicaFactory {
 pub struct ReplicaBdevStats {
     pub stats: BdevStats,
     pub entity_id: Option<String>,
+    pub poolname: Option<String>,
+    pub pooluuid: Option<String>,
 }
 impl ReplicaBdevStats {
     /// Create a new `Self` from the given parts.
-    pub fn new(stats: BdevStats, entity_id: Option<String>) -> Self {
-        Self { stats, entity_id }
+    pub fn new(
+        stats: BdevStats,
+        entity_id: Option<String>,
+        poolname: Option<String>,
+        pooluuid: Option<String>,
+    ) -> Self {
+        Self {
+            stats,
+            entity_id,
+            poolname,
+            pooluuid,
+        }
     }
 }
 
