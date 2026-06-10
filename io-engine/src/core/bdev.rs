@@ -266,10 +266,7 @@ where
         match is_shared(self.deref()) {
             Some(Protocol::Nvmf) => {
                 if let Some(ss) = NvmfSubsystem::nqn_lookup(self.name()) {
-                    ss.stop().await.context(UnshareNvmf {})?;
-                    unsafe {
-                        ss.shutdown_unsafe();
-                    }
+                    ss.stop_for_destroy().await.context(UnshareNvmf {})?;
                 }
             }
             Some(Protocol::Off) | None => {}

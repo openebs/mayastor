@@ -14,7 +14,7 @@ use std::{
 };
 
 use spdk_rs::libspdk::{
-    spdk_blob, spdk_blob_calc_used_clusters, spdk_blob_get_num_clusters,
+    spdk_blob, spdk_blob_get_num_allocated_clusters, spdk_blob_get_num_clusters,
     spdk_blob_get_num_clusters_ancestors, spdk_blob_get_xattr_value, spdk_blob_is_read_only,
     spdk_blob_is_thin_provisioned, spdk_blob_set_xattr, spdk_blob_sync_md,
     spdk_bs_get_cluster_size, spdk_bs_get_parent_blob, spdk_bs_iter_next, spdk_lvol,
@@ -718,7 +718,7 @@ impl LogicalVolume for Lvol {
         let bs = self.lvs().blob_store();
         let blob = self.blob_checked();
         let cluster_size = unsafe { spdk_bs_get_cluster_size(bs) };
-        let num_allocated_clusters = unsafe { spdk_blob_calc_used_clusters(blob) };
+        let num_allocated_clusters = unsafe { spdk_blob_get_num_allocated_clusters(blob) };
         cluster_size * num_allocated_clusters
     }
     /// Returns Lvol disk space usage.
@@ -728,7 +728,7 @@ impl LogicalVolume for Lvol {
         unsafe {
             let cluster_size = spdk_bs_get_cluster_size(bs);
             let num_clusters = spdk_blob_get_num_clusters(blob);
-            let num_allocated_clusters = spdk_blob_calc_used_clusters(blob);
+            let num_allocated_clusters = spdk_blob_get_num_allocated_clusters(blob);
 
             let num_allocated_clusters_snapshots = {
                 let mut c: u64 = 0;
@@ -882,7 +882,6 @@ impl LvsLvol for Lvol {
             let sender = unsafe { Box::from_raw(sender as *mut oneshot::Sender<i32>) };
             sender.send(errno).unwrap();
         }
-        self.reset_snapshot_tree_usage_cache(!self.is_snapshot());
         // We must always unshare before destroying bdev.
         let _ = Pin::new(&mut self)
             .unshare(Some(UnshareProps::new(false)))

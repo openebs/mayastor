@@ -25,10 +25,7 @@ where
 /// Unsharing a replica which is not shared is not an error.
 pub async fn unshare(uuid: &str) -> Result<(), NvmfError> {
     if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
-        ss.stop().await?;
-        unsafe {
-            ss.shutdown_unsafe();
-        }
+        ss.stop_for_destroy().await?;
     }
     Ok(())
 }
