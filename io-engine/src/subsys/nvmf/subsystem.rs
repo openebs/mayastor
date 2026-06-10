@@ -27,8 +27,9 @@ use spdk_rs::{
         spdk_nvmf_subsystem_set_ana_state, spdk_nvmf_subsystem_set_cntlid_range,
         spdk_nvmf_subsystem_set_event_cb, spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn,
         spdk_nvmf_subsystem_start, spdk_nvmf_subsystem_state_change_done, spdk_nvmf_subsystem_stop,
-        spdk_nvmf_tgt, spdk_nvmf_tgt_find_subsystem, spdk_nvmf_tgt_get_transport,
-        SPDK_NVME_SCT_GENERIC, SPDK_NVME_SC_CAPACITY_EXCEEDED, SPDK_NVME_SC_RESERVATION_CONFLICT,
+        spdk_nvmf_subsystem_stop_for_destroy, spdk_nvmf_tgt, spdk_nvmf_tgt_find_subsystem,
+        spdk_nvmf_tgt_get_transport, NVMF_SUBSYSTEM_DESTROY_IN_PROGRESS, SPDK_NVME_SCT_GENERIC,
+        SPDK_NVME_SC_CAPACITY_EXCEEDED, SPDK_NVME_SC_RESERVATION_CONFLICT,
         SPDK_NVMF_SUBTYPE_DISCOVERY, SPDK_NVMF_SUBTYPE_NVME,
     },
     struct_size_init, NvmeStatus, NvmfController, NvmfSubsystemEvent,
@@ -559,7 +560,7 @@ impl NvmfSubsystem {
     ///
     /// The subsystem must paused or stopped.
     unsafe fn destroy_unsafe(&self) -> i32 {
-        if (*self.0.as_ptr()).destroying {
+        if (*self.0.as_ptr()).destroy_state == NVMF_SUBSYSTEM_DESTROY_IN_PROGRESS {
             warn!("Subsystem destruction already started");
             return -libc::EALREADY;
         }
@@ -895,12 +896,37 @@ impl NvmfSubsystem {
         }
     }
 
-    /// stop the subsystem
+    /// Stop the subsystem.
+    /// # Warning
+    /// It may be restarted as the destroy must be called after stop.
+    /// Use [`Self::stop_for_destroy`] if you want to stop *and* destroy the subsystem.
     pub async fn stop(&self) -> Result<(), Error> {
         self.change_state("stop", |ss, cb, arg| unsafe {
             spdk_nvmf_subsystem_stop(ss, cb, arg)
         })
         .await
+    }
+
+    /// Stop *and* destroy the subsystem.
+    /// # Warning
+    /// We are still not stopping for destroy correctly since the spdk `stop_for_destroy`
+    /// does not queue other operations currently, meaning that a pause would fail with
+    /// `-ENODEV` and the device would not be paused, meaning it's not safe to use yet.
+    pub async fn stop_for_destroy(&self) -> Result<(), Error> {
+        self.change_state("stop_destroy", |ss, cb, arg| unsafe {
+            let safe = false;
+            if safe {
+                spdk_nvmf_subsystem_stop_for_destroy(ss, cb, arg)
+            } else {
+                spdk_nvmf_subsystem_stop(ss, cb, arg)
+            }
+        })
+        .await?;
+
+        unsafe {
+            self.shutdown_unsafe();
+        }
+        Ok(())
     }
 
     /// transition the subsystem to paused state

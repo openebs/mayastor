@@ -122,21 +122,21 @@ impl<'n> NexusIoSubsystem<'n> {
                             let nqn = subsystem.get_nqn();
                             trace!("{self:?}: pausing subsystem '{nqn}'...");
 
-                            let result = subsystem.pause().await;
-                            if let Err(ref error) = result {
+                            match subsystem.pause().await {
+                                Ok(_) => trace!("{self:?}: subsystem '{nqn}' paused"),
                                 // todo: handle error instead of panic, but in practice only ENOMEM can be seen here?
-                                if error.errno() != nix::Error::EPERM {
-                                    panic!("Failed to pause subsystem: {}", error);
+                                // ENODEV can be seen when nexus is being unshared concurrently
+                                Err(error)
+                                    if matches!(
+                                        error.errno(),
+                                        nix::Error::EPERM | nix::Error::ECANCELED
+                                    ) =>
+                                {
+                                    warn!("{self:?}: subsystem '{nqn}' not paused: {error}")
                                 }
-                                // Can't pause a stopped subsystem, but we're essentially paused anyway.
-                                // However, there's a race here as, resume may resume a stopped subsystem.
-                                // We should prevent this on the spdk nvmf subsystem state mgmt.
-                            }
-
-                            if result.is_ok() {
-                                trace!("{self:?}: subsystem '{nqn}' paused");
-                            } else {
-                                warn!("{self:?}: subsystem '{nqn}' stopped");
+                                Err(error) => {
+                                    panic!("Failed to pause subsystem '{}: {}", nqn, error)
+                                }
                             }
                         }
                     }
@@ -250,18 +250,23 @@ impl<'n> NexusIoSubsystem<'n> {
                         self.pause_state.store(NexusPauseState::Frozen);
                     } else {
                         if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                            let nqn = subsystem.get_nqn();
                             self.pause_state.store(NexusPauseState::Unpausing);
-                            trace!("{self:?}: resuming subsystem '{}'...", subsystem.nqn_str());
-                            if let Err(error) = subsystem.resume().await {
-                                // todo: handle error instead of panic, but in practice only ENOMEM can be seen here?
-                                panic!(
-                                    "Failed to resume subsystem '{}: {}",
-                                    subsystem.nqn_str(),
-                                    error
-                                );
+                            trace!("{self:?}: resuming subsystem '{nqn}'...");
+                            match subsystem.resume().await {
+                                Ok(_) => trace!("{self:?}: subsystem '{nqn}' resumed"),
+                                Err(error)
+                                    if matches!(
+                                        error.errno(),
+                                        nix::Error::EPERM | nix::Error::ECANCELED
+                                    ) =>
+                                {
+                                    warn!("{self:?}: subsystem '{nqn}' not resumed: {error}");
+                                }
+                                Err(error) => {
+                                    panic!("Failed to resume subsystem '{}: {}", nqn, error)
+                                }
                             }
-
-                            trace!("{self:?}: subsystem '{}' resumed", subsystem.nqn_str());
                         }
                         // todo: we may have received a Stop request whilst resuming
                         self.pause_state.store(NexusPauseState::Unpaused);
