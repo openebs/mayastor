@@ -12,13 +12,16 @@ nix-sudo nvme disconnect-all
 
 # Clean up ublk devices
 back_dir="/tmp/io-engine-tests/"
-nix-sudo ublk list -v | jq -r --arg dir "$back_dir" '
-  select(.target.backing_file? // "" | startswith($dir))
-  | .dev_info.dev_id
-' | while read -r id; do
-    echo "Deleting ublk device $id"
-    nix-sudo ublk del -n "$id" --async
-done
+
+if ublk list >/dev/null; then
+    nix-sudo ublk list -v | jq -r --arg dir "$back_dir" '
+      select(.target.backing_file? // "" | startswith($dir))
+      | .dev_info.dev_id
+    ' | while read -r id; do
+        echo "Deleting ublk device $id"
+        nix-sudo ublk del -n "$id" --async
+    done
+fi
 
 for device in $(losetup -l -J | jq -r --arg tmp_dir $back_dir '.loopdevices[]|select(."back-file" | startswith($tmp_dir)) | .name'); do
   echo "Found stale loop device: $device"
@@ -41,7 +44,7 @@ for device in $(losetup -l -J | jq -r --arg tmp_dir $back_dir '.loopdevices[]|se
 done
 
 # Delete the directory too
-nix-sudo rmdir --ignore-fail-on-non-empty "/tmp/io-engine-tests" 2>/dev/null
+nix-sudo rm --ignore-fail-on-non-empty "$back_dir" 2>/dev/null
 
 # If there was a soft rdma device created and left undeleted by nvmf rdma test,
 # delete that now. Not removing rdma-rxe kernel module.
@@ -60,5 +63,7 @@ done
 ps aux | grep "$ROOT_DIR/target" | grep -v -e sudo -e grep | awk '{ print $2 }' | xargs -I% sudo kill -9 %
 
 sudo rm -rf /var/run/dpdk/*
+
+nix-sudo rm -rf "$back_dir" 2>/dev/null
 
 exit 0
