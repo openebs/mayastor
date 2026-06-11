@@ -17,7 +17,10 @@ use io_engine_api::v1::pool::{
     Pool, PoolAlert, PoolAlertStatus, PoolAlerts, PoolErrors, PoolState,
 };
 use once_cell::sync::OnceCell;
-use std::{pin::Pin, time::Duration};
+use std::{
+    pin::Pin,
+    time::{Duration, Instant},
+};
 
 pub mod common;
 
@@ -863,11 +866,26 @@ async fn stall_test(vg: io_engine::lvm::VolumeGroup, bdev: StallBdev) {
         let state = lvol.dm_resume().await.unwrap();
         assert_eq!(state, DmState::Active);
 
+        // Wait for the LVS reset + superblock read to complete
+        // vbdev_lvs_bs_bdev_reset() must drain before new I/Os succeed.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let (_, errors, _) = ms
+                .spawn(async move { pool_info(&Lvs::lookup(pool_n).unwrap()).await })
+                .await;
+            if !errors.io_stalled {
+                break;
+            }
+            assert!(Instant::now() < deadline, "pool did not recover from stall");
+            sleep(Duration::from_millis(50)).await;
+        }
+
         // Backend device is active, I/Os should now complete inline here...
         let result = ms
             .spawn(async move { common::bdev_io::write_some(repl, 8192, 1, 0xbb).await })
             .await;
-        assert!(result.is_ok(), "I/O: {:?}", result);
+        assert!(result.is_ok(), "{} - I/O: {:?}", repl, result);
+
         // Original stalled I/Os should also have completed!
         for (i, r) in io_completions.into_iter().enumerate() {
             let result = r.await.unwrap();
