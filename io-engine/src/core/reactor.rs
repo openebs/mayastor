@@ -850,6 +850,15 @@ impl Reactor {
                 Cores::current(),
                 t.name()
             );
+            // Unnest the thread's fd_group before destroying it. In interrupt
+            // mode the fd_group was nested by add_incoming(); spdk_thread_destroy
+            // calls spdk_fd_group_destroy which asserts fgrp->parent == NULL.
+            if let Some(fgrp) = &self.fgrp {
+                let thread_fgrp = t.get_interrupt_fd_group();
+                if !thread_fgrp.is_null() {
+                    let _ = fgrp.unnest(thread_fgrp);
+                }
+            }
             t.destroy();
         });
     }
