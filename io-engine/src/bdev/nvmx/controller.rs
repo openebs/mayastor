@@ -1114,7 +1114,10 @@ pub(crate) mod options {
 pub(crate) mod transport {
     use std::{ffi::CStr, fmt::Debug, str::FromStr};
 
-    use spdk_rs::{ffihelper::copy_str_with_null, libspdk::spdk_nvme_transport_id};
+    use spdk_rs::{
+        ffihelper::copy_str_with_null,
+        libspdk::{spdk_nvme_transport_id, SPDK_NVME_TRANSPORT_RDMA, SPDK_NVME_TRANSPORT_TCP},
+    };
 
     pub struct NvmeTransportId(spdk_nvme_transport_id);
 
@@ -1169,26 +1172,6 @@ pub(crate) mod transport {
     }
 
     #[derive(Debug)]
-    #[allow(clippy::upper_case_acronyms)]
-    enum TransportId {
-        TCP = 0x3,
-    }
-
-    impl Default for TransportId {
-        fn default() -> Self {
-            Self::TCP
-        }
-    }
-
-    impl From<TransportId> for String {
-        fn from(t: TransportId) -> Self {
-            match t {
-                TransportId::TCP => String::from("tcp"),
-            }
-        }
-    }
-
-    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) enum AdressFamily {
         NvmfAdrfamIpv4 = 0x1,
@@ -1204,10 +1187,39 @@ pub(crate) mod transport {
         }
     }
 
+    /// Transport selected for an outgoing nvmf connection.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, strum_macros::EnumIter)]
+    #[allow(clippy::upper_case_acronyms)]
+    pub enum TrType {
+        TCP,
+        RDMA,
+    }
+
+    impl Default for TrType {
+        fn default() -> Self {
+            Self::TCP
+        }
+    }
+
+    impl TrType {
+        fn spdk_type(self) -> u32 {
+            match self {
+                Self::TCP => SPDK_NVME_TRANSPORT_TCP,
+                Self::RDMA => SPDK_NVME_TRANSPORT_RDMA,
+            }
+        }
+        fn trstring(self) -> &'static str {
+            match self {
+                Self::TCP => "TCP",
+                Self::RDMA => "RDMA",
+            }
+        }
+    }
+
     #[derive(Default, Debug)]
     #[allow(dead_code)]
     pub struct Builder {
-        trid: TransportId,
+        trtype: TrType,
         adrfam: AdressFamily,
         svcid: String,
         traddr: String,
@@ -1240,17 +1252,21 @@ pub(crate) mod transport {
             self.subnqn = subnqn.to_string();
             self
         }
+        /// supports different transport types
+        pub fn with_trtype(mut self, t: TrType) -> Self {
+            self.trtype = t;
+            self
+        }
 
         /// builder for transportID currently defaults to TCP IPv4
         pub fn build(self) -> NvmeTransportId {
-            let trtype = String::from(TransportId::TCP);
             let mut trid = spdk_nvme_transport_id {
                 adrfam: self.adrfam as u32,
-                trtype: TransportId::TCP as u32,
+                trtype: self.trtype.spdk_type(),
                 ..Default::default()
             };
 
-            copy_str_with_null(&trtype, &mut trid.trstring);
+            copy_str_with_null(self.trtype.trstring(), &mut trid.trstring);
             copy_str_with_null(&self.traddr, &mut trid.traddr);
             copy_str_with_null(&self.svcid, &mut trid.trsvcid);
             copy_str_with_null(&self.subnqn, &mut trid.subnqn);
@@ -1265,15 +1281,24 @@ pub(crate) mod transport {
 
         #[test]
         fn test_transport_id() {
+            use strum::IntoEnumIterator;
+            for tr_type in transport::TrType::iter() {
+                test_transport(tr_type);
+            }
+        }
+
+        fn test_transport(tr_type: transport::TrType) {
             let transport = transport::Builder::new()
-                .with_subnqn("nqn.2021-01-01:test.nqn")
+                .with_trtype(tr_type)
+                .with_subnqn("nqn.2021-01-01.test.nqn")
                 .with_svcid("4420")
                 .with_traddr("127.0.0.1")
                 .build();
 
             assert_eq!(transport.traddr(), "127.0.0.1");
-            assert_eq!(transport.subnqn(), "nqn.2021-01-01:test.nqn");
+            assert_eq!(transport.subnqn(), "nqn.2021-01-01.test.nqn");
             assert_eq!(transport.svcid(), "4420");
+            assert_eq!(transport.trtype(), tr_type.trstring());
         }
     }
 }
