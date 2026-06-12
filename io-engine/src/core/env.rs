@@ -1189,6 +1189,8 @@ impl MayastorEnvironment {
 
         info!("All cores locked and loaded!");
 
+        crate::core::start_affinity_monitor();
+
         // ensure we are within the context of a spdk thread from here
         Mthread::primary().set_current();
 

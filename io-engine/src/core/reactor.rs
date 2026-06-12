@@ -925,6 +925,30 @@ impl Reactor {
         }
     }
 
+    pub fn reapply_affinity(&self) {
+        let tid = self.tid();
+
+        if tid == 0 {
+            return;
+        }
+
+        unsafe {
+            let mut set: libc::cpu_set_t = std::mem::zeroed();
+
+            libc::CPU_SET(self.core() as usize, &mut set);
+
+            let rc = libc::sched_setaffinity(
+                tid as libc::pid_t,
+                std::mem::size_of::<libc::cpu_set_t>(),
+                &set,
+            );
+
+            if rc != 0 {
+                tracing::warn!("Failed to repin reactor core={} tid={}", self.core(), tid);
+            }
+        }
+    }
+
     /// TODO
     pub fn spawn_at_primary<F>(f: F) -> Result<OnceShotRecv<F::Output>, CoreError>
     where

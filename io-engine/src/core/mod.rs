@@ -49,6 +49,7 @@ pub use snapshot::{
 
 use spdk_rs::libspdk::SPDK_NVME_SC_CAPACITY_EXCEEDED;
 
+mod affinity;
 mod bdev;
 mod block_device;
 mod descriptor;
@@ -73,6 +74,8 @@ pub mod snapshot;
 pub(crate) mod thread;
 pub(crate) mod wiper;
 mod work_queue;
+
+pub use affinity::start_monitor as start_affinity_monitor;
 
 /// Obtain the full error chain
 pub trait VerboseError {
