@@ -15,6 +15,11 @@ use crate::{
 /// When this structure is dropped, the descriptor is closed.
 pub struct DescriptorGuard<T: BdevOps>(BdevDesc<T>, Option<Thread>);
 
+// Safety: BdevDesc<T> is already Sync.
+// The Thread field is only accessed through &mut self (Drop) or as a
+// read-only borrow (&self in Debug), so concurrent shared references are safe.
+unsafe impl<T: BdevOps> Sync for DescriptorGuard<T> {}
+
 pub type UntypedDescriptorGuard = DescriptorGuard<()>;
 
 impl<T: BdevOps> Deref for DescriptorGuard<T> {
