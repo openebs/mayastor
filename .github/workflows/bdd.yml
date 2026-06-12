@@ -94,6 +94,7 @@ jobs:
           path: ./ci-report/ci-report.tar.gz
 
       - name: Check Coredumps
+        if: always()
         run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
 
       - name: Cleanup
