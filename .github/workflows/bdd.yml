@@ -62,6 +62,11 @@ jobs:
           # Check if nvme config is valid, otherwise apply it
           sudo ./scripts/nvme-conf.sh --check --apply --overwrite
 
+      - name: Configure Docker logging driver
+        run: |
+          echo '{"log-driver": "journald"}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Setup VENV
         run: nix-shell --run "./test/python/setup.sh"
 
