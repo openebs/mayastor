@@ -1,7 +1,6 @@
 use crate::{BdevClient, JsonClient, MayaClient};
 use byte_unit::Byte;
 use bytes::Bytes;
-use clap::ArgMatches;
 use http::uri::{Authority, PathAndQuery, Scheme, Uri};
 use snafu::{Backtrace, ResultExt, Snafu};
 use std::{cmp::max, str::FromStr};
@@ -30,28 +29,31 @@ pub enum Error {
         source: http::uri::InvalidUri,
         backtrace: Backtrace,
     },
-    #[snafu(display("Invalid output format: {}", format))]
-    OutputFormatInvalid { format: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Output format for CLI commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum OutputFormat {
-    Json,
+    /// Human-readable default output
+    #[value(name = "default")]
     Default,
+    /// JSON output
+    #[value(name = "json")]
+    Json,
 }
 
-impl FromStr for OutputFormat {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "json" => Ok(Self::Json),
-            "default" => Ok(Self::Default),
-            s => Err(Error::OutputFormatInvalid {
-                format: s.to_string(),
-            }),
-        }
-    }
+/// Unit base for displaying byte sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Units {
+    /// Raw bytes (e.g. 1073741824)
+    #[value(name = "b")]
+    Bytes,
+    /// Binary units (e.g. 1.00 GiB)
+    #[value(name = "i")]
+    Binary,
+    /// Decimal units (e.g. 1.07 GB)
+    #[value(name = "d")]
+    Decimal,
 }
 
 mod v1 {
@@ -118,26 +120,23 @@ pub struct Context {
     pub(crate) json: JsonClient,
     pub(crate) v1: v1::Context,
     verbosity: u8,
-    units: char,
+    units: Units,
     pub(crate) output: OutputFormat,
 }
 
 impl Context {
-    pub(crate) async fn new(matches: &ArgMatches) -> Result<Self, Error> {
-        let verbosity = if matches.get_flag("quiet") {
-            0
-        } else {
-            matches.get_count("verbose") + 1
-        };
-        let units = matches
-            .get_one::<String>("units")
-            .and_then(|u| u.chars().next())
-            .unwrap_or('b');
-        // Ensure the provided host is defaulted & normalized to what we expect.
-        let host = if let Some(host) = matches.get_one::<String>("bind") {
-            let uri = match host.parse::<Uri>().context(InvalidUri) {
+    pub(crate) async fn new(
+        bind: &str,
+        quiet: bool,
+        verbose: u8,
+        units: Units,
+        output: OutputFormat,
+    ) -> Result<Self, Error> {
+        let verbosity = if quiet { 0 } else { verbose + 1 };
+        let host = {
+            let uri = match bind.parse::<Uri>().context(InvalidUri) {
                 Ok(uri) => Ok(uri),
-                Err(error) => format!("[{host}]").parse::<Uri>().map_err(|_| error),
+                Err(error) => format!("[{bind}]").parse::<Uri>().map_err(|_| error),
             }?;
             let mut parts = uri.into_parts();
             if parts.scheme.is_none() {
@@ -158,27 +157,14 @@ impl Context {
             }
             let uri = Uri::from_parts(parts).context(InvalidUriParts)?;
             Endpoint::from(uri)
-        } else {
-            Endpoint::from_static("http://127.0.0.1:10124")
         };
-
         if verbosity > 1 {
             println!("Connecting to {:?}", host.uri());
         }
-
-        let output =
-            matches
-                .get_one::<String>("output")
-                .ok_or_else(|| Error::OutputFormatInvalid {
-                    format: "<none>".to_string(),
-                })?;
-        let output = output.parse()?;
-
         let client = MayaClient::connect(host.clone()).await.unwrap();
         let bdev = BdevClient::connect(host.clone()).await.unwrap();
         let json = JsonClient::connect(host.clone()).await.unwrap();
         let v1 = v1::Context::new(host).await.unwrap();
-
         Ok(Context {
             client,
             bdev,
@@ -189,6 +175,7 @@ impl Context {
             output,
         })
     }
+
     pub(crate) fn v1(&self, s: &str) {
         if self.verbosity > 0 {
             println!("{s}")
@@ -203,21 +190,18 @@ impl Context {
 
     pub(crate) fn units(&self, n: Byte) -> String {
         match self.units {
-            'i' | 'd' => format!(
+            Units::Binary => format!("{:.2}", n.get_appropriate_unit(byte_unit::UnitType::Binary)),
+            Units::Decimal => format!(
                 "{:.2}",
-                n.get_appropriate_unit(if self.units == 'i' {
-                    byte_unit::UnitType::Binary
-                } else {
-                    byte_unit::UnitType::Decimal
-                })
+                n.get_appropriate_unit(byte_unit::UnitType::Decimal)
             ),
-            _ => n.as_u64().to_string(),
+            Units::Bytes => n.as_u64().to_string(),
         }
     }
 
     pub(crate) fn units_with(&self, n: Byte, unit: byte_unit::UnitType) -> String {
         match self.units {
-            'b' => n.as_u64().to_string(),
+            Units::Bytes => n.as_u64().to_string(),
             _ => format!("{:.2}", n.get_appropriate_unit(unit)),
         }
     }
@@ -268,13 +252,11 @@ impl Context {
                 }
             });
 
-            println!("{}", vals.collect::<Vec<String>>().join(" "));
+            let line = vals.collect::<Vec<String>>().join(" ");
+            println!("{line}");
         }
     }
 
-    /// Print the list with the given header and data.
-    /// The data is streamed out of a channel, allowing for long-running
-    /// operations to update the output on-the-fly.
     pub(crate) async fn print_streamed_list(
         &self,
         headers: Vec<&str>,
@@ -335,7 +317,8 @@ impl Context {
                 }
             });
 
-            println!("{}", vals.collect::<Vec<String>>().join("  "));
+            let line = vals.collect::<Vec<String>>().join("  ");
+            println!("{line}");
         }
 
         Ok(())

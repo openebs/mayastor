@@ -51,7 +51,7 @@ async fn nexus_share_test() {
             // unshare the nexus
             Reactor::block_on(async {
                 let nexus = nexus_lookup_mut("nexus0").unwrap();
-                nexus.unshare().await.unwrap();
+                nexus.unshare(None).await.unwrap();
             });
 
             Reactor::block_on(async {

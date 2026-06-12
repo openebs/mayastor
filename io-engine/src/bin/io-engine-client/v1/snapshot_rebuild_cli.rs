@@ -3,88 +3,69 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    ClientError, GrpcStatus,
+    GrpcStatus,
 };
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::{v1, v1::snapshot_rebuild::RebuildStatus};
 use snafu::ResultExt;
-use tonic::Status;
+use uuid::Uuid;
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("create", args) => create(ctx, args).await,
-        ("destroy", args) => destroy(ctx, args).await,
-        ("list", args) => list(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct SnapshotRebuildArgs {
+    #[command(subcommand)]
+    command: SnapshotRebuildCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum SnapshotRebuildCommands {
+    /// Create and start a snapshot rebuild
+    Create(CreateArgs),
+    /// Destroy a snapshot rebuild
+    Destroy(UuidArgs),
+    /// List snapshot rebuilds
+    List(ListArgs),
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// uuid of the replica to snap rebuild
+    uuid: Uuid,
+    /// uri of the snapshot source to rebuild from
+    uri: String,
+}
+
+#[derive(Debug, Args)]
+struct UuidArgs {
+    /// uuid of the snapshot rebuild
+    uuid: Uuid,
+}
+
+#[derive(Debug, Args)]
+struct ListArgs {
+    /// uuid of the snapshot rebuild (optional)
+    uuid: Option<Uuid>,
+}
+
+pub async fn handler(ctx: Context, args: SnapshotRebuildArgs) -> crate::Result<()> {
+    match args.command {
+        SnapshotRebuildCommands::Create(args) => create(ctx, args).await,
+        SnapshotRebuildCommands::Destroy(args) => destroy(ctx, args).await,
+        SnapshotRebuildCommands::List(args) => list(ctx, args).await,
     }
 }
 
-pub fn subcommands() -> Command {
-    let create = Command::new("create")
-        .about("create and start a snapshot rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the replica to snap rebuild"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of the snapshot source to rebuild from"),
-        );
-
-    let destroy = Command::new("destroy")
-        .about("destroy a snapshot rebuild")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the snapshot rebuild"),
-        );
-
-    let list = Command::new("list")
-        .about("list a specific one or all snapshot rebuilds")
-        .arg(
-            Arg::new("uuid")
-                .required(false)
-                .index(1)
-                .help("uuid of the snapshot rebuild"),
-        );
-
-    Command::new("snapshot-rebuild")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Snapshot Rebuild Management")
-        .subcommand(create)
-        .subcommand(destroy)
-        .subcommand(list)
-}
-
-async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
+async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
+    let uri = args.uri;
 
     let response = ctx
         .v1
         .snapshot_rebuild
         .create_snapshot_rebuild(v1::snapshot_rebuild::CreateSnapshotRebuildRequest {
-            replica_uuid: uuid.to_string(),
-            uuid,
+            replica_uuid: uuid.clone(),
+            uuid: uuid.clone(),
             snapshot_uuid: "".to_string(),
             replica_uri: "".to_string(),
             snapshot_uri: uri,
@@ -114,19 +95,14 @@ async fn create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
+async fn destroy(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
 
     let _response = ctx
         .v1
         .snapshot_rebuild
         .destroy_snapshot_rebuild(v1::snapshot_rebuild::DestroySnapshotRebuildRequest {
-            uuid: uuid.to_string(),
+            uuid: uuid.clone(),
         })
         .await
         .context(GrpcStatus)?;
@@ -135,14 +111,12 @@ async fn destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
     Ok(())
 }
 
-async fn list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let replica_uuid = matches.get_one::<String>("uuid").cloned();
-
+async fn list(mut ctx: Context, args: ListArgs) -> crate::Result<()> {
     let response = ctx
         .v1
         .snapshot_rebuild
         .list_snapshot_rebuild(v1::snapshot_rebuild::ListSnapshotRebuildRequest {
-            uuid: replica_uuid,
+            uuid: args.uuid.map(|u| u.to_string()),
             replica_uuid: None,
             snapshot_uuid: None,
         })

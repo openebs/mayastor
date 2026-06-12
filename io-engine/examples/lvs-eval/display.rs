@@ -5,7 +5,7 @@ use io_engine::{
 use prettytable::{row, Table};
 use spdk_rs::libspdk::{
     spdk_bit_array, spdk_bit_array_capacity, spdk_bit_array_get, spdk_bit_pool,
-    spdk_bit_pool_capacity, spdk_bit_pool_is_allocated, spdk_blob_calc_used_clusters,
+    spdk_bit_pool_capacity, spdk_bit_pool_is_allocated, spdk_blob_get_num_allocated_clusters,
     spdk_blob_is_thin_provisioned, spdk_blob_mut_data, spdk_blob_store,
 };
 
@@ -93,7 +93,7 @@ pub fn print_lvs_data(lvs: &Lvs) {
 pub fn print_replicas(lvs: &Lvs) {
     print_separator("Replicas", 0);
 
-    for (idx, lvol) in lvs.lvols().unwrap().enumerate() {
+    for (idx, lvol) in lvs.lvols().enumerate() {
         print_separator(&format!("Replica #{idx}:"), 1);
         print_replica(&lvol);
     }
@@ -109,7 +109,7 @@ pub fn print_replica(lvol: &Lvol) {
     let mut tab = Table::new();
 
     let num_allocated_clusters =
-        unsafe { spdk_blob_calc_used_clusters(blob as *const _ as *mut _) };
+        unsafe { spdk_blob_get_num_allocated_clusters(blob as *const _ as *mut _) };
 
     tab.add_row(row!["id", format!("0x{:x}", blob.id)]);
     tab.add_row(row!["parent_id", format!("0x{:x}", blob.parent_id)]);

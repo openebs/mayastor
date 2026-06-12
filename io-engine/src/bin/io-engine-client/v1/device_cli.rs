@@ -3,36 +3,37 @@
 
 use super::context::Context;
 use crate::{context::OutputFormat, GrpcStatus};
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
-use tonic::Status;
 
-pub fn subcommands() -> Command {
-    let list = Command::new("list")
-        .about("List available block devices")
-        .arg(
-            Arg::new("all")
-                .short('a')
-                .long("all")
-                .action(clap::ArgAction::SetTrue)
-                .help("List all block devices (ie. also include devices currently in use)"),
-        );
-
-    Command::new("device")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Host devices")
-        .subcommand(list)
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct DeviceArgs {
+    #[command(subcommand)]
+    command: DeviceCommands,
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("list", args) => list_block_devices(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Subcommand)]
+enum DeviceCommands {
+    /// List available block devices
+    List(ListArgs),
+}
+
+#[derive(Debug, Args)]
+struct ListArgs {
+    #[arg(
+        short = 'a',
+        long,
+        help = "List all block devices (ie. also include devices currently in use)"
+    )]
+    all: bool,
+}
+
+pub async fn handler(ctx: Context, args: DeviceArgs) -> crate::Result<()> {
+    match args.command {
+        DeviceCommands::List(args) => list_block_devices(ctx, args).await,
     }
 }
 
@@ -44,8 +45,8 @@ fn get_partition_type(device: &v1rpc::host::BlockDevice) -> String {
     }
 }
 
-async fn list_block_devices(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let all = matches.get_flag("all");
+async fn list_block_devices(mut ctx: Context, args: ListArgs) -> crate::Result<()> {
+    let all = args.all;
     let response = ctx
         .v1
         .host

@@ -3,66 +3,52 @@ use crate::{
     GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v1 as v1rpc;
 use snafu::ResultExt;
-use tonic::Status;
 
-pub fn subcommands() -> Command {
-    let pool = Command::new("pool").about("Get Pool IO Stats").arg(
-        Arg::new("name")
-            .required(false)
-            .index(1)
-            .help("Storage pool name"),
-    );
-
-    let nexus = Command::new("nexus").about("Get Nexus IO Stats").arg(
-        Arg::new("name")
-            .required(false)
-            .index(1)
-            .help("Volume target/nexus name"),
-    );
-
-    let replica = Command::new("replica").about("Get Replica IO Stats").arg(
-        Arg::new("name")
-            .required(false)
-            .index(1)
-            .help("Replica name"),
-    );
-
-    let reset = Command::new("reset").about("Reset all resource IO Stats");
-
-    Command::new("stats")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Resource IOStats")
-        .subcommand(pool)
-        .subcommand(nexus)
-        .subcommand(replica)
-        .subcommand(reset)
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct StatsArgs {
+    #[command(subcommand)]
+    command: StatsCommands,
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("pool", args) => pool(ctx, args).await,
-        ("nexus", args) => nexus(ctx, args).await,
-        ("replica", args) => replica(ctx, args).await,
-        ("reset", _) => reset(ctx).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Subcommand)]
+enum StatsCommands {
+    /// Get Pool IO Stats
+    Pool(NameArgs),
+    /// Get Nexus IO Stats
+    Nexus(NameArgs),
+    /// Get Replica IO Stats
+    Replica(NameArgs),
+    /// Reset all resource IO Stats
+    Reset,
+}
+
+#[derive(Debug, Args)]
+struct NameArgs {
+    /// Optional resource name filter
+    name: Option<String>,
+}
+
+pub async fn handler(ctx: Context, args: StatsArgs) -> crate::Result<()> {
+    match args.command {
+        StatsCommands::Pool(args) => pool(ctx, args).await,
+        StatsCommands::Nexus(args) => nexus(ctx, args).await,
+        StatsCommands::Replica(args) => replica(ctx, args).await,
+        StatsCommands::Reset => reset(ctx).await,
     }
 }
 
-async fn pool(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+async fn pool(mut ctx: Context, args: NameArgs) -> crate::Result<()> {
     ctx.v2("Requesting Pool metrics");
-    let pool_name = matches.get_one::<String>("name");
     let response = ctx
         .v1
         .stats
         .get_pool_io_stats(v1rpc::stats::ListStatsOption {
-            name: pool_name.cloned(),
+            name: args.name.clone(),
         })
         .await
         .context(GrpcStatus)?;
@@ -79,7 +65,7 @@ async fn pool(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         OutputFormat::Default => {
             let stats: &Vec<v1rpc::stats::IoStats> = &response.get_ref().stats;
             if stats.is_empty() {
-                if let Some(name) = pool_name {
+                if let Some(name) = args.name {
                     ctx.v1(&format!(
                         "No IoStats found for {name}, Check if device exist"
                     ));
@@ -88,31 +74,6 @@ async fn pool(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                 }
                 return Ok(());
             }
-
-            let table = stats
-                .iter()
-                .map(|stats| {
-                    let tick_rate = stats.tick_rate;
-                    let ticks_time =
-                        |ticks| -> String { ticks_to_time(ticks, tick_rate).to_string() };
-                    vec![
-                        stats.name.clone(),
-                        stats.num_read_ops.to_string(),
-                        adjust_bytes(stats.bytes_read),
-                        stats.num_write_ops.to_string(),
-                        adjust_bytes(stats.bytes_written),
-                        stats.num_unmap_ops.to_string(),
-                        adjust_bytes(stats.bytes_unmapped),
-                        ticks_time(stats.read_latency_ticks),
-                        ticks_time(stats.write_latency_ticks),
-                        ticks_time(stats.unmap_latency_ticks),
-                        ticks_time(stats.max_read_latency_ticks),
-                        ticks_time(stats.min_read_latency_ticks),
-                        ticks_time(stats.max_write_latency_ticks),
-                        ticks_time(stats.min_write_latency_ticks),
-                    ]
-                })
-                .collect();
             ctx.print_list(
                 vec![
                     "NAME",
@@ -130,21 +91,20 @@ async fn pool(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     "MAX_WR_LAT",
                     "MIN_WR_LAT",
                 ],
-                table,
+                stats.iter().map(io_stats_row).collect(),
             );
         }
     };
     Ok(())
 }
 
-async fn nexus(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+async fn nexus(mut ctx: Context, args: NameArgs) -> crate::Result<()> {
     ctx.v2("Requesting Nexus metrics");
-    let nexus_name = matches.get_one::<String>("name");
     let response = ctx
         .v1
         .stats
         .get_nexus_io_stats(v1rpc::stats::ListStatsOption {
-            name: nexus_name.cloned(),
+            name: args.name.clone(),
         })
         .await
         .context(GrpcStatus)?;
@@ -161,7 +121,7 @@ async fn nexus(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         OutputFormat::Default => {
             let stats: &Vec<v1rpc::stats::IoStats> = &response.get_ref().stats;
             if stats.is_empty() {
-                if let Some(name) = nexus_name {
+                if let Some(name) = args.name {
                     ctx.v1(&format!(
                         "No IoStats found for {name}, Check if device exists"
                     ));
@@ -170,31 +130,6 @@ async fn nexus(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                 }
                 return Ok(());
             }
-
-            let table = stats
-                .iter()
-                .map(|stats| {
-                    let tick_rate = stats.tick_rate;
-                    let ticks_time =
-                        |ticks| -> String { ticks_to_time(ticks, tick_rate).to_string() };
-                    vec![
-                        stats.name.clone(),
-                        stats.num_read_ops.to_string(),
-                        adjust_bytes(stats.bytes_read),
-                        stats.num_write_ops.to_string(),
-                        adjust_bytes(stats.bytes_written),
-                        stats.num_unmap_ops.to_string(),
-                        adjust_bytes(stats.bytes_unmapped),
-                        ticks_time(stats.read_latency_ticks),
-                        ticks_time(stats.write_latency_ticks),
-                        ticks_time(stats.unmap_latency_ticks),
-                        ticks_time(stats.max_read_latency_ticks),
-                        ticks_time(stats.min_read_latency_ticks),
-                        ticks_time(stats.max_write_latency_ticks),
-                        ticks_time(stats.min_write_latency_ticks),
-                    ]
-                })
-                .collect();
             ctx.print_list(
                 vec![
                     "NAME",
@@ -212,21 +147,20 @@ async fn nexus(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     "MAX_WR_LAT",
                     "MIN_WR_LAT",
                 ],
-                table,
+                stats.iter().map(io_stats_row).collect(),
             );
         }
     };
     Ok(())
 }
 
-async fn replica(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+async fn replica(mut ctx: Context, args: NameArgs) -> crate::Result<()> {
     ctx.v2("Requesting Replica metrics");
-    let replica_name = matches.get_one::<String>("name");
     let response = ctx
         .v1
         .stats
         .get_replica_io_stats(v1rpc::stats::ListStatsOption {
-            name: replica_name.cloned(),
+            name: args.name.clone(),
         })
         .await
         .context(GrpcStatus)?;
@@ -243,7 +177,7 @@ async fn replica(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
         OutputFormat::Default => {
             let stats: &Vec<v1rpc::stats::ReplicaIoStats> = &response.get_ref().stats;
             if stats.is_empty() {
-                if let Some(name) = replica_name {
+                if let Some(name) = args.name {
                     ctx.v1(&format!(
                         "No IoStats found for {name}, Check if device exists"
                     ));
@@ -252,32 +186,6 @@ async fn replica(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                 }
                 return Ok(());
             }
-
-            let table = stats
-                .iter()
-                .map(|p| {
-                    let io_stat = p.stats.as_ref().unwrap();
-                    let tick_rate = io_stat.tick_rate;
-                    let ticks_time =
-                        |ticks| -> String { ticks_to_time(ticks, tick_rate).to_string() };
-                    vec![
-                        io_stat.name.clone(),
-                        io_stat.num_read_ops.to_string(),
-                        adjust_bytes(io_stat.bytes_read),
-                        io_stat.num_write_ops.to_string(),
-                        adjust_bytes(io_stat.bytes_written),
-                        io_stat.num_unmap_ops.to_string(),
-                        adjust_bytes(io_stat.bytes_unmapped),
-                        ticks_time(io_stat.read_latency_ticks),
-                        ticks_time(io_stat.write_latency_ticks),
-                        ticks_time(io_stat.unmap_latency_ticks),
-                        ticks_time(io_stat.max_read_latency_ticks),
-                        ticks_time(io_stat.min_read_latency_ticks),
-                        ticks_time(io_stat.max_write_latency_ticks),
-                        ticks_time(io_stat.min_write_latency_ticks),
-                    ]
-                })
-                .collect();
             ctx.print_list(
                 vec![
                     "NAME",
@@ -295,7 +203,10 @@ async fn replica(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
                     "MAX_WR_LAT",
                     "MIN_WR_LAT",
                 ],
-                table,
+                stats
+                    .iter()
+                    .map(|p| io_stats_row(p.stats.as_ref().unwrap()))
+                    .collect(),
             );
         }
     };
@@ -307,6 +218,27 @@ async fn reset(mut ctx: Context) -> crate::Result<()> {
     let _ = ctx.v1.stats.reset_io_stats(()).await.context(GrpcStatus)?;
     println!("Stats Reset Completed");
     Ok(())
+}
+
+fn io_stats_row(stats: &v1rpc::stats::IoStats) -> Vec<String> {
+    let tick_rate = stats.tick_rate;
+    let ticks_time = |ticks| -> String { ticks_to_time(ticks, tick_rate).to_string() };
+    vec![
+        stats.name.clone(),
+        stats.num_read_ops.to_string(),
+        adjust_bytes(stats.bytes_read),
+        stats.num_write_ops.to_string(),
+        adjust_bytes(stats.bytes_written),
+        stats.num_unmap_ops.to_string(),
+        adjust_bytes(stats.bytes_unmapped),
+        ticks_time(stats.read_latency_ticks),
+        ticks_time(stats.write_latency_ticks),
+        ticks_time(stats.unmap_latency_ticks),
+        ticks_time(stats.max_read_latency_ticks),
+        ticks_time(stats.min_read_latency_ticks),
+        ticks_time(stats.max_write_latency_ticks),
+        ticks_time(stats.min_write_latency_ticks),
+    ]
 }
 
 fn adjust_bytes(bytes: u64) -> String {

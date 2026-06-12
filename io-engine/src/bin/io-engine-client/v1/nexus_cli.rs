@@ -1,10 +1,10 @@
 use super::nexus_child_cli;
 use crate::{
     context::{Context, OutputFormat},
-    parse_size, ClientError, GrpcStatus,
+    GrpcStatus,
 };
 use byte_unit::Byte;
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::{v1, v1::nexus::NvmeReservation};
 use snafu::ResultExt;
@@ -12,310 +12,217 @@ use std::convert::TryFrom;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
-pub fn subcommands() -> Command {
-    let create =
-        Command::new("create")
-            .about("Create a new nexus device")
-            .arg(Arg::new("uuid").required(true).index(1).help(
-                "uuid for the nexus, if uuid is not known please provide \"\" to autogenerate",
-            ))
-            .arg(
-                Arg::new("size")
-                    .required(true)
-                    .index(2)
-                    .help("size with optional unit suffix"),
-            )
-            .arg(
-                Arg::new("children")
-                    .required(true)
-                    .index(3)
-                    .action(clap::ArgAction::Append)
-                    .help("list of children to add"),
-            )
-            .arg(
-                Arg::new("name")
-                    .required(false)
-                    .long("name")
-                    .help("name of the nexus"),
-            )
-            .arg(
-                Arg::new("min-cntlid")
-                    .required(false)
-                    .default_value("1")
-                    .value_parser(clap::value_parser!(u32))
-                    .long("min-cntlid")
-                    .help("minimum NVMe controller ID for sharing over NVMf"),
-            )
-            .arg(
-                Arg::new("max-cntlid")
-                    .required(false)
-                    .value_parser(clap::value_parser!(u32))
-                    .default_value("65519")
-                    .long("max-cntlid")
-                    .help("maximum NVMe controller ID"),
-            )
-            .arg(
-                Arg::new("resv-key")
-                    .required(false)
-                    .value_parser(clap::value_parser!(u64))
-                    .default_value("0")
-                    .long("resv-key")
-                    .help("NVMe reservation key for children"),
-            )
-            .arg(
-                Arg::new("preempt-key")
-                    .required(false)
-                    .value_parser(clap::value_parser!(u64))
-                    .default_value("0")
-                    .long("preempt-key")
-                    .help("NVMe preempt key for children, 0 for no preemption"),
-            )
-            .arg(
-                Arg::new("resv-type")
-                    .required(false)
-                    .default_value("")
-                    .long("resv-type")
-                    .help("Defines Nvme reservation type."),
-            )
-            .arg(
-                Arg::new("nexus-info-key")
-                    .required(false)
-                    .default_value("")
-                    .long("nexus-info-key")
-                    .help("Key used to persist the NexusInfo structure to the persistent store"),
-            );
-
-    let destroy = Command::new("destroy")
-        .about("destroy the nexus with given name")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid for the nexus"),
-        );
-
-    let shutdown = Command::new("shutdown")
-        .about("shutdown the nexus with given name")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid for the nexus"),
-        );
-
-    let publish = Command::new("publish")
-        .about("publish the nexus")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid for the nexus"),
-        )
-        .arg(
-            Arg::new("key")
-                .required(false)
-                .index(2)
-                .help("crypto key to use"),
-        )
-        .arg(
-            Arg::new("allowed-host")
-                .long("allowed-host")
-                .action(clap::ArgAction::Append)
-                .required(false)
-                .help("NQN of hosts which are allowed to connect to the target"),
-        )
-        .arg(
-            Arg::new("protocol")
-                .short('p')
-                .long("protocol")
-                .value_name("PROTOCOL")
-                .help("Name of a protocol (nvmf) used for publishing the nexus remotely"),
-        );
-
-    let unpublish = Command::new("unpublish").about("unpublish the nexus").arg(
-        Arg::new("uuid")
-            .required(true)
-            .index(1)
-            .help("uuid for the nexus"),
-    );
-
-    let ana_state = Command::new("ana_state")
-        .about("get or set the NVMe ANA state of the nexus")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid for the nexus"),
-        )
-        .arg(
-            Arg::new("state")
-                .required(false)
-                .index(2)
-                .value_parser(["optimized", "non_optimized", "inaccessible"])
-                .help("NVMe ANA state of the nexus"),
-        );
-
-    let add = Command::new("add")
-        .about("add a child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid for the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to add"),
-        )
-        .arg(
-            Arg::new("norebuild")
-                .default_value("false")
-                .index(3)
-                .help("specify if a rebuild job runs automatically"),
-        );
-
-    let remove = Command::new("remove")
-        .about("remove a child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid for the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of child to remove"),
-        );
-
-    let list = Command::new("list").about("list all nexus devices").arg(
-        Arg::new("children")
-            .short('c')
-            .long("show-children")
-            .required(false)
-            .action(clap::ArgAction::SetTrue),
-    );
-
-    let children = Command::new("children").about("list nexus children").arg(
-        Arg::new("uuid")
-            .required(true)
-            .index(1)
-            .help("uuid of nexus"),
-    );
-
-    let resize = Command::new("resize")
-        .about("Resize nexus")
-        .arg(Arg::new("uuid").required(true).index(1).help("Nexus uuid"))
-        .arg(
-            Arg::new("size")
-                .required(true)
-                .index(2)
-                .help("Requested new size of the nexus"),
-        );
-
-    Command::new("nexus")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Nexus device management")
-        .subcommand(create)
-        .subcommand(destroy)
-        .subcommand(shutdown)
-        .subcommand(publish)
-        .subcommand(add)
-        .subcommand(remove)
-        .subcommand(unpublish)
-        .subcommand(ana_state)
-        .subcommand(list)
-        .subcommand(children)
-        .subcommand(resize)
-        .subcommand(nexus_child_cli::subcommands())
+fn parse_byte(s: &str) -> Result<Byte, String> {
+    Byte::parse_str(s, true).map_err(|e| e.to_string())
 }
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("create", args) => nexus_create(ctx, args).await,
-        ("destroy", args) => nexus_destroy(ctx, args).await,
-        ("shutdown", args) => nexus_shutdown(ctx, args).await,
-        ("list", args) => nexus_list(ctx, args).await,
-        ("children", args) => nexus_children_2(ctx, args).await,
-        ("resize", args) => nexus_resize(ctx, args).await,
-        ("publish", args) => nexus_publish(ctx, args).await,
-        ("unpublish", args) => nexus_unpublish(ctx, args).await,
-        ("ana_state", args) => nexus_nvme_ana_state(ctx, args).await,
-        ("add", args) => nexus_add(ctx, args).await,
-        ("remove", args) => nexus_remove(ctx, args).await,
-        ("child", args) => nexus_child_cli::handler(ctx, args).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
+/// Share protocol for nexus publish
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub(super) enum NexusShareProtocol {
+    Nvmf,
+}
+
+/// NVMe reservation type
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum ResvType {
+    Reserved,
+    WriteExclusive,
+    WriteExclusiveRegsOnly,
+    ExclusiveAccessRegsOnly,
+    ExclusiveAccessAllRegs,
+    WriteExclusiveAllRegs,
+}
+
+impl From<ResvType> for NvmeReservation {
+    fn from(v: ResvType) -> Self {
+        match v {
+            ResvType::Reserved => NvmeReservation::Reserved,
+            ResvType::WriteExclusive => NvmeReservation::WriteExclusive,
+            ResvType::WriteExclusiveRegsOnly => NvmeReservation::WriteExclusiveRegsOnly,
+            ResvType::ExclusiveAccessRegsOnly => NvmeReservation::ExclusiveAccessRegsOnly,
+            ResvType::ExclusiveAccessAllRegs => NvmeReservation::ExclusiveAccessAllRegs,
+            ResvType::WriteExclusiveAllRegs => NvmeReservation::WriteExclusiveAllRegs,
         }
     }
 }
 
-fn nexus_create_parse(
-    matches: &ArgMatches,
-) -> crate::Result<(
-    ::prost::alloc::string::String,
-    u64,
-    ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-)> {
-    let mut uuid = matches.get_one::<String>("uuid").unwrap().to_string();
-    //If uuid is not specified then generate new uuid.
-    if uuid.is_empty() {
-        uuid = Uuid::new_v4().to_string()
-    }
-    let size =
-        parse_size(
-            matches
-                .get_one::<String>("size")
-                .ok_or_else(|| ClientError::MissingValue {
-                    field: "size".to_string(),
-                })?,
-        )
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-        .context(GrpcStatus)?;
-    let children = matches
-        .get_many::<String>("children")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "children".to_string(),
-        })?
-        .cloned()
-        .collect::<Vec<String>>();
-    let size = size.as_u64();
-    Ok((uuid, size, children))
+/// NVMe ANA state
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum NvmeAnaState {
+    Optimized,
+    #[value(name = "non_optimized")]
+    NonOptimized,
+    Inaccessible,
 }
 
-async fn nexus_create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    // let (uuid, size, children) = nexus_create_parse(matches)?;
-    let (uuid, size, children) = nexus_create_parse(matches)?;
-    let name = matches
-        .get_one::<String>("name")
-        .unwrap_or(&uuid)
-        .to_string();
-    let min_cntl_id = *matches.get_one::<u32>("min-cntlid").unwrap();
-    let max_cntl_id = *matches.get_one::<u32>("max-cntlid").unwrap();
-    let resv_key = *matches.get_one::<u64>("resv-key").unwrap();
-    let preempt_key = *matches.get_one::<u64>("preempt-key").unwrap();
-    let resv_type = matches
-        .get_one::<String>("resv-type")
-        .cloned()
-        .unwrap_or_default();
-    let nexus_info_key = matches
-        .get_one::<String>("nexus-info-key")
-        .cloned()
-        .unwrap_or_default();
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct NexusArgs {
+    #[command(subcommand)]
+    command: NexusCommands,
+}
 
-    let resv_type = match resv_type.as_str() {
-        "Reserved" => Some(NvmeReservation::Reserved as i32),
-        "WriteExclusive" => Some(NvmeReservation::WriteExclusive as i32),
-        "WriteExclusiveRegsOnly" => Some(NvmeReservation::WriteExclusiveRegsOnly as i32),
-        "ExclusiveAccessRegsOnly" => Some(NvmeReservation::ExclusiveAccessRegsOnly as i32),
-        "ExclusiveAccessAllRegs" => Some(NvmeReservation::ExclusiveAccessAllRegs as i32),
-        "WriteExclusiveAllRegs" => Some(NvmeReservation::WriteExclusiveAllRegs as i32),
-        _ => None,
-    };
+#[derive(Debug, Subcommand)]
+enum NexusCommands {
+    /// Create a new nexus device
+    Create(CreateArgs),
+    /// Destroy the nexus with the given uuid
+    Destroy(UuidArgs),
+    /// Shutdown the nexus with the given uuid
+    Shutdown(UuidArgs),
+    /// Publish the nexus
+    Publish(PublishArgs),
+    /// Unpublish the nexus
+    Unpublish(UuidArgs),
+    /// Get or set the NVMe ANA state of the nexus
+    #[command(name = "ana_state")]
+    AnaState(AnaStateArgs),
+    /// Add a child to the nexus
+    Add(AddArgs),
+    /// Remove a child from the nexus
+    Remove(RemoveArgs),
+    /// List all nexus devices
+    List(ListArgs),
+    /// List children of a nexus
+    Children(UuidArgs),
+    /// Resize the nexus
+    Resize(ResizeArgs),
+    /// Nexus child operations
+    Child(nexus_child_cli::ChildArgs),
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// uuid for the nexus (use empty string "" to autogenerate)
+    uuid: String,
+    /// size of the nexus
+    #[arg(value_parser = parse_byte)]
+    size: Byte,
+    /// list of children to add
+    #[arg(action = clap::ArgAction::Append)]
+    children: Vec<url::Url>,
+    /// name of the nexus (defaults to uuid)
+    #[arg(long)]
+    name: Option<String>,
+    /// minimum NVMe controller ID for sharing over NVMf
+    #[arg(long = "min-cntlid", default_value_t = 1u32)]
+    min_cntlid: u32,
+    /// maximum NVMe controller ID
+    #[arg(long = "max-cntlid", default_value_t = 65519u32)]
+    max_cntlid: u32,
+    /// NVMe reservation key for children
+    #[arg(long = "resv-key", default_value_t = 0u64)]
+    resv_key: u64,
+    /// NVMe preempt key for children (0 for no preemption)
+    #[arg(long = "preempt-key", default_value_t = 0u64)]
+    preempt_key: u64,
+    /// NVMe reservation type
+    #[arg(long = "resv-type")]
+    resv_type: Option<ResvType>,
+    /// key used to persist the NexusInfo structure
+    #[arg(long = "nexus-info-key", default_value = "")]
+    nexus_info_key: String,
+}
+
+#[derive(Debug, Args)]
+struct UuidArgs {
+    /// uuid for the nexus
+    uuid: Uuid,
+}
+
+#[derive(Debug, Args)]
+struct PublishArgs {
+    /// uuid for the nexus
+    uuid: Uuid,
+    /// crypto key to use
+    key: Option<String>,
+    /// protocol used for publishing the nexus remotely
+    #[arg(short = 'p', long)]
+    protocol: Option<NexusShareProtocol>,
+    /// NQN of hosts which are allowed to connect to the target
+    #[arg(long = "allowed-host", action = clap::ArgAction::Append)]
+    allowed_host: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct AnaStateArgs {
+    /// uuid for the nexus
+    uuid: Uuid,
+    /// NVMe ANA state to set (omit to get current state)
+    state: Option<NvmeAnaState>,
+}
+
+#[derive(Debug, Args)]
+struct AddArgs {
+    /// uuid for the nexus
+    uuid: Uuid,
+    /// uri of child to add
+    uri: url::Url,
+    /// disable automatic rebuild
+    #[arg(long, default_value_t = false)]
+    norebuild: bool,
+}
+
+#[derive(Debug, Args)]
+struct RemoveArgs {
+    /// uuid for the nexus
+    uuid: Uuid,
+    /// uri of child to remove
+    uri: url::Url,
+}
+
+#[derive(Debug, Args)]
+struct ListArgs {
+    /// also show children
+    #[arg(short = 'c', long = "show-children")]
+    show_children: bool,
+}
+
+#[derive(Debug, Args)]
+struct ResizeArgs {
+    /// nexus uuid
+    uuid: Uuid,
+    /// requested new size of the nexus
+    #[arg(value_parser = parse_byte)]
+    size: Byte,
+}
+
+pub async fn handler(ctx: Context, args: NexusArgs) -> crate::Result<()> {
+    match args.command {
+        NexusCommands::Create(args) => nexus_create(ctx, args).await,
+        NexusCommands::Destroy(args) => nexus_destroy(ctx, args).await,
+        NexusCommands::Shutdown(args) => nexus_shutdown(ctx, args).await,
+        NexusCommands::Publish(args) => nexus_publish(ctx, args).await,
+        NexusCommands::Unpublish(args) => nexus_unpublish(ctx, args).await,
+        NexusCommands::AnaState(args) => nexus_nvme_ana_state(ctx, args).await,
+        NexusCommands::Add(args) => nexus_add(ctx, args).await,
+        NexusCommands::Remove(args) => nexus_remove(ctx, args).await,
+        NexusCommands::List(args) => nexus_list(ctx, args).await,
+        NexusCommands::Children(args) => nexus_children_2(ctx, args).await,
+        NexusCommands::Resize(args) => nexus_resize(ctx, args).await,
+        NexusCommands::Child(args) => nexus_child_cli::handler(ctx, args).await,
+    }
+}
+
+fn parse_uuid(uuid: &str) -> String {
+    if uuid.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        uuid.to_string()
+    }
+}
+
+async fn nexus_create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
+    let uuid = parse_uuid(&args.uuid);
+    let name = args.name.unwrap_or_else(|| uuid.clone());
+
+    if args.children.is_empty() {
+        return Err(crate::ClientError::MissingValue {
+            field: "children".to_string(),
+        });
+    }
+
+    let resv_type = args.resv_type.map(|t| NvmeReservation::from(t) as i32);
 
     let response = ctx
         .v1
@@ -323,13 +230,13 @@ async fn nexus_create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<(
         .create_nexus(v1::nexus::CreateNexusRequest {
             name,
             uuid: uuid.clone(),
-            size,
-            min_cntl_id,
-            max_cntl_id,
-            resv_key,
-            preempt_key,
-            children,
-            nexus_info_key,
+            size: args.size.as_u64(),
+            min_cntl_id: args.min_cntlid,
+            max_cntl_id: args.max_cntlid,
+            resv_key: args.resv_key,
+            preempt_key: args.preempt_key,
+            children: args.children.iter().map(|u| u.to_string()).collect(),
+            nexus_info_key: args.nexus_info_key,
             resv_type,
             preempt_policy: 0,
         })
@@ -338,24 +245,23 @@ async fn nexus_create(mut ctx: Context, matches: &ArgMatches) -> crate::Result<(
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("{}", &response.get_ref().nexus.as_ref().unwrap().uuid);
+            let val = &response.get_ref().nexus.as_ref().unwrap().uuid;
+            println!("{val}");
         }
     };
 
     Ok(())
 }
 
-async fn nexus_shutdown(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches.get_one::<String>("uuid").unwrap().to_string();
+async fn nexus_shutdown(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let response = ctx
         .v1
         .nexus
@@ -365,32 +271,28 @@ async fn nexus_shutdown(mut ctx: Context, matches: &ArgMatches) -> crate::Result
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("{}", &uuid,);
+            println!("{uuid}");
         }
     };
 
     Ok(())
 }
 
-async fn nexus_destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches.get_one::<String>("uuid").unwrap().to_string();
-
+async fn nexus_destroy(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let _response = ctx
         .v1
         .nexus
         .destroy_nexus(v1::nexus::DestroyNexusRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
-
     let response = ctx
         .v1
         .nexus
@@ -400,25 +302,24 @@ async fn nexus_destroy(mut ctx: Context, matches: &ArgMatches) -> crate::Result<
         })
         .await
         .context(GrpcStatus)?;
+
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("{}", &uuid,);
+            println!("{uuid}");
         }
     };
 
     Ok(())
 }
 
-async fn nexus_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
+async fn nexus_list(mut ctx: Context, args: ListArgs) -> crate::Result<()> {
     let response = ctx
         .v1
         .nexus
@@ -428,15 +329,14 @@ async fn nexus_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()>
         })
         .await
         .context(GrpcStatus)?;
+
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
             let nexus = &response.get_ref().nexus_list;
@@ -444,10 +344,7 @@ async fn nexus_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()>
                 ctx.v1("No nexus found");
                 return Ok(());
             }
-
             ctx.v2("Found following nexus:");
-            let show_child = matches.get_flag("children");
-
             let table = nexus
                 .iter()
                 .map(|n| {
@@ -461,20 +358,20 @@ async fn nexus_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()>
                         n.rebuilds.to_string(),
                         n.device_uri.clone(),
                     ];
-                    if show_child {
+                    if args.show_children {
                         row.push(
                             n.children
                                 .iter()
                                 .map(|c| c.uri.clone())
-                                .collect::<Vec<String>>()
+                                .collect::<Vec<_>>()
                                 .join(","),
-                        )
+                        );
                     }
                     row
                 })
                 .collect();
             let mut hdr = vec!["NAME", "UUID", ">SIZE", "STATE", ">REBUILDS", "PATH"];
-            if show_child {
+            if args.show_children {
                 hdr.push("CHILDREN");
             }
             ctx.print_list(hdr, table);
@@ -484,14 +381,8 @@ async fn nexus_list(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()>
     Ok(())
 }
 
-async fn nexus_children_2(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-
+async fn nexus_children_2(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let response = ctx
         .v1
         .nexus
@@ -501,29 +392,21 @@ async fn nexus_children_2(mut ctx: Context, matches: &ArgMatches) -> crate::Resu
         })
         .await
         .context(GrpcStatus)?;
-
     let nexus = response
         .get_ref()
         .nexus_list
         .iter()
         .find(|n| n.uuid == uuid || n.name == uuid)
-        .ok_or_else(|| {
-            Status::new(
-                Code::InvalidArgument,
-                "Specified nexus not found".to_owned(),
-            )
-        })
+        .ok_or_else(|| Status::new(Code::InvalidArgument, "Specified nexus not found"))
         .context(GrpcStatus)?;
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&nexus.children)
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&nexus.children)
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
             let table = nexus
@@ -554,81 +437,42 @@ async fn nexus_children_2(mut ctx: Context, matches: &ArgMatches) -> crate::Resu
     Ok(())
 }
 
-async fn nexus_resize(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_owned();
-
-    let requested_size =
-        parse_size(
-            matches
-                .get_one::<String>("size")
-                .ok_or_else(|| ClientError::MissingValue {
-                    field: "size".to_string(),
-                })?,
-        )
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{s}'")))
-        .context(GrpcStatus)?;
+async fn nexus_resize(mut ctx: Context, args: ResizeArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
 
     let response = ctx
         .v1
         .nexus
         .resize_nexus(v1::nexus::ResizeNexusRequest {
             uuid: uuid.clone(),
-            requested_size: requested_size.as_u64(),
+            requested_size: args.size.as_u64(),
         })
         .await
         .context(GrpcStatus)?;
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("Resized nexus {uuid} to {requested_size}");
+            println!("Resized nexus {uuid} to {}", args.size);
         }
     };
 
     Ok(())
 }
 
-async fn nexus_publish(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let key = matches
-        .get_one::<String>("key")
-        .cloned()
-        .unwrap_or_default();
-
-    let protocol = match matches.get_one::<String>("protocol").map(|s| s.as_str()) {
-        None => v1::common::ShareProtocol::Nvmf as i32,
-        Some("nvmf") => v1::common::ShareProtocol::Nvmf as i32,
-        Some(_) => {
-            return Err(Status::new(
-                Code::Internal,
-                "Invalid value of share protocol".to_owned(),
-            ))
-            .context(GrpcStatus);
-        }
+async fn nexus_publish(mut ctx: Context, args: PublishArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
+    let key = args.key.unwrap_or_default();
+    let protocol = match args.protocol {
+        None | Some(NexusShareProtocol::Nvmf) => v1::common::ShareProtocol::Nvmf as i32,
     };
-    let allowed_hosts = matches
-        .get_many::<String>("allowed-host")
-        .unwrap_or_default()
-        .cloned()
-        .collect();
+    let allowed_hosts = args.allowed_host;
 
     let response = ctx
         .v1
@@ -644,32 +488,25 @@ async fn nexus_publish(mut ctx: Context, matches: &ArgMatches) -> crate::Result<
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
             println!(
                 "Nexus published over: {}",
-                response.get_ref().nexus.clone().unwrap().device_uri,
-            )
+                response.get_ref().nexus.clone().unwrap().device_uri
+            );
         }
     };
 
     Ok(())
 }
 
-async fn nexus_unpublish(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
+async fn nexus_unpublish(mut ctx: Context, args: UuidArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let response = ctx
         .v1
         .nexus
@@ -679,32 +516,25 @@ async fn nexus_unpublish(mut ctx: Context, matches: &ArgMatches) -> crate::Resul
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("{}", &uuid,)
+            println!("{uuid}");
         }
     };
 
     Ok(())
 }
 
-async fn nexus_nvme_ana_state(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches.get_one::<String>("uuid").unwrap().to_string();
-    let ana_state = matches
-        .get_one::<String>("state")
-        .cloned()
-        .unwrap_or_default();
-    if ana_state.is_empty() {
-        nexus_get_nvme_ana_state(ctx, uuid).await
-    } else {
-        nexus_set_nvme_ana_state(ctx, uuid, ana_state).await
+async fn nexus_nvme_ana_state(ctx: Context, args: AnaStateArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
+    match args.state {
+        None => nexus_get_nvme_ana_state(ctx, uuid).await,
+        Some(state) => nexus_set_nvme_ana_state(ctx, uuid, state).await,
     }
 }
 
@@ -722,20 +552,13 @@ async fn nexus_get_nvme_ana_state(mut ctx: Context, uuid: String) -> crate::Resu
 async fn nexus_set_nvme_ana_state(
     mut ctx: Context,
     uuid: String,
-    ana_state_str: String,
+    state: NvmeAnaState,
 ) -> crate::Result<()> {
-    // let ana : v0::NvmeAnaState = match ana_state_str.parse()
-    let ana_state: v1::nexus::NvmeAnaState = match ana_state_str.parse() {
-        Ok(a) => a,
-        _ => {
-            return Err(Status::new(
-                Code::Internal,
-                "Invalid value of NVMe ANA state".to_owned(),
-            ))
-            .context(GrpcStatus);
-        }
+    let ana_state: v1::nexus::NvmeAnaState = match state {
+        NvmeAnaState::Optimized => v1::nexus::NvmeAnaState::NvmeAnaOptimizedState,
+        NvmeAnaState::NonOptimized => v1::nexus::NvmeAnaState::NvmeAnaNonOptimizedState,
+        NvmeAnaState::Inaccessible => v1::nexus::NvmeAnaState::NvmeAnaInaccessibleState,
     };
-
     ctx.v1
         .nexus
         .set_nvme_ana_state(v1::nexus::SetNvmeAnaStateRequest {
@@ -748,90 +571,57 @@ async fn nexus_set_nvme_ana_state(
     Ok(())
 }
 
-async fn nexus_add(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
-    let norebuild = matches
-        .get_one::<String>("norebuild")
-        .unwrap()
-        .parse::<bool>()
-        .unwrap_or(false);
-
+async fn nexus_add(mut ctx: Context, args: AddArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
     let response = ctx
         .v1
         .nexus
         .add_child_nexus(v1::nexus::AddChildNexusRequest {
             uuid: uuid.clone(),
-            uri,
-            norebuild,
+            uri: args.uri.to_string(),
+            norebuild: args.norebuild,
         })
         .await
         .context(GrpcStatus)?;
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("{}", &uuid,)
+            let uuid = &args.uuid;
+            println!("{uuid}");
         }
     };
 
     Ok(())
 }
 
-async fn nexus_remove(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
-
+async fn nexus_remove(mut ctx: Context, args: RemoveArgs) -> crate::Result<()> {
     let response = ctx
         .v1
         .nexus
         .remove_child_nexus(v1::nexus::RemoveChildNexusRequest {
-            uuid,
-            uri: uri.clone(),
+            uuid: args.uuid.to_string(),
+            uri: args.uri.to_string(),
         })
         .await
         .context(GrpcStatus)?;
 
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
-            println!("Removed {} from specified nexus", &uri,)
+            println!("Removed {} from specified nexus", &args.uri);
         }
     };
 
@@ -883,5 +673,6 @@ fn child_reason_to_str_v1(r: v1::nexus::ChildStateReason) -> &'static str {
         v1::nexus::ChildStateReason::NoSpace => "no space",
         v1::nexus::ChildStateReason::TimedOut => "timed out",
         v1::nexus::ChildStateReason::AdminFailed => "admin failed",
+        v1::nexus::ChildStateReason::HotRemoved => "hot removed",
     }
 }

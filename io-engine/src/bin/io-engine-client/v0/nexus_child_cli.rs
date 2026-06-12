@@ -1,178 +1,102 @@
-//!
-//! methods to interact with the nexus child
-
 use crate::{
     context::{Context, OutputFormat},
-    ClientError, GrpcStatus,
+    GrpcStatus,
 };
-use clap::{Arg, ArgMatches, Command};
+use clap::{Args, Subcommand};
 use colored_json::ToColoredJson;
 use io_engine_api::v0 as rpc;
 use snafu::ResultExt;
-use tonic::Status;
+use uuid::Uuid;
 
-pub async fn handler(ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    match matches.subcommand().unwrap() {
-        ("fault", args) => fault(ctx, args).await,
-        ("offline", args) => child_operation(ctx, args, 0).await,
-        ("online", args) => child_operation(ctx, args, 1).await,
-        ("retire", args) => child_operation(ctx, args, 2).await,
-        (cmd, _) => {
-            Err(Status::not_found(format!("command {cmd} does not exist"))).context(GrpcStatus)
-        }
+#[derive(Debug, Args)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
+pub struct ChildArgs {
+    #[command(subcommand)]
+    command: ChildCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum ChildCommands {
+    /// fault a child
+    Fault(FaultArgs),
+    /// offline a child
+    Offline(ChildOpArgs),
+    /// online a child
+    Online(ChildOpArgs),
+    /// retire a child
+    Retire(ChildOpArgs),
+}
+
+#[derive(Debug, Args)]
+struct FaultArgs {
+    uuid: Uuid,
+    uri: String,
+}
+
+#[derive(Debug, Args)]
+struct ChildOpArgs {
+    uuid: Uuid,
+    uri: String,
+}
+
+pub async fn handler(ctx: Context, args: ChildArgs) -> crate::Result<()> {
+    match args.command {
+        ChildCommands::Fault(args) => fault(ctx, args).await,
+        ChildCommands::Offline(args) => child_operation(ctx, args, 0).await,
+        ChildCommands::Online(args) => child_operation(ctx, args, 1).await,
+        ChildCommands::Retire(args) => child_operation(ctx, args, 2).await,
     }
 }
 
-pub fn subcommands() -> Command {
-    let fault = Command::new("fault")
-        .about("fault a child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of the child"),
-        );
-
-    let offline = Command::new("offline")
-        .about("offline a child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of the child"),
-        );
-
-    let online = Command::new("online")
-        .about("online a child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of the child"),
-        );
-
-    let retire = Command::new("retire")
-        .about("retire a child")
-        .arg(
-            Arg::new("uuid")
-                .required(true)
-                .index(1)
-                .help("uuid of the nexus"),
-        )
-        .arg(
-            Arg::new("uri")
-                .required(true)
-                .index(2)
-                .help("uri of the child"),
-        );
-
-    Command::new("child")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .about("Nexus child management")
-        .subcommand(fault)
-        .subcommand(offline)
-        .subcommand(online)
-        .subcommand(retire)
-}
-
-async fn fault(mut ctx: Context, matches: &ArgMatches) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
-
+async fn fault(mut ctx: Context, args: FaultArgs) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
+    let uri = args.uri;
     let response = ctx
         .client
         .fault_nexus_child(rpc::FaultNexusChildRequest {
-            uuid: uuid.clone(),
+            uuid,
             uri: uri.clone(),
         })
         .await
         .context(GrpcStatus)?;
-
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
             println!("{uri}");
         }
     };
-
     Ok(())
 }
 
-async fn child_operation(mut ctx: Context, matches: &ArgMatches, action: i32) -> crate::Result<()> {
-    let uuid = matches
-        .get_one::<String>("uuid")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uuid".to_string(),
-        })?
-        .to_string();
-    let uri = matches
-        .get_one::<String>("uri")
-        .ok_or_else(|| ClientError::MissingValue {
-            field: "uri".to_string(),
-        })?
-        .to_string();
-
+async fn child_operation(mut ctx: Context, args: ChildOpArgs, action: i32) -> crate::Result<()> {
+    let uuid = args.uuid.to_string();
+    let uri = args.uri;
     let response = ctx
         .client
         .child_operation(rpc::ChildNexusRequest {
-            uuid: uuid.clone(),
+            uuid,
             uri: uri.clone(),
             action,
         })
         .await
         .context(GrpcStatus)?;
-
     match ctx.output {
         OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.get_ref())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            );
+            let json = serde_json::to_string_pretty(&response.get_ref())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap();
+            println!("{json}");
         }
         OutputFormat::Default => {
             println!("{uri}");
         }
     };
-
     Ok(())
 }

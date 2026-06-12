@@ -145,7 +145,7 @@ impl BdevRpc for BdevService {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let name = request.into_inner().name;
             if let Some(mut bdev) = core::UntypedBdev::lookup_by_name(&name) {
-                let _ = Pin::new(&mut bdev).unshare().await?;
+                let _ = Pin::new(&mut bdev).unshare(None).await?;
             }
             Ok(())
         })?;

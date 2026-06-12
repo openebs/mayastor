@@ -45,6 +45,7 @@ let
         xfsprogs
         nixpkgs-fmt
         ublksrv
+        jq
       ];
 
       shellEnv = with pkgs; {
@@ -75,6 +76,7 @@ let
         # Prevent Rust tooling to fallback to potentially incompatible host clang compiler
         export CLANG_PATH="$NIX_CC_FOR_TARGET/bin/clang"
 
+        mkdir -p "$SRCDIR/.vscode"
         cat > "$SRCDIR/.vscode/settings.json" <<EOF
         {
             "nixEnvSelector.args": "--argstr rust ${rust} --argstr spdk ${spdk}${nix-spdk-path}",

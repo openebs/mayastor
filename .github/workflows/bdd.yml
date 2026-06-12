@@ -9,7 +9,7 @@ env:
 
 jobs:
   bdd-tests:
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    runs-on: cncf-ubuntu-16-64-x86
     permissions:
       contents: read
       id-token: write
@@ -85,10 +85,10 @@ jobs:
             mv test/python/reports ci-report/python
           fi
           nix-shell --run "./scripts/ci-report.sh"
-        if: failure()
+        if: failure() || cancelled()
 
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: ci-report-bdd
           path: ./ci-report/ci-report.tar.gz

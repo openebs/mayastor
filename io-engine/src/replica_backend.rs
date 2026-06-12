@@ -21,7 +21,10 @@ pub trait ReplicaOps: LogicalVolume + BdevStater<Stats = ReplicaBdevStats> {
         props: crate::core::NvmfShareProps,
     ) -> Result<String, crate::pool_backend::Error>;
     /// Unshare the replica.
-    async fn unshare(&mut self) -> Result<(), crate::pool_backend::Error>;
+    async fn unshare(
+        &mut self,
+        opts: Option<crate::core::UnshareProps>,
+    ) -> Result<(), crate::pool_backend::Error>;
     /// Update share properties of a currently shared replica.
     async fn update_properties(
         &mut self,
@@ -188,11 +191,23 @@ pub trait IReplicaFactory {
 pub struct ReplicaBdevStats {
     pub stats: BdevStats,
     pub entity_id: Option<String>,
+    pub poolname: Option<String>,
+    pub pooluuid: Option<String>,
 }
 impl ReplicaBdevStats {
     /// Create a new `Self` from the given parts.
-    pub fn new(stats: BdevStats, entity_id: Option<String>) -> Self {
-        Self { stats, entity_id }
+    pub fn new(
+        stats: BdevStats,
+        entity_id: Option<String>,
+        poolname: Option<String>,
+        pooluuid: Option<String>,
+    ) -> Self {
+        Self {
+            stats,
+            entity_id,
+            poolname,
+            pooluuid,
+        }
     }
 }
 

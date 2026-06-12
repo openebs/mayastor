@@ -60,8 +60,11 @@ impl ReplicaOps for Lvol {
             .await
             .map_err(Into::into)
     }
-    async fn unshare(&mut self) -> Result<(), crate::pool_backend::Error> {
-        Pin::new(self).unshare().await.map_err(Into::into)
+    async fn unshare(
+        &mut self,
+        opts: Option<crate::core::UnshareProps>,
+    ) -> Result<(), crate::pool_backend::Error> {
+        Pin::new(self).unshare(opts).await.map_err(Into::into)
     }
     async fn update_properties(
         &mut self,
@@ -104,7 +107,12 @@ impl BdevStater for Lvol {
 
     async fn stats(&self) -> Result<ReplicaBdevStats, CoreError> {
         let stats = self.as_bdev().stats().await?;
-        Ok(ReplicaBdevStats::new(stats, self.entity_id()))
+        Ok(ReplicaBdevStats::new(
+            stats,
+            self.entity_id(),
+            Some(self.pool_name()),
+            Some(self.pool_uuid()),
+        ))
     }
 
     async fn reset_stats(&self) -> Result<(), CoreError> {

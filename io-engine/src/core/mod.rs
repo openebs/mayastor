@@ -8,7 +8,7 @@ use std::{
 use nix::errno::Errno;
 use snafu::Snafu;
 
-pub use bdev::{Bdev, BdevErrorStats, BdevIter, BdevStater, BdevStats, UntypedBdev};
+pub use bdev::{is_shared, Bdev, BdevErrorStats, BdevIter, BdevStater, BdevStats, UntypedBdev};
 pub use block_device::{
     BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, BlockDeviceIoStats, DeviceIoController,
     DeviceTimeoutAction, IoCompletionCallback, IoCompletionCallbackArg, LbaRangeController,
@@ -37,7 +37,9 @@ pub use lock::{
 
 pub use runtime::spawn;
 pub(crate) use segment_map::SegmentMap;
-pub use share::{NvmfShareProps, Protocol, PtplProps, Share, ShareProps, UpdateProps};
+pub use share::{
+    NvmfShareProps, Protocol, PtplProps, Share, ShareProps, UnshareProps, UpdateProps,
+};
 pub use spdk_rs::{cpu_cores, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
