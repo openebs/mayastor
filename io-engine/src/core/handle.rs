@@ -4,7 +4,7 @@ use nix::errno::Errno;
 use std::{
     convert::TryFrom,
     fmt::{Debug, Error, Formatter},
-    rc::Rc,
+    sync::Arc,
 };
 
 use spdk_rs::{
@@ -30,7 +30,7 @@ pub struct BdevHandle<T: BdevOps> {
     /// dropped before we close the descriptor
     channel: IoChannelGuard<T::ChannelData>,
     /// TODO
-    desc: Rc<DescriptorGuard<T>>,
+    desc: Arc<DescriptorGuard<T>>,
 }
 
 pub type UntypedBdevHandle = BdevHandle<()>;
@@ -43,7 +43,7 @@ impl<T: BdevOps> BdevHandle<T> {
             if claim && !desc.claim() {
                 return Err(CoreError::BdevNotFound { name: name.into() });
             }
-            return BdevHandle::try_from(Rc::new(desc));
+            return BdevHandle::try_from(Arc::new(desc));
         }
 
         Err(CoreError::BdevNotFound { name: name.into() })
@@ -52,7 +52,7 @@ impl<T: BdevOps> BdevHandle<T> {
     /// Opens a new bdev handle given a bdev.
     pub fn open_with_bdev(bdev: &Bdev<T>, read_write: bool) -> Result<BdevHandle<T>, CoreError> {
         let desc = bdev.open(read_write)?;
-        BdevHandle::try_from(Rc::new(desc))
+        BdevHandle::try_from(Arc::new(desc))
     }
 
     /// Closes the BdevHandle.
@@ -306,14 +306,14 @@ impl<T: BdevOps> TryFrom<DescriptorGuard<T>> for BdevHandle<T> {
     type Error = CoreError;
 
     fn try_from(desc: DescriptorGuard<T>) -> Result<Self, Self::Error> {
-        Self::try_from(Rc::new(desc))
+        Self::try_from(Arc::new(desc))
     }
 }
 
-impl<T: BdevOps> TryFrom<Rc<DescriptorGuard<T>>> for BdevHandle<T> {
+impl<T: BdevOps> TryFrom<Arc<DescriptorGuard<T>>> for BdevHandle<T> {
     type Error = CoreError;
 
-    fn try_from(desc: Rc<DescriptorGuard<T>>) -> Result<Self, Self::Error> {
+    fn try_from(desc: Arc<DescriptorGuard<T>>) -> Result<Self, Self::Error> {
         if let Ok(channel) = desc.io_channel() {
             return Ok(Self { channel, desc });
         }
