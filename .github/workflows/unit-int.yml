@@ -63,12 +63,18 @@ jobs:
           # Check if nvme config is valid, otherwise apply it
           sudo ./scripts/nvme-conf.sh --check --apply --overwrite
 
+      - name: Configure Docker logging driver
+        run: |
+          echo '{"log-driver": "journald"}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Run Rust Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
           nix-shell --run "./scripts/cargo-test.sh"
 
       - name: Check Coredumps
+        if: always()
         run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
 
       - name: Cleanup
@@ -109,6 +115,7 @@ jobs:
           path: ./ci-report/ci-report.tar.gz
 
       - name: Check Coredumps
+        if: always()
         run: sudo ./scripts/check-coredumps.sh --since "${TEST_START_DATE}"
 
       - name: Cleanup
