@@ -4,7 +4,12 @@
 use async_trait::async_trait;
 use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
-use std::{collections::HashMap, convert::TryFrom, os::raw::c_void, rc::Rc, sync::Mutex};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    os::raw::c_void,
+    sync::{Arc, Mutex},
+};
 
 use spdk_rs::{
     libspdk::{
@@ -131,11 +136,11 @@ impl BlockDevice for SpdkBlockDevice {
 
 /// Wrapper around native SPDK block device descriptor, which mimics target SPDK
 /// descriptor as an abstract BlockDeviceDescriptor instance.
-struct SpdkBlockDeviceDescriptor(Rc<UntypedDescriptorGuard>);
+struct SpdkBlockDeviceDescriptor(Arc<UntypedDescriptorGuard>);
 
 impl From<UntypedDescriptorGuard> for SpdkBlockDeviceDescriptor {
     fn from(descr: UntypedDescriptorGuard) -> Self {
-        Self(Rc::new(descr))
+        Self(Arc::new(descr))
     }
 }
 
@@ -176,10 +181,10 @@ struct SpdkBlockDeviceHandle {
     handle: UntypedBdevHandle,
 }
 
-impl TryFrom<Rc<UntypedDescriptorGuard>> for SpdkBlockDeviceHandle {
+impl TryFrom<Arc<UntypedDescriptorGuard>> for SpdkBlockDeviceHandle {
     type Error = CoreError;
 
-    fn try_from(desc: Rc<UntypedDescriptorGuard>) -> Result<Self, Self::Error> {
+    fn try_from(desc: Arc<UntypedDescriptorGuard>) -> Result<Self, Self::Error> {
         let handle = BdevHandle::try_from(desc)?;
         Ok(SpdkBlockDeviceHandle::from(handle))
     }
