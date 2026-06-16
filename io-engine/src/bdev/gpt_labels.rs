@@ -53,19 +53,26 @@
 //! it without the nexus in the data path, there would be two paritions
 //! ```
 
-use std::{cmp::min, convert::From, fmt, io::Cursor, str::FromStr};
+use std::{
+    cmp::min,
+    convert::From,
+    fmt,
+    io::{Cursor, Seek, SeekFrom},
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
-use serde::{Deserialize, Serialize};
+use crate::core::{BlockDeviceHandle, CoreError};
 
-use crate::core::CoreError;
-use bincode::{deserialize_from, serialize, Error};
+use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use serde::{
     de::{Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{SerializeTuple, Serializer},
+    Deserialize, Serialize,
 };
 use snafu::{ResultExt, Snafu};
-use spdk_rs::DmaError;
+use spdk_rs::{DmaBuf, DmaError};
 use uuid::{self, Uuid};
 
 /// The GPT label error type.
@@ -666,6 +673,124 @@ impl GptLabel {
         })
     }
 
+    /// Probe the disk for a [`GptLabel`].
+    pub async fn probe_label<T: GptDiskOps>(handle: &T) -> Result<GptLabel, LabelError> {
+        let GptDiskProps {
+            block_size,
+            num_blocks,
+        } = handle.props();
+
+        // Note that PMBR is 512B even on larger sector disks, but we must allocate block_size
+        // bytes to read it, as the underlying device may not support smaller reads.
+        let mut buf = handle.buffer_alloc(block_size).context(ReadAllocSnafu {
+            part: String::from("MBR"),
+        })?;
+        handle.read_at(0, &mut buf).await.context(ReadSnafu {
+            what: String::from("MBR"),
+        })?;
+        let mbr = GptLabel::read_mbr(&buf)?;
+
+        // GPT headers
+        let status: LabelStatus;
+        let primary: GptHeader;
+        let secondary: GptHeader;
+        let active: &GptHeader;
+
+        // Get primary GPT header.
+        handle
+            .read_at(block_size, &mut buf)
+            .await
+            .context(ReadSnafu {
+                what: String::from("primary GPT header"),
+            })?;
+        match GptLabel::read_primary_header(&buf, block_size, num_blocks) {
+            Ok(header) => {
+                primary = header;
+                active = &primary;
+                // Get secondary GPT header.
+                let offset = (num_blocks - 1) * block_size;
+                handle.read_at(offset, &mut buf).await.context(ReadSnafu {
+                    what: String::from("secondary GPT header"),
+                })?;
+                match GptLabel::read_secondary_header(&buf, block_size, num_blocks) {
+                    Ok(header) => {
+                        GptLabel::consistency_check(&primary, &header)?;
+                        // All good - primary and secondary GPT headers
+                        // are valid and consistent with each other.
+                        secondary = header;
+                        status = LabelStatus::Both;
+                    }
+                    Err(_) => {
+                        // Secondary GPT header is either not present
+                        // or invalid. Construct new secondary GPT header from primary.
+                        secondary = primary.as_secondary().context(SerializeSnafu)?;
+                        status = LabelStatus::Primary;
+                    }
+                }
+            }
+            Err(error) => {
+                // Primary GPT header is either not present or invalid.
+                // See if we can obtain a valid secondary GPT header.
+                let offset = (num_blocks - 1) * block_size;
+                handle.read_at(offset, &mut buf).await.context(ReadSnafu {
+                    what: String::from("secondary GPT header"),
+                })?;
+                match GptLabel::read_secondary_header(&buf, block_size, num_blocks) {
+                    Ok(header) => {
+                        secondary = header;
+                        active = &secondary;
+                        // Construct new primary GPT header from secondary.
+                        primary = secondary.as_primary().context(SerializeSnafu)?;
+                        status = LabelStatus::Secondary;
+                    }
+                    Err(_) => {
+                        // Neither primary or secondary GPT header is present or valid.
+                        return Err(LabelError::InvalidLabel { source: error });
+                    }
+                }
+            }
+        }
+
+        // The disk size recorded in protective MBR must be consistent with GPT header.
+        if mbr.entries[0].num_sectors != 0xffff_ffff
+            && u64::from(mbr.entries[0].num_sectors) != primary.lba_alt
+        {
+            return Err(LabelError::InvalidLabel {
+                source: ProbeError::MbrSize {},
+            });
+        }
+
+        // Partition table
+        let blocks = Aligned::get_blocks(
+            u64::from(active.entry_size * active.num_entries),
+            block_size,
+        );
+        let mut buf = handle
+            .buffer_alloc(blocks * block_size)
+            .context(ReadAllocSnafu {
+                part: String::from("partition table"),
+            })?;
+        let offset = active.lba_table * block_size;
+        handle.read_at(offset, &mut buf).await.context(ReadSnafu {
+            what: String::from("partition table"),
+        })?;
+        let mut partitions = GptLabel::read_partitions(&buf, active)?;
+
+        // There can be up to 128 partition entries stored on disk,
+        // even though most are not used. Retain only those entries
+        // that actually define partitions.
+        partitions.retain(|entry| entry.ent_start > 0 || entry.ent_end > 0);
+
+        Ok(GptLabel {
+            status,
+            block_size,
+            mbr,
+            primary,
+            partitions,
+            secondary,
+        })
+    }
+
     /// Create partition table entries for the "MayaMeta" and "MayaData" partitions.
     fn create_partitions(
         header: &GptHeader,
@@ -828,21 +953,18 @@ impl fmt::Display for GptLabel {
 
 impl GptLabel {
     /// Construct a Pmbr from raw data.
-    #[allow(dead_code)]
-    fn read_mbr(buf: &[u8]) -> Result<Pmbr, ProbeError> {
-        Pmbr::from_slice(&buf[440..512])
+    fn read_mbr(buf: &impl GptBuffer) -> Result<Pmbr, ProbeError> {
+        Pmbr::from_slice(&buf.as_slice()[440..512])
     }
 
     /// Construct a GPT header from raw data.
-    #[allow(dead_code)]
-    fn read_header(buf: &[u8]) -> Result<GptHeader, ProbeError> {
-        GptHeader::from_slice(buf)
+    fn read_header(buf: &impl GptBuffer) -> Result<GptHeader, ProbeError> {
+        GptHeader::from_slice(buf.as_slice())
     }
 
     /// Construct and validate primary GPT header.
-    #[allow(dead_code)]
     fn read_primary_header(
-        buf: &[u8],
+        buf: &impl GptBuffer,
         block_size: u64,
         num_blocks: u64,
     ) -> Result<GptHeader, ProbeError> {
@@ -852,9 +974,8 @@ impl GptLabel {
     }
 
     /// Construct and validate secondary GPT header.
-    #[allow(dead_code)]
     fn read_secondary_header(
-        buf: &[u8],
+        buf: &impl GptBuffer,
         block_size: u64,
         num_blocks: u64,
     ) -> Result<GptHeader, ProbeError> {
@@ -864,9 +985,11 @@ impl GptLabel {
     }
 
     /// Construct and validate partition table.
-    #[allow(dead_code)]
-    fn read_partitions(buf: &[u8], header: &GptHeader) -> Result<Vec<GptEntry>, ProbeError> {
-        let partitions = GptEntry::from_slice(buf, header.num_entries)?;
+    fn read_partitions(
+        buf: &impl GptBuffer,
+        header: &GptHeader,
+    ) -> Result<Vec<GptEntry>, ProbeError> {
+        let partitions = GptEntry::from_slice(buf.as_slice(), header.num_entries)?;
         GptLabel::validate_partitions(&partitions, header)?;
         Ok(partitions)
     }
@@ -980,6 +1103,147 @@ impl GptLabel {
             return Err(ProbeError::ComparePartitionTableChecksum {});
         }
         Ok(())
+    }
+}
+
+/// Properties of the disk needed to probe and read GPT labels.
+#[derive(Clone, Copy)]
+pub struct GptDiskProps {
+    /// Logical block size of the underlying device.
+    pub block_size: u64,
+    /// Number of blocks on the underlying device.
+    pub num_blocks: u64,
+}
+
+/// Trait for disk operations needed to probe and read GPT labels.
+#[async_trait::async_trait(?Send)]
+pub trait GptDiskOps {
+    type Buffer: GptBuffer;
+
+    fn buffer_alloc(&self, size: u64) -> Result<Self::Buffer, DmaError>;
+    fn props(&self) -> GptDiskProps;
+    async fn read_at(&self, offset: u64, buffer: &mut Self::Buffer) -> Result<u64, CoreError>;
+}
+
+#[async_trait::async_trait(?Send)]
+impl GptDiskOps for Box<dyn BlockDeviceHandle> {
+    type Buffer = DmaBuf;
+
+    fn buffer_alloc(&self, size: u64) -> Result<Self::Buffer, DmaError> {
+        self.dma_malloc(size)
+    }
+    fn props(&self) -> GptDiskProps {
+        let bdev = self.get_device();
+        GptDiskProps {
+            block_size: bdev.block_len(),
+            num_blocks: bdev.num_blocks(),
+        }
+    }
+    async fn read_at(&self, offset: u64, buffer: &mut Self::Buffer) -> Result<u64, CoreError> {
+        self.read_at(offset, buffer).await
+    }
+}
+#[async_trait::async_trait(?Send)]
+impl GptDiskOps for dyn BlockDeviceHandle {
+    type Buffer = DmaBuf;
+
+    fn buffer_alloc(&self, size: u64) -> Result<Self::Buffer, DmaError> {
+        self.dma_malloc(size)
+    }
+    fn props(&self) -> GptDiskProps {
+        let bdev = self.get_device();
+        GptDiskProps {
+            block_size: bdev.block_len(),
+            num_blocks: bdev.num_blocks(),
+        }
+    }
+    async fn read_at(&self, offset: u64, buffer: &mut Self::Buffer) -> Result<u64, CoreError> {
+        #[allow(deprecated)]
+        self.read_at(offset, buffer).await
+    }
+}
+
+/// A trait to abstract over the buffer type used for reading/writing GPT data.
+pub trait GptBuffer {
+    fn as_slice(&self) -> &[u8];
+    fn as_mut_slice(&mut self) -> &mut [u8];
+}
+impl GptBuffer for DmaBuf {
+    fn as_slice(&self) -> &[u8] {
+        self.deref().as_slice()
+    }
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.deref_mut().as_mut_slice()
+    }
+}
+
+/// A structure to hold the raw label data and the offset at which it should be written to disk.
+pub struct LabelDataX<T: GptBuffer> {
+    pub offset: u64,
+    pub buf: T,
+}
+impl GptLabel {
+    /// Generate raw data for (primary) label ready to be written to disk.
+    pub fn primary_data<T: GptDiskOps + ?Sized>(
+        &self,
+        handle: &T,
+    ) -> Result<LabelDataX<T::Buffer>, LabelError> {
+        let mut buf = handle
+            .buffer_alloc(self.primary.lba_start * self.block_size)
+            .context(WriteAllocSnafu {
+                what: String::from("primary"),
+            })?;
+
+        let mut writer = Cursor::new(buf.as_mut_slice());
+
+        // Protective MBR
+        writer.seek(SeekFrom::Start(440)).context(SeekSnafu)?;
+        serialize_into(&mut writer, &self.mbr).context(SerializeSnafu)?;
+
+        // Primary GPT header
+        writer
+            .seek(SeekFrom::Start(self.primary.lba_self * self.block_size))
+            .context(SeekSnafu)?;
+        serialize_into(&mut writer, &self.primary).context(SerializeSnafu)?;
+
+        // Primary partition table
+        writer
+            .seek(SeekFrom::Start(self.primary.lba_table * self.block_size))
+            .context(SeekSnafu)?;
+        for entry in self.partitions.iter() {
+            serialize_into(&mut writer, &entry).context(SerializeSnafu)?;
+        }
+
+        Ok(LabelDataX { offset: 0, buf })
+    }
+
+    /// Generate raw data for (secondary) label ready to be written to disk.
+    pub fn secondary_data<T: GptDiskOps + ?Sized>(
+        &self,
+        handle: &T,
+    ) -> Result<LabelDataX<T::Buffer>, LabelError> {
+        let len_bytes = (self.secondary.lba_self - self.secondary.lba_table + 1) * self.block_size;
+        let mut buf = handle.buffer_alloc(len_bytes).context(WriteAllocSnafu {
+            what: String::from("secondary"),
+        })?;
+
+        let mut writer = Cursor::new(buf.as_mut_slice());
+
+        // Secondary partition table
+        for entry in self.partitions.iter() {
+            serialize_into(&mut writer, &entry).context(SerializeSnafu)?;
+        }
+
+        // Secondary GPT header
+        writer
+            .seek(SeekFrom::Start(
+                (self.secondary.lba_self - self.secondary.lba_table) * self.block_size,
+            ))
+            .context(SeekSnafu)?;
+        serialize_into(&mut writer, &self.secondary).context(SerializeSnafu)?;
+
+        let offset = self.secondary.lba_table * self.block_size;
+        Ok(LabelDataX { offset, buf })
     }
 }
 
