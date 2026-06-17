@@ -116,6 +116,62 @@ impl NexusService {
             Err(_) => Err(Status::cancelled("gRPC call cancelled")),
         }
     }
+
+    async fn create_nexus(args: CreateNexusRequest) -> GrpcResult<CreateNexusResponse> {
+        trace!("{:?}", args);
+        let resv_type = NvmeReservationConv(args.resv_type).try_into()?;
+        let preempt_policy = NvmePreemptionConv(args.preempt_policy).try_into()?;
+        let rx = rpc_submit::<_, _, nexus::Error>(async move {
+            // check for nexus exists, uuid & name
+            if let Some(_n) = nexus::nexus_lookup(&args.name) {
+                return Err(nexus::Error::NameExists {
+                    name: args.name.clone(),
+                });
+            }
+            if let Ok(_n) = nexus_lookup(&args.uuid) {
+                return Err(nexus::Error::UuidExists {
+                    uuid: args.uuid.clone(),
+                    nexus: args.name.clone(),
+                });
+            }
+
+            // If the control plane has supplied a key, use it to store
+            // the NexusInfo.
+            let nexus_info_key = if args.nexus_info_key.is_empty() {
+                None
+            } else {
+                Some(args.nexus_info_key.to_string())
+            };
+
+            nexus::nexus_create_v2(
+                &args.name,
+                args.size,
+                &args.uuid,
+                nexus::NexusNvmeParams {
+                    min_cntlid: args.min_cntl_id as u16,
+                    max_cntlid: args.max_cntl_id as u16,
+                    resv_key: args.resv_key,
+                    preempt_key: match args.preempt_key {
+                        0 => None,
+                        k => std::num::NonZeroU64::new(k),
+                    },
+                    resv_type,
+                    preempt_policy,
+                },
+                &args.children,
+                nexus_info_key,
+            )
+            .await?;
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.event(EventAction::Create).generate();
+            info!("Created nexus {}/{}", &args.name, &args.uuid);
+            Ok(nexus.into_grpc().await)
+        })?;
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(|nexus| Response::new(CreateNexusResponse { nexus: Some(nexus) }))
+    }
 }
 
 impl From<NexusStatus> for NexusState {
@@ -338,6 +394,7 @@ impl<'n> nexus::Nexus<'n> {
             rebuilds: self.count_rebuild_jobs() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
+            label_version: NexusLabelVersion::LabelV1 as i32,
         }
     }
 }
@@ -368,6 +425,24 @@ async fn nexus_add_child(args: &AddChildNexusRequest) -> Result<Nexus, nexus::Er
 #[tonic::async_trait]
 impl NexusRpc for NexusService {
     #[named]
+    async fn create_nexus_v2(
+        &self,
+        request: Request<CreateNexusV2Request>,
+    ) -> GrpcResult<CreateNexusResponse> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        let version = NexusLabelVersion::try_from(args.label_version).unwrap_or_default();
+        if !matches!(version, NexusLabelVersion::LabelV1) {
+            return Err(Status::invalid_argument("unsupported label version"));
+        }
+        let args = args.v1.ok_or(Status::invalid_argument("missing v1"))?;
+
+        self.serialized(ctx, args.uuid.clone(), false, Self::create_nexus(args))
+            .await
+    }
+
+    #[named]
     async fn create_nexus(
         &self,
         request: Request<CreateNexusRequest>,
@@ -375,62 +450,8 @@ impl NexusRpc for NexusService {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
-        self.serialized(ctx, args.uuid.clone(), false, async move {
-            trace!("{:?}", args);
-            let resv_type = NvmeReservationConv(args.resv_type).try_into()?;
-            let preempt_policy = NvmePreemptionConv(args.preempt_policy).try_into()?;
-            let rx = rpc_submit::<_, _, nexus::Error>(async move {
-                // check for nexus exists, uuid & name
-                if let Some(_n) = nexus::nexus_lookup(&args.name) {
-                    return Err(nexus::Error::NameExists {
-                        name: args.name.clone(),
-                    });
-                }
-                if let Ok(_n) = nexus_lookup(&args.uuid) {
-                    return Err(nexus::Error::UuidExists {
-                        uuid: args.uuid.clone(),
-                        nexus: args.name.clone(),
-                    });
-                }
-
-                // If the control plane has supplied a key, use it to store
-                // the NexusInfo.
-                let nexus_info_key = if args.nexus_info_key.is_empty() {
-                    None
-                } else {
-                    Some(args.nexus_info_key.to_string())
-                };
-
-                nexus::nexus_create_v2(
-                    &args.name,
-                    args.size,
-                    &args.uuid,
-                    nexus::NexusNvmeParams {
-                        min_cntlid: args.min_cntl_id as u16,
-                        max_cntlid: args.max_cntl_id as u16,
-                        resv_key: args.resv_key,
-                        preempt_key: match args.preempt_key {
-                            0 => None,
-                            k => std::num::NonZeroU64::new(k),
-                        },
-                        resv_type,
-                        preempt_policy,
-                    },
-                    &args.children,
-                    nexus_info_key,
-                )
-                .await?;
-                let nexus = nexus_lookup(&args.uuid)?;
-                nexus.event(EventAction::Create).generate();
-                info!("Created nexus {}/{}", &args.name, &args.uuid);
-                Ok(nexus.into_grpc().await)
-            })?;
-            rx.await
-                .map_err(|_| Status::cancelled("cancelled"))?
-                .map_err(Status::from)
-                .map(|nexus| Response::new(CreateNexusResponse { nexus: Some(nexus) }))
-        })
-        .await
+        self.serialized(ctx, args.uuid.clone(), false, Self::create_nexus(args))
+            .await
     }
 
     #[named]
