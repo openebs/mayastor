@@ -60,5 +60,5 @@ fn reconcile() {
         reactor.reapply_affinity();
     }
 
-    runtime::reapply_tokio_unaffinity();
+    runtime::reapply_workers_unaffinity();
 }

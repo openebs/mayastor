@@ -1189,8 +1189,6 @@ impl MayastorEnvironment {
 
         info!("All cores locked and loaded!");
 
-        crate::core::start_affinity_monitor();
-
         // ensure we are within the context of a spdk thread from here
         Mthread::primary().set_current();
 
@@ -1209,6 +1207,10 @@ impl MayastorEnvironment {
 
             assert!(receiver.await.unwrap());
         });
+
+        info!("Affinity monitoring started!");
+
+        crate::core::start_affinity_monitor();
 
         // load any pools that need to be created
         if let Some(config) = pool_config {
