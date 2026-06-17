@@ -7,10 +7,7 @@ use crate::core::{runtime, Mthread, Reactors};
 const CPUSET_FILE: &str = "/sys/fs/cgroup/cpuset.cpus.effective";
 
 pub fn start_monitor() {
-    std::thread::Builder::new()
-        .name("cpuset-monitor".to_string())
-        .spawn(run)
-        .expect("failed to start cpuset monitor");
+    runtime::spawn_blocking(run);
 }
 
 fn run() {
