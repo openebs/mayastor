@@ -19,12 +19,12 @@ pub(crate) use crate::GrpcStatus;
 use clap::{Parser, Subcommand};
 use context::{OutputFormat, Units};
 use snafu::ResultExt;
-use version_info::version_info_str;
+use version_info::version_info_string;
 
 #[derive(Parser, Debug)]
 #[command(
     name = "Mayastor CLI V1",
-    version = version_info_str!(),
+    version = version_info_string!(),
     about = "CLI utility for Mayastor"
 )]
 struct Opts {
