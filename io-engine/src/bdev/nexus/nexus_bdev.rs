@@ -726,15 +726,16 @@ impl<'n> Nexus<'n> {
                 }
             }
         }
+        let size_blks = end_blk - start_blk + 1;
 
         unsafe {
             self.as_mut().set_data_ent_offset(start_blk);
             self.as_mut().set_block_len(blk_size as u32);
             let nbdev = self.as_mut().bdev_mut().unsafe_inner_mut_ptr();
             if !resizing {
-                self.as_mut().set_num_blocks(end_blk - start_blk);
+                self.as_mut().set_num_blocks(size_blks);
             } else {
-                let rc = spdk_bdev_notify_blockcnt_change(nbdev, end_blk - start_blk);
+                let rc = spdk_bdev_notify_blockcnt_change(nbdev, size_blks);
                 if rc != 0 {
                     error!("{self:?}: failed to notify block cnt change on nexus");
                     return Err(Error::NexusResize {
@@ -749,7 +750,7 @@ impl<'n> Nexus<'n> {
             "{self:?}: nexus device {action}: \
             requested={req_blk} blocks ({req} bytes) \
             start block={start_blk}, end block={end_blk}, \
-            block size={blk_size}, \
+            block size={blk_size}, size={size_blks} blocks, \
             smallest devices size={min_dev_size} blocks",
             action = if resizing { "resized" } else { "initialized" },
             req_blk = self.req_size() / blk_size,
