@@ -14,7 +14,6 @@ pub use io_engine_api::v1::pool::{ProbeError, ProbeErrorCode};
 pub mod crypto;
 pub(crate) mod device;
 mod ftl;
-pub mod gpt_labels;
 mod loopback;
 mod lvs;
 mod malloc;

@@ -1,6 +1,6 @@
 use clap::Parser;
-use io_engine::gpt_labels::{
-    GptBuffer, GptDiskOps, GptDiskProps, GptGuid, GptLabel, LabelError, ProbeError,
+use io_engine::gpt::{
+    GptBuffer, GptDiskOps, GptDiskProps, GptGuid, LabelError, ProbeError, VersionedLabel, V1,
 };
 use snafu::{ResultExt, Snafu};
 use std::{
@@ -95,14 +95,13 @@ fn write(cli_args: &CliArgs) -> Result<(), Error> {
         "978D2F99-AA7C-4F24-AE22-1BF99137D7B1",
     )?);
     let mut gpt_disk = GptDisk::new(false, true, cli_args)?;
-    let props = gpt_disk.props();
 
     // Create new disk label.
-    let label = GptLabel::generate_label(guid, props.block_size, props.num_blocks, None)?;
+    let label = V1::generate(guid, gpt_disk.props())?;
     println!("{label}");
 
-    let primary = label.primary_data(&gpt_disk)?;
-    let secondary = label.secondary_data(&gpt_disk)?;
+    let primary = label.gpt.primary_data(&gpt_disk)?;
+    let secondary = label.gpt.secondary_data(&gpt_disk)?;
 
     gpt_disk.write_at(&primary.buf, primary.offset)?;
     gpt_disk.write_at(&secondary.buf, secondary.offset)?;
@@ -114,10 +113,10 @@ fn write(cli_args: &CliArgs) -> Result<(), Error> {
 async fn read(cli_args: &CliArgs) -> Result<(), Error> {
     let gpt_disk = GptDisk::new(true, false, cli_args)?;
 
-    let label = gpt_disk.probe_label().await?;
+    let label = VersionedLabel::probe(&gpt_disk).await?;
     println!("{label}");
 
-    if !GptLabel::check_partitions(&label) {
+    if !label.check() {
         todo!("resync the label with the partitions");
     }
 
@@ -189,9 +188,6 @@ impl GptDisk {
         self.file.write_all_at(buf, offset).context(WriteSnafu)?;
         Ok(())
     }
-    async fn probe_label(&self) -> Result<GptLabel, LabelError> {
-        GptLabel::probe_label(self).await
-    }
 }
 
 /// In-memory I/O buffer satisfying [`GptBuffer`] for file-based disk access.
@@ -209,7 +205,7 @@ impl DerefMut for FileBuffer {
 }
 
 #[async_trait::async_trait(?Send)]
-impl io_engine::gpt_labels::GptDiskOps for GptDisk {
+impl io_engine::gpt::GptDiskOps for GptDisk {
     type Buffer = FileBuffer;
 
     fn buffer_alloc(&self, size: u64) -> Result<Self::Buffer, spdk_rs::DmaError> {

@@ -56,4 +56,4 @@ pub extern "C" fn cps_init() {
     bdev::null_ng::register();
 }
 
-pub use bdev::gpt_labels;
+pub use core::gpt;
