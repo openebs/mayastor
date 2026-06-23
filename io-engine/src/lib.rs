@@ -55,3 +55,5 @@ pub extern "C" fn cps_init() {
     bdev::nexus::register_module(true);
     bdev::null_ng::register();
 }
+
+pub use core::gpt;
