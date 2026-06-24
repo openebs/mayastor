@@ -1,6 +1,7 @@
 use clap::Parser;
 use io_engine::gpt::{
-    GptBuffer, GptDiskOps, GptDiskProps, GptGuid, LabelError, ProbeError, VersionedLabel, V1,
+    GptBuffer, GptDiskOps, GptDiskProps, GptGuid, LabelError, LabelVersion, ProbeError,
+    VersionedLabel,
 };
 use snafu::{ResultExt, Snafu};
 use std::{
@@ -96,8 +97,8 @@ fn write(cli_args: &CliArgs) -> Result<(), Error> {
     )?);
     let mut gpt_disk = GptDisk::new(false, true, cli_args)?;
 
-    // Create new disk label.
-    let label = V1::generate(guid, gpt_disk.props())?;
+    // Create new disk label that fills the device.
+    let label = LabelVersion::V1.generate(guid, gpt_disk.props(), u64::MAX)?;
     println!("{label}");
 
     let primary = label.gpt.primary_data(&gpt_disk)?;
