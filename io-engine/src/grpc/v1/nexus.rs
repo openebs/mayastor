@@ -4,6 +4,7 @@ use crate::{
         nexus::{nexus_lookup_uuid_mut, ChildStateClient, FaultReason, NexusChild, NexusStatus},
     },
     core::{
+        gpt::LabelVersion,
         lock::{ProtectedSubsystems, ResourceLockManager},
         Protocol, Share,
     },
@@ -117,7 +118,10 @@ impl NexusService {
         }
     }
 
-    async fn create_nexus(args: CreateNexusRequest) -> GrpcResult<CreateNexusResponse> {
+    async fn create_nexus(
+        args: CreateNexusRequest,
+        label_version: LabelVersion,
+    ) -> GrpcResult<CreateNexusResponse> {
         trace!("{:?}", args);
         let resv_type = NvmeReservationConv(args.resv_type).try_into()?;
         let preempt_policy = NvmePreemptionConv(args.preempt_policy).try_into()?;
@@ -160,6 +164,7 @@ impl NexusService {
                 },
                 &args.children,
                 nexus_info_key,
+                label_version,
             )
             .await?;
             let nexus = nexus_lookup(&args.uuid)?;
@@ -183,6 +188,23 @@ impl From<NexusStatus> for NexusState {
             NexusStatus::ShuttingDown => NexusState::NexusShuttingDown,
             NexusStatus::Shutdown => NexusState::NexusShutdown,
         }
+    }
+}
+
+/// Translate the proto label version into the core [`LabelVersion`].
+/// Returns `None` for unsupported variants (e.g. `LabelUnknown`).
+fn label_version_from_proto(v: NexusLabelVersion) -> Option<LabelVersion> {
+    match v {
+        NexusLabelVersion::LabelV1 => Some(LabelVersion::V1),
+        NexusLabelVersion::LabelV2 => Some(LabelVersion::V2),
+        NexusLabelVersion::LabelUnknown => None,
+    }
+}
+
+fn label_version_to_proto(v: LabelVersion) -> NexusLabelVersion {
+    match v {
+        LabelVersion::V1 => NexusLabelVersion::LabelV1,
+        LabelVersion::V2 => NexusLabelVersion::LabelV2,
     }
 }
 
@@ -394,7 +416,7 @@ impl<'n> nexus::Nexus<'n> {
             rebuilds: self.count_rebuild_jobs() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
-            label_version: NexusLabelVersion::LabelV1 as i32,
+            label_version: label_version_to_proto(self.label_version) as i32,
         }
     }
 }
@@ -433,13 +455,17 @@ impl NexusRpc for NexusService {
         let args = request.into_inner();
 
         let version = NexusLabelVersion::try_from(args.label_version).unwrap_or_default();
-        if !matches!(version, NexusLabelVersion::LabelV1) {
-            return Err(Status::invalid_argument("unsupported label version"));
-        }
+        let label_version = label_version_from_proto(version)
+            .ok_or_else(|| Status::invalid_argument("unsupported label version"))?;
         let args = args.v1.ok_or(Status::invalid_argument("missing v1"))?;
 
-        self.serialized(ctx, args.uuid.clone(), false, Self::create_nexus(args))
-            .await
+        self.serialized(
+            ctx,
+            args.uuid.clone(),
+            false,
+            Self::create_nexus(args, label_version),
+        )
+        .await
     }
 
     #[named]
@@ -450,8 +476,13 @@ impl NexusRpc for NexusService {
         let ctx = GrpcClientContext::new(&request, function_name!());
         let args = request.into_inner();
 
-        self.serialized(ctx, args.uuid.clone(), false, Self::create_nexus(args))
-            .await
+        self.serialized(
+            ctx,
+            args.uuid.clone(),
+            false,
+            Self::create_nexus(args, LabelVersion::V1),
+        )
+        .await
     }
 
     #[named]

@@ -67,7 +67,6 @@ pub mod lock;
 pub mod logical_volume;
 pub mod mempool;
 mod nic;
-pub mod partition;
 mod reactor;
 pub mod runtime;
 pub mod segment_map;
