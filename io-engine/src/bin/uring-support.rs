@@ -1,12 +1,12 @@
 use clap::Parser;
 use io_engine::bdev::util::uring;
-use version_info::version_info_str;
+use version_info::version_info_string;
 
 /// Determines io_uring support.
 #[derive(Debug, Parser)]
 #[command(
     name = "Detect io_uring support",
-    version = version_info_str!(),
+    version = version_info_string!(),
     author = "Jonathan Teh <jonathan.teh@mayadata.io>",
     about = "Determines io_uring support"
 )]

@@ -10,13 +10,13 @@ extern crate serde_json;
 
 use clap::Parser;
 use jsonrpc::call;
-use version_info::{package_description, version_info_str};
+use version_info::{package_description, version_info_string};
 
 /// TODO
 #[derive(Debug, Parser)]
 #[clap(
     name = package_description!(),
-    version = version_info_str!(),
+    version = version_info_string!(),
     about = "Mayastor json-rpc client",
 )]
 struct Opt {

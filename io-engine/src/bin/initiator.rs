@@ -11,7 +11,7 @@ use chrono::Utc;
 use clap::{Parser, Subcommand};
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use version_info::version_info_str;
+use version_info::version_info_string;
 
 use io_engine::{
     bdev::{device_create, device_open},
@@ -160,7 +160,7 @@ async fn connect(uri: &url::Url) -> Result<()> {
 #[derive(Debug, Parser)]
 #[command(
     name = "Test initiator for nexus replica",
-    version = version_info_str!(),
+    version = version_info_string!(),
     about = "Connect, read or write a block to a nexus replica using its URI"
 )]
 struct Args {

@@ -17,7 +17,7 @@ use io_engine::{
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors, Share},
     grpc, logger,
 };
-use version_info::version_info_str;
+use version_info::version_info_string;
 
 io_engine::CPS_INIT!();
 
@@ -57,7 +57,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 #[derive(Debug, Parser)]
 #[command(
     name = "NVMeT CLI",
-    version = version_info_str!(),
+    version = version_info_string!(),
     about = "NVMe test utility to quickly create a nexus over existing nvme targets"
 )]
 struct Args {

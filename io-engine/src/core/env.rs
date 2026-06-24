@@ -19,7 +19,7 @@ use http::Uri;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use tokio::runtime::Builder;
-use version_info::{package_description, version_info_str};
+use version_info::{package_description, version_info_string};
 
 use spdk_rs::{
     libspdk::{
@@ -130,7 +130,7 @@ fn parse_grpc_ip(src: &str) -> Result<SIpAddr, String> {
 #[clap(
     name = package_description!(),
     about = "Containerized Attached Storage (CAS) for k8s",
-    version = version_info_str!(),
+    version = version_info_string!(),
 )]
 pub struct MayastorCliArgs {
     #[clap(short = 'g', long = "grpc-endpoint")]
