@@ -22,7 +22,7 @@ struct CliArgs {
     /// When omitted, the block size is read from sysfs for block devices, and defaults to 512
     /// for regular files. {n}
     /// Must be a power of two and divide the device size.
-    #[clap(short, long)]
+    #[clap(short, long, global = true)]
     block_size: Option<u64>,
 
     /// Command.

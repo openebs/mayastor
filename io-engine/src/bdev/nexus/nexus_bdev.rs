@@ -1410,6 +1410,17 @@ pub async fn nexus_create(
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
+    nexus_create_ext(name, size, uuid, children, LabelVersion::V1).await
+}
+
+/// Same as [`nexus_create`] but allows specifying the label version to use for the nexus.
+pub async fn nexus_create_ext(
+    name: &str,
+    size: u64,
+    uuid: Option<&str>,
+    children: &[String],
+    label_version: LabelVersion,
+) -> Result<(), Error> {
     nexus_create_internal(
         name,
         size,
@@ -1418,7 +1429,7 @@ pub async fn nexus_create(
         NexusNvmeParams::default(),
         children,
         None,
-        LabelVersion::V1,
+        label_version,
     )
     .await
 }

@@ -11,7 +11,7 @@
 //! generator here because each version's parameters differ.
 
 use super::{
-    maya::{self, V1},
+    maya::{self, V1, V2},
     primitives::{GptDiskOps, GptDiskProps, GptGuid, GptLabel, LabelError, ProbeError},
 };
 
@@ -24,6 +24,29 @@ pub struct DataExtent {
     pub start: u64,
     /// Last block of the data partition (inclusive).
     pub end: u64,
+}
+impl DataExtent {
+    fn size(&self) -> u64 {
+        self.end - self.start + 1
+    }
+
+    /// Check if this partition size is multiple of the given number of blocks.
+    pub fn is_multiple_of(&self, blocks: u64) -> bool {
+        self.size() % blocks == 0
+    }
+}
+
+impl std::fmt::Display for DataExtent {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Start: {}, End: {}, Size: {}",
+            self.start,
+            self.end,
+            self.size()
+        )?;
+        Ok(())
+    }
 }
 
 /// Behaviour each label version must provide.
@@ -75,7 +98,7 @@ impl LabelVersion {
     pub fn variant(self) -> &'static dyn LabelVariant {
         match self {
             Self::V1 => &V1,
-            Self::V2 => todo!("V2 label variant not yet implemented"),
+            Self::V2 => &V2,
         }
     }
 
@@ -109,7 +132,17 @@ impl LabelVersion {
     ) -> Result<VersionedLabel, LabelError> {
         match self {
             Self::V1 => maya::generate::<V1>(guid, disk, req_size),
-            Self::V2 => todo!("V2 label generation not yet implemented"),
+            Self::V2 => maya::generate::<V2>(guid, disk, req_size),
+        }
+    }
+
+    /// Data start offset in blocks for this version.
+    /// Useful for testing only.
+    pub fn data_start_blks(&self, block_size: u64) -> u64 {
+        use maya::Layout;
+        match self {
+            Self::V1 => V1::DATA_START_OFFSET / block_size,
+            Self::V2 => V2::DATA_START_OFFSET / block_size,
         }
     }
 }
