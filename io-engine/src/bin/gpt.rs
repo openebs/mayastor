@@ -10,25 +10,52 @@ use std::{
 };
 use version_info::{package_description, version_info_string};
 
-#[derive(Debug, Clone, Parser)]
+#[derive(Debug, Parser)]
 #[clap(name = package_description!(), version = version_info_string!())]
 struct CliArgs {
-    /// The disk uri to use.
+    /// The disk uri to use. {n}
     /// Run as sudo if this is a real block device.
     #[clap(short, long)]
     disk_uri: url::Url,
+
+    /// Override the disk's logical block size, in bytes. {n}
+    /// When omitted, the block size is read from sysfs for block devices, and defaults to 512
+    /// for regular files. {n}
+    /// Must be a power of two and divide the device size.
+    #[clap(short, long)]
+    block_size: Option<u64>,
 
     /// Command.
     #[clap(subcommand)]
     command: Command,
 }
 
-#[derive(clap::Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug)]
 enum Command {
     /// Read and display the GPT label from the disk.
     Read,
     /// Write a new GPT label to the disk, overwriting any existing label.
-    Write,
+    Write {
+        /// Label layout version to write.
+        #[clap(long, value_enum)]
+        version: LabelVersionArg,
+    },
+}
+
+#[derive(clap::ValueEnum, Debug, Default, Clone)]
+enum LabelVersionArg {
+    #[default]
+    V1,
+    V2,
+}
+
+impl From<&LabelVersionArg> for LabelVersion {
+    fn from(v: &LabelVersionArg) -> Self {
+        match v {
+            LabelVersionArg::V1 => LabelVersion::V1,
+            LabelVersionArg::V2 => LabelVersion::V2,
+        }
+    }
 }
 
 #[derive(Debug, Snafu)]
@@ -58,6 +85,12 @@ enum Error {
     DiskMeta { source: std::io::Error },
     #[snafu(display("Disk not in /dev/"))]
     DiskDev,
+    #[snafu(display("Invalid block size {block_size}: must be a power of two"))]
+    BadBlockSize { block_size: u64 },
+    #[snafu(display(
+        "Disk size of {disk_size} bytes is not a multiple of block size {block_size} bytes"
+    ))]
+    UnalignedDiskSize { block_size: u64, disk_size: u64 },
     #[snafu(display("{source}"))]
     InvalidUuid { source: uuid::Error },
 }
@@ -82,7 +115,7 @@ async fn main() -> Result<(), String> {
     let cli_args = CliArgs::parse();
 
     match &cli_args.command {
-        Command::Write => write(&cli_args),
+        Command::Write { version } => write(&cli_args, version.into()),
         Command::Read => read(&cli_args).await,
     }
     .map_err(|e| format!("{e}"))
@@ -90,7 +123,7 @@ async fn main() -> Result<(), String> {
 
 /// Creates a fresh GPT label on the disk and writes both the primary (LBA 1)
 /// and secondary (last LBA) headers along with their partition tables.
-fn write(cli_args: &CliArgs) -> Result<(), Error> {
+fn write(cli_args: &CliArgs, version: LabelVersion) -> Result<(), Error> {
     // Fixed GUID used as the disk identifier for CLI testing.
     let guid = GptGuid::from(uuid::Uuid::parse_str(
         "978D2F99-AA7C-4F24-AE22-1BF99137D7B1",
@@ -98,7 +131,7 @@ fn write(cli_args: &CliArgs) -> Result<(), Error> {
     let mut gpt_disk = GptDisk::new(false, true, cli_args)?;
 
     // Create new disk label that fills the device.
-    let label = LabelVersion::V1.generate(guid, gpt_disk.props(), u64::MAX)?;
+    let label = version.generate(guid, gpt_disk.props(), u64::MAX)?;
     println!("{label}");
 
     let primary = label.gpt.primary_data(&gpt_disk)?;
@@ -144,32 +177,47 @@ impl GptDisk {
             .write(write)
             .open(&disk)
             .context(OpenDiskSnafu)?;
-        let props = Self::disk_props(&disk, &file)?;
+        let props = Self::disk_props(&disk, &file, cli_args.block_size)?;
         Ok(Self { file, props })
     }
     /// Determines block size and block count. For block devices these are read
     /// from sysfs (`/sys/block/<dev>/queue/logical_block_size` and `size`).
-    /// For regular files a 512-byte block size is assumed.
-    fn disk_props(disk: &str, file: &std::fs::File) -> Result<GptDiskProps, Error> {
+    /// For regular files a 512-byte block size is assumed. When
+    /// `block_size_override` is set, it replaces the detected block size and
+    /// the block count is recomputed from the raw device byte size.
+    fn disk_props(
+        disk: &str,
+        file: &std::fs::File,
+        block_size_override: Option<u64>,
+    ) -> Result<GptDiskProps, Error> {
         let metadata = file.metadata().context(DiskMetaSnafu)?;
         let file_len = metadata.len();
 
-        let block_size;
-        let num_blocks;
+        let disk_bytes;
+        let detected_block_size;
         if metadata.file_type().is_block_device() {
             let dev = disk.strip_prefix("/dev/").ok_or(Error::DiskDev)?;
-            block_size = Self::read_block_sysfs(dev, "queue/logical_block_size")?;
-            // sysfs `size` is always reported in 512-byte sectors, regardless of
-            // the device's logical block size; convert into logical blocks.
-            let sysfs_sectors = Self::read_block_sysfs(dev, "size")?;
-            num_blocks = sysfs_sectors * 512 / block_size;
+            detected_block_size = Self::read_block_sysfs(dev, "queue/logical_block_size")?;
+            // sysfs `size` is always reported in 512-byte sectors.
+            disk_bytes = Self::read_block_sysfs(dev, "size")? * 512;
         } else {
-            block_size = 512;
-            num_blocks = file_len / block_size;
+            detected_block_size = 512;
+            disk_bytes = file_len;
+        }
+
+        let block_size = block_size_override.unwrap_or(detected_block_size);
+        if !block_size.is_power_of_two() {
+            return Err(Error::BadBlockSize { block_size });
+        }
+        if disk_bytes % block_size != 0 {
+            return Err(Error::UnalignedDiskSize {
+                block_size,
+                disk_size: disk_bytes,
+            });
         }
         Ok(GptDiskProps {
             block_size,
-            num_blocks,
+            num_blocks: disk_bytes / block_size,
         })
     }
     fn read_block_sysfs(dev: &str, attr: &str) -> Result<u64, Error> {
