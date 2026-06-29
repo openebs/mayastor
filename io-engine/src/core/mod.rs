@@ -322,6 +322,8 @@ pub struct MayastorFeatures {
     pub rdma_capable_io_engine: bool,
     /// Diskpool encryption capability.
     pub diskpool_encryption: bool,
+    /// Nexus label versioning capability.
+    pub nexus_label_version: u32,
 }
 impl MayastorFeatures {
     /// Check if LVM feature is enabled.
@@ -332,6 +334,11 @@ impl MayastorFeatures {
     /// Get nvmf target's rdma feature state.
     pub fn rdma_capable_io_engine(&self) -> bool {
         self.rdma_capable_io_engine
+    }
+
+    /// Get nexus label versioning feature state.
+    pub fn nexus_label_version(&self) -> u32 {
+        self.nexus_label_version
     }
 }
 

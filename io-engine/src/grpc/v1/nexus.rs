@@ -416,7 +416,8 @@ impl<'n> nexus::Nexus<'n> {
             rebuilds: self.count_rebuild_jobs() as u32,
             ana_state: ana_state as i32,
             allowed_hosts: self.allowed_hosts(),
-            label_version: label_version_to_proto(self.label_version) as i32,
+            label_version: Some(label_version_to_proto(self.label_version) as i32),
+            bdev_size: Some(self.size_in_bytes()),
         }
     }
 }

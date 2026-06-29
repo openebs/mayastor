@@ -421,6 +421,7 @@ impl MayastorFeatures {
             snapshot_rebuild,
             rdma_capable_io_engine,
             diskpool_encryption,
+            nexus_label_version: io_engine_api::v1::nexus::NexusLabelVersion::LabelV2 as u32,
         }
     }
     /// Get all the supported and enabled features.
