@@ -21,12 +21,13 @@ use spdk_rs::{
         spdk_nvmf_subsystem_get_first_listener, spdk_nvmf_subsystem_get_first_ns,
         spdk_nvmf_subsystem_get_next, spdk_nvmf_subsystem_get_next_host,
         spdk_nvmf_subsystem_get_next_listener, spdk_nvmf_subsystem_get_nqn,
-        spdk_nvmf_subsystem_listener_get_trid, spdk_nvmf_subsystem_pause,
-        spdk_nvmf_subsystem_remove_host, spdk_nvmf_subsystem_remove_ns, spdk_nvmf_subsystem_resume,
-        spdk_nvmf_subsystem_set_allow_any_host, spdk_nvmf_subsystem_set_ana_reporting,
-        spdk_nvmf_subsystem_set_ana_state, spdk_nvmf_subsystem_set_cntlid_range,
-        spdk_nvmf_subsystem_set_event_cb, spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn,
-        spdk_nvmf_subsystem_start, spdk_nvmf_subsystem_state_change_done, spdk_nvmf_subsystem_stop,
+        spdk_nvmf_subsystem_listener_get_trid, spdk_nvmf_subsystem_pause_ext,
+        spdk_nvmf_subsystem_remove_host, spdk_nvmf_subsystem_remove_ns,
+        spdk_nvmf_subsystem_resume_ext, spdk_nvmf_subsystem_set_allow_any_host,
+        spdk_nvmf_subsystem_set_ana_reporting, spdk_nvmf_subsystem_set_ana_state,
+        spdk_nvmf_subsystem_set_cntlid_range, spdk_nvmf_subsystem_set_event_cb,
+        spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn, spdk_nvmf_subsystem_start,
+        spdk_nvmf_subsystem_state_change_done, spdk_nvmf_subsystem_stop,
         spdk_nvmf_subsystem_stop_for_destroy, spdk_nvmf_tgt, spdk_nvmf_tgt_find_subsystem,
         spdk_nvmf_tgt_get_transport, NVMF_SUBSYSTEM_DESTROY_IN_PROGRESS, SPDK_NVME_SCT_GENERIC,
         SPDK_NVME_SC_CAPACITY_EXCEEDED, SPDK_NVME_SC_RESERVATION_CONFLICT,
@@ -933,7 +934,7 @@ impl NvmfSubsystem {
     /// intended to be a temporary state while changes are made
     pub async fn pause(&self) -> Result<(), Error> {
         self.change_state("pause", |ss, cb, arg| unsafe {
-            spdk_nvmf_subsystem_pause(ss, 1, cb, arg)
+            spdk_nvmf_subsystem_pause_ext(ss, 1, 1, cb, arg)
         })
         .await
     }
@@ -941,7 +942,7 @@ impl NvmfSubsystem {
     /// transition the subsystem to active state
     pub async fn resume(&self) -> Result<(), Error> {
         self.change_state("resume", |ss, cb, arg| unsafe {
-            spdk_nvmf_subsystem_resume(ss, cb, arg)
+            spdk_nvmf_subsystem_resume_ext(ss, cb, arg)
         })
         .await
     }
