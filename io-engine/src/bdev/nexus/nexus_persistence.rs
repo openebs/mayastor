@@ -82,6 +82,13 @@ pub(crate) enum PersistOp<'a> {
     },
     /// Save the clean shutdown variable.
     Shutdown,
+    /// Explicitly set the clean shutdown flag while the nexus is alive.
+    /// This is used to track the invariant `clean_shutdown <=> currently
+    /// unshared`: while no I/O can possibly flow (unshared), the children
+    /// cannot get dirty, so a crash from that state is equivalent to a clean
+    /// shutdown. Set to `true` on nexus create and on unshare, set to `false`
+    /// when the nexus transitions to shared and I/O becomes possible.
+    SetCleanShutdown { clean: bool },
 }
 
 impl std::fmt::Debug for PersistOp<'_> {
@@ -97,6 +104,9 @@ impl std::fmt::Debug for PersistOp<'_> {
                 child_uri, healthy, ..
             } => write!(f, "UpdateChildCond: {child_uri}: {healthy}"),
             PersistOp::Shutdown => write!(f, "Shutdown"),
+            PersistOp::SetCleanShutdown { clean } => {
+                write!(f, "SetCleanShutdown: {clean}")
+            }
         }
     }
 }
@@ -146,6 +156,11 @@ impl<'n> Nexus<'n> {
                         reason: "only child is unhealthy".to_string(),
                     });
                 }
+                // A freshly created nexus is intrinsically unshared: no
+                // initiator can connect and no I/O can dirty the children
+                // until `share_ext` runs. Record the clean state up front so
+                // that a crash from here is not treated as a dirty shutdown.
+                nexus_info.clean_shutdown = true;
             }
             PersistOp::AddChild { child_uri, healthy } => {
                 // Add the state of a new child. This should only be called
@@ -238,6 +253,12 @@ impl<'n> Nexus<'n> {
                 // This should only be called when destroying a nexus.
                 nexus_info.clean_shutdown = true;
             }
+            PersistOp::SetCleanShutdown { clean } => {
+                // Only update the clean shutdown variable. This is used by
+                // share/unshare/create transitions to track whether the nexus
+                // is currently in a state where I/O can dirty the children.
+                nexus_info.clean_shutdown = *clean;
+            }
         }
 
         match self.save(&persistent_nexus_info).await {
@@ -246,8 +267,10 @@ impl<'n> Nexus<'n> {
                 Ok(())
             }
             Err(e) => {
-                // If the operation was an update for shutdown, no need to
-                // shutdown in the case of an error.
+                // `PersistOp::Shutdown` is on the destroy path already, so
+                // self-shutting-down on top of that is pointless. Every other
+                // op falls through to the safe-by-default self-shutdown
+                // behaviour, since the save layer already retries internally.
                 if matches!(op, PersistOp::Shutdown) {
                     error!("{self:?}: failed to update persistent store: {e}");
                 } else {

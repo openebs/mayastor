@@ -3,9 +3,12 @@ use async_trait::async_trait;
 use snafu::ResultExt;
 use std::pin::Pin;
 
-use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget};
+use super::{nexus_err, Error, NbdDisk, Nexus, NexusTarget, PersistOp};
 
-use crate::core::{NvmfShareProps, Protocol, PtplProps, Share, UpdateProps};
+use crate::{
+    core::{NvmfShareProps, Protocol, PtplProps, Share, UpdateProps},
+    subsys::NvmfSubsystem,
+};
 
 ///
 /// The sharing of the nexus is different compared to regular bdevs
@@ -38,6 +41,16 @@ impl Share for Nexus<'_> {
         let uri = match self.shared() {
             Some(Protocol::Off) | None => {
                 info!("{:?}: sharing NVMF target...", self);
+
+                // Persist `clean_shutdown = false` before the share goes
+                // live, so that a crash from here cannot leave the nexus
+                // marked clean while an initiator could be connecting and
+                // dirtying children. Lives here (rather than in `share_ext`)
+                // so the same guarantee holds for any direct caller of the
+                // trait method.
+                self.as_mut()
+                    .persist(PersistOp::SetCleanShutdown { clean: false })
+                    .await?;
 
                 let name = self.name.clone();
                 self.as_mut()
@@ -166,6 +179,14 @@ impl<'n> Nexus<'n> {
             // right now Off is mapped to Nbd, will clean up the Nbd related
             // code once we refactor the rust tests that use nbd.
             Protocol::Off => {
+                // Persist `clean_shutdown = false` before the NBD share goes
+                // live. The NVMe-oF path persists the same flag inside
+                // `Share::share_nvmf`, so each protocol owns its own
+                // transition guarantee.
+                self.as_mut()
+                    .persist(PersistOp::SetCleanShutdown { clean: false })
+                    .await?;
+
                 let disk = NbdDisk::create(&self.name)
                     .await
                     .context(nexus_err::ShareNbdNexus {
@@ -198,8 +219,20 @@ impl<'n> Nexus<'n> {
         }
     }
 
-    /// TODO
+    /// Unshare the nexus target and persist the now-clean state so a crash
+    /// from here behaves like a graceful shutdown.
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        self.as_mut().unshare_nexus_internal(true).await
+    }
+
+    /// Inner unshare path shared by the public `unshare_nexus` and the
+    /// destroy path. `persist_clean` controls whether the now-unshared state
+    /// is recorded; destroy passes `false` because `PersistOp::Shutdown`
+    /// issued shortly afterwards already flips `clean_shutdown` to `true`.
+    pub(super) async fn unshare_nexus_internal(
+        mut self: Pin<&mut Self>,
+        persist_clean: bool,
+    ) -> Result<(), Error> {
         match unsafe { self.as_mut().get_unchecked_mut().nexus_target.take() } {
             Some(NexusTarget::NbdDisk(disk)) => {
                 info!("{:?}: destroying NBD device target...", self);
@@ -214,7 +247,34 @@ impl<'n> Nexus<'n> {
             }
         }
 
-        self.as_mut().unshare(None).await
+        self.as_mut().unshare(None).await?;
+
+        if persist_clean {
+            // Double-check the `NvmfSubsystem` is really gone before marking
+            // the children clean. A racing resume can re-start a stopped
+            // subsystem and leave the unshare looking successful on the way
+            // out; if it is still around, the children could still be
+            // touched, so leave `clean_shutdown` as-is and let the existing
+            // crash-recovery path handle it on next start.
+            if NvmfSubsystem::nqn_lookup(&self.name).is_some() {
+                warn!(
+                    "{self:?}: NvmfSubsystem still present after unshare, \
+                    skipping clean-shutdown persist (subsystem resume race)"
+                );
+            } else if let Err(e) = self
+                .as_mut()
+                .persist(PersistOp::SetCleanShutdown { clean: true })
+                .await
+            {
+                warn!(
+                    "{self:?}: failed to persist clean_shutdown after unshare \
+                    (best-effort, falling back to existing crash-recovery \
+                    behaviour on next start): {e}"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// TODO

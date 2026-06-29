@@ -30,7 +30,9 @@ static CHILD2_UUID: &str = "094ae8c6-46aa-4139-b4f2-550d39645db3";
 static CHILD3_UUID: &str = "ae09c08f-8909-4024-a9ae-c21a2a0596b9";
 
 /// This test checks that when an unexpected restart occurs, all persisted info
-/// remains unchanged. In particular, the clean shutdown variable must be false.
+/// remains unchanged. The nexus is never shared here, so `clean_shutdown`
+/// stays `true` throughout: an unshared nexus cannot accept I/O and is
+/// therefore clean by construction.
 #[tokio::test]
 async fn persist_unexpected_restart() {
     let test = start_infrastructure("persist_unexpected_restart").await;
@@ -56,7 +58,7 @@ async fn persist_unexpected_restart() {
 
     // Check the persisted nexus info is correct.
 
-    assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -111,13 +113,23 @@ async fn persist_clean_shutdown() {
 
     // Check the persisted nexus info is correct.
 
-    assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
 
     let child = child_info(&nexus_info, &uuid(&child2));
     assert!(child.healthy);
+
+    // Publish the nexus so the share path flips clean_shutdown to false;
+    // this lets the subsequent destroy meaningfully validate the
+    // false -> true transition driven by `PersistOp::Shutdown`.
+    publish_nexus(ms1, nexus_uuid).await;
+
+    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
+    let value = response.kvs().first().unwrap().value();
+    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    assert!(!nexus_info.clean_shutdown);
 
     // Destroy the nexus
     ms1.mayastor

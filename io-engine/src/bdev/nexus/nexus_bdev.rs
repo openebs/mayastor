@@ -802,6 +802,9 @@ impl<'n> Nexus<'n> {
         };
 
         // Persist the fact that the nexus is now successfully open.
+        // `PersistOp::Create` records the initial clean-while-unshared state,
+        // which then gets flipped on share/unshare to maintain the invariant
+        // `clean_shutdown <=> currently unshared`.
         // We have to do this before setting the nexus to open so that
         // nexus list does not return this nexus until it is persisted.
         if let Err(e) = nex.persist(PersistOp::Create).await {
@@ -831,7 +834,9 @@ impl<'n> Nexus<'n> {
     pub async fn destroy_ext(mut self: Pin<&mut Self>, sigterm: bool) -> Result<(), Error> {
         info!("{:?}: destroying nexus...", self);
 
-        self.as_mut().unshare_nexus().await?;
+        // Destroy already issues `PersistOp::Shutdown` below (which sets
+        // `clean_shutdown = true`), so skip the redundant persist here.
+        self.as_mut().unshare_nexus_internal(false).await?;
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
