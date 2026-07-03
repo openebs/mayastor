@@ -11,10 +11,10 @@ jobs:
   code-linter:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: cachix/install-nix-action@v31.3.0
+      - uses: cachix/install-nix-action@v31.10.6
       - name: Pre-populate nix-shell
         run: |
           export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' spdk-rs/nix/sources.json -r)
