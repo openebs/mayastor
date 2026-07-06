@@ -5,6 +5,7 @@ use common::compose::{
             AddChildNexusRequest, BdevShareRequest, BdevUri, Child, ChildState, CreateNexusRequest,
             CreateReply, DestroyNexusRequest, Nexus, NexusState, Null, PublishNexusRequest,
             RebuildStateRequest, RemoveChildNexusRequest, ShareProtocolNexus,
+            UnpublishNexusRequest,
         },
         GrpcConnect, RpcHandle,
     },
@@ -29,10 +30,15 @@ static CHILD1_UUID: &str = "d61b2fdf-1be8-457a-a481-70a42d0a2223";
 static CHILD2_UUID: &str = "094ae8c6-46aa-4139-b4f2-550d39645db3";
 static CHILD3_UUID: &str = "ae09c08f-8909-4024-a9ae-c21a2a0596b9";
 
+async fn etcd_nexus_info(etcd: &mut Client, nexus_uuid: &str) -> NexusInfo {
+    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
+    let value = response.kvs().first().unwrap().value();
+    serde_json::from_slice::<NexusInfo>(value).unwrap()
+}
+
 /// This test checks that when an unexpected restart occurs, all persisted info
-/// remains unchanged. The nexus is never shared here, so `clean_shutdown`
-/// stays `true` throughout: an unshared nexus cannot accept I/O and is
-/// therefore clean by construction.
+/// remains unchanged. The nexus is never shared here, so the persisted
+/// `shared` marker stays `false` throughout.
 #[tokio::test]
 async fn persist_unexpected_restart() {
     let test = start_infrastructure("persist_unexpected_restart").await;
@@ -52,13 +58,12 @@ async fn persist_unexpected_restart() {
     // Retrieve the nexus info from the store.
 
     let mut etcd = Client::connect([ETCD_ENDPOINT], None).await.unwrap();
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
 
     // Check the persisted nexus info is correct.
 
-    assert!(nexus_info.clean_shutdown);
+    assert!(!nexus_info.clean_shutdown);
+    assert!(!nexus_info.shared);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -66,18 +71,55 @@ async fn persist_unexpected_restart() {
     let child = child_info(&nexus_info, &uuid(&child2));
     assert!(child.healthy);
 
+    publish_nexus(ms1, nexus_uuid).await;
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
+    assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
+    unpublish_nexus(ms1, nexus_uuid).await;
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
+    assert!(!nexus_info.clean_shutdown);
+    assert!(!nexus_info.shared);
+    publish_nexus(ms1, nexus_uuid).await;
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
+    assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
+
     // Restart the container where the nexus lives.
     test.restart("ms1")
         .await
         .expect("Failed to restart container.");
 
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
 
     // Check the persisted nexus info changed to reflect clean shutdown.
 
     assert!(nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
+
+    let child = child_info(&nexus_info, &uuid(&child1));
+    assert!(child.healthy);
+
+    let child = child_info(&nexus_info, &uuid(&child2));
+    assert!(child.healthy);
+
+    let ms1 = &mut grpc.grpc_handle("ms1").await.unwrap();
+    create_nexus(ms1, nexus_uuid, vec![child1.clone(), child2.clone()]).await;
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
+    assert!(!nexus_info.clean_shutdown);
+    assert!(!nexus_info.shared);
+
+    publish_nexus(ms1, nexus_uuid).await;
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
+    assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
+
+    // Kill the container to simulate a crash
+    test.kill("ms1").await.expect("Failed to kill container.");
+    test.start("ms1").await.expect("Failed to start container.");
+
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
+    assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -107,13 +149,12 @@ async fn persist_clean_shutdown() {
     // Retrieve the nexus info from the store.
 
     let mut etcd = Client::connect([ETCD_ENDPOINT], None).await.unwrap();
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
 
     // Check the persisted nexus info is correct.
 
-    assert!(nexus_info.clean_shutdown);
+    assert!(!nexus_info.clean_shutdown);
+    assert!(!nexus_info.shared);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -121,15 +162,13 @@ async fn persist_clean_shutdown() {
     let child = child_info(&nexus_info, &uuid(&child2));
     assert!(child.healthy);
 
-    // Publish the nexus so the share path flips clean_shutdown to false;
-    // this lets the subsequent destroy meaningfully validate the
-    // false -> true transition driven by `PersistOp::Shutdown`.
+    // Publish the nexus so the share path persists `shared = true` before
+    // destroy; this exercises the share/unshare state transition path.
     publish_nexus(ms1, nexus_uuid).await;
 
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
 
     // Destroy the nexus
     ms1.mayastor
@@ -139,13 +178,12 @@ async fn persist_clean_shutdown() {
         .await
         .expect("Failed to destroy nexus");
 
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
 
     // Check the persisted nexus info is correct.
 
     assert!(nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -232,10 +270,9 @@ async fn persist_io_failure() {
     // Use etcd-client to check the persisted entry.
 
     let mut etcd = Client::connect([ETCD_ENDPOINT], None).await.unwrap();
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
+    assert!(nexus_info.shared);
 
     // Expect child1 to be healthy.
     let child = child_info(&nexus_info, &uuid(&child1));
@@ -260,9 +297,7 @@ async fn persist_io_failure() {
         ChildState::ChildDegraded as i32
     );
 
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     let child = child_info(&nexus_info, &uuid(&child3));
     assert!(!child.healthy);
 
@@ -298,18 +333,14 @@ async fn persist_io_failure() {
         ChildState::ChildOnline as i32
     );
 
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     let child = child_info(&nexus_info, &uuid(&child3));
     assert!(child.healthy);
 
     // Remove child3 and verify that it is unhealthy
     remove_child_nexus(ms1, nexus_uuid, &child3).await;
 
-    let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
-    let value = response.kvs().first().unwrap().value();
-    let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
+    let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     // Since child3 is removed, it shouldn't be in the persisted entry as well.
     no_child_info(&nexus_info, &uuid(&child3));
 }
@@ -447,6 +478,15 @@ async fn publish_nexus(hdl: &mut RpcHandle, uuid: &str) -> String {
         .expect("Failed to publish nexus")
         .into_inner()
         .device_uri
+}
+/// Unpublish a nexus with the given UUID.
+async fn unpublish_nexus(hdl: &mut RpcHandle, uuid: &str) {
+    hdl.mayastor
+        .unpublish_nexus(UnpublishNexusRequest {
+            uuid: uuid.to_string(),
+        })
+        .await
+        .expect("Failed to unpublish nexus");
 }
 
 /// Creates and shares a bdev over NVMf and returns the share uri.
