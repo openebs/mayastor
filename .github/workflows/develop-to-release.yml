@@ -7,14 +7,14 @@ jobs:
   prepareReleaseBranch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check if the submodules are correct
         run: |
           branch="${{ github.ref_name }}"
           ./scripts/set-submodule-branches.sh --branch "$branch"
       - name: Create Pull Request
         id: cpr
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore(ci): update git submodules"
           committer: GitHub <noreply@github.com>

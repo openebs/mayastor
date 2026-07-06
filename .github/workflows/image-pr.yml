@@ -11,9 +11,9 @@ jobs:
   image-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: cachix/install-nix-action@v31.3.0
+      - uses: cachix/install-nix-action@v31.10.6
       - name: Test building the release images
         run: ./scripts/release.sh --skip-publish --build-bins
