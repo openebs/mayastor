@@ -63,7 +63,7 @@ async fn persist_unexpected_restart() {
     // Check the persisted nexus info is correct.
 
     assert!(!nexus_info.clean_shutdown);
-    assert!(!nexus_info.shared);
+    assert!(!nexus_info.shared());
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -74,15 +74,15 @@ async fn persist_unexpected_restart() {
     publish_nexus(ms1, nexus_uuid).await;
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
     unpublish_nexus(ms1, nexus_uuid).await;
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(!nexus_info.shared);
+    assert!(!nexus_info.shared());
     publish_nexus(ms1, nexus_uuid).await;
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     // Restart the container where the nexus lives.
     test.restart("ms1")
@@ -94,7 +94,7 @@ async fn persist_unexpected_restart() {
     // Check the persisted nexus info changed to reflect clean shutdown.
 
     assert!(nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -106,12 +106,12 @@ async fn persist_unexpected_restart() {
     create_nexus(ms1, nexus_uuid, vec![child1.clone(), child2.clone()]).await;
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(!nexus_info.shared);
+    assert!(!nexus_info.shared());
 
     publish_nexus(ms1, nexus_uuid).await;
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     // Kill the container to simulate a crash
     test.kill("ms1").await.expect("Failed to kill container.");
@@ -119,7 +119,7 @@ async fn persist_unexpected_restart() {
 
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -154,7 +154,7 @@ async fn persist_clean_shutdown() {
     // Check the persisted nexus info is correct.
 
     assert!(!nexus_info.clean_shutdown);
-    assert!(!nexus_info.shared);
+    assert!(!nexus_info.shared());
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -168,7 +168,7 @@ async fn persist_clean_shutdown() {
 
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     // Destroy the nexus
     ms1.mayastor
@@ -183,7 +183,7 @@ async fn persist_clean_shutdown() {
     // Check the persisted nexus info is correct.
 
     assert!(nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -272,7 +272,7 @@ async fn persist_io_failure() {
     let mut etcd = Client::connect([ETCD_ENDPOINT], None).await.unwrap();
     let nexus_info = etcd_nexus_info(&mut etcd, nexus_uuid).await;
     assert!(!nexus_info.clean_shutdown);
-    assert!(nexus_info.shared);
+    assert!(nexus_info.shared());
 
     // Expect child1 to be healthy.
     let child = child_info(&nexus_info, &uuid(&child1));
