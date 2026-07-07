@@ -44,6 +44,11 @@ pub struct NexusInfo {
     pub do_self_shutdown: bool,
     /// Information about children.
     pub children: Vec<ChildInfo>,
+    /// Is the nexus target currently shared/active?
+    /// This tracks whether front-end I/O may be in flight.
+    /// If the nexus is unshared, no front-end I/O can be in flight, and we may
+    /// assume that the replicas are in-sync.
+    pub shared: bool,
 }
 pub struct NexusInfoTxn<'a> {
     key_info: &'a mut PersistentNexusInfo,
@@ -82,13 +87,11 @@ pub(crate) enum PersistOp<'a> {
     },
     /// Save the clean shutdown variable.
     Shutdown,
-    /// Explicitly set the clean shutdown flag while the nexus is alive.
-    /// This is used to track the invariant `clean_shutdown <=> currently
-    /// unshared`: while no I/O can possibly flow (unshared), the children
-    /// cannot get dirty, so a crash from that state is equivalent to a clean
-    /// shutdown. Set to `true` on nexus create and on unshare, set to `false`
-    /// when the nexus transitions to shared and I/O becomes possible.
-    SetCleanShutdown { clean: bool },
+    /// Explicitly set whether the nexus is shared while it is alive.
+    /// This is used to persist whether I/O can potentially flow through the
+    /// nexus (shared) or not (unshared) without implying that the nexus was
+    /// shut down.
+    SetShared { shared: bool },
 }
 
 impl std::fmt::Debug for PersistOp<'_> {
@@ -104,8 +107,8 @@ impl std::fmt::Debug for PersistOp<'_> {
                 child_uri, healthy, ..
             } => write!(f, "UpdateChildCond: {child_uri}: {healthy}"),
             PersistOp::Shutdown => write!(f, "Shutdown"),
-            PersistOp::SetCleanShutdown { clean } => {
-                write!(f, "SetCleanShutdown: {clean}")
+            PersistOp::SetShared { shared } => {
+                write!(f, "SetShared: {shared}")
             }
         }
     }
@@ -156,11 +159,11 @@ impl<'n> Nexus<'n> {
                         reason: "only child is unhealthy".to_string(),
                     });
                 }
+                nexus_info.clean_shutdown = false;
                 // A freshly created nexus is intrinsically unshared: no
-                // initiator can connect and no I/O can dirty the children
-                // until `share_ext` runs. Record the clean state up front so
-                // that a crash from here is not treated as a dirty shutdown.
-                nexus_info.clean_shutdown = true;
+                // initiator can connect and no front-end I/O can flow until
+                // `share_ext` runs. Record this up front.
+                nexus_info.shared = false;
             }
             PersistOp::AddChild { child_uri, healthy } => {
                 // Add the state of a new child. This should only be called
@@ -190,7 +193,7 @@ impl<'n> Nexus<'n> {
             PersistOp::Update { child_uri, healthy } => {
                 let uuid = NexusChild::uuid(child_uri).expect("Failed to get child UUID.");
                 // Only update the state of the child that has changed. Do not
-                // update the other children or "clean shutdown" information.
+                // update the other children or nexus state markers.
                 // This should only be called on a child state change.
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
@@ -248,16 +251,16 @@ impl<'n> Nexus<'n> {
                 }
             }
             PersistOp::Shutdown => {
-                // Only update the clean shutdown variable. Do not update the
-                // child state information.
+                // Update only shutdown-related markers. Do not update child
+                // state information.
                 // This should only be called when destroying a nexus.
                 nexus_info.clean_shutdown = true;
             }
-            PersistOp::SetCleanShutdown { clean } => {
-                // Only update the clean shutdown variable. This is used by
-                // share/unshare/create transitions to track whether the nexus
-                // is currently in a state where I/O can dirty the children.
-                nexus_info.clean_shutdown = *clean;
+            PersistOp::SetShared { shared } => {
+                // Only update the shared marker. This is used by
+                // share/unshare/create transitions to track whether front-end
+                // I/O can currently flow through the nexus.
+                nexus_info.shared = *shared;
             }
         }
 

@@ -42,14 +42,11 @@ impl Share for Nexus<'_> {
             Some(Protocol::Off) | None => {
                 info!("{:?}: sharing NVMF target...", self);
 
-                // Persist `clean_shutdown = false` before the share goes
-                // live, so that a crash from here cannot leave the nexus
-                // marked clean while an initiator could be connecting and
-                // dirtying children. Lives here (rather than in `share_ext`)
-                // so the same guarantee holds for any direct caller of the
-                // trait method.
+                // Persist `shared = true` before the share goes live, so a
+                // crash from here cannot leave the nexus persisted as
+                // unshared while initiators may already be writing data.
                 self.as_mut()
-                    .persist(PersistOp::SetCleanShutdown { clean: false })
+                    .persist(PersistOp::SetShared { shared: true })
                     .await?;
 
                 let name = self.name.clone();
@@ -179,12 +176,11 @@ impl<'n> Nexus<'n> {
             // right now Off is mapped to Nbd, will clean up the Nbd related
             // code once we refactor the rust tests that use nbd.
             Protocol::Off => {
-                // Persist `clean_shutdown = false` before the NBD share goes
-                // live. The NVMe-oF path persists the same flag inside
-                // `Share::share_nvmf`, so each protocol owns its own
-                // transition guarantee.
+                // Persist `shared = true` before the NBD share goes live. The NVMe-oF
+                // path persists the same transition inside `Share::share_nvmf`,
+                // so each protocol owns its own transition guarantee.
                 self.as_mut()
-                    .persist(PersistOp::SetCleanShutdown { clean: false })
+                    .persist(PersistOp::SetShared { shared: true })
                     .await?;
 
                 let disk = NbdDisk::create(&self.name)
@@ -219,8 +215,7 @@ impl<'n> Nexus<'n> {
         }
     }
 
-    /// Unshare the nexus target and persist the now-clean state so a crash
-    /// from here behaves like a graceful shutdown.
+    /// Unshare the nexus target and persist the now-unshared state.
     pub async fn unshare_nexus(mut self: Pin<&mut Self>) -> Result<(), Error> {
         self.as_mut().unshare_nexus_internal(true).await
     }
@@ -228,7 +223,7 @@ impl<'n> Nexus<'n> {
     /// Inner unshare path shared by the public `unshare_nexus` and the
     /// destroy path. `persist_clean` controls whether the now-unshared state
     /// is recorded; destroy passes `false` because `PersistOp::Shutdown`
-    /// issued shortly afterwards already flips `clean_shutdown` to `true`.
+    /// issued shortly afterwards persists shutdown markers directly.
     pub(super) async fn unshare_nexus_internal(
         mut self: Pin<&mut Self>,
         persist_clean: bool,
@@ -251,23 +246,23 @@ impl<'n> Nexus<'n> {
 
         if persist_clean {
             // Double-check the `NvmfSubsystem` is really gone before marking
-            // the children clean. A racing resume can re-start a stopped
+            // the nexus as unshared. A racing resume can re-start a stopped
             // subsystem and leave the unshare looking successful on the way
-            // out; if it is still around, the children could still be
-            // touched, so leave `clean_shutdown` as-is and let the existing
-            // crash-recovery path handle it on next start.
+            // out; if it is still around, front-end I/O can still be
+            // possible, so leave the persisted shared marker as-is and let
+            // the existing crash-recovery path handle it on next start.
             if NvmfSubsystem::nqn_lookup(&self.name).is_some() {
                 warn!(
                     "{self:?}: NvmfSubsystem still present after unshare, \
-                    skipping clean-shutdown persist (subsystem resume race)"
+                    skipping set-shared persist (subsystem resume race)"
                 );
             } else if let Err(e) = self
                 .as_mut()
-                .persist(PersistOp::SetCleanShutdown { clean: true })
+                .persist(PersistOp::SetShared { shared: false })
                 .await
             {
                 warn!(
-                    "{self:?}: failed to persist clean_shutdown after unshare \
+                    "{self:?}: failed to persist shared after unshare \
                     (best-effort, falling back to existing crash-recovery \
                     behaviour on next start): {e}"
                 );
