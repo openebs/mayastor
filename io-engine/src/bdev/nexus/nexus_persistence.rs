@@ -48,7 +48,15 @@ pub struct NexusInfo {
     /// This tracks whether front-end I/O may be in flight.
     /// If the nexus is unshared, no front-end I/O can be in flight, and we may
     /// assume that the replicas are in-sync.
-    pub shared: bool,
+    #[serde(default)]
+    pub shared: Option<bool>,
+}
+impl NexusInfo {
+    /// Returns whether the nexus is currently shared.
+    /// If the value is not set, it defaults to true.
+    pub fn shared(&self) -> bool {
+        self.shared.unwrap_or(true)
+    }
 }
 pub struct NexusInfoTxn<'a> {
     key_info: &'a mut PersistentNexusInfo,
@@ -163,7 +171,7 @@ impl<'n> Nexus<'n> {
                 // A freshly created nexus is intrinsically unshared: no
                 // initiator can connect and no front-end I/O can flow until
                 // `share_ext` runs. Record this up front.
-                nexus_info.shared = false;
+                nexus_info.shared = Some(false);
             }
             PersistOp::AddChild { child_uri, healthy } => {
                 // Add the state of a new child. This should only be called
@@ -260,7 +268,7 @@ impl<'n> Nexus<'n> {
                 // Only update the shared marker. This is used by
                 // share/unshare/create transitions to track whether front-end
                 // I/O can currently flow through the nexus.
-                nexus_info.shared = *shared;
+                nexus_info.shared = Some(*shared);
             }
         }
 
