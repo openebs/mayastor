@@ -99,6 +99,7 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
             snapshot_rebuild: Some(f.snapshot_rebuild),
             rdma_capable_io_engine: Some(f.rdma_capable_io_engine),
             diskpool_encryption: Some(f.diskpool_encryption),
+            nexus_label_version: f.nexus_label_version,
         }
     }
 }

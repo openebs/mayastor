@@ -491,6 +491,15 @@ impl GptEntry {
         }
         Ok(digest.sum32())
     }
+
+    fn size(&self) -> u64 {
+        self.ent_end - self.ent_start + 1
+    }
+
+    /// Check if this partition size is multiple of the given number of blocks.
+    pub fn is_multiple_of(&self, blocks: u64) -> bool {
+        self.size() % blocks == 0
+    }
 }
 
 /// Although we don't use it, we must have a protective MBR to avoid systems

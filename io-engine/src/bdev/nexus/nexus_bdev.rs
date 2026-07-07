@@ -38,7 +38,8 @@ use crate::{
         PtplFileOps,
     },
     core::{
-        partition, Bdev, DeviceEventSink, IoType, Protocol, Reactor, Reactors, Share, VerboseError,
+        gpt::LabelVersion, Bdev, DeviceEventSink, IoType, Protocol, Reactor, Reactors, Share,
+        VerboseError,
     },
     eventing::{
         nexus_events::{state_change_event_meta, subsystem_pause_event_meta},
@@ -232,6 +233,9 @@ pub struct Nexus<'n> {
     pub(crate) state: parking_lot::Mutex<NexusState>,
     /// The offset in blocks where the data partition starts.
     pub(crate) data_ent_offset: u64,
+    /// On-disk label layout version.
+    /// Determines the metadata reservation and data partition placement.
+    pub(crate) label_version: LabelVersion,
     /// enum containing the protocol-specific target used to publish the nexus
     pub(super) nexus_target: Option<NexusTarget>,
     /// Indicates if the Nexus has an I/O device.
@@ -351,6 +355,7 @@ impl<'n> Nexus<'n> {
         nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
         nexus_info_key: Option<String>,
+        label_version: LabelVersion,
     ) -> spdk_rs::Bdev<Nexus<'n>> {
         let n = Nexus {
             name: name.to_string(),
@@ -358,6 +363,7 @@ impl<'n> Nexus<'n> {
             state: parking_lot::Mutex::new(NexusState::Init),
             bdev: None,
             data_ent_offset: 0,
+            label_version,
             req_size: size,
             nexus_target: None,
             nvme_params,
@@ -683,8 +689,9 @@ impl<'n> Nexus<'n> {
                 });
             }
 
-            match partition::calc_data_partition(self.req_size(), nb, bs) {
-                Some((start, end, req_blocks)) => {
+            match self.label_version.data_extent(self.req_size(), nb, bs) {
+                Ok(extent) => {
+                    let (start, end, req_blocks) = (extent.start, extent.end, self.req_size() / bs);
                     // During expansion - if the requested number of blocks
                     // aren't available on any child device,
                     // then the operation needs to fail in its entirety. Hence
@@ -715,7 +722,7 @@ impl<'n> Nexus<'n> {
                         }
                     }
                 }
-                None => {
+                Err(_) => {
                     return Err(Error::ChildTooSmall {
                         child: child.uri().to_owned(),
                         name,
@@ -1407,6 +1414,17 @@ pub async fn nexus_create(
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
+    nexus_create_ext(name, size, uuid, children, LabelVersion::V1).await
+}
+
+/// Same as [`nexus_create`] but allows specifying the label version to use for the nexus.
+pub async fn nexus_create_ext(
+    name: &str,
+    size: u64,
+    uuid: Option<&str>,
+    children: &[String],
+    label_version: LabelVersion,
+) -> Result<(), Error> {
     nexus_create_internal(
         name,
         size,
@@ -1415,6 +1433,7 @@ pub async fn nexus_create(
         NexusNvmeParams::default(),
         children,
         None,
+        label_version,
     )
     .await
 }
@@ -1422,6 +1441,8 @@ pub async fn nexus_create(
 /// As create_nexus with additional parameters:
 /// min_cntlid, max_cntldi: NVMe controller ID range when sharing over NVMf
 /// resv_key: NVMe reservation key for children
+/// label_version: on-disk label layout version used to compute partition
+/// offsets on the child devices.
 pub async fn nexus_create_v2(
     name: &str,
     size: u64,
@@ -1429,6 +1450,7 @@ pub async fn nexus_create_v2(
     nvme_params: NexusNvmeParams,
     children: &[String],
     nexus_info_key: Option<String>,
+    label_version: LabelVersion,
 ) -> Result<(), Error> {
     if nvme_params.min_cntlid < NVME_MIN_CNTLID
         || nvme_params.min_cntlid > nvme_params.max_cntlid
@@ -1472,6 +1494,7 @@ pub async fn nexus_create_v2(
                 nvme_params,
                 children,
                 nexus_info_key,
+                label_version,
             )
             .await
         }
@@ -1484,12 +1507,14 @@ pub async fn nexus_create_v2(
                 nvme_params,
                 children,
                 nexus_info_key,
+                label_version,
             )
             .await
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn nexus_create_internal(
     name: &str,
     size: u64,
@@ -1498,12 +1523,11 @@ async fn nexus_create_internal(
     nvme_params: NexusNvmeParams,
     children: &[String],
     nexus_info_key: Option<String>,
+    label_version: LabelVersion,
 ) -> Result<(), Error> {
     info!(
-        "Creating new nexus '{}' ({} child(ren): {:?})...",
-        name,
+        "Creating new nexus '{name}' ({} child(ren): {children:?})...",
         children.len(),
-        children
     );
 
     if let Some(nexus) = nexus_lookup_name_uuid(name, nexus_uuid) {
@@ -1535,6 +1559,7 @@ async fn nexus_create_internal(
         nexus_uuid,
         nvme_params,
         nexus_info_key,
+        label_version,
     );
 
     for uri in children {
@@ -1547,9 +1572,8 @@ async fn nexus_create_internal(
             nexus_bdev.data().close_children().await;
 
             error!(
-                "{:?}: nexus creation failed: failed to create child '{}'",
+                "{:?}: nexus creation failed: failed to create child '{uri}'",
                 nexus_bdev.data(),
-                uri
             );
 
             return Err(Error::CreateChild {
@@ -1581,10 +1605,8 @@ async fn nexus_create_internal(
                 // TODO: mutability violation
                 if let Err(e) = device_destroy(&u).await {
                     error!(
-                        "{:?}: failed to destroy child device {}: {:?}",
+                        "{:?}: failed to destroy child device {u}: {e:?}",
                         nexus_bdev.data(),
-                        u,
-                        e,
                     );
                 }
             }

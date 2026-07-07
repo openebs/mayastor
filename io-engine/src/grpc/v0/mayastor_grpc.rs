@@ -16,6 +16,7 @@ use crate::{
     },
     bdev_api::BdevError,
     core::{
+        gpt::LabelVersion,
         lock::{ProtectedSubsystems, ResourceLockManager},
         logical_volume::{LogicalVolume, LvolSpaceUsage},
         BlockDeviceIoStats, CoreError, MayastorFeatures, NvmfShareProps, Protocol, Share,
@@ -1017,6 +1018,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     },
                     &args.children,
                     nexus_info_key,
+                    LabelVersion::V1,
                 )
                 .await?;
                 let nexus = nexus_lookup(&args.name)?;

@@ -28,8 +28,8 @@ use crate::{
 };
 pub(crate) use nexus_bdev::NEXUS_PRODUCT_ID;
 pub use nexus_bdev::{
-    nexus_create, nexus_create_v2, Nexus, NexusNvmeParams, NexusNvmePreemption, NexusOperation,
-    NexusState, NexusStatus, NexusTarget, NvmeAnaState, NvmeReservation,
+    nexus_create, nexus_create_ext, nexus_create_v2, Nexus, NexusNvmeParams, NexusNvmePreemption,
+    NexusOperation, NexusState, NexusStatus, NexusTarget, NvmeAnaState, NvmeReservation,
 };
 pub(crate) use nexus_bdev_error::nexus_err;
 pub use nexus_bdev_error::Error;

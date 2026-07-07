@@ -6,7 +6,7 @@ use io_engine::{
         NexusPauseState, NvmeAnaState,
     },
     constants::NVME_NQN_PREFIX,
-    core::{MayastorCliArgs, Protocol, Reactors},
+    core::{gpt::LabelVersion, MayastorCliArgs, Protocol, Reactors},
     lvs::Lvs,
     pool_backend::PoolArgs,
 };
@@ -372,6 +372,7 @@ async fn nexus_io_resv_acquire() {
                 nvme_params,
                 &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
                 None,
+                LabelVersion::V1,
             )
             .await
             .unwrap();
@@ -567,6 +568,7 @@ async fn nexus_io_resv_preempt() {
                 nvme_params,
                 &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
                 None,
+                LabelVersion::V1,
             )
             .await
             .unwrap();
@@ -837,6 +839,7 @@ async fn nexus_io_resv_preempt_tabled() {
                         nvme_params,
                         &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
                         None,
+                        LabelVersion::V1,
                     )
                     .await
                     .unwrap();
