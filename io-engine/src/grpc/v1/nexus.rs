@@ -418,6 +418,9 @@ impl<'n> nexus::Nexus<'n> {
             allowed_hosts: self.allowed_hosts(),
             label_version: Some(label_version_to_proto(self.label_version) as i32),
             bdev_size: Some(self.size_in_bytes()),
+            // ROX support in the io-engine is not yet wired; report `None` for now,
+            // consumers will populate this once the publish-time `read_only` flag lands.
+            read_only: None,
         }
     }
 }

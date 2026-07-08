@@ -482,6 +482,7 @@ async fn nexus_publish(mut ctx: Context, args: PublishArgs) -> crate::Result<()>
             key,
             share: protocol,
             allowed_hosts,
+            read_only: None,
         })
         .await
         .context(GrpcStatus)?;
