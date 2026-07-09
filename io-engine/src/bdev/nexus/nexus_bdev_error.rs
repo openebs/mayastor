@@ -31,6 +31,14 @@ pub enum Error {
     InvalidKey {},
     #[snafu(display("The nexus {} has been already shared with a different protocol", name))]
     AlreadyShared { name: String },
+    #[snafu(display(
+        "The nexus {} is already shared as {} (read_only={}); \
+         unshare and re-share to change the read_only flag",
+        name,
+        "Nvmf",
+        current
+    ))]
+    ReadOnlyChangeNotAllowed { name: String, current: bool },
     #[snafu(display("The nexus {} has not been shared", name))]
     NotShared { name: String },
     #[snafu(display("The nexus {} has not been shared over NVMf", name))]
@@ -188,6 +196,7 @@ impl From<Error> for tonic::Status {
             Error::InvalidShareProtocol { .. } => Status::invalid_argument(e.to_string()),
             Error::InvalidReservation { .. } => Status::invalid_argument(e.to_string()),
             Error::AlreadyShared { .. } => Status::invalid_argument(e.to_string()),
+            Error::ReadOnlyChangeNotAllowed { .. } => Status::failed_precondition(e.to_string()),
             Error::NotShared { .. } => Status::invalid_argument(e.to_string()),
             Error::NotSharedNvmf { .. } => Status::invalid_argument(e.to_string()),
             Error::CreateChild { .. } => Status::invalid_argument(e.to_string()),
@@ -283,6 +292,7 @@ impl ToErrno for Error {
             Error::NexusInitialising { .. } => Errno::EBUSY,
 
             Error::AlreadyShared { .. }
+            | Error::ReadOnlyChangeNotAllowed { .. }
             | Error::NotShared { .. }
             | Error::NotSharedNvmf { .. }
             | Error::OperationNotAllowed { .. }

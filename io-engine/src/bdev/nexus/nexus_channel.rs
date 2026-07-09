@@ -26,6 +26,11 @@ pub struct NexusChannel<'n> {
     nexus: Pin<&'n mut Nexus<'n>>,
     core: u32,
     is_io_chan: bool,
+    /// Per-core snapshot of the nexus ROX flag. The submit path reads this
+    /// as a plain bool to avoid the atomic load on every I/O; the write side
+    /// keeps the atomic on `Nexus` as source of truth and fans updates out
+    /// via `set_nexus_read_only` -> `traverse_io_channels_async`.
+    read_only: bool,
 }
 
 impl Debug for NexusChannel<'_> {
@@ -113,6 +118,7 @@ impl<'n> NexusChannel<'n> {
             );
         }
 
+        let read_only = nexus.is_read_only();
         let mut res = Self {
             writers: Vec::new(),
             readers: Vec::new(),
@@ -125,6 +131,7 @@ impl<'n> NexusChannel<'n> {
             frozen_ios: Vec::new(),
             core: Cores::current(),
             is_io_chan,
+            read_only,
         };
 
         res.connect_children();
@@ -412,6 +419,20 @@ impl<'n> NexusChannel<'n> {
     #[inline(always)]
     pub(super) fn io_mode(&self) -> &IoMode {
         &self.io_mode
+    }
+
+    /// Whether this channel is currently gating writes for a ROX publish.
+    #[inline(always)]
+    pub(super) fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Sets the read-only flag for this channel. Called from
+    /// `Nexus::set_nexus_read_only` via `traverse_io_channels_async` so every
+    /// per-core channel picks up the current publish's ROX state without the
+    /// I/O path having to read an atomic on `Nexus`.
+    pub(super) fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
     }
 
     /// Resubmits all frozen I/Os.

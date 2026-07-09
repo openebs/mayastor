@@ -254,6 +254,13 @@ pub struct Nexus<'n> {
     pub(super) rebuild_history: parking_lot::Mutex<Vec<HistoryRecord>>,
     /// Flag to control shutdown from I/O path.
     pub(crate) shutdown_requested: AtomicCell<bool>,
+    /// Whether the nexus is currently published as read-only (ROX). When true,
+    /// write I/O submitted to the nexus is rejected at submit time with the
+    /// NVMe "namespace is write protected" status. Set on share with
+    /// `read_only=true`, cleared on unshare or share with `read_only=false`.
+    /// Interior mutability lets the share/unshare paths flip the flag without
+    /// requiring a pinned mutable borrow.
+    pub(crate) read_only: AtomicCell<bool>,
     /// Last child I/O error.
     pub(super) last_error: IoCompletionStatus,
     /// Prevent auto-Unpin.
@@ -348,6 +355,20 @@ impl BdevStater for Nexus<'_> {
 }
 
 impl<'n> Nexus<'n> {
+    /// Return whether the nexus is currently published read-only (ROX). While
+    /// true, write-family I/O is rejected at submit time in
+    /// `nexus_io::submit_request`.
+    pub fn is_read_only(&self) -> bool {
+        self.read_only.load()
+    }
+
+    /// Set the ROX flag on the nexus. Called from the share/unshare paths to
+    /// track the effective read-only state for the currently-active publish.
+    /// Exposed for tests that need to drive the flag directly.
+    pub fn set_read_only(&self, value: bool) {
+        self.read_only.store(value);
+    }
+
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
     #[allow(clippy::too_many_arguments)]
@@ -380,6 +401,7 @@ impl<'n> Nexus<'n> {
             event_sink: None,
             rebuild_history: parking_lot::Mutex::new(Vec::new()),
             shutdown_requested: AtomicCell::new(false),
+            read_only: AtomicCell::new(false),
             last_error: IoCompletionStatus::Success,
             _pin: Default::default(),
         };

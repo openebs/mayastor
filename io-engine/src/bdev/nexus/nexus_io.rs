@@ -11,7 +11,8 @@ use spdk_rs::{
     libspdk::{
         spdk_bdev_io, spdk_bdev_io_complete_nvme_status, spdk_io_channel,
         SPDK_NVME_SC_ABORTED_SQ_DELETION, SPDK_NVME_SC_CAPACITY_EXCEEDED,
-        SPDK_NVME_SC_INVALID_OPCODE, SPDK_NVME_SC_RESERVATION_CONFLICT,
+        SPDK_NVME_SC_COMMAND_NAMESPACE_IS_PROTECTED, SPDK_NVME_SC_INVALID_OPCODE,
+        SPDK_NVME_SC_RESERVATION_CONFLICT,
     },
     BdevIo,
 };
@@ -165,6 +166,26 @@ impl<'n> NexusBio<'n> {
     /// TODO
     pub(super) fn submit_request(mut self) {
         if !self.accept_request() {
+            return;
+        }
+
+        // ROX gate: reject state-mutating I/O at submit time when the nexus is
+        // currently published read-only. Reads pass through untouched. The
+        // status maps to NVMe "Namespace is Write Protected" so initiators
+        // report a clean, well-known error rather than a generic failure.
+        // The flag is read from the per-core `NexusChannel` snapshot rather
+        // than the atomic on `Nexus` — the write side pushes updates via
+        // `set_nexus_read_only`, keeping this branch a plain bool load on
+        // the hot path.
+        if self.channel().is_read_only()
+            && matches!(
+                self.io_type(),
+                IoType::Write | IoType::WriteZeros | IoType::Unmap | IoType::Reset
+            )
+        {
+            self.fail_nvme_status(NvmeStatus::Generic(
+                SPDK_NVME_SC_COMMAND_NAMESPACE_IS_PROTECTED,
+            ));
             return;
         }
 
