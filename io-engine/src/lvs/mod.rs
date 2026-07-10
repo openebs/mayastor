@@ -8,6 +8,7 @@ use crate::{
         Error, FindPoolArgs, IPoolFactory, IPoolProps, ListPoolArgs, PoolArgs, PoolBackend,
         PoolMetadataInfo, PoolOps, ReplicaArgs,
     },
+    pool_information::pool_info_read,
     replica_backend::{
         FindReplicaArgs, IReplicaFactory, ListCloneArgs, ListReplicaArgs, ListSnapshotArgs,
         ReplicaOps, SnapshotOps,
@@ -172,6 +173,15 @@ impl PoolOps for Lvs {
             .map_err(|errno| crate::pool_backend::Error::Gen {
                 source: crate::pool_backend::GenericError::StatsReset { errno },
             })?;
+        Ok(())
+    }
+
+    async fn reset_stall_transitions(&self) -> Result<(), crate::pool_backend::Error> {
+        let cache = pool_info_read();
+        if let Some(pool_lock) = cache.get(self.name()) {
+            let mut pool_mut = pool_lock.write();
+            pool_mut.clear();
+        }
         Ok(())
     }
 }

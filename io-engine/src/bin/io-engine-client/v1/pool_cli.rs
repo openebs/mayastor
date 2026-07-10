@@ -37,7 +37,6 @@ enum PoolCommands {
     /// List storage pools
     List(ListArgs),
     /// Clears errors from the storage pool
-    #[command(name = "clear-errors")]
     ClearErrors(ClearErrorsArgs),
     /// Probes storage pool
     Probe(ProbeArgs),
@@ -134,6 +133,9 @@ struct ClearErrorsArgs {
     disk: Vec<String>,
     #[arg(short = 'u', long)]
     uuid: Option<Uuid>,
+    /// Specify which errors to clear, if not all errors will be cleared.
+    #[arg(long = "clear")]
+    clear_arg: Option<ClearErrors>,
 }
 
 #[derive(Debug, Args)]
@@ -287,6 +289,25 @@ impl From<PoolType> for v1rpc::pool::PoolType {
         match value {
             PoolType::Lvs => Self::Lvs,
             PoolType::Lvm => Self::Lvm,
+        }
+    }
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub(super) enum ClearErrors {
+    /// Clear io error and stall transition counts from the pool.
+    All,
+    /// Clear only I/O errors from the pool.
+    IoErrors,
+    /// Clear only I/O stall transitions from the pool.
+    IoStallTransitions,
+}
+impl From<ClearErrors> for v1rpc::pool::ClearErrors {
+    fn from(value: ClearErrors) -> Self {
+        match value {
+            ClearErrors::All => Self::ClearAll,
+            ClearErrors::IoErrors => Self::ClearIoErrors,
+            ClearErrors::IoStallTransitions => Self::ClearIoStallTransitions,
         }
     }
 }
@@ -563,6 +584,10 @@ async fn clear_errors(mut ctx: Context, args: ClearErrorsArgs) -> crate::Result<
     let name = args.name;
     let uuid = args.uuid.map(|u| u.to_string());
     let disks = args.disk;
+    let clear = args
+        .clear_arg
+        .map(|c| v1rpc::pool::ClearErrors::from(c) as i32)
+        .unwrap_or_default();
 
     let response = ctx
         .v1
@@ -571,7 +596,7 @@ async fn clear_errors(mut ctx: Context, args: ClearErrorsArgs) -> crate::Result<
             name: name.clone(),
             uuid,
             disks,
-            clear: 0,
+            clear,
         })
         .await
         .context(GrpcStatus)?;

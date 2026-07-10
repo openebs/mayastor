@@ -174,6 +174,9 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
 
     /// Reset the error stats of the pool disks.
     async fn reset_errors(&self) -> Result<(), Error>;
+
+    /// Reset stall transitions for the pool.
+    async fn reset_stall_transitions(&self) -> Result<(), Error>;
 }
 
 /// Interface for a pool factory which can be used for various

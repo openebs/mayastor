@@ -28,6 +28,10 @@ impl PoolInfo {
     pub fn get(id: &str) -> Option<parking_lot::MappedRwLockReadGuard<'static, RwLock<PoolInfo>>> {
         pool_info(id)
     }
+    /// Clears the transition timestamps for the pool.
+    pub fn clear(&mut self) {
+        self.transition_timestamps.clear();
+    }
 }
 
 /// Returns write lock of the hashmap.
