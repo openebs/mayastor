@@ -1004,6 +1004,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 nexus::nexus_create_v2(
                     &args.name,
                     args.size,
+                    false,
                     &args.uuid,
                     nexus::NexusNvmeParams {
                         min_cntlid: args.min_cntl_id as u16,

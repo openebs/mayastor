@@ -221,6 +221,8 @@ pub struct Nexus<'n> {
     /// be larger. The actual Nexus size will be calculated based on the
     /// capabilities of the underlying child devices.
     req_size: u64,
+    /// The size of the nexus bdev must match the requested size exactly.
+    req_size_exact: bool,
     /// Vector of nexus children.
     pub(super) children: Vec<NexusChild<'n>>,
     /// NVMe parameters
@@ -348,9 +350,11 @@ impl BdevStater for Nexus<'_> {
 impl<'n> Nexus<'n> {
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         name: &str,
         size: u64,
+        size_exact: bool,
         bdev_uuid: Option<&str>,
         nexus_uuid: Option<uuid::Uuid>,
         nvme_params: NexusNvmeParams,
@@ -365,6 +369,7 @@ impl<'n> Nexus<'n> {
             data_ent_offset: 0,
             label_version,
             req_size: size,
+            req_size_exact: size_exact,
             nexus_target: None,
             nvme_params,
             has_io_device: false,
@@ -522,6 +527,11 @@ impl<'n> Nexus<'n> {
     /// TODO
     pub fn req_size(&self) -> u64 {
         self.req_size
+    }
+
+    /// The requested size of the Nexus in blocks.
+    pub fn req_size_blks(&self) -> u64 {
+        self.req_size / self.block_len()
     }
 
     /// Returns the actual size of the Nexus instance, in bytes.
@@ -734,6 +744,15 @@ impl<'n> Nexus<'n> {
             }
         }
         let size_blks = end_blk - start_blk + 1;
+        let req_size_blks = self.req_size() / blk_size;
+
+        if self.req_size_exact && req_size_blks != size_blks {
+            return Err(Error::NexusSizeUnmatched {
+                name,
+                requested: self.req_size(),
+                got: size_blks * blk_size,
+            });
+        }
 
         unsafe {
             self.as_mut().set_data_ent_offset(start_blk);
@@ -1414,13 +1433,14 @@ pub async fn nexus_create(
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
-    nexus_create_ext(name, size, uuid, children, LabelVersion::V1).await
+    nexus_create_ext(name, size, false, uuid, children, LabelVersion::V1).await
 }
 
 /// Same as [`nexus_create`] but allows specifying the label version to use for the nexus.
 pub async fn nexus_create_ext(
     name: &str,
     size: u64,
+    size_exact: bool,
     uuid: Option<&str>,
     children: &[String],
     label_version: LabelVersion,
@@ -1428,6 +1448,7 @@ pub async fn nexus_create_ext(
     nexus_create_internal(
         name,
         size,
+        size_exact,
         uuid,
         None,
         NexusNvmeParams::default(),
@@ -1443,9 +1464,11 @@ pub async fn nexus_create_ext(
 /// resv_key: NVMe reservation key for children
 /// label_version: on-disk label layout version used to compute partition
 /// offsets on the child devices.
+#[allow(clippy::too_many_arguments)]
 pub async fn nexus_create_v2(
     name: &str,
     size: u64,
+    size_exact: bool,
     uuid: &str,
     nvme_params: NexusNvmeParams,
     children: &[String],
@@ -1489,6 +1512,7 @@ pub async fn nexus_create_v2(
             nexus_create_internal(
                 name,
                 size,
+                size_exact,
                 Some(bdev_uuid.as_str()),
                 Some(nexus_uuid),
                 nvme_params,
@@ -1502,6 +1526,7 @@ pub async fn nexus_create_v2(
             nexus_create_internal(
                 name,
                 size,
+                size_exact,
                 Some(uuid),
                 None,
                 nvme_params,
@@ -1518,6 +1543,7 @@ pub async fn nexus_create_v2(
 async fn nexus_create_internal(
     name: &str,
     size: u64,
+    size_exact: bool,
     bdev_uuid: Option<&str>,
     nexus_uuid: Option<Uuid>,
     nvme_params: NexusNvmeParams,
@@ -1555,6 +1581,7 @@ async fn nexus_create_internal(
     let mut nexus_bdev = Nexus::new(
         name,
         size,
+        size_exact,
         bdev_uuid,
         nexus_uuid,
         nvme_params,
