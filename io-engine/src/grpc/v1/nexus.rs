@@ -463,7 +463,7 @@ impl NexusRpc for NexusService {
         let version = NexusLabelVersion::try_from(args.label_version).unwrap_or_default();
         let label_version = label_version_from_proto(version)
             .ok_or_else(|| Status::invalid_argument("unsupported label version"))?;
-        let size_exact = args.required_size;
+        let size_exact = args.required_size && label_version != LabelVersion::V1;
         let args = args.v1.ok_or(Status::invalid_argument("missing v1"))?;
 
         self.serialized(

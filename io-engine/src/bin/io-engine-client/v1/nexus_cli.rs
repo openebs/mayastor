@@ -55,6 +55,23 @@ enum NvmeAnaState {
     Inaccessible,
 }
 
+/// Nexus on-disk label version
+#[derive(Debug, Default, Clone, clap::ValueEnum)]
+enum NexusLabelVersion {
+    #[default]
+    V1,
+    V2,
+}
+
+impl From<NexusLabelVersion> for v1::nexus::NexusLabelVersion {
+    fn from(v: NexusLabelVersion) -> Self {
+        match v {
+            NexusLabelVersion::V1 => v1::nexus::NexusLabelVersion::LabelV1,
+            NexusLabelVersion::V2 => v1::nexus::NexusLabelVersion::LabelV2,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 #[command(subcommand_required = true, arg_required_else_help = true)]
 pub struct NexusArgs {
@@ -122,6 +139,12 @@ struct CreateArgs {
     /// key used to persist the NexusInfo structure
     #[arg(long = "nexus-info-key", default_value = "")]
     nexus_info_key: String,
+    /// The nexus on-disk label version.
+    #[arg(long)]
+    label_version: Option<NexusLabelVersion>,
+    /// Disable requested-size enforcement.
+    #[arg(long)]
+    required_size: Option<bool>,
 }
 
 #[derive(Debug, Args)]
@@ -224,24 +247,43 @@ async fn nexus_create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
 
     let resv_type = args.resv_type.map(|t| NvmeReservation::from(t) as i32);
 
-    let response = ctx
-        .v1
-        .nexus
-        .create_nexus(v1::nexus::CreateNexusRequest {
-            name,
-            uuid: uuid.clone(),
-            size: args.size.as_u64(),
-            min_cntl_id: args.min_cntlid,
-            max_cntl_id: args.max_cntlid,
-            resv_key: args.resv_key,
-            preempt_key: args.preempt_key,
-            children: args.children.iter().map(|u| u.to_string()).collect(),
-            nexus_info_key: args.nexus_info_key,
-            resv_type,
-            preempt_policy: 0,
+    let create_request = v1::nexus::CreateNexusRequest {
+        name,
+        uuid: uuid.clone(),
+        size: args.size.as_u64(),
+        min_cntl_id: args.min_cntlid,
+        max_cntl_id: args.max_cntlid,
+        resv_key: args.resv_key,
+        preempt_key: args.preempt_key,
+        children: args.children.iter().map(|u| u.to_string()).collect(),
+        nexus_info_key: args.nexus_info_key,
+        resv_type,
+        preempt_policy: 0,
+    };
+
+    let label_version = args.label_version.unwrap_or(NexusLabelVersion::V2);
+    let required_size = args.required_size.unwrap_or(true);
+
+    let api = &mut ctx.v1.nexus;
+    let response = match api
+        .create_nexus_v2(v1::nexus::CreateNexusV2Request {
+            v1: Some(create_request.clone()),
+            label_version: v1::nexus::NexusLabelVersion::from(label_version) as i32,
+            required_size,
         })
         .await
-        .context(GrpcStatus)?;
+    {
+        Ok(response) => response,
+        Err(status) if status.code() == Code::Unimplemented => {
+            api.create_nexus(create_request).await.context(GrpcStatus)?
+        }
+        Err(status) => {
+            return Err(crate::ClientError::GrpcStatus {
+                source: status,
+                backtrace: None,
+            });
+        }
+    };
 
     match ctx.output {
         OutputFormat::Json => {
@@ -255,7 +297,7 @@ async fn nexus_create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
             let val = &response.get_ref().nexus.as_ref().unwrap().uuid;
             println!("{val}");
         }
-    };
+    }
 
     Ok(())
 }
