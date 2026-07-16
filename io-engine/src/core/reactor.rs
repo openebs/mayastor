@@ -37,6 +37,7 @@ use std::{
     os::{fd::RawFd, raw::c_void},
     pin::Pin,
     slice::Iter,
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -120,7 +121,7 @@ pub struct Reactor {
     /// represents the state of the reactor
     flags: Cell<ReactorState>,
     /// Unique identifier of the thread on which reactor is running.
-    tid: Cell<u64>,
+    tid: AtomicU64,
     /// sender and Receiver for sending futures across cores without going
     /// through FFI
     sx: Sender<Pin<Box<dyn Future<Output = ()> + 'static>>>,
@@ -363,7 +364,7 @@ impl Reactor {
             lcore: core,
             developer_delay,
             flags: Cell::new(ReactorState::Init),
-            tid: Cell::new(0),
+            tid: AtomicU64::new(0),
             sx,
             rx,
             interrupt_enabled,
@@ -547,13 +548,13 @@ impl Reactor {
 
     /// Returns system identifier of the thread this reactor is running on.
     pub fn tid(&self) -> u64 {
-        self.tid.get()
+        self.tid.load(Ordering::Relaxed)
     }
 
     /// poll this reactor to complete any work that is pending
     pub fn poll_reactor(&self) {
         // Initialize TID for this reactor.
-        self.tid.set(gettid());
+        self.tid.store(gettid(), Ordering::Relaxed);
 
         // If interrupt mode is enabled, enter it immediately. The
         // reactor will block in fd_group_wait() until events arrive,
@@ -931,6 +932,30 @@ impl Reactor {
             })
         } else {
             Ok(r)
+        }
+    }
+
+    pub fn reapply_affinity(&self) {
+        let tid = self.tid();
+
+        if tid == 0 {
+            return;
+        }
+
+        unsafe {
+            let mut set: libc::cpu_set_t = std::mem::zeroed();
+
+            libc::CPU_SET(self.core() as usize, &mut set);
+
+            let rc = libc::sched_setaffinity(
+                tid as libc::pid_t,
+                std::mem::size_of::<libc::cpu_set_t>(),
+                &set,
+            );
+
+            if rc != 0 {
+                tracing::warn!("Failed to repin reactor core={} tid={}", self.core(), tid);
+            }
         }
     }
 
