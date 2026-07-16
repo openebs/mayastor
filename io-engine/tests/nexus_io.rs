@@ -368,6 +368,7 @@ async fn nexus_io_resv_acquire() {
             nexus_create_v2(
                 NXNAME,
                 32 * 1024 * 1024,
+                false,
                 NEXUS_UUID,
                 nvme_params,
                 &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
@@ -564,6 +565,7 @@ async fn nexus_io_resv_preempt() {
             nexus_create_v2(
                 NXNAME,
                 32 * 1024 * 1024,
+                false,
                 NEXUS_UUID,
                 nvme_params,
                 &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],
@@ -835,6 +837,7 @@ async fn nexus_io_resv_preempt_tabled() {
                     nexus_create_v2(
                         NXNAME,
                         32 * 1024 * 1024,
+                        false,
                         NEXUS_UUID,
                         nvme_params,
                         &[format!("nvmf://{ip0}:8420/{HOSTNQN}:{REPL_UUID}")],

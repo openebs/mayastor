@@ -163,6 +163,12 @@ pub enum Error {
     UpdateShareProperties { source: CoreError, name: String },
     #[snafu(display("failed to save nexus state {name}, {source}"))]
     SaveStateFailed { source: StoreError, name: String },
+    #[snafu(display("Nexus {name} requested {requested}B but got {got}B"))]
+    NexusSizeUnmatched {
+        name: String,
+        requested: u64,
+        got: u64,
+    },
 }
 
 impl From<NvmfError> for Error {
@@ -226,6 +232,7 @@ impl From<Error> for tonic::Status {
             Error::SubsysNvmf { .. } => Status::internal(e.to_string()),
             Error::UpdateShareProperties { .. } => Status::internal(e.to_string()),
             Error::SaveStateFailed { .. } => Status::data_loss(e.to_string()),
+            Error::NexusSizeUnmatched { .. } => Status::invalid_argument(e.to_string()),
         };
         status
             .metadata_mut()
@@ -295,7 +302,7 @@ impl ToErrno for Error {
             | Error::NoRebuildSource { .. } => Errno::EFAULT,
 
             // This is something we'll have to handle better
-            Error::MixedBlockSizes { .. } => Errno::EINVAL,
+            Error::MixedBlockSizes { .. } | Error::NexusSizeUnmatched { .. } => Errno::EINVAL,
         }
     }
 }

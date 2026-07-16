@@ -19,6 +19,17 @@ use super::{
     primitives::{Aligned, GptDiskProps, GptEntry, GptGuid, GptHeader, GptLabel, LabelError},
 };
 
+fn align_down(value: u64, align: u64) -> u64 {
+    value - value % align
+}
+
+fn align_up(value: u64, align: u64) -> u64 {
+    match value % align {
+        0 => value,
+        rem => value.saturating_add(align - rem),
+    }
+}
+
 /// Partition Type GUID for the `MayaMeta` partition.
 pub const META_TYPE_GUID: &str = "27663382-e5e6-11e9-81b4-ca5ca5ca5ca5";
 /// Partition Type GUID for the `MayaData` partition.
@@ -43,8 +54,12 @@ pub trait Layout {
     /// Alignment (in bytes) of the data partition length. A value `<=`
     /// the device block size means no extra alignment beyond the block.
     /// When larger, the data length is rounded down to a multiple of
-    /// this value, leaving a trailing void in the last usable region.
+    /// this value.
     const DATA_ALIGN_SIZE: u64;
+    /// Size (in bytes) of a fixed trailing void reserved between the
+    /// end of the data partition and the last usable block. Zero means
+    /// no reservation (data may extend up to `last_usable`).
+    const TRAILING_VOID_SIZE: u64;
     /// Which [`LabelVersion`] this layout represents.
     const VERSION: LabelVersion;
 }
@@ -85,21 +100,40 @@ fn data_extent<L: Layout>(
         return Err(too_small());
     }
 
-    let max_blocks = last_usable - data_start + 1;
-    let req_blocks = Aligned::get_blocks(req_size, block_size);
-    let clamped = min(req_blocks, max_blocks);
-
-    // Round the length down to the version's data alignment (no-op for
-    // V1 and any version whose alignment fits in a single block).
-    let data_blocks = if L::DATA_ALIGN_SIZE > 0 {
-        let cluster_blocks = Aligned::get_blocks(L::DATA_ALIGN_SIZE, block_size);
-        clamped & !(cluster_blocks - 1)
+    // Reserve a fixed trailing void (if any) from the end of the device.
+    let trailing_blocks = Aligned::get_blocks(L::TRAILING_VOID_SIZE, block_size);
+    let usable_end = if trailing_blocks > 0 {
+        if trailing_blocks + data_start >= num_blocks {
+            return Err(too_small());
+        }
+        // usable_end is the last block *before* the void starts.
+        let void_start = num_blocks - trailing_blocks;
+        void_start - 1
     } else {
-        clamped
+        last_usable
     };
 
+    let max_blocks = usable_end - data_start + 1;
+    let req_blocks = Aligned::get_blocks(req_size, block_size);
+
+    // Round available capacity down to fit, but round requested size up to
+    // satisfy the version's data alignment.
+    let data_blocks = if L::DATA_ALIGN_SIZE > 0 {
+        let cluster_blocks = Aligned::get_blocks(L::DATA_ALIGN_SIZE, block_size);
+        min(
+            align_up(req_blocks, cluster_blocks),
+            align_down(max_blocks, cluster_blocks),
+        )
+    } else {
+        min(req_blocks, max_blocks)
+    };
+
+    if data_blocks == 0 {
+        return Err(too_small());
+    }
+
     let data_end = data_start + data_blocks - 1;
-    if data_end > last_usable || data_end < data_start {
+    if data_end > usable_end || data_end < data_start {
         return Err(too_small());
     }
 
@@ -207,6 +241,7 @@ pub mod v1 {
         const META_SIZE: u64 = 4 * 1024 * 1024;
         const DATA_START_OFFSET: u64 = 5 * 1024 * 1024;
         const DATA_ALIGN_SIZE: u64 = 0;
+        const TRAILING_VOID_SIZE: u64 = 0;
         const VERSION: LabelVersion = LabelVersion::V1;
     }
 
@@ -331,41 +366,41 @@ pub mod v1 {
 
 /// V2 of the on-disk label layout.
 ///
-/// 3 MiB metadata partition, data aligned to a 4 MiB cluster boundary with
-/// a trailing 4 MiB void reserved (never allocated on a default cluster).
+/// 3 MiB metadata partition, data aligned down to a 1 MiB boundary with a
+/// fixed 4 MiB trailing void reserved before the end of the device.
 ///
 /// The metadata size is reduced to 3 MiB so that the data partition starts
-/// at a 4 MiB offset, aligning user data to the default cluster size. The
-/// last 4 MiB are reserved as a void so the data length is also a multiple
-/// of 4 MiB; this isn't fully foolproof for larger cluster sizes, but those
-/// can be addressed in a future version bump. Replacing 4 MiB with the
-/// actual cluster size will also require changing the wipe of the first
-/// 8 MiB when replicas are created to ensure typical fs data is cleared.
+/// at a 4 MiB offset, aligning user data to the default cluster size. A
+/// fixed 4 MiB region is always reserved between the end of the data
+/// partition and the last usable block; the data length itself is only
+/// required to be a multiple of 1 MiB (and is therefore not necessarily a
+/// multiple of 4 MiB).
 ///
 /// Device layout:
 ///
 /// ```text
-/// 0     ───── reserved for protective MBR
-/// 1     ───── reserved for primary GPT header
-/// 2     ──┐
-///         ├── reserved for GPT entries
-/// 33    ──┘
-/// 34    ──┐
-///         ├── unused
-/// 2047  ──┘
-/// 2048  ──┐
-///         ├── 3M reserved for metadata
-/// 8191  ──┘
+/// 0        ───── reserved for protective MBR
+/// 1        ───── reserved for primary GPT header
+/// 2        ──┐
+///            ├── reserved for GPT entries
+/// 33       ──┘
+/// 34       ──┐
+///            ├── unused
+/// 2047     ──┘
+/// 2048     ──┐
+///            ├── 3 MiB reserved for metadata
+/// 8191     ──┘
 /// 8192     ────┐
-///              ├── available for user data (this is what the nexus bdev exposes)
+///              ├── available for user data, 1 MiB aligned length
+///              │   (this is what the nexus bdev exposes)
 /// N-4MiB-1 ────┘
 /// N-4MiB   ──┐
-///            ├── void to ensure user data is a multiple of 4 MiB (matches default cluster size)
+///            ├── fixed 4 MiB void reserved before end of device
 /// N-34     ──┘
-/// N-33  ──┐
-///         ├── reserved for the copy of GPT entries
-/// N-2   ──┘
-/// N-1   ───── last device block, reserved for secondary GPT header
+/// N-33     ──┐
+///            ├── reserved for the copy of GPT entries
+/// N-2      ──┘
+/// N-1      ───── last device block, reserved for secondary GPT header
 /// ```
 pub mod v2 {
     use super::*;
@@ -376,7 +411,8 @@ pub mod v2 {
     impl Layout for V2 {
         const META_SIZE: u64 = 3 * 1024 * 1024;
         const DATA_START_OFFSET: u64 = 4 * 1024 * 1024;
-        const DATA_ALIGN_SIZE: u64 = 4 * 1024 * 1024;
+        const DATA_ALIGN_SIZE: u64 = 1024 * 1024;
+        const TRAILING_VOID_SIZE: u64 = 4 * 1024 * 1024;
         const VERSION: LabelVersion = LabelVersion::V2;
     }
 
@@ -405,81 +441,95 @@ pub mod v2 {
             Aligned::get_blocks(V2::DATA_ALIGN_SIZE, block_size)
         }
 
+        fn trailing_void_blks(block_size: u64) -> u64 {
+            Aligned::get_blocks(V2::TRAILING_VOID_SIZE, block_size)
+        }
+
         #[test]
         fn data_extents() {
             // 12 MiB device / 512 = 24_576 blocks
             let num_blocks = 24_576;
             let block_size = 512;
-            let aligned_end = DATA_START_BLKS + data_align_blks(block_size) - 1;
+            let void = trailing_void_blks(block_size);
 
             // pretend we want a size larger than the device so we fill it
             let extent = data_extent::<V2>(u64::MAX, num_blocks, block_size).unwrap();
             assert_eq!(extent.start, DATA_START_BLKS);
-            assert_eq!(extent.end, aligned_end);
+            // fills up to `num_blocks - 4 MiB - 1`
+            let max_blocks = num_blocks - void - DATA_START_BLKS;
+            let aligned_blocks = max_blocks & !(data_align_blks(block_size) - 1);
+            assert_eq!(extent.end, DATA_START_BLKS + aligned_blocks - 1);
             assert!(extent.is_multiple_of(V2::DATA_ALIGN_SIZE / block_size));
+            // exactly 4 MiB reserved before the end of the device
+            assert_eq!(num_blocks - 1 - extent.end, void);
+            // 12 MiB - 4 MiB meta/offset - 4 MiB void = 4 MiB usable
+            let size_bytes = (extent.end - extent.start + 1) * block_size;
+            assert_eq!(size_bytes, 4 * 1024 * 1024);
 
-            // request size with same size as device, should clamp+align to same result
-            let extent =
-                data_extent::<V2>(num_blocks * block_size, num_blocks, block_size).unwrap();
+            // 5 MiB request on a 12 MiB device -> clamped to 4 MiB
+            let extent = data_extent::<V2>(5 * 1024 * 1024, num_blocks, block_size).unwrap();
             assert_eq!(extent.start, DATA_START_BLKS);
-            assert_eq!(extent.end, aligned_end);
-            assert!(extent.is_multiple_of(V2::DATA_ALIGN_SIZE / block_size));
+            let size_bytes = (extent.end - extent.start + 1) * block_size;
+            assert_eq!(size_bytes, 4 * 1024 * 1024);
+            assert_eq!(num_blocks - 1 - extent.end, void);
 
-            // request size smaller size than device, still aligns down to one cluster
-            let extent =
-                data_extent::<V2>((num_blocks - 1) * block_size, num_blocks, block_size).unwrap();
+            // request 3 MiB on a 12 MiB device: fits exactly (3 MiB is 1 MiB aligned)
+            let extent = data_extent::<V2>(3 * 1024 * 1024, num_blocks, block_size).unwrap();
             assert_eq!(extent.start, DATA_START_BLKS);
-            assert_eq!(extent.end, aligned_end);
-            assert!(extent.is_multiple_of(V2::DATA_ALIGN_SIZE / block_size));
-
-            // request that wouldn't quite fill last_usable: still aligns down to one cluster
-            let extent = data_extent::<V2>(
-                (24_541 - DATA_START_BLKS + 1) * block_size,
-                num_blocks,
-                block_size,
-            )
-            .unwrap();
-            assert_eq!(extent.start, DATA_START_BLKS);
-            assert_eq!(extent.end, aligned_end);
-
-            // smallest viable V2 device: needs at least one full 4 MiB cluster of
-            // data, i.e. last_usable >= data_start + cluster - 1.
-            // num_blocks = gpt_reserved + meta_end + 1 + cluster
-            let gpt_reserved_blks =
-                Aligned::get_blocks(GptHeader::PARTITION_TABLE_SIZE, block_size) + 1;
             assert_eq!(
-                data_extent::<V2>(
-                    u64::MAX,
-                    gpt_reserved_blks + META_END_BLKS + 1 + data_align_blks(block_size),
-                    block_size,
-                )
-                .unwrap(),
+                extent.end,
+                DATA_START_BLKS + (3 * 1024 * 1024) / block_size - 1
+            );
+            assert!(extent.is_multiple_of(V2::DATA_ALIGN_SIZE / block_size));
+
+            // request 3.5 MiB on a 12 MiB device: aligned up to 4 MiB
+            let extent =
+                data_extent::<V2>(3 * 1024 * 1024 + 512 * 1024, num_blocks, block_size).unwrap();
+            assert_eq!(extent.start, DATA_START_BLKS);
+            assert_eq!(
+                extent.end,
+                DATA_START_BLKS + (4 * 1024 * 1024) / block_size - 1
+            );
+            let size_bytes = (extent.end - extent.start + 1) * block_size;
+            assert_eq!(size_bytes, 4 * 1024 * 1024);
+
+            // Smallest viable V2 device: 1 MiB of data plus the 4 MiB void.
+            let min_num_blocks = DATA_START_BLKS + data_align_blks(block_size) + void;
+            assert_eq!(
+                data_extent::<V2>(u64::MAX, min_num_blocks, block_size).unwrap(),
                 DataExtent {
                     start: DATA_START_BLKS,
-                    end: aligned_end,
+                    end: DATA_START_BLKS + data_align_blks(block_size) - 1,
                 }
             );
 
-            // one block short of fitting a full cluster -> too small
+            // one block short -> too small
             assert!(matches!(
-                data_extent::<V2>(
-                    u64::MAX,
-                    gpt_reserved_blks + META_END_BLKS + data_align_blks(block_size),
-                    block_size,
-                ),
+                data_extent::<V2>(u64::MAX, min_num_blocks - 1, block_size),
                 Err(LabelError::DeviceTooSmall { .. })
             ));
 
-            // 13 MiB device / 512 = 26_624 blocks
-            let num_blocks = 26_624;
-            let block_size = 512;
-            let aligned_end = DATA_START_BLKS + data_align_blks(block_size) - 1;
-
-            // pretend we want a size larger than the device so we fill it
+            // A 13 MiB device reserves 4 MiB from the actual end, leaving 5 MiB of data.
+            let num_blocks = (13 * 1024 * 1024) / block_size;
             let extent = data_extent::<V2>(u64::MAX, num_blocks, block_size).unwrap();
-            assert_eq!(extent.start, DATA_START_BLKS);
-            assert_eq!(extent.end, aligned_end + data_align_blks(block_size));
-            assert!(extent.is_multiple_of(V2::DATA_ALIGN_SIZE / block_size));
+            let size_bytes = (extent.end - extent.start + 1) * block_size;
+            assert_eq!(size_bytes, 5 * 1024 * 1024);
+            assert!(
+                size_bytes % (1024 * 1024) == 0,
+                "size must be 1 MiB aligned"
+            );
+            assert!(
+                size_bytes % (4 * 1024 * 1024) != 0,
+                "size must not be a multiple of 4 MiB for a 13 MiB device"
+            );
+            assert_eq!(num_blocks - 1 - extent.end, void);
+
+            // A 15 MiB device reserves 4 MiB from the actual end, leaving 7 MiB of data.
+            let num_blocks = (15 * 1024 * 1024) / block_size;
+            let extent = data_extent::<V2>(u64::MAX, num_blocks, block_size).unwrap();
+            let size_bytes = (extent.end - extent.start + 1) * block_size;
+            assert_eq!(size_bytes, 7 * 1024 * 1024);
+            assert_eq!(num_blocks - 1 - extent.end, void);
         }
 
         #[test]
@@ -499,8 +549,15 @@ pub mod v2 {
 
             let data = label.gpt.partition(DATA_NAME).unwrap();
             assert_eq!(data.ent_start, 8192);
+            // usable_end = 262_144 - 8192 - 1 = 253_951. max = 245_760 = 120 MiB,
+            // already 1 MiB aligned. data_end = 253_951.
             assert_eq!(data.ent_end, 253_951);
             assert!(data.is_multiple_of(V2::DATA_ALIGN_SIZE / disk.block_size));
+            // exactly 4 MiB reserved before the end of the device
+            assert_eq!(
+                disk.num_blocks - 1 - data.ent_end,
+                4 * 1024 * 1024 / disk.block_size
+            );
 
             assert!(label.check());
             assert_eq!(LabelVersion::detect(&label.gpt), Some(LabelVersion::V2));
@@ -520,8 +577,14 @@ pub mod v2 {
 
             let data = label.gpt.partition(DATA_NAME).unwrap();
             assert_eq!(data.ent_start, 1024);
+            // usable_end = 262_144 - 1024 - 1 = 261_119. max = 260_096 = 1016 MiB,
+            // already 1 MiB aligned. data_end = 261_119.
             assert_eq!(data.ent_end, 261_119);
             assert!(data.is_multiple_of(V2::DATA_ALIGN_SIZE / disk.block_size));
+            assert_eq!(
+                disk.num_blocks - 1 - data.ent_end,
+                4 * 1024 * 1024 / disk.block_size
+            );
 
             assert!(label.check());
             assert_eq!(LabelVersion::detect(&label.gpt), Some(LabelVersion::V2));

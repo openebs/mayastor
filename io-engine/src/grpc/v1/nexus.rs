@@ -120,6 +120,7 @@ impl NexusService {
 
     async fn create_nexus(
         args: CreateNexusRequest,
+        size_exact: bool,
         label_version: LabelVersion,
     ) -> GrpcResult<CreateNexusResponse> {
         trace!("{:?}", args);
@@ -150,6 +151,7 @@ impl NexusService {
             nexus::nexus_create_v2(
                 &args.name,
                 args.size,
+                size_exact,
                 &args.uuid,
                 nexus::NexusNvmeParams {
                     min_cntlid: args.min_cntl_id as u16,
@@ -461,13 +463,14 @@ impl NexusRpc for NexusService {
         let version = NexusLabelVersion::try_from(args.label_version).unwrap_or_default();
         let label_version = label_version_from_proto(version)
             .ok_or_else(|| Status::invalid_argument("unsupported label version"))?;
+        let size_exact = args.required_size && label_version != LabelVersion::V1;
         let args = args.v1.ok_or(Status::invalid_argument("missing v1"))?;
 
         self.serialized(
             ctx,
             args.uuid.clone(),
             false,
-            Self::create_nexus(args, label_version),
+            Self::create_nexus(args, size_exact, label_version),
         )
         .await
     }
@@ -484,7 +487,7 @@ impl NexusRpc for NexusService {
             ctx,
             args.uuid.clone(),
             false,
-            Self::create_nexus(args, LabelVersion::V1),
+            Self::create_nexus(args, false, LabelVersion::V1),
         )
         .await
     }
