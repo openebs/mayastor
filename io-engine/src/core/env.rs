@@ -1143,6 +1143,13 @@ impl MayastorEnvironment {
         // setup the logger as soon as possible
         self.init_logger();
 
+        // Snapshot the process's baseline CPU affinity (the container cgroup
+        // cpuset) before any reactor pins itself to a single core. This is the
+        // seed used to place off-reactor worker threads; capturing it here,
+        // on the still-unpinned main thread, is what keeps those workers off
+        // the reactor cores. See spdk_rs::Thread::capture_base_cpuset.
+        Mthread::capture_base_cpuset();
+
         if option_env!("ASAN_ENABLE").unwrap_or_default() == "1" {
             print_asan_env();
         }
@@ -1221,6 +1228,10 @@ impl MayastorEnvironment {
 
             assert!(receiver.await.unwrap());
         });
+
+        info!("Affinity monitoring started!");
+
+        crate::core::start_affinity_monitor();
 
         // load any pools that need to be created
         if let Some(config) = pool_config {
