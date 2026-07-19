@@ -29,11 +29,16 @@ pub(super) struct Aio {
     blk_size: u32,
     uuid: Option<uuid::Uuid>,
     rescan: bool,
+    fallocate: bool,
 }
 
 impl Debug for Aio {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Aio '{}', 'blk_size: {}'", self.name, self.blk_size)
+        write!(
+            f,
+            "Aio '{}', 'blk_size: {}', 'fallocate: {}'",
+            self.name, self.blk_size, self.fallocate
+        )
     }
 }
 
@@ -78,6 +83,15 @@ impl TryFrom<&Url> for Aio {
 
         let rescan = parameters.remove("rescan").is_some();
 
+        let fallocate = match parameters.remove("fallocate") {
+            Some(value) => uri::boolean(&value, true).context(bdev_api::BoolParamParseFailed {
+                uri: url.to_string(),
+                parameter: String::from("fallocate"),
+                value: value.to_string(),
+            })?,
+            None => false,
+        };
+
         reject_unknown_parameters(url, parameters)?;
 
         Ok(Aio {
@@ -86,6 +100,7 @@ impl TryFrom<&Url> for Aio {
             blk_size,
             uuid,
             rescan,
+            fallocate,
         })
     }
 }
@@ -122,7 +137,7 @@ impl CreateDestroy for Aio {
                 cname.as_ptr(),
                 self.blk_size,
                 false,
-                false,
+                self.fallocate,
                 std::ptr::null_mut(),
             )
         };
