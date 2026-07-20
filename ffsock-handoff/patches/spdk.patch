@@ -1,0 +1,109 @@
+diff --git a/CONFIG b/CONFIG
+index 5e91cf958..6e1ee6ed1 100644
+--- a/CONFIG
++++ b/CONFIG
+@@ -183,6 +183,11 @@ CONFIG_URING_ZNS=n
+ # Path to custom built IO_URING library
+ CONFIG_URING_PATH=
+ 
++# Build the F-Stack-backed sock module (ffsock). Kept in the CONFIG file (not
++# just mk/config.mk) so build_spdk.sh's ./configure carries it through — the
++# generated mk/config.mk is otherwise regenerated from CONFIG on every configure.
++CONFIG_FF_SOCK=y
++
+ # Path to custom built OPENSSL library
+ CONFIG_OPENSSL_PATH=
+ 
+diff --git a/dpdkbuild/Makefile b/dpdkbuild/Makefile
+index 3d5c8d492..bb92baf13 100644
+--- a/dpdkbuild/Makefile
++++ b/dpdkbuild/Makefile
+@@ -62,12 +62,20 @@ endif
+ 
+ # the drivers we use
+ DPDK_DRIVERS = bus bus/pci bus/vdev mempool/ring
++# ffsock (F-Stack-backed sock module) rides on this same DPDK EAL and needs a
++# NIC PMD to own a port. net/tap is the driverless functional-test backend
++# (virtual tap, no real NIC). A production io-engine that actually offloads
++# NVMe/TCP onto F-Stack must additionally enable the target NIC's PMD here
++# (e.g. net/mlx5, net/ice, net/i40e) — SPDK alone never needs a net PMD.
++DPDK_DRIVERS += net/tap
+ 
+ # Core DPDK libs
+ DPDK_LIBS = eal ring mempool pci
+ DPDK_LIBS += log kvargs telemetry
+ # Governor required libs
+ DPDK_LIBS += power timer ethdev net
++# gso: required internal dependency of net/tap (see DPDK_DRIVERS above).
++DPDK_LIBS += gso
+ # rte_power drivers
+ DPDK_DRIVERS += power/acpi power/amd_pstate power/cppc power/intel_pstate power/intel_uncore \
+ 		power/kvm_vm
+diff --git a/lib/env_dpdk/env.mk b/lib/env_dpdk/env.mk
+index 236d1b930..3870df83f 100644
+--- a/lib/env_dpdk/env.mk
++++ b/lib/env_dpdk/env.mk
+@@ -142,6 +142,17 @@ ifneq (, $(wildcard $(DPDK_LIB_DIR)/librte_log.*))
+ DPDK_LIB_LIST += rte_log
+ endif
+ 
++# ffsock (F-Stack-backed sock module) rides on this same DPDK EAL and needs a
++# NIC PMD to own a port. The net/tap PMD is the driverless functional-test
++# backend (enabled in dpdkbuild/Makefile). It MUST be whole-archived (as all of
++# DPDK_LIB_LIST is) so its vdev-registration constructor is pulled in — else the
++# EAL cannot parse a net_tap0 vdev. gso is net/tap's internal dependency;
++# bus_vdev is the bus it registers with (may already be present via crypto).
++# Gated on the lib actually being built, so this is a no-op on a stock DPDK.
++ifneq (, $(wildcard $(DPDK_LIB_DIR)/librte_net_tap.*))
++DPDK_LIB_LIST += rte_net_tap rte_gso rte_bus_vdev
++endif
++
+ DPDK_LIB_LIST_SORTED = $(sort $(DPDK_LIB_LIST))
+ 
+ DPDK_SHARED_LIB = $(DPDK_LIB_LIST_SORTED:%=$(DPDK_LIB_DIR)/lib%.so)
+diff --git a/mk/spdk.common.mk b/mk/spdk.common.mk
+index 25d759c42..64474976f 100644
+--- a/mk/spdk.common.mk
++++ b/mk/spdk.common.mk
+@@ -173,6 +173,15 @@ LDFLAGS += -L$(CONFIG_URING_PATH)
+ endif
+ endif
+ 
++# F-Stack-backed sock module (ffsock): link libfstack into apps. Built against
++# THIS SPDK's DPDK, so its rte_* deps resolve against the DPDK already linked.
++ifeq ($(CONFIG_FF_SOCK),y)
++FF_PATH ?= /root/mayastore/f-stack
++# libfstack + F-Stack's extra deps not in SPDK's link set: DPDK's rte_timer and
++# zlib (F-Stack pcap/compression). rte_* resolve from the DPDK already on -L path.
++SYS_LIBS += -L$(FF_PATH)/lib -lfstack -L$(SPDK_ROOT_DIR)/dpdk/build/lib -l:librte_timer.a -lz
++endif
++
+ ifeq ($(CONFIG_AVAHI),y)
+ SYS_LIBS += -lavahi-common -lavahi-client
+ endif
+diff --git a/mk/spdk.modules.mk b/mk/spdk.modules.mk
+index a477f6d31..b8c3754e1 100644
+--- a/mk/spdk.modules.mk
++++ b/mk/spdk.modules.mk
+@@ -101,6 +101,9 @@ ifeq ($(OS), Linux)
+ ifeq ($(CONFIG_URING),y)
+ SOCK_MODULES_LIST += sock_uring
+ endif
++ifeq ($(CONFIG_FF_SOCK),y)
++SOCK_MODULES_LIST += sock_ff
++endif
+ endif
+ 
+ ACCEL_MODULES_LIST = accel_error accel_ioat ioat
+diff --git a/module/sock/Makefile b/module/sock/Makefile
+index af6288670..5d2c0c8ad 100644
+--- a/module/sock/Makefile
++++ b/module/sock/Makefile
+@@ -9,6 +9,7 @@ include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
+ DIRS-y = posix
+ ifeq ($(OS), Linux)
+ DIRS-$(CONFIG_URING) += uring
++DIRS-$(CONFIG_FF_SOCK) += ff
+ endif
+ 
+ .PHONY: all clean $(DIRS-y)

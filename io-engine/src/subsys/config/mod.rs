@@ -233,6 +233,26 @@ impl Config {
         assert!(self.socket_opts.set());
         assert!(self.iobuf_opts.set());
 
+        // Optionally route NVMe/TCP through the F-Stack-backed sock impl
+        // (ffsock). spdk_sock_set_default_impl must be called before the
+        // subsystems (and thus the nvmf target) initialize; apply() runs at
+        // exactly that point. Opt-in via MAYASTOR_FFSOCK=1 so the default
+        // (posix) is unchanged otherwise. F-Stack self-inits lazily on first
+        // listen (see FFSOCK_CONF in the ffsock module).
+        if std::env::var("MAYASTOR_FFSOCK").as_deref() == Ok("1") {
+            let name = std::ffi::CString::new("ffsock").unwrap();
+            let rc = unsafe {
+                spdk_rs::libspdk::spdk_sock_set_default_impl(name.as_ptr())
+            };
+            if rc == 0 {
+                info!("ffsock: selected F-Stack sock impl as default for NVMe/TCP");
+            } else {
+                tracing::warn!(
+                    "ffsock: failed to select ffsock (rc={rc}); staying on posix"
+                );
+            }
+        }
+
         info!("{:#?}", self);
     }
 }

@@ -1,0 +1,28 @@
+diff --git a/build.rs b/build.rs
+index 928cac6..01717ec 100644
+--- a/build.rs
++++ b/build.rs
+@@ -155,6 +155,11 @@ fn configure_spdk() -> Result<LibraryConfig, Error> {
+     spdk_lib.mark_system("ibverbs");
+     spdk_lib.mark_system("mlx5");
+     spdk_lib.mark_system("keyutils");
++    // zlib: pulled in by the F-Stack-backed sock module (spdk_sock_ff) via
++    // spdk_syslibs.pc. It's a shared system lib (only libz.so exists), so mark
++    // it system — otherwise it gets whole-archived as a static lib and the link
++    // fails with "unable to find library -lz".
++    spdk_lib.mark_system("z");
+ 
+     spdk_lib.set_static_search(true);
+ 
+@@ -208,6 +213,11 @@ fn configure_spdk() -> Result<LibraryConfig, Error> {
+     println!("Link against static SPDK...");
+     spdk_lib.cargo();
+ 
++    // NOTE: the F-Stack-backed sock module (spdk_sock_ff) needs libfstack +
++    // -lz + rte_timer. These are already carried in spdk_syslibs.pc's
++    // Libs.private (via mk/spdk.common.mk in the custom SPDK) and linked here
++    // through find_lib("spdk_syslibs") above — so no extra directive is needed.
++
+     println!("cargo:rerun-if-env-changed=SPDK_ROOT_DIR");
+     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH_FOR_TARGET");
+ 

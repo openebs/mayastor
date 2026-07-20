@@ -3,6 +3,15 @@ rustflags = [
     "-C", "target-cpu=nehalem",
     "-C", "link-arg=-llzma",
     "-C", "link-arg=-fuse-ld=lld",
+    # F-Stack (libfstack, whole-archived for ffsock) relies on FreeBSD SYSINIT
+    # linker sets, whose members are referenced only via __start_/__stop_
+    # encapsulation symbols. lld's default -z start-stop-gc lets --gc-sections
+    # drop those members, so e.g. the proc0<->thread0 linkage SYSINIT never runs
+    # and F-Stack's ff_freebsd_init null-derefs curthread->td_proc. Retaining
+    # start/stop-referenced sections keeps the SYSINIT set intact while still
+    # gc'ing genuinely-unused code (a blanket --no-gc-sections instead pulls in
+    # unresolved isal-crypto AVX variants).
+    "-C", "link-arg=-Wl,-z,nostart-stop-gc",
 ]
 
 [profile.release]
