@@ -14,7 +14,7 @@ use common::{
             nexus::{NexusNvmePreemption, NvmeReservation},
             GrpcConnect, SharedRpcHandle,
         },
-        Binary, Builder,
+        Binary, Builder, ComposeTest,
     },
     file_io::DataSize,
     fio::{spawn_fio_task, FioBuilder, FioJobBuilder, FioJobResult},
@@ -52,7 +52,7 @@ async fn nexus_fail_crd() {
         .expect("I/O expected to succeed");
 }
 
-async fn test_nexus_fail(crdt: &str) -> std::io::Result<()> {
+async fn test_nexus_fail(crdt: &str) -> std::io::Result<Arc<ComposeTest>> {
     common::composer_init();
 
     let test = Builder::new()
@@ -147,7 +147,7 @@ async fn test_nexus_fail(crdt: &str) -> std::io::Result<()> {
     tokio::pin!(j1);
 
     let (io_res, _) = tokio::join!(j0, j1);
-    io_res.unwrap()
+    io_res.unwrap().map(|_| test)
 }
 
 #[derive(Clone)]
@@ -179,7 +179,11 @@ async fn run_io_task(s: Sender<()>, nvmf: &NvmfLocation, cnt: u32, rt: u32) -> s
             .build()
     });
 
-    let fio = FioBuilder::new().with_jobs(jobs).build();
+    let fio = FioBuilder::new()
+        .with_verbose(true)
+        .with_verbose_err(true)
+        .with_jobs(jobs)
+        .build();
 
     // Notify the nexus management task that connection is complete and I/O
     // starts.

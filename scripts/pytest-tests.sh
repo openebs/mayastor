@@ -63,7 +63,7 @@ function run_tests()
       report=${name#$ROOTDIR/test/python}
       report="$REPORTDIR/${report#/}/xunit-report.xml"
       set -x
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$report" $TEST_ARGS
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name" --junit-xml="$report" --durations=0 $TEST_ARGS
       set +x
     )
     elif [ -f "$name" ] || [ -f "${name%::*}" ]
@@ -75,7 +75,7 @@ function run_tests()
       base_name=$(basename "$name")
       report="$REPORTDIR/${report#/}/${base_name%.py}-xunit-report.xml"
       set -x
-      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$report" $TEST_ARGS
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$base" "$name" --junit-xml="$report" --durations=0 $TEST_ARGS
       set +x
     )
     fi

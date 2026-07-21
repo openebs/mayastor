@@ -105,7 +105,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/pytest-tests.sh --clean-all-exit"
-# debugging
+      # debugging
       # - name: Setup tmate session
       #   if: ${{ failure() }}
       #   timeout-minutes: 240

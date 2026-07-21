@@ -570,7 +570,6 @@ impl<'n> NexusBio<'n> {
                     core = Cores::current(),
                     thread = Mthread::current().unwrap().name()
                 );
-
                 // Record the name of the device for immediate retire.
                 failed_device = Some(h.get_device().device_name());
                 err
@@ -593,14 +592,51 @@ impl<'n> NexusBio<'n> {
             // set the IO as failed in the submission stage.
             self.ctx_mut().failed += 1;
 
-            self.channel_mut().detach_device(&device);
-            self.channel_mut().disconnect_detached_devices(|_| true);
+            // There's a chance that the device becomes broken and start rejecting submissions before
+            // we've had a chance to retire it.
+            // In this case we can't simply detach the device from the channel, because we may then succeed host
+            // IOs to other children and end up with inconsistent data before we've had a chance to properly
+            // retire the device marking it as not healthy in the pstor/etcd.
+
+            // So instead of removing the device from the channel, we set the write head to this device so that
+            // all subsequent writes will be rejected and the device will be retired properly.
+            self.channel_mut().set_dev_wr_head(&device);
 
             if let Some(log) = self.fault_device(
                 &device,
                 IoCompletionStatus::IoSubmissionError(IoSubmissionFailure::Write),
             ) {
                 self.log_io(&log);
+            }
+
+            // We then place the IOs in the frozen list for a short period of time to allow the
+            // retire to complete and the device to be removed from the channel.
+            // Though if there are inflight IOs then we don't need to do that, since the completion
+            // handler will be called and the IO will be resubmitted to the next available child.
+            if inflight == 0 && self.ctx().resubmits < 3 && self.channel().num_writers() > 1 {
+                // we spoof the resubmits counter to avoid infinite resubmissions, but we don't
+                // want to fail the IO yet, so we will freeze it for a short period of time
+                // and then defrost it.
+                self.ctx_mut().resubmits += 1;
+
+                let s = self.clone();
+                self.channel_mut().freeze_io_submission(s);
+
+                // we schedule a task to defrost the IO after a short period of time, so that
+                // it can be resubmitted to the next available child.
+                // todo: we could also rely on the existing freeze mechanism to do this, but
+                // I wanted to avoid adding more complexity to the freeze mechanism, so I
+                // opted for a simple sleep instead.
+                let nx = self.channel().nexus().nexus_name().to_string();
+                crate::core::Reactors::master().send_future(async move {
+                    _ = crate::sleep::mayastor_sleep(std::time::Duration::from_millis(50)).await;
+                    if let Some(nx) = crate::bdev::nexus::nexus_lookup_mut(&nx) {
+                        nx.defrost_normal().await;
+                    }
+                });
+
+                self.channel().for_each_io_log(|log| self.log_io(log));
+                return result;
             }
         }
 

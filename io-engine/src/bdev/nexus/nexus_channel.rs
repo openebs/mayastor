@@ -389,7 +389,14 @@ impl<'n> NexusChannel<'n> {
         self.io_mode = io_mode;
         debug!("{self:?}: setting I/O mode to {io_mode:?}");
         if matches!(self.io_mode, IoMode::Normal) {
-            self.resubmit_frozen();
+            self.resubmit_frozen(true);
+        }
+    }
+
+    /// Defrosts I/Os from a normal channel.
+    pub(super) fn defrost(&mut self) {
+        if matches!(self.io_mode, IoMode::Normal) {
+            self.resubmit_frozen(false);
         }
     }
 
@@ -399,7 +406,10 @@ impl<'n> NexusChannel<'n> {
     }
 
     /// Resubmits all frozen I/Os.
-    fn resubmit_frozen(&mut self) {
+    fn resubmit_frozen(&mut self, log_always: bool) {
+        if !log_always && self.frozen_ios.is_empty() {
+            return;
+        }
         debug!(
             "{self:?}: resubmitting {n} frozen I/Os ...",
             n = self.frozen_ios.len()
@@ -424,10 +434,29 @@ impl<'n> NexusChannel<'n> {
         });
     }
 
+    /// Set the given device as the first writer in the list of writers for this channel.
+    pub(super) fn set_dev_wr_head(&mut self, dev: &str) {
+        self.writers.sort_by(|a, b| {
+            if a.get_device().device_name() == dev {
+                std::cmp::Ordering::Less
+            } else if b.get_device().device_name() == dev {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+    }
+
     /// Freezes submission of the given Nexus I/O.
     pub(super) fn freeze_io_submission(&mut self, io: NexusBio<'n>) {
         trace!("{io:?}: freezing I/O");
-        self.frozen_ios.push(io)
+        self.frozen_ios.push(io);
+    }
+
+    /// How many attached writers are in this channel.
+    /// This is used to determine if we can freeze I/Os or not.
+    pub(super) fn num_writers(&self) -> usize {
+        self.writers.len()
     }
 
     /// Prints elaborate debug info to the logs.
