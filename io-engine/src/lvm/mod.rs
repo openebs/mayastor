@@ -137,7 +137,11 @@ impl PoolOps for VolumeGroup {
     }
 
     async fn reset_errors(&self) -> Result<(), crate::pool_backend::Error> {
-        Err(Error::GrowNotSup {}.into())
+        Err(Error::ResetErrNotSup {}.into())
+    }
+
+    async fn reset_stall_transitions(&self) -> Result<(), crate::pool_backend::Error> {
+        Err(Error::ResetStallTransitionNotSup {}.into())
     }
 }
 

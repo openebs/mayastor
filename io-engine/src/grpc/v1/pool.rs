@@ -448,8 +448,15 @@ impl PoolGrpc {
         self.pool.grow().await?;
         Ok(())
     }
-    async fn clear_errors(&self) -> Result<(), tonic::Status> {
-        self.pool.reset_errors().await?;
+    async fn clear_errors(&self, clear: ClearErrors) -> Result<(), tonic::Status> {
+        match clear {
+            ClearErrors::ClearAll => {
+                self.pool.reset_errors().await?;
+                self.pool.reset_stall_transitions().await?;
+            }
+            ClearErrors::ClearIoErrors => self.pool.reset_errors().await?,
+            ClearErrors::ClearIoStallTransitions => self.pool.reset_stall_transitions().await?,
+        }
         Ok(())
     }
     /// Access the `PoolOps` from this wrapper.
@@ -923,8 +930,14 @@ impl PoolRpc for PoolService {
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
+                    let req = request.get_ref();
+                    let clear_error =
+                        ClearErrors::try_from(req.clear).map_err(|_| LvsError::Invalid {
+                            source: BsError::InvalidArgument {},
+                            msg: format!("invalid clear arg provided: {}", req.clear),
+                        })?;
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
-                    pool.clear_errors().await?;
+                    pool.clear_errors(clear_error).await?;
                     Ok(Pool::async_from(pool.as_ops()).await)
                 })
             },
