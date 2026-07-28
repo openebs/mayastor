@@ -84,10 +84,11 @@ jobs:
       - name: Run JS Grpc Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+          echo "JS_GRPC=1" >> $GITHUB_ENV
           nix-shell --run "./scripts/grpc-test.sh"
 
       - name: Create JS Report
-        if: always()
+        if: always() && env.JS_GRPC == '1'
         run: |
           mkdir -p ci-report/js
           for file in *-xunit-report.xml; do
@@ -97,7 +98,7 @@ jobs:
           done
 
       - name: Test Report
-        if: always()
+        if: always() && env.JS_GRPC == '1'
         uses: pmeier/pytest-results-action@main
         with:
           path: 'ci-report/js/*-xunit-report.xml'
@@ -105,9 +106,9 @@ jobs:
           display-options: a
           fail-on-empty: true
           title: Test results
+
       - run: nix-shell --run "./scripts/ci-report.sh"
         if: failure() || cancelled()
-
       - uses: actions/upload-artifact@v7
         if: failure() || cancelled()
         with:
@@ -121,7 +122,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: nix-shell --run "./scripts/clean-cargo-tests.sh"
-# debugging
+      # debugging
       # - name: Setup tmate session
       #   if: ${{ failure() }}
       #   timeout-minutes: 240

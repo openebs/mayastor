@@ -45,3 +45,5 @@ ansible-hosts
 /rust-toolchain.toml
 /test/python/reports
 /ci-report/
+/local-fio-0-verify.state
+/test/python/local-job-fs-0-verify.state
