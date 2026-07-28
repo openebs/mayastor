@@ -1103,6 +1103,18 @@ impl<'n> Nexus<'n> {
         debug!("{self:?}: set I/O mode to {mode:?}: done");
     }
 
+    /// Defrost all normal I/O channels of the nexus.
+    pub(crate) async fn defrost_normal(&self) {
+        if !self.has_io_device {
+            return;
+        }
+
+        self.traverse_io_channels_async((), |channel, _| {
+            channel.defrost();
+        })
+        .await;
+    }
+
     /// TODO
     pub(super) fn try_self_shutdown(&self) {
         let nexus_name = self.nexus_name().to_owned();
