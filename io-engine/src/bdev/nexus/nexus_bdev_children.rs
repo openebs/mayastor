@@ -1157,12 +1157,7 @@ impl<'n> Nexus<'n> {
                 }
 
                 // Step 2: abort all frozen I/Os.
-                debug!("{nexus:?}: aborting all frozen I/Os");
-                nexus
-                    .traverse_io_channels_async((), |channel, _| {
-                        channel.abort_frozen();
-                    })
-                    .await;
+                nexus.abort_frozen_ios().await;
 
                 // Step 3: cancel all active rebuild jobs.
                 let child_uris = nexus.child_uris();

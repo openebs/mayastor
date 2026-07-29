@@ -88,6 +88,14 @@ impl Share for Nexus<'_> {
     ) -> Result<(), Self::Error> {
         info!("{:?}: unsharing nexus bdev...", self);
 
+        // Aborts frozen I/Os a priori
+        // Note that this is not a foolproof solution, ie what if the nexus is still online
+        // and then IOs become frozen after we start trying to unshare?
+        // In practice this may not be the case since we only unshare when nothing else is
+        // using the nexus, though what if there's a long IO getting stuck, and leading to
+        // retire AND shutdown?
+        self.abort_shutdown_frozen_ios().await;
+
         let name = self.name.clone();
         self.as_mut()
             .pin_bdev_mut()
