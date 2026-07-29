@@ -53,6 +53,8 @@ pub enum IoMode {
     Normal,
     /// I/O submissions are frozen.
     Freeze,
+    /// Reject all I/O submissions by failing them.
+    Reject,
 }
 
 #[derive(Debug)]
@@ -400,9 +402,16 @@ impl<'n> NexusChannel<'n> {
         }
     }
 
-    /// Determines if I/Os are frozen.
-    pub(super) fn is_frozen(&self) -> bool {
-        matches!(self.io_mode, IoMode::Freeze)
+    /// Determines if I/Os should be rejected.
+    #[inline(always)]
+    pub(super) fn io_reject(&self) -> bool {
+        matches!(self.io_mode, IoMode::Reject)
+    }
+
+    /// Determines if I/Os should not be submitted.
+    #[inline(always)]
+    pub(super) fn io_mode(&self) -> &IoMode {
+        &self.io_mode
     }
 
     /// Resubmits all frozen I/Os.
@@ -451,6 +460,12 @@ impl<'n> NexusChannel<'n> {
     pub(super) fn freeze_io_submission(&mut self, io: NexusBio<'n>) {
         trace!("{io:?}: freezing I/O");
         self.frozen_ios.push(io);
+    }
+
+    /// Reject submission of the given Nexus I/O.
+    pub(super) fn reject_io_submission(&mut self, io: NexusBio<'n>) {
+        trace!("{io:?}: rejecting I/O");
+        io.fail();
     }
 
     /// How many attached writers are in this channel.

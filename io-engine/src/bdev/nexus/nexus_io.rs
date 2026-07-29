@@ -16,7 +16,7 @@ use spdk_rs::{
     BdevIo,
 };
 
-use super::{FaultReason, IOLogChannel, Nexus, NexusChannel, NEXUS_PRODUCT_ID};
+use super::{FaultReason, IOLogChannel, IoMode, Nexus, NexusChannel, NEXUS_PRODUCT_ID};
 
 use crate::core::{
     BlockDevice, BlockDeviceHandle, CoreError, Cores, IoCompletionStatus, IoStatus,
@@ -164,9 +164,7 @@ impl<'n> NexusBio<'n> {
 
     /// TODO
     pub(super) fn submit_request(mut self) {
-        if self.channel().is_frozen() {
-            let s = self.clone();
-            self.channel_mut().freeze_io_submission(s);
+        if !self.accept_request() {
             return;
         }
 
@@ -192,6 +190,22 @@ impl<'n> NexusBio<'n> {
         } {
             trace_nexus_io!("Submission error: {self:?}: {_e}");
         }
+    }
+
+    #[inline(always)]
+    fn accept_request(&mut self) -> bool {
+        match self.channel().io_mode() {
+            IoMode::Normal => return true,
+            IoMode::Freeze => {
+                let s = self.clone();
+                self.channel_mut().freeze_io_submission(s);
+            }
+            IoMode::Reject => {
+                let s = self.clone();
+                self.channel_mut().reject_io_submission(s);
+            }
+        }
+        false
     }
 
     /// Obtains a reference to the Nexus struct embedded within the bdev.
@@ -268,7 +282,7 @@ impl<'n> NexusBio<'n> {
 
     /// Fails the current I/O with a generic internal error. If the nexus
     /// already had a last child error, it fails with it.
-    fn fail(&self) {
+    pub fn fail(&self) {
         match self.nexus().last_error {
             IoCompletionStatus::NvmeError(s) => self.fail_nvme_status(s),
             IoCompletionStatus::LvolError(LvolFailure::NoSpace) => {
@@ -613,7 +627,7 @@ impl<'n> NexusBio<'n> {
             // retire to complete and the device to be removed from the channel.
             // Though if there are inflight IOs then we don't need to do that, since the completion
             // handler will be called and the IO will be resubmitted to the next available child.
-            if inflight == 0 && self.ctx().resubmits < 3 && self.channel().num_writers() > 1 {
+            if self.delay_io_resubmit(inflight) {
                 // we spoof the resubmits counter to avoid infinite resubmissions, but we don't
                 // want to fail the IO yet, so we will freeze it for a short period of time
                 // and then defrost it.
@@ -656,6 +670,13 @@ impl<'n> NexusBio<'n> {
         }
 
         result
+    }
+
+    fn delay_io_resubmit(&self, inflight: u8) -> bool {
+        inflight == 0
+            && self.ctx().resubmits < 3
+            && self.channel().num_writers() > 1
+            && !self.channel().io_reject()
     }
 
     /// Logs all write-like operation in the rebuild logs, if any exist.
