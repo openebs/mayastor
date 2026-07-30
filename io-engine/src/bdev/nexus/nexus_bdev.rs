@@ -66,6 +66,7 @@ pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 pub enum NexusTarget {
     NbdDisk(NbdDisk),
     NexusNvmfTarget,
+    Ublk,
 }
 
 /// Sensitive nexus operations that might require extra checks against

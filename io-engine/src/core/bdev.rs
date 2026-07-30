@@ -19,7 +19,7 @@ use crate::{
         BlockDeviceIoStats, CoreError, DescriptorGuard, PtplProps, ShareNvmf, UnshareNvmf,
         UnshareProps,
     },
-    subsys::NvmfSubsystem,
+    subsys::{NvmfSubsystem, UblkSubsystem},
     target::nvmf,
 };
 
@@ -192,6 +192,7 @@ pub fn is_shared<T: spdk_rs::BdevOps>(bdev: &Bdev<T>) -> Option<Protocol> {
     // TODO: we could do better here
     match bdev.shared() {
         Some(Protocol::Nvmf) => Some(Protocol::Nvmf),
+        Some(Protocol::Ublk) => Some(Protocol::Ublk),
         _else if NvmfSubsystem::nqn_lookup(bdev.name()).is_some() => Some(Protocol::Nvmf),
         _else => _else,
     }
@@ -236,6 +237,10 @@ where
         subsystem.start(is_nexus_bdev).await.context(ShareNvmf {})
     }
 
+    async fn share_ublk(self: Pin<&mut Self>) -> Result<Self::Output, Self::Error> {
+        UblkSubsystem::start_disk(&self).await.map_err(Into::into)
+    }
+
     fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {
         Ok(None)
     }
@@ -255,6 +260,7 @@ where
                         .context(ShareNvmf {})?;
                 }
             }
+            Some(Protocol::Ublk) => {}
             Some(Protocol::Off) | None => {}
         }
 
@@ -269,6 +275,9 @@ where
                     ss.stop_for_destroy().await.context(UnshareNvmf {})?;
                 }
             }
+            Some(Protocol::Ublk) => {
+                UblkSubsystem::stop_disk(&self).await?;
+            }
             Some(Protocol::Off) | None => {}
         }
 
@@ -280,6 +289,8 @@ where
         // TODO: we could do better here
         if self.is_claimed_by("NVMe-oF Target") {
             Some(Protocol::Nvmf)
+        } else if self.is_claimed_by(crate::subsys::UblkModule::name()) {
+            Some(Protocol::Ublk)
         } else {
             Some(Protocol::Off)
         }
@@ -289,6 +300,7 @@ where
     fn share_uri(&self) -> Option<String> {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(self.name()),
+            Some(Protocol::Ublk) => crate::subsys::UblkSubsystem::uri(self.name()),
             _ => Some(format!("bdev:///{}", self.name())),
         }
     }

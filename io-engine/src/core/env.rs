@@ -306,6 +306,10 @@ pub struct MayastorCliArgs {
     /// [`NvmeCliArgs`].
     #[clap(flatten)]
     pub nvme: NvmeCliArgs,
+
+    /// [`UblkCliArgs`].
+    #[clap(flatten)]
+    pub ublk: UblkCliArgs,
 }
 
 /// SPDK tracing related arguments.
@@ -399,6 +403,43 @@ impl Default for NvmeCliArgs {
     }
 }
 
+/// Ublk related arguments.
+#[derive(Debug, clap::Parser, Clone)]
+pub struct UblkCliArgs {
+    /// Enables ublk support.
+    #[clap(long = "enable-ublk", env = "ENABLE_UBLK", value_parser = delay_compat)]
+    pub enabled: bool,
+
+    /// ublk queue depth.
+    #[clap(
+        long = "ublk-queue-depth",
+        env = "UBLK_QUEUE_DEPTH",
+        default_value_t = 64
+    )]
+    pub q_depth: u32,
+
+    /// Number of ublk hardware queues. {n}
+    /// Defaults to the number of reactors.
+    #[clap(long = "ublk-queue-count", env = "UBLK_QUEUE_COUNT")]
+    pub q_count: Option<u32>,
+}
+impl Default for UblkCliArgs {
+    fn default() -> Self {
+        Self::parse_from(Vec::<String>::new())
+    }
+}
+impl UblkCliArgs {
+    /// Get the number of ublk hardware queues.
+    pub fn q_count(&self) -> u32 {
+        self.q_count
+            .unwrap_or_else(|| Reactors::iter().count() as u32)
+    }
+    /// Get the ublk queue depth.
+    pub fn q_depth(&self) -> u32 {
+        self.q_depth
+    }
+}
+
 fn delay_compat(s: &str) -> Result<bool, String> {
     match s {
         "1" | "true" => Ok(true),
@@ -422,6 +463,7 @@ impl MayastorFeatures {
             rdma_capable_io_engine,
             diskpool_encryption,
             nexus_label_version: io_engine_api::v1::nexus::NexusLabelVersion::LabelV2 as u32,
+            ublk: env::var("ENABLE_UBLK").as_deref() == Ok("true"),
         }
     }
     /// Get all the supported and enabled features.
@@ -526,6 +568,7 @@ pub struct MayastorEnvironment {
     bs_cluster_unmap: bool,
     pub pool_args: PoolCliArgs,
     pub nvme: NvmeCliArgs,
+    pub ublk: UblkCliArgs,
 }
 
 impl Default for MayastorEnvironment {
@@ -579,6 +622,7 @@ impl Default for MayastorEnvironment {
             pool_args: PoolCliArgs::default(),
             traces: SpdkTracingArgs::default(),
             nvme: NvmeCliArgs::default(),
+            ublk: UblkCliArgs::default(),
         }
     }
 }
@@ -727,6 +771,7 @@ impl MayastorEnvironment {
             pool_args: args.pool,
             traces: args.traces,
             nvme: args.nvme,
+            ublk: args.ublk,
             ..Default::default()
         }
         .setup_static()

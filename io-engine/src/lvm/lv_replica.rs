@@ -559,6 +559,7 @@ impl LogicalVolume {
             Protocol::Off => {
                 Self::bdev_unshare(bdev).await?;
             }
+            Protocol::Ublk => {}
         }
 
         Ok(())
@@ -725,6 +726,9 @@ impl LogicalVolume {
                     .map_err(|source| Error::BdevShare { source })?;
                 bdev.share_uri().ok_or(Error::BdevShareUri {})
             }
+            Some(Protocol::Ublk) => {
+                todo!("this api needs to be refactored to support ublk sharing");
+            }
             Some(Protocol::Off) | None => bdev
                 .share_nvmf(props)
                 .await
@@ -734,7 +738,7 @@ impl LogicalVolume {
     async fn bdev_unshare(bdev: &mut UntypedBdev) -> Result<Option<String>, Error> {
         let mut bdev = Pin::new(bdev);
         match bdev.shared() {
-            Some(Protocol::Nvmf) => {
+            Some(Protocol::Ublk) | Some(Protocol::Nvmf) => {
                 bdev.as_mut()
                     .unshare(None)
                     .await

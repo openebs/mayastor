@@ -302,6 +302,7 @@ impl From<Protocol> for i32 {
         match p {
             Protocol::Off => 0,
             Protocol::Nvmf => 1,
+            Protocol::Ublk => 3,
         }
     }
 }
@@ -936,6 +937,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
                                             }
                                         })?);
                                     lvol.as_mut().share_nvmf(Some(props)).await?;
+                                }
+                                Protocol::Ublk => {
+                                    //
                                 }
                             }
 

@@ -115,6 +115,11 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         debug!("Blob store cluster release on UNMAP is disabled");
     }
 
+    if args.ublk.enabled {
+        env::set_var("ENABLE_UBLK", "true");
+        warn!("ublk support is enabled");
+    }
+
     print_feature!("Async QPair connection", "spdk-async-qpair-connect");
     print_feature!("Fault injection", "fault-injection");
 

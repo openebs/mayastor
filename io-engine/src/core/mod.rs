@@ -43,7 +43,7 @@ pub use share::{
 pub use spdk_rs::{cpu_cores, IoStatus, IoType, NvmeStatus};
 pub use thread::Mthread;
 
-use crate::subsys::NvmfError;
+use crate::subsys::{NvmfError, UblkError};
 pub use snapshot::{
     CloneParams, CloneXattrs, ISnapshotDescriptor, LvolSnapshotOps, PropXattrs, SnapshotDescriptor,
     SnapshotParams, SnapshotXattrs,
@@ -203,6 +203,8 @@ pub enum CoreError {
     WipeFailed { source: wiper::Error },
     #[snafu(display("failed to init crypto module: {reason}"))]
     InitCryptoModule { reason: String },
+    #[snafu(display("{source}"))]
+    Ublk { source: UblkError },
 }
 
 /// Represent error as Errno value.
@@ -249,6 +251,7 @@ impl ToErrno for CoreError {
             Self::SnapshotCreate { source, .. } => *source,
             Self::WipeFailed { .. } => Errno::EIO,
             Self::InitCryptoModule { .. } => Errno::EINVAL,
+            Self::Ublk { source } => source.to_errno(),
         }
     }
 }
@@ -324,6 +327,8 @@ pub struct MayastorFeatures {
     pub diskpool_encryption: bool,
     /// Nexus label versioning capability.
     pub nexus_label_version: u32,
+    /// Expose ublk as a nexus share target.
+    pub ublk: bool,
 }
 impl MayastorFeatures {
     /// Check if LVM feature is enabled.
