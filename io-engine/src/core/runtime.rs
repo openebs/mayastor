@@ -53,7 +53,7 @@ pub struct Runtime {
 static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .worker_threads(4)
+        .worker_threads(5)
         .max_blocking_threads(6)
         .on_thread_start(Mthread::unaffinitize)
         .build()

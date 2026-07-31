@@ -374,6 +374,19 @@ pub struct PoolCliArgs {
         default_value = "3h"
     )]
     pub io_stall_transition_window: humantime::Duration,
+
+    /// Rescan period for detecting removed devices.
+    ///
+    /// # Note
+    ///
+    /// This is only applicable to AIO/URING devices as PCIe devices handle hot-removal automatically.
+    ///
+    /// AIO/URING devices need IO to be submitted to detect hot-removal, so if the device is not being
+    /// used, it will not be detected as removed.
+    /// In this case we can scan the file handles and trigger a hot-removal event if the file handle
+    /// is no longer valid.
+    #[clap(long = "pool-handle-rescan-period", env = "POOL_HANDLE_RESCAN_PERIOD")]
+    pub handle_rescan_period: Option<humantime::Duration>,
 }
 impl Default for PoolCliArgs {
     fn default() -> Self {

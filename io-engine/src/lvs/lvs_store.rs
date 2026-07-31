@@ -990,6 +990,47 @@ impl Lvs {
         Ok(())
     }
 
+    /// Rescans the bdev.
+    #[tracing::instrument(level = "debug", err)]
+    pub fn rescan(&self) -> Result<(), LvsError> {
+        tracing::debug!("Rescanning lvs...");
+        let lvs_name = self.name();
+
+        let base_bdev = self.base_bdev()?;
+        let disk_bdev = base_bdev
+            .crypto_base_bdev()
+            .map(Bdev::new)
+            .unwrap_or_else(|| base_bdev);
+
+        let uri_str = disk_bdev.bdev_uri_str().unwrap_or_default();
+        let url = Url::parse(&uri_str).map_err(|source| LvsError::InvalidBdev {
+            source: BdevError::UriParseFailed {
+                source,
+                uri: uri_str.to_string(),
+            },
+            name: lvs_name.to_string(),
+        })?;
+
+        let bdev = disk_bdev.name().into_cstring();
+        tracing::debug!("Rescanning bdev: {uri_str}");
+
+        // Performs a rescan only for uring or aio devices, this is a no-op for other device types.
+        let errno = match url.scheme() {
+            "uring" => unsafe { bdev_uring_rescan(bdev.as_ptr().cast()) },
+            "aio" => unsafe { bdev_aio_rescan(bdev.as_ptr().cast()) },
+            _ => 0,
+        };
+
+        if errno != 0 {
+            return Err(LvsError::BdevRescanFailed {
+                source: BsError::from_i32(errno),
+                name: self.base_bdev_name(),
+            });
+        }
+
+        Ok(())
+    }
+
     /// Rescans the bdev and triggers live LVS grow i.e. without closing the blobs and unloading the blobstore.
     #[tracing::instrument(level = "debug", err)]
     pub async fn grow(&self) -> Result<(), LvsError> {

@@ -166,6 +166,11 @@ impl PoolOps for Lvs {
         Ok(())
     }
 
+    fn rescan(&self) -> Result<(), crate::pool_backend::Error> {
+        (*self).rescan()?;
+        Ok(())
+    }
+
     async fn reset_errors(&self) -> Result<(), crate::pool_backend::Error> {
         self.base_bdev()?
             .reset_stats_ext(spdk_rs::BdevStatsResetMode::Errors)

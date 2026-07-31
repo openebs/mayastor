@@ -21,6 +21,7 @@ use io_engine::{
     eventing::Event,
     grpc, logger,
     persistent_store::PersistentStoreBuilder,
+    pool_backend,
     prctl::Prctl,
     subsys::Registration,
 };
@@ -58,6 +59,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
     let reactor_freeze_detection = args.reactor_freeze_detection;
     let reactor_freeze_timeout = args.reactor_freeze_timeout;
+    let handle_rescan_period = args.pool.handle_rescan_period;
 
     // Enable partial rebuild.
     if let Ok(v) = std::env::var("NEXUS_PARTIAL_REBUILD") {
@@ -143,6 +145,11 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             // Launch reactor health monitor if diagnostics is enabled.
             if reactor_freeze_detection {
                 runtime::spawn(reactor_monitor_loop(reactor_freeze_timeout));
+            }
+
+            match handle_rescan_period {
+                Some(period) => runtime::spawn(pool_backend::pool_rescanner(period)),
+                None => tracing::warn!("Pool handle rescanner is disabled"),
             }
 
             futures.push(
