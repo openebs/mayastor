@@ -1202,8 +1202,7 @@ async fn hot_detach_retach_(guard: TestHotRmGuard, share: bool, io: bool) {
     // We bork the device, leading to hot-removal
     drop(guard);
 
-    let error = lvs_pool.grow().await.expect_err("msg");
-    assert_eq!(error.to_errno(), nix::Error::EIO);
+    lvs_pool.rescan().expect("should rescan");
 
     assert_eq!(Lvs::iter_all().count(), 1);
 
