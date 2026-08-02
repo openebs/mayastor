@@ -281,6 +281,8 @@ pub(crate) enum ChildDestroyState {
     None,
     /// The child device is being destroyed.
     Destroying,
+    /// The child device is destroyed.
+    Destroyed,
 }
 
 impl Display for ChildDestroyState {
@@ -288,6 +290,7 @@ impl Display for ChildDestroyState {
         match self {
             Self::None => write!(f, "none"),
             Self::Destroying => write!(f, "destroying"),
+            Self::Destroyed => write!(f, "destroyed"),
         }
     }
 }
@@ -311,6 +314,8 @@ pub struct NexusChild<'c> {
     /// TODO
     #[serde(skip_serializing)]
     remove_channel: (async_channel::Sender<bool>, async_channel::Receiver<bool>),
+    #[serde(skip_serializing)]
+    close_channel: (async_channel::Sender<()>, async_channel::Receiver<()>),
     /// Name of the child is the URI used to create it.
     /// Name of the underlying block device can differ from it.
     ///
@@ -345,6 +350,7 @@ impl Debug for NexusChild<'_> {
             dest = match self.destroy_state() {
                 ChildDestroyState::None => "",
                 ChildDestroyState::Destroying => " (destroying)",
+                ChildDestroyState::Destroyed => " (destroyed)",
             },
             sync = self.sync_state(),
             re = if self.is_rebuilding() {
@@ -438,6 +444,8 @@ impl<'c> NexusChild<'c> {
 
         self.set_state(ChildState::Open);
         self.set_sync_state(sync_state);
+        self.set_destroy_state(ChildDestroyState::None);
+        self.close_channel = Self::new_close_channel();
 
         info!("{:?}: opened successfully", self);
         Ok(self.name.clone())
@@ -486,7 +494,7 @@ impl<'c> NexusChild<'c> {
 
     /// Returns the destroy state of the child.
     #[inline]
-    pub(crate) fn destroy_state(&self) -> ChildDestroyState {
+    fn destroy_state(&self) -> ChildDestroyState {
         self.destroy_state.load()
     }
 
@@ -1004,18 +1012,27 @@ impl<'c> NexusChild<'c> {
     pub(crate) async fn close(&self) -> Result<(), BdevError> {
         info!("{self:?}: closing child...");
 
-        if self
+        match self
             .destroy_state
             .compare_exchange(ChildDestroyState::None, ChildDestroyState::Destroying)
-            != Ok(ChildDestroyState::None)
         {
-            warn!("{self:?}: already being closed");
-            return Ok(());
+            Err(ChildDestroyState::None) | Ok(_) => {}
+            Err(ChildDestroyState::Destroying) => {
+                warn!("{self:?}: already being closed");
+                self.await_close().await;
+                return Ok(());
+            }
+            Err(ChildDestroyState::Destroyed) => {
+                warn!("{self:?}: already closed");
+                self.await_close().await;
+                return Ok(());
+            }
         }
 
         if self.device.is_none() {
             self.set_destroy_state(ChildDestroyState::None);
             warn!("{self:?}: no block device: appears to be already closed");
+            self.await_close().await;
             return Ok(());
         }
 
@@ -1062,8 +1079,10 @@ impl<'c> NexusChild<'c> {
                     }
                 }
 
-                self.set_destroy_state(ChildDestroyState::None);
+                self.set_destroy_state(ChildDestroyState::Destroyed);
                 info!("{self:?}: child closed successfully");
+                debug_assert!(!self.close_channel.0.is_closed());
+                self.close_channel.0.close();
                 Ok(())
             }
             Err(e) => {
@@ -1072,6 +1091,16 @@ impl<'c> NexusChild<'c> {
                 Err(e)
             }
         }
+    }
+
+    /// Wait for the child to be closed.
+    pub(crate) async fn await_close(&self) {
+        if self.close_channel.1.is_closed() {
+            tracing::info!("{self:?}: child is already closed");
+            return;
+        }
+        while self.close_channel.1.recv().await.is_ok() {}
+        tracing::info!("{self:?}: child is already closed");
     }
 
     /// At the moment it's not enterely straightforward to determine if a child bdev
@@ -1163,9 +1192,14 @@ impl<'c> NexusChild<'c> {
             destroy_state: AtomicCell::new(ChildDestroyState::None),
             faulted_at: parking_lot::Mutex::new(None),
             remove_channel: async_channel::bounded(2),
+            close_channel: Self::new_close_channel(),
             io_log: Mutex::new(None),
             _c: Default::default(),
         }
+    }
+
+    fn new_close_channel() -> (async_channel::Sender<()>, async_channel::Receiver<()>) {
+        async_channel::bounded(1)
     }
 
     /// Returns reference to child's block device.
