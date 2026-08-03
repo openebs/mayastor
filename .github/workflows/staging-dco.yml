@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - staging
+  merge_group:
 
 jobs:
   DCO:

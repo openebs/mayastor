@@ -1,0 +1,40 @@
+name: CI Try
+on:
+  pull_request:
+    types: ['labeled']
+
+jobs:
+  ci-try:
+    if: contains(github.event.pull_request.labels.*.name, 'ci/test')
+    uses: ./.github/workflows/pr-ci.yml
+    with:
+      trigger: "try"
+
+  remove-label:
+    if: ${{ always() && contains(github.event.pull_request.labels.*.name, 'ci/test') }}
+    needs:
+      - ci-try
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove ci/test label
+        uses: actions/github-script@v9
+        with:
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                name: 'ci/test',
+              });
+            } catch (error) {
+              const status = error.status || error.response?.status;
+              if (status === 403 || status === 404) {
+                const reason = status === 403 ? 'insufficient permissions' : 'label not found';
+                console.log(`Skipping ci/test label removal due to ${reason}: ${error.message}`);
+                return;
+              }
+              throw error;
+            }

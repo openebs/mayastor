@@ -1,0 +1,41 @@
+queue_rules:
+  - name: default
+    update_method: rebase
+    branch_protection_injection_mode: merge
+    update_bot_account: openebs-ci
+    commit_message_format:
+      title: inherit
+      body: pr-body
+      trailers:
+        - co-authored-by
+    batch_size: 3
+    merge_conditions:
+      - check-success = bors-ci
+      - check-success = commitlint
+      - check-success = submodule-branch
+      - -label ~= do-not-merge
+    queue_conditions:
+      - check-success = commitlint
+      - check-success = submodule-branch
+      - -label ~= do-not-merge
+      - -draft
+      - check-success = DCO
+    batch_max_wait_time: 15s
+merge_queue:
+  max_parallel_checks: 2
+  status_comments: outcomes
+merge_protections_settings:
+  reporting_method: check-runs
+pull_request_rules:
+  - name: auto-label and approve backport PRs
+    conditions:
+      - author=mergify[bot]
+      - title~=\(backport \#[0-9]+\)$
+    actions:
+      label:
+        add:
+          - kind/backport
+      review:
+        type: APPROVE
+        message: "Automatically approved backport PR"
+        bot_account: openebs-ci
