@@ -66,6 +66,7 @@ async fn lvs_replica_destroy_committed_race() {
             disks: vec!["malloc:///disk0?size_mb=128".into()],
             cluster_size: None,
             md_args: None,
+            lvm: None,
             encryption: None,
         })
         .await

@@ -384,6 +384,32 @@ pub(super) mod de {
         T::from_str(&s).map_err(de::Error::custom)
     }
 
+    /// Decode an optional decimal percentage reported as a string, which is
+    /// empty when not applicable, example: "12.34" or "".
+    pub(crate) fn opt_percent<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            return Ok(None);
+        }
+        s.parse::<f64>().map(Some).map_err(de::Error::custom)
+    }
+
+    /// Decode an optional number reported as a string, which is empty when
+    /// not applicable, example: "65536" or "".
+    pub(crate) fn opt_number<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            return Ok(None);
+        }
+        s.parse::<u64>().map(Some).map_err(de::Error::custom)
+    }
+
     /// Decode a comma-separated string into a vector of strings.
     pub(crate) fn comma_separated<'de, V, T, D>(deserializer: D) -> Result<V, D::Error>
     where

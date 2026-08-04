@@ -168,6 +168,7 @@ impl From<&Pool> for PoolArgs {
             uuid: None,
             cluster_size: None,
             md_args: None,
+            lvm: None,
             backend: pool.backend,
             enc_key: None,
             crypto_vbdev_name: if pool.encrypted {

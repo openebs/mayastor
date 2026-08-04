@@ -94,6 +94,12 @@ impl_properties! {
     LvShare,           crate::core::Protocol,   "mayastor.lv.share",
     LvAllowedHosts,    Vec<String>,             "mayastor.lv.allowed_hosts",
     LvEntityId,        String,                  "mayastor.lv.entity_id",
+    LvSnapshotUuid,    String,                  "mayastor.lv.snapshot_uuid",
+    SnapName,          String,                  "mayastor.snap.name",
+    SnapEntityId,      String,                  "mayastor.snap.entity_id",
+    SnapParentId,      String,                  "mayastor.snap.parent_id",
+    SnapTxnId,         String,                  "mayastor.snap.txn_id",
+    SnapCreateTime,    String,                  "mayastor.snap.create_time",
 }
 
 impl Property {
@@ -105,6 +111,12 @@ impl Property {
             Property::LvShare(protocol) => Some(protocol.value_str().to_owned()),
             Property::LvAllowedHosts(hosts) => Some(hosts.join(",").to_owned()),
             Property::LvEntityId(entity_id) => Some(entity_id.to_owned()),
+            Property::LvSnapshotUuid(uuid) => Some(uuid.to_owned()),
+            Property::SnapName(name) => Some(name.to_owned()),
+            Property::SnapEntityId(entity_id) => Some(entity_id.to_owned()),
+            Property::SnapParentId(parent_id) => Some(parent_id.to_owned()),
+            Property::SnapTxnId(txn_id) => Some(txn_id.to_owned()),
+            Property::SnapCreateTime(time) => Some(time.to_owned()),
             Property::Unknown(_, value) => Some(value.to_owned()),
         }
     }
@@ -148,6 +160,12 @@ impl Property {
                     .collect::<Vec<_>>(),
             )),
             PropertyType::LvEntityId => Some(Self::LvEntityId(value.to_owned())),
+            PropertyType::LvSnapshotUuid => Some(Self::LvSnapshotUuid(value.to_owned())),
+            PropertyType::SnapName => Some(Self::SnapName(value.to_owned())),
+            PropertyType::SnapEntityId => Some(Self::SnapEntityId(value.to_owned())),
+            PropertyType::SnapParentId => Some(Self::SnapParentId(value.to_owned())),
+            PropertyType::SnapTxnId => Some(Self::SnapTxnId(value.to_owned())),
+            PropertyType::SnapCreateTime => Some(Self::SnapCreateTime(value.to_owned())),
             _ => None,
         }
     }

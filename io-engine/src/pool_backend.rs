@@ -17,6 +17,8 @@ pub struct PoolArgs {
     pub uuid: Option<String>,
     pub cluster_size: Option<u32>,
     pub md_args: Option<PoolMetadataArgs>,
+    /// Options only the Lvm backend has.
+    pub lvm: Option<LvmPoolArgs>,
     pub backend: PoolBackend,
     pub enc_key: Option<EncryptionKey>,
     pub crypto_vbdev_name: Option<String>,
@@ -40,6 +42,24 @@ impl PoolArgs {
 #[derive(Clone, Debug, Default)]
 pub struct PoolMetadataArgs {
     pub max_expansion: Option<String>,
+}
+
+/// Pool options of the Lvm backend.
+#[derive(Clone, Debug, Default)]
+pub struct LvmPoolArgs {
+    /// The thin pool to create in the volume group.
+    pub thin_pool: Option<ThinPoolSize>,
+}
+
+/// How big a thin pool to create.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ThinPoolSize {
+    /// Size in bytes.
+    Bytes(u64),
+    /// Percentage of the volume group's free space, as lvcreate's N%FREE.
+    FreePercent(u32),
+    /// Percentage of the volume group's total size, as lvcreate's N%VG.
+    VgPercent(u32),
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc
