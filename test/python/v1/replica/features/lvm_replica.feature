@@ -8,6 +8,10 @@ Feature: LVM replica support
     When a user calls the createreplica on pool "lvmpool"
     Then an lv should be created on the lvmpool
 
+  Scenario: Creating an lvm volume on a pool identified by name
+    When a user calls the createreplica with the pool name instead of its uuid
+    Then an lv should be created on the lvmpool
+
   Scenario: Destroying a replica backed by lvm pool
     Given an LVM backed replica
     When a user calls destroy replica

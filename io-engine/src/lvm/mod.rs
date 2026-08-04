@@ -390,7 +390,14 @@ impl IPoolFactory for PoolLvmFactory {
 
         let query = match args {
             FindPoolArgs::Uuid(uuid) => CmnQueryArgs::ours().uuid(uuid),
-            FindPoolArgs::UuidOrName(uuid) => CmnQueryArgs::ours().uuid(uuid),
+            // The id may be either, so fall back to the name as Lvs does.
+            FindPoolArgs::UuidOrName(id) => {
+                match VolumeGroup::lookup(CmnQueryArgs::ours().uuid(id)).await {
+                    Ok(vg) => return Ok(Some(Box::new(vg))),
+                    Err(Error::NotFound { .. }) => CmnQueryArgs::ours().named(id),
+                    Err(error) => return Err(error.into()),
+                }
+            }
             FindPoolArgs::NameUuid { name, uuid } => {
                 CmnQueryArgs::ours().named(name).uuid_opt(uuid)
             }

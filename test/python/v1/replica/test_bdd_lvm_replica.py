@@ -29,6 +29,14 @@ def test_creating_an_lvm_volume_on_an_imported_lvm_volume_group():
     """Creating an lvm volume on an imported lvm volume group."""
 
 
+@scenario(
+    "features/lvm_replica.feature",
+    "Creating an lvm volume on a pool identified by name",
+)
+def test_creating_an_lvm_volume_on_a_pool_identified_by_name():
+    """Creating an lvm volume on a pool identified by name."""
+
+
 @scenario("features/lvm_replica.feature", "Destroying a replica backed by lvm pool")
 def test_destroying_a_replica_backed_by_lvm_pool():
     """Destroying a replica backed by lvm pool"""
@@ -169,6 +177,22 @@ def an_lvs_pool_with_a_replica(create_pool, create_replica):
 def a_user_calls_the_create_replica(get_mayastor_instance, create_replica):
     create_replica(
         LVM_LV_UUID, pytest.vg_uuid, REPLICA_SIZE, share_protocol("none"), pool_pb.Lvm
+    )
+    yield
+    try:
+        get_mayastor_instance.replica_rpc.DestroyReplica(
+            pb.DestroyReplicaRequest(uuid=LVM_LV_UUID)
+        )
+    except grpc.RpcError as rpc_error:
+        if rpc_error.code() == grpc.StatusCode.NOT_FOUND:
+            pass
+
+
+@when("a user calls the createreplica with the pool name instead of its uuid")
+def a_user_calls_the_create_replica_by_pool_name(get_mayastor_instance, create_replica):
+    # pooluuid carries either a uuid or a name, so the name has to resolve too
+    create_replica(
+        LVM_LV_UUID, "lvmpool", REPLICA_SIZE, share_protocol("none"), pool_pb.Lvm
     )
     yield
     try:
