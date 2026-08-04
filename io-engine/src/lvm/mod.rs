@@ -53,8 +53,8 @@ use crate::{
     bdev::PtplFileOps,
     core::{
         snapshot::{ISnapshotDescriptor, SnapshotDescriptor, SnapshotInfo},
-        BdevStater, BdevStats, CloneParams, CoreError, NvmfShareProps, Protocol, PtplProps,
-        SnapshotParams, UnshareProps, UntypedBdev, UpdateProps,
+        BdevStater, BdevStats, BlockDeviceIoStats, CloneParams, CoreError, NvmfShareProps,
+        Protocol, PtplProps, SnapshotParams, ToErrno, UnshareProps, UntypedBdev, UpdateProps,
     },
     lvm::property::Property,
     pool_backend::{
@@ -169,17 +169,86 @@ impl PoolOps for VolumeGroup {
 impl BdevStater for VolumeGroup {
     type Stats = BdevStats;
 
+    /// A volume group has no pool level device, so its io stats are the total
+    /// of its replicas' bdev stats. A replica whose stats fail is left out.
     async fn stats(&self) -> Result<BdevStats, CoreError> {
-        Err(CoreError::NotSupported {
-            source: nix::errno::Errno::ENOSYS,
-        })
+        let mut total = BlockDeviceIoStats {
+            tick_rate: self.tick_rate(),
+            ..Default::default()
+        };
+        for replica in self.fetch_lvs().await.map_err(stats_error)? {
+            match replica.bdev_stats().await {
+                Ok(stats) => add_io_stats(&mut total, &stats),
+                Err(error) => {
+                    warn!(uuid = replica.uuid(), %error, "Failed to get replica io stats")
+                }
+            }
+        }
+        Ok(BdevStats::new(
+            self.name().to_string(),
+            self.uuid().to_string(),
+            total,
+        ))
     }
 
     async fn reset_stats(&self) -> Result<(), CoreError> {
-        Err(CoreError::NotSupported {
-            source: nix::errno::Errno::ENOSYS,
-        })
+        for replica in self.fetch_lvs().await.map_err(stats_error)? {
+            if let Err(error) = replica.reset_bdev_stats().await {
+                warn!(uuid = replica.uuid(), %error, "Failed to reset replica io stats");
+            }
+        }
+        Ok(())
     }
+}
+
+fn stats_error(error: Error) -> CoreError {
+    CoreError::DeviceStatisticsFailed {
+        source: error.to_errno(),
+    }
+}
+
+/// Add one replica's io stats to a pool total.
+/// Counters and latency sums add up. The max and min latencies keep the
+/// extremes, where a min of 0 means the replica saw no io of that kind. The
+/// tick rate is the same clock for every bdev and is set on the total.
+fn add_io_stats(total: &mut BlockDeviceIoStats, stats: &BlockDeviceIoStats) {
+    fn min_seen(a: u64, b: u64) -> u64 {
+        match (a, b) {
+            (0, b) => b,
+            (a, 0) => a,
+            (a, b) => a.min(b),
+        }
+    }
+    total.num_read_ops = total.num_read_ops.saturating_add(stats.num_read_ops);
+    total.num_write_ops = total.num_write_ops.saturating_add(stats.num_write_ops);
+    total.bytes_read = total.bytes_read.saturating_add(stats.bytes_read);
+    total.bytes_written = total.bytes_written.saturating_add(stats.bytes_written);
+    total.num_unmap_ops = total.num_unmap_ops.saturating_add(stats.num_unmap_ops);
+    total.bytes_unmapped = total.bytes_unmapped.saturating_add(stats.bytes_unmapped);
+    total.read_latency_ticks = total
+        .read_latency_ticks
+        .saturating_add(stats.read_latency_ticks);
+    total.write_latency_ticks = total
+        .write_latency_ticks
+        .saturating_add(stats.write_latency_ticks);
+    total.unmap_latency_ticks = total
+        .unmap_latency_ticks
+        .saturating_add(stats.unmap_latency_ticks);
+    total.max_read_latency_ticks = total
+        .max_read_latency_ticks
+        .max(stats.max_read_latency_ticks);
+    total.max_write_latency_ticks = total
+        .max_write_latency_ticks
+        .max(stats.max_write_latency_ticks);
+    total.max_unmap_latency_ticks = total
+        .max_unmap_latency_ticks
+        .max(stats.max_unmap_latency_ticks);
+    total.min_read_latency_ticks =
+        min_seen(total.min_read_latency_ticks, stats.min_read_latency_ticks);
+    total.min_write_latency_ticks =
+        min_seen(total.min_write_latency_ticks, stats.min_write_latency_ticks);
+    total.min_unmap_latency_ticks =
+        min_seen(total.min_unmap_latency_ticks, stats.min_unmap_latency_ticks);
 }
 
 #[async_trait::async_trait(?Send)]
@@ -252,15 +321,23 @@ impl BdevStater for LogicalVolume {
     type Stats = ReplicaBdevStats;
 
     async fn stats(&self) -> Result<ReplicaBdevStats, CoreError> {
-        Err(CoreError::NotSupported {
-            source: nix::errno::Errno::ENOSYS,
-        })
+        // Report the replica's own name and uuid. The bdev is named after the
+        // lv device path, which callers cannot match to a replica.
+        let stats = BdevStats::new(
+            self.name().clone().unwrap_or_default(),
+            self.uuid().to_string(),
+            self.bdev_stats().await?,
+        );
+        Ok(ReplicaBdevStats::new(
+            stats,
+            self.entity_id().cloned(),
+            Some(self.vg_name().to_string()),
+            Some(self.vg_uuid().to_string()),
+        ))
     }
 
     async fn reset_stats(&self) -> Result<(), CoreError> {
-        Err(CoreError::NotSupported {
-            source: nix::errno::Errno::ENOSYS,
-        })
+        self.reset_bdev_stats().await
     }
 }
 

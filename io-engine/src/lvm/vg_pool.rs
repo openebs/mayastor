@@ -420,10 +420,16 @@ impl VolumeGroup {
         Ok(())
     }
     pub async fn list_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
-        let query = super::QueryArgs::new()
+        LogicalVolume::list(&self.lvs_query()).await
+    }
+    /// List our logical volumes without importing them.
+    pub(super) async fn fetch_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
+        LogicalVolume::fetch(&self.lvs_query()).await
+    }
+    fn lvs_query(&self) -> super::QueryArgs {
+        super::QueryArgs::new()
             .with_lv(CmnQueryArgs::ours())
-            .with_vg(CmnQueryArgs::ours().uuid(self.uuid()).named(self.name()));
-        LogicalVolume::list(&query).await
+            .with_vg(CmnQueryArgs::ours().uuid(self.uuid()).named(self.name()))
     }
     async fn list_foreign_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
         let query = super::QueryArgs::new()

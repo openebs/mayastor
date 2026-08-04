@@ -12,6 +12,18 @@ Feature: LVM replica support
     When a user calls the createreplica with the pool name instead of its uuid
     Then an lv should be created on the lvmpool
 
+  Scenario: Getting io stats of an lvm replica
+    Given an LVM backed replica with a name of its own
+    When a user calls get replica io stats
+    Then the lvm replica is listed with its own name and pool
+
+  Scenario: Getting pool io stats while an lvm pool exists
+    Given an LVS pool
+    And an LVM backed replica
+    When a user calls get pool io stats
+    Then the lvm pool and the lvs pool are both reported
+    And the lvm pool stats are the total of its replica stats
+
   Scenario: Destroying a replica backed by lvm pool
     Given an LVM backed replica
     When a user calls destroy replica

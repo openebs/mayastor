@@ -14,10 +14,12 @@ import grpc
 import pool_pb2 as pool_pb
 import replica_pb2 as pb
 import common_pb2 as common_pb
+import stats_pb2 as stats_pb
 import subprocess
 
 LVS_LV_UUID = "5b3d904f-d695-4a28-b3d6-b9fc1cbb39a3"
 LVM_LV_UUID = "22ca10d3-4f2b-4b95-9814-9181c025cc1a"
+LVM_LV_NAME = "lvm-replica-1"
 REPLICA_SIZE = 32 * 1024 * 1024
 
 
@@ -37,6 +39,19 @@ def test_creating_an_lvm_volume_on_a_pool_identified_by_name():
     """Creating an lvm volume on a pool identified by name."""
 
 
+@scenario("features/lvm_replica.feature", "Getting io stats of an lvm replica")
+def test_getting_io_stats_of_an_lvm_replica():
+    """Getting io stats of an lvm replica."""
+
+
+@scenario(
+    "features/lvm_replica.feature",
+    "Getting pool io stats while an lvm pool exists",
+)
+def test_getting_pool_io_stats_while_an_lvm_pool_exists():
+    """Getting pool io stats while an lvm pool exists."""
+
+
 @scenario("features/lvm_replica.feature", "Destroying a replica backed by lvm pool")
 def test_destroying_a_replica_backed_by_lvm_pool():
     """Destroying a replica backed by lvm pool"""
@@ -51,10 +66,10 @@ def test_listing_replicas_from_either_an_lvs_or_lvm_pool():
 
 @pytest.fixture
 def create_replica(get_mayastor_instance):
-    def create(uuid, pool, size, share, pooltype):
+    def create(uuid, pool, size, share, pooltype, name=None):
         get_mayastor_instance.replica_rpc.CreateReplica(
             pb.CreateReplicaRequest(
-                name=uuid,
+                name=name or uuid,
                 uuid=uuid,
                 pooluuid=pool,
                 size=size,
@@ -188,6 +203,26 @@ def a_user_calls_the_create_replica(get_mayastor_instance, create_replica):
             pass
 
 
+@given("an LVM backed replica with a name of its own")
+def an_lvm_backed_replica_with_a_name_of_its_own(get_mayastor_instance, create_replica):
+    create_replica(
+        LVM_LV_UUID,
+        pytest.vg_uuid,
+        REPLICA_SIZE,
+        share_protocol("none"),
+        pool_pb.Lvm,
+        name=LVM_LV_NAME,
+    )
+    yield
+    try:
+        get_mayastor_instance.replica_rpc.DestroyReplica(
+            pb.DestroyReplicaRequest(uuid=LVM_LV_UUID)
+        )
+    except grpc.RpcError as rpc_error:
+        if rpc_error.code() == grpc.StatusCode.NOT_FOUND:
+            pass
+
+
 @when("a user calls the createreplica with the pool name instead of its uuid")
 def a_user_calls_the_create_replica_by_pool_name(get_mayastor_instance, create_replica):
     # pooluuid carries either a uuid or a name, so the name has to resolve too
@@ -202,6 +237,80 @@ def a_user_calls_the_create_replica_by_pool_name(get_mayastor_instance, create_r
     except grpc.RpcError as rpc_error:
         if rpc_error.code() == grpc.StatusCode.NOT_FOUND:
             pass
+
+
+@given("an LVS pool", target_fixture="lvs_pool")
+def an_lvs_pool(get_mayastor_instance, create_pool):
+    # its own name and disk, so it cannot clash with the other lvs pool
+    name = "lvsstatspool"
+    yield create_pool(name, ["malloc:///disk1?size_mb=64"], pool_pb.Lvs)
+    try:
+        get_mayastor_instance.pool_rpc.DestroyPool(
+            pool_pb.DestroyPoolRequest(name=name)
+        )
+    except grpc.RpcError:
+        pass
+
+
+@when("a user calls get replica io stats", target_fixture="replica_io_stats")
+def a_user_calls_get_replica_io_stats(get_mayastor_instance):
+    return get_mayastor_instance.stats_rpc.GetReplicaIoStats(
+        stats_pb.ListStatsOption()
+    ).stats
+
+
+@then("the lvm replica is listed with its own name and pool")
+def the_lvm_replica_is_listed_with_its_own_name_and_pool(replica_io_stats):
+    # the lv's bdev is named after its device path, so check that the
+    # replica's own name and uuid are reported
+    stats = next(s for s in replica_io_stats if s.stats.uuid == LVM_LV_UUID)
+    assert stats.stats.name == LVM_LV_NAME
+    assert stats.poolname == "lvmpool"
+    assert stats.pooluuid == pytest.vg_uuid
+
+
+@when("a user calls get pool io stats", target_fixture="pool_io_stats")
+def a_user_calls_get_pool_io_stats(get_mayastor_instance):
+    return get_mayastor_instance.stats_rpc.GetPoolIoStats(
+        stats_pb.ListStatsOption()
+    ).stats
+
+
+@then("the lvm pool and the lvs pool are both reported")
+def the_lvm_pool_and_the_lvs_pool_are_both_reported(pool_io_stats):
+    # an lvm pool has no pool level device, so it reports the total of its
+    # replicas under the volume group's own name and uuid
+    lvm = next(s for s in pool_io_stats if s.name == "lvmpool")
+    assert lvm.uuid == pytest.vg_uuid
+    assert lvm.tick_rate > 0
+    assert any(s.name == "lvsstatspool" for s in pool_io_stats)
+
+
+@then("the lvm pool stats are the total of its replica stats")
+def the_lvm_pool_stats_are_the_total_of_its_replica_stats(
+    get_mayastor_instance, pool_io_stats
+):
+    lvm = next(s for s in pool_io_stats if s.name == "lvmpool")
+    replicas = [
+        s.stats
+        for s in get_mayastor_instance.stats_rpc.GetReplicaIoStats(
+            stats_pb.ListStatsOption()
+        ).stats
+        if s.pooluuid == pytest.vg_uuid
+    ]
+    assert any(r.uuid == LVM_LV_UUID for r in replicas)
+    for counter in [
+        "num_read_ops",
+        "bytes_read",
+        "num_write_ops",
+        "bytes_written",
+        "num_unmap_ops",
+        "bytes_unmapped",
+        "read_latency_ticks",
+        "write_latency_ticks",
+        "unmap_latency_ticks",
+    ]:
+        assert getattr(lvm, counter) == sum(getattr(r, counter) for r in replicas)
 
 
 @then("an lv should be created on the lvmpool")

@@ -9,8 +9,9 @@ use crate::{
     bdev::PtplFileOps,
     bdev_api::{bdev_create, BdevError},
     core::{
-        snapshot::ISnapshotDescriptor, CloneParams, NvmfShareProps, Protocol, PtplProps, Share,
-        SnapshotParams, UnshareProps, UntypedBdev, UpdateProps,
+        snapshot::ISnapshotDescriptor, BdevStater, BlockDeviceIoStats, CloneParams, CoreError,
+        NvmfShareProps, Protocol, PtplProps, Share, SnapshotParams, UnshareProps, UntypedBdev,
+        UpdateProps,
     },
     lvm::{
         cli::LvmCmd,
@@ -855,6 +856,33 @@ impl LogicalVolume {
             return Err(Error::BdevMissing {});
         };
         Ok(uri)
+    }
+
+    /// The io stats of the lv's SPDK bdev.
+    /// A volume without a bdev here has had no io through this node, so it
+    /// reports zeroes. The tick rate is still set, as callers divide by it.
+    pub(crate) async fn bdev_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
+        match self.lv_bdev() {
+            None => Ok(BlockDeviceIoStats {
+                tick_rate: self.tick_rate(),
+                ..Default::default()
+            }),
+            Some(bdev) => bdev.stats_async().await,
+        }
+    }
+
+    /// Reset the io stats of the lv's SPDK bdev.
+    pub(crate) async fn reset_bdev_stats(&self) -> Result<(), CoreError> {
+        match self.lv_bdev() {
+            None => Ok(()),
+            Some(bdev) => bdev.reset_stats().await,
+        }
+    }
+
+    /// The lv's SPDK bdev, if one is set up. The bdev is created with the lv's
+    /// uuid, so this works on volumes which were fetched without importing.
+    fn lv_bdev(&self) -> Option<UntypedBdev> {
+        UntypedBdev::lookup_by_uuid_str(self.uuid())
     }
 
     fn import_attrs(&mut self) {
