@@ -574,7 +574,7 @@ impl PoolGrpc {
         self.pool.export().await?;
         Ok(())
     }
-    async fn grow(&self) -> Result<(), tonic::Status> {
+    async fn grow(&mut self) -> Result<(), tonic::Status> {
         self.pool.grow().await?;
         Ok(())
     }
@@ -1119,7 +1119,7 @@ impl PoolRpc for PoolService {
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let mut pool = GrpcPoolFactory::finder(request.into_inner()).await?;
                     pool.grow().await?;
                     Ok(Pool::async_from(pool.as_ops()).await)
                 })
