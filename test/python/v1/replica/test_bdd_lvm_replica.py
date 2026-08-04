@@ -41,6 +41,13 @@ def test_listing_replicas_from_either_an_lvs_or_lvm_pool():
     """Listing replicas from either an LVS or LVM pool"""
 
 
+@scenario(
+    "features/lvm_replica.feature", "Importing an lvm pool whose replica is inactive"
+)
+def test_importing_an_lvm_pool_whose_replica_is_inactive():
+    """Importing an lvm pool whose replica is inactive."""
+
+
 @pytest.fixture
 def create_replica(get_mayastor_instance):
     def create(uuid, pool, size, share, pooltype):
@@ -65,7 +72,7 @@ def find_replica(get_mayastor_instance):
         ).replicas:
             if replica.uuid == uuid:
                 return replica
-            return None
+        return None
 
     yield find
 
@@ -183,6 +190,43 @@ def a_user_calls_the_create_replica(get_mayastor_instance, create_replica):
 @then("an lv should be created on the lvmpool")
 def an_lv_should_be_created_on_the_lvmpool(find_replica):
     assert find_replica(LVM_LV_UUID, pool_pb.Lvm) is not None
+
+
+def lv_attr(vg, lv):
+    out = subprocess.run(
+        f"nix-sudo lvs {vg}/{lv} -olv_attr --noheadings",
+        shell=True,
+        check=True,
+        capture_output=True,
+    )
+    return out.stdout.decode("ascii").strip()
+
+
+@when("the pool is exported and its volumes are deactivated")
+def the_pool_is_exported_and_its_volumes_are_deactivated(get_mayastor_instance):
+    # what a node reboot leaves behind, as nothing autoactivates the volumes
+    get_mayastor_instance.pool_rpc.ExportPool(pool_pb.ExportPoolRequest(name="lvmpool"))
+    run_cmd(f"nix-sudo lvchange -an lvmpool/{LVM_LV_UUID}", True)
+    assert lv_attr("lvmpool", LVM_LV_UUID)[4] == "-"
+
+
+@when("the user imports the pool again")
+def the_user_imports_the_pool_again(get_mayastor_instance):
+    get_mayastor_instance.pool_rpc.ImportPool(
+        pool_pb.ImportPoolRequest(
+            name="lvmpool", disks=[pytest.disk], pooltype=pool_pb.Lvm
+        )
+    )
+
+
+@then("the replica is active and listed again")
+def the_replica_is_active_and_listed_again(get_mayastor_instance):
+    assert lv_attr("lvmpool", LVM_LV_UUID)[4] == "a"
+    replicas = get_mayastor_instance.replica_rpc.ListReplicas(
+        pb.ListReplicaOptions(pooltypes=[pool_pb.Lvm])
+    ).replicas
+    replica = next(r for r in replicas if r.uuid == LVM_LV_UUID)
+    assert replica.uri.startswith("bdev:///")
 
 
 @when("a user calls destroy replica")

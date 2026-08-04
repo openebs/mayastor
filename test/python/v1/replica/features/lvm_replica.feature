@@ -18,3 +18,9 @@ Feature: LVM replica support
     And an LVM backed replica
     When a user calls list replicas
     Then all replicas should be listed
+
+  Scenario: Importing an lvm pool whose replica is inactive
+    Given an LVM backed replica
+    When the pool is exported and its volumes are deactivated
+    And the user imports the pool again
+    Then the replica is active and listed again
