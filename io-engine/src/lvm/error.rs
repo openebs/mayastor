@@ -27,8 +27,22 @@ pub enum Error {
     VgUuidSet {},
     #[snafu(display("Logical Volume with {query} not found"))]
     LvNotFound { query: String },
-    #[snafu(display("Thin provisioned logical volumes not supported"))]
-    ThinProv {},
+    #[snafu(display("Snapshot with {query} not found"))]
+    SnapNotFound { query: String },
+    #[snafu(display("Invalid pool option: {error}"))]
+    InvalidOption { error: String },
+    #[snafu(display("{error}"))]
+    InvalidTagValue { error: String },
+    #[snafu(display("The pool was created without a thinpool option, so it has no thin pool"))]
+    NoThinPool {},
+    #[snafu(display("Logical volume '{volume}' is thick and cannot be snapshotted"))]
+    SnapshotThick { volume: String },
+    #[snafu(display("The dm-thin-pool kernel target could not be loaded on this node"))]
+    NoThinPoolTarget {},
+    #[snafu(display("Delete the snapshots of logical volume '{volume}' first"))]
+    HasLiveSnapshots { volume: String },
+    #[snafu(display("Delete the clones of snapshot '{snapshot}' first"))]
+    SnapshotHasClones { snapshot: String },
     #[snafu(display("Failed to spawn reactor task"))]
     ReactorSpawn {},
     #[snafu(display("Failed to collect result of reactor spawn"))]
@@ -56,8 +70,6 @@ pub enum Error {
     NoSpace { error: String },
     #[snafu(display("{error}"))]
     Exists { error: String },
-    #[snafu(display("Snapshots are not currently supported for LVM volumes"))]
-    SnapshotNotSup {},
     #[snafu(display("Pool expansion is not currently supported for LVM volumes"))]
     GrowNotSup {},
     #[snafu(display("Rescan is not currently supported for LVM"))]
@@ -89,7 +101,13 @@ impl ToErrno for Error {
             Error::NotFound { .. } => Errno::ENOENT,
             Error::VgUuidSet { .. } => Errno::EINVAL,
             Error::LvNotFound { .. } => Errno::ENOENT,
-            Error::ThinProv { .. } => Errno::ENOTSUP,
+            Error::SnapNotFound { .. } => Errno::ENOENT,
+            Error::InvalidOption { .. } => Errno::EINVAL,
+            Error::InvalidTagValue { .. } => Errno::EINVAL,
+            Error::NoThinPool { .. }
+            | Error::SnapshotThick { .. }
+            | Error::NoThinPoolTarget { .. } => Errno::ENOTSUP,
+            Error::HasLiveSnapshots { .. } | Error::SnapshotHasClones { .. } => Errno::EBUSY,
             Error::ReactorSpawn { .. } => Errno::EXFULL,
             Error::ReactorSpawnChannel { .. } => Errno::EPIPE,
             Error::BdevImport { .. } => Errno::EIO,
@@ -102,7 +120,6 @@ impl ToErrno for Error {
             Error::UpdateProps { .. } => Errno::EIO,
             Error::NoSpace { .. } => Errno::ENOSPC,
             Error::Exists { .. } => Errno::EEXIST,
-            Error::SnapshotNotSup { .. } => Errno::ENOTSUP,
             Error::GrowNotSup { .. } => Errno::ENOTSUP,
             Error::ResetErrNotSup { .. } => Errno::ENOTSUP,
             Error::RescanNotSup { .. } => Errno::ENOTSUP,

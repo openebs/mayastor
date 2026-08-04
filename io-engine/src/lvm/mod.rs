@@ -31,6 +31,8 @@ pub mod dm_setup;
 mod error;
 /// Logical Volume management.
 mod lv_replica;
+/// Pool options parsed from the disks entries.
+mod options;
 mod property;
 /// Logical Volume Group management.
 mod vg_pool;
@@ -50,9 +52,9 @@ pub(crate) use lv_replica::{LogicalVolume, QueryArgs};
 use crate::{
     bdev::PtplFileOps,
     core::{
-        snapshot::SnapshotDescriptor, BdevStater, BdevStats, CloneParams, CoreError,
-        NvmfShareProps, Protocol, PtplProps, SnapshotParams, UnshareProps, UntypedBdev,
-        UpdateProps,
+        snapshot::{ISnapshotDescriptor, SnapshotDescriptor, SnapshotInfo},
+        BdevStater, BdevStats, CloneParams, CoreError, NvmfShareProps, Protocol, PtplProps,
+        SnapshotParams, UnshareProps, UntypedBdev, UpdateProps,
     },
     lvm::property::Property,
     pool_backend::{
@@ -73,6 +75,20 @@ pub(super) fn is_alphanumeric(name: &str, value: &str) -> Result<(), Error> {
     {
         return Err(Error::NotFound {
             query: format!("{name}('{value}') invalid: must be [a-zA-Z0-9.-_+]"),
+        });
+    }
+    Ok(())
+}
+
+/// LVM tag values accept a limited set of characters. Reject anything else
+/// here, so callers get an invalid argument instead of an lvcreate failure.
+pub(super) fn is_valid_tag_value(name: &str, value: &str) -> Result<(), Error> {
+    if value
+        .chars()
+        .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+' | '/' | ':')))
+    {
+        return Err(Error::InvalidTagValue {
+            error: format!("{name} '{value}' has characters which LVM tags cannot store"),
         });
     }
     Ok(())
@@ -217,21 +233,12 @@ impl ReplicaOps for LogicalVolume {
             })
     }
 
-    fn prepare_snap_config(
-        &self,
-        _snap_name: &str,
-        _entity_id: &str,
-        _txn_id: &str,
-        _snap_uuid: &str,
-    ) -> Option<SnapshotParams> {
-        None
-    }
-
     async fn create_snapshot(
         &mut self,
-        _params: SnapshotParams,
+        params: SnapshotParams,
     ) -> Result<Box<dyn SnapshotOps>, crate::pool_backend::Error> {
-        Err(Error::SnapshotNotSup {}.into())
+        let snapshot = LogicalVolume::snapshot(self, params).await?;
+        Ok(Box::new(snapshot))
     }
 
     fn try_as_bdev(&self) -> Result<UntypedBdev, crate::pool_backend::Error> {
@@ -260,26 +267,43 @@ impl BdevStater for LogicalVolume {
 #[async_trait::async_trait(?Send)]
 impl SnapshotOps for LogicalVolume {
     async fn destroy_snapshot(self: Box<Self>) -> Result<(), crate::pool_backend::Error> {
-        Err(Error::SnapshotNotSup {}.into())
+        // dm-thin has no deferred destroy, so a snapshot with clones is refused.
+        if self.clone_count().await? > 0 {
+            return Err(Error::SnapshotHasClones {
+                snapshot: self.uuid().to_string(),
+            }
+            .into());
+        }
+        (*self).destroy().await?;
+        Ok(())
     }
 
-    fn prepare_clone_config(
-        &self,
-        _clone_name: &str,
-        _clone_uuid: &str,
-        _source_uuid: &str,
-    ) -> Option<CloneParams> {
-        None
-    }
     async fn create_clone(
         &self,
-        _params: CloneParams,
+        params: CloneParams,
     ) -> Result<Box<dyn ReplicaOps>, crate::pool_backend::Error> {
-        Err(Error::SnapshotNotSup {}.into())
+        let clone = LogicalVolume::clone_snap(self, params).await?;
+        Ok(Box::new(clone))
     }
 
     fn descriptor(&self) -> Option<SnapshotDescriptor> {
-        None
+        if !self.is_snap() {
+            return None;
+        }
+        let params = self.snap_params();
+        let valid = params.name().is_some()
+            && params.parent_id().is_some()
+            && params.entity_id().is_some()
+            && params.txn_id().is_some()
+            && params.create_time().is_some();
+        let info = SnapshotInfo::new(
+            params.parent_id().unwrap_or_default(),
+            self.allocated_bytes(),
+            params,
+            self.snap_clones(),
+            valid,
+        );
+        Some(SnapshotDescriptor::new(self.clone(), info))
     }
     fn discarded(&self) -> bool {
         false
@@ -411,8 +435,12 @@ impl IPoolFactory for PoolLvmFactory {
 pub struct ReplLvmFactory {}
 #[async_trait::async_trait(?Send)]
 impl IReplicaFactory for ReplLvmFactory {
-    fn bdev_as_replica(&self, _bdev: crate::core::UntypedBdev) -> Option<Box<dyn ReplicaOps>> {
-        None
+    fn bdev_as_replica(&self, bdev: crate::core::UntypedBdev) -> Option<Box<dyn ReplicaOps>> {
+        let volume = LogicalVolume::imported(&bdev.uuid_as_string())?;
+        if volume.is_snap() {
+            return None;
+        }
+        Some(Box::new(volume))
     }
     async fn find(
         &self,
@@ -423,15 +451,27 @@ impl IReplicaFactory for ReplLvmFactory {
                 .await;
         match lookup {
             Ok(repl) => Ok(Some(Box::new(repl) as _)),
-            Err(Error::NotFound { .. }) => Ok(None),
+            Err(Error::NotFound { .. } | Error::LvNotFound { .. }) => Ok(None),
             Err(error) => Err(error.into()),
         }
     }
     async fn find_snap(
         &self,
-        _args: &FindSnapshotArgs,
+        args: &FindSnapshotArgs,
     ) -> Result<Option<Box<dyn SnapshotOps>>, crate::pool_backend::Error> {
-        Ok(None)
+        let fetch =
+            LogicalVolume::fetch(&QueryArgs::new().with_lv(CmnQueryArgs::ours().uuid(&args.uuid)))
+                .await;
+        match fetch.map(|volumes| volumes.into_iter().next()) {
+            Ok(Some(mut snapshot)) if snapshot.is_snap() => {
+                let clones = snapshot.clone_count().await?;
+                snapshot.set_snap_clones(clones);
+                Ok(Some(Box::new(snapshot) as _))
+            }
+            Ok(_) => Ok(None),
+            Err(Error::NotFound { .. }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
     async fn list(
@@ -460,15 +500,55 @@ impl IReplicaFactory for ReplLvmFactory {
     }
     async fn list_snaps(
         &self,
-        _args: &ListSnapshotArgs,
+        args: &ListSnapshotArgs,
     ) -> Result<Vec<SnapshotDescriptor>, crate::pool_backend::Error> {
-        Ok(vec![])
+        if !crate::core::MayastorFeatures::get().lvm() {
+            return Ok(vec![]);
+        }
+        let volumes = LogicalVolume::fetch(
+            &QueryArgs::new()
+                .with_lv(CmnQueryArgs::ours())
+                .with_vg(CmnQueryArgs::ours()),
+        )
+        .await?;
+        Ok(volumes
+            .iter()
+            .filter(|lv| lv.is_snap())
+            .filter(|lv| args.uuid.as_deref().is_none_or(|uuid| lv.uuid() == uuid))
+            .filter(|lv| {
+                args.source_uuid
+                    .as_deref()
+                    .is_none_or(|source| lv.snap_parent_id().as_deref() == Some(source))
+            })
+            .filter_map(|lv| {
+                let mut snapshot = lv.clone();
+                snapshot.set_snap_clones(LogicalVolume::count_clones(&volumes, lv.uuid()));
+                SnapshotOps::descriptor(&snapshot)
+            })
+            .collect())
     }
     async fn list_clones(
         &self,
-        _args: &ListCloneArgs,
+        args: &ListCloneArgs,
     ) -> Result<Vec<Box<dyn ReplicaOps>>, crate::pool_backend::Error> {
-        Ok(vec![])
+        if !crate::core::MayastorFeatures::get().lvm() {
+            return Ok(vec![]);
+        }
+        // Clones are replicas, so they are listed with their bdev like any other.
+        let volumes = LogicalVolume::list(
+            &QueryArgs::new()
+                .with_lv(CmnQueryArgs::ours())
+                .with_vg(CmnQueryArgs::ours()),
+        )
+        .await?;
+        Ok(volumes
+            .into_iter()
+            .filter(|lv| match args.snapshot_uuid.as_deref() {
+                Some(uuid) => lv.snapshot_uuid_prop().as_deref() == Some(uuid),
+                None => lv.snapshot_uuid_prop().is_some(),
+            })
+            .map(|lv| Box::new(lv) as _)
+            .collect())
     }
 
     fn backend(&self) -> PoolBackend {
