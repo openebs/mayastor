@@ -94,6 +94,9 @@ enum LvmSubCmd {
     /// Remove LVM label(s) from physical volume(s).
     #[strum(serialize = "pvremove")]
     PVRemove,
+    /// Resize physical volume(s) to use all of the underlying device.
+    #[strum(serialize = "pvresize")]
+    PVResize,
     /// Display information about volume groups.
     #[strum(serialize = "vgs")]
     VGList,
@@ -169,6 +172,10 @@ impl LvmCmd {
     /// Prepare a `Command` for `LvmSubCmd::PVRemove`.
     pub(super) fn pv_remove() -> Self {
         Self::new(LvmSubCmd::PVRemove.as_ref())
+    }
+    /// Prepare a `Command` for `LvmSubCmd::PVResize`.
+    pub(super) fn pv_resize() -> Self {
+        Self::new(LvmSubCmd::PVResize.as_ref())
     }
     /// Prepare a `Command` for `LvmSubCmd::VGCreate`.
     pub(super) fn vg_create() -> Self {

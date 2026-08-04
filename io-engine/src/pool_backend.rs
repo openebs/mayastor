@@ -197,7 +197,7 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
     fn rescan(&self) -> Result<(), Error>;
 
     /// Grows the given pool by filling the entire underlying device(s).
-    async fn grow(&self) -> Result<(), Error>;
+    async fn grow(&mut self) -> Result<(), Error>;
 
     /// Reset the error stats of the pool disks.
     async fn reset_errors(&self) -> Result<(), Error>;

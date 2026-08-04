@@ -577,6 +577,14 @@ impl VolumeGroup {
         Ok(())
     }
 
+    /// Take in any extra space which the volume group's disks have gained,
+    /// for example after the backing device was expanded.
+    pub(crate) async fn resize_pvs(&self) -> Result<(), Error> {
+        LvmCmd::pv_resize().args(&self.disks).run().await?;
+        info!(name = self.name(), "LVM physical volumes resized");
+        Ok(())
+    }
+
     /// Exports the volume group by unloading all logical volumes and finally
     /// removing our tag from it.
     pub(crate) async fn export(&mut self) -> Result<(), Error> {

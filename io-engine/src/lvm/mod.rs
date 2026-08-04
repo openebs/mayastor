@@ -148,8 +148,12 @@ impl PoolOps for VolumeGroup {
         Ok(())
     }
 
-    async fn grow(&self) -> Result<(), crate::pool_backend::Error> {
-        Err(Error::GrowNotSup {}.into())
+    async fn grow(&mut self) -> Result<(), crate::pool_backend::Error> {
+        self.resize_pvs().await?;
+        // The volume group's properties were read at lookup, so read them
+        // back to report the grown capacity.
+        self.refresh().await?;
+        Ok(())
     }
 
     fn rescan(&self) -> Result<(), crate::pool_backend::Error> {
