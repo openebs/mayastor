@@ -70,8 +70,6 @@ pub enum Error {
     NoSpace { error: String },
     #[snafu(display("{error}"))]
     Exists { error: String },
-    #[snafu(display("Pool expansion is not currently supported for LVM volumes"))]
-    GrowNotSup {},
     #[snafu(display("Rescan is not currently supported for LVM"))]
     RescanNotSup {},
     #[snafu(display("Reset error is not currently supported for LVM volumes"))]
@@ -120,7 +118,6 @@ impl ToErrno for Error {
             Error::UpdateProps { .. } => Errno::EIO,
             Error::NoSpace { .. } => Errno::ENOSPC,
             Error::Exists { .. } => Errno::EEXIST,
-            Error::GrowNotSup { .. } => Errno::ENOTSUP,
             Error::ResetErrNotSup { .. } => Errno::ENOTSUP,
             Error::RescanNotSup { .. } => Errno::ENOTSUP,
             Error::ResetStallTransitionNotSup { .. } => Errno::ENOTSUP,

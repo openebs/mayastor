@@ -24,6 +24,11 @@ Feature: LVM replica support
     Then the lvm pool and the lvs pool are both reported
     And the lvm pool stats are the total of its replica stats
 
+  Scenario: Expanding an lvm pool whose disk has grown
+    Given an lvm pool on a disk of its own
+    When the disk is expanded and the user expands the pool
+    Then the pool reports the larger capacity
+
   Scenario: Destroying a replica backed by lvm pool
     Given an LVM backed replica
     When a user calls destroy replica

@@ -8,7 +8,7 @@ from pytest_bdd import (
     when,
     parsers,
 )
-from common.command import run_cmd
+from common.command import run_cmd, losetup_disk, losetup_detach
 from v1.mayastor import mayastor_mod, container_mod
 import grpc
 import pool_pb2 as pool_pb
@@ -50,6 +50,11 @@ def test_getting_io_stats_of_an_lvm_replica():
 )
 def test_getting_pool_io_stats_while_an_lvm_pool_exists():
     """Getting pool io stats while an lvm pool exists."""
+
+
+@scenario("features/lvm_replica.feature", "Expanding an lvm pool whose disk has grown")
+def test_expanding_an_lvm_pool_whose_disk_has_grown():
+    """Expanding an lvm pool whose disk has grown."""
 
 
 @scenario("features/lvm_replica.feature", "Destroying a replica backed by lvm pool")
@@ -237,6 +242,55 @@ def a_user_calls_the_create_replica_by_pool_name(get_mayastor_instance, create_r
     except grpc.RpcError as rpc_error:
         if rpc_error.code() == grpc.StatusCode.NOT_FOUND:
             pass
+
+
+GROW_POOL = "lvmgrowpool"
+GROW_IMG = "/tmp/ms0-grow-disk0.img"
+
+
+@given("an lvm pool on a disk of its own", target_fixture="grow_pool_disk")
+def grow_pool_disk(get_mayastor_instance, create_pool):
+    # its own disk and vg, because growing the shared one would change the
+    # capacity the other scenarios see
+    disk = losetup_disk(GROW_IMG, "128M")
+    create_pool(GROW_POOL, [disk], pool_pb.Lvm)
+    yield disk
+    try:
+        get_mayastor_instance.pool_rpc.DestroyPool(
+            pool_pb.DestroyPoolRequest(name=GROW_POOL)
+        )
+    except grpc.RpcError:
+        pass
+    losetup_detach(disk, GROW_IMG)
+
+
+def pool_capacity(mayastor, name):
+    pools = mayastor.pool_rpc.ListPools(pool_pb.ListPoolOptions()).pools
+    return next(p.capacity for p in pools if p.name == name)
+
+
+@when(
+    "the disk is expanded and the user expands the pool",
+    target_fixture="grown_capacities",
+)
+def the_disk_is_expanded_and_the_user_expands_the_pool(
+    get_mayastor_instance, grow_pool_disk
+):
+    before = pool_capacity(get_mayastor_instance, GROW_POOL)
+    run_cmd(f"truncate -s 256M '{GROW_IMG}'", True)
+    run_cmd(f"sudo -E losetup -c {grow_pool_disk}", True)
+    grown = get_mayastor_instance.pool_rpc.GrowPoolV2(
+        pool_pb.GrowPoolRequest(name=GROW_POOL)
+    )
+    return (before, grown.capacity)
+
+
+@then("the pool reports the larger capacity")
+def the_pool_reports_the_larger_capacity(get_mayastor_instance, grown_capacities):
+    before, reported = grown_capacities
+    # the response itself has to show the growth, not just a later list
+    assert reported > before
+    assert pool_capacity(get_mayastor_instance, GROW_POOL) == reported
 
 
 @given("an LVS pool", target_fixture="lvs_pool")
