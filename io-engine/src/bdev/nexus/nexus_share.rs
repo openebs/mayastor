@@ -149,22 +149,39 @@ impl<'n> Nexus<'n> {
         protocol: Protocol,
         key: Option<String>,
     ) -> Result<String, Error> {
-        self.share_ext(protocol, key, vec![]).await
+        self.share_ext(protocol, key, vec![], false).await
     }
 
-    /// TODO
+    /// Share the nexus over the given protocol. When `read_only` is true the
+    /// nexus is published in ROX mode: `nexus_io::submit_request` rejects
+    /// write I/O at submit time so multiple initiators can safely share the
+    /// target for read-only workloads. The flag is scoped to the current
+    /// publish and is cleared on unshare, so re-sharing with a different
+    /// value flips the mode.
     pub async fn share_ext(
         mut self: Pin<&mut Self>,
         protocol: Protocol,
         _key: Option<String>,
         allowed_hosts: Vec<String>,
+        read_only: bool,
     ) -> Result<String, Error> {
         // This function should be idempotent as it's possible that
         // we get called more than once for some odd reason.
         if let Some(target) = &self.nexus_target {
             // We're already shared ...
             if Protocol::from(target) == protocol {
-                // Same protocol as that requested, simply return Ok()
+                // Same protocol as requested. `read_only` is negotiated with
+                // the initiator at connect time (NVMe identify data is cached
+                // per session), so a mid-life flip wouldn't propagate to
+                // already-connected clients. Reject a mismatched value here
+                // and require unshare + re-share to change the mode.
+                if self.is_read_only() != read_only {
+                    return Err(Error::ReadOnlyChangeNotAllowed {
+                        name: self.name.clone(),
+                        current: self.is_read_only(),
+                    });
+                }
+
                 warn!("{} is already shared", self.name);
 
                 self.as_mut()
@@ -204,6 +221,14 @@ impl<'n> Nexus<'n> {
                 Ok(uri)
             }
             Protocol::Nvmf => {
+                // Record the effective read-only state before the target goes
+                // live, so any I/O that arrives from an initiator connecting
+                // during the share window is subject to the ROX gate in
+                // `nexus_io::submit_request`. `set_nexus_read_only` updates
+                // the source-of-truth atomic and pushes the flag out to every
+                // per-core channel so the submit path can read a plain bool.
+                self.as_mut().set_nexus_read_only(read_only).await;
+
                 let props = NvmfShareProps::new()
                     .with_range(Some((
                         self.nvme_params.min_cntlid,
@@ -212,7 +237,16 @@ impl<'n> Nexus<'n> {
                     .with_ana(true)
                     .with_allowed_hosts(allowed_hosts)
                     .with_ptpl(self.create_ptpl()?);
-                let uri = self.as_mut().share_nvmf(Some(props)).await?;
+                let uri = match self.as_mut().share_nvmf(Some(props)).await {
+                    Ok(uri) => uri,
+                    Err(e) => {
+                        // Roll back the ROX flag if the share itself failed:
+                        // the target never went live, so leaving `read_only`
+                        // set would misreport state on a subsequent query.
+                        self.as_mut().set_nexus_read_only(false).await;
+                        return Err(e);
+                    }
+                };
 
                 unsafe {
                     self.as_mut().get_unchecked_mut().nexus_target =
@@ -251,6 +285,12 @@ impl<'n> Nexus<'n> {
         }
 
         self.as_mut().unshare(None).await?;
+
+        // Clear the ROX flag: without an active target no front-end I/O can
+        // flow, so read-only doesn't apply here. Reset to `false` (the default
+        // RWO shape) rather than remembering the last-published value. Uses
+        // `set_nexus_read_only` so per-core channel snapshots come along.
+        self.as_mut().set_nexus_read_only(false).await;
 
         if persist_clean {
             // Double-check the `NvmfSubsystem` is really gone before marking

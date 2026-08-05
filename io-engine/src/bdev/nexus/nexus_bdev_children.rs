@@ -1115,6 +1115,24 @@ impl<'n> Nexus<'n> {
         .await;
     }
 
+    /// Sets the ROX flag on the nexus and fans it out to every per-core
+    /// channel. The atomic on `Nexus` stays authoritative (source of truth
+    /// for late-created channels and for the gRPC query), and each channel
+    /// keeps a plain-bool snapshot so `submit_request` avoids the atomic on
+    /// the I/O hot path.
+    pub async fn set_nexus_read_only(&self, read_only: bool) {
+        self.set_read_only(read_only);
+
+        if !self.has_io_device {
+            return;
+        }
+
+        self.traverse_io_channels_async(read_only, |channel, ro| {
+            channel.set_read_only(*ro);
+        })
+        .await;
+    }
+
     /// TODO
     pub(super) fn try_self_shutdown(&self) {
         let nexus_name = self.nexus_name().to_owned();

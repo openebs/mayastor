@@ -420,9 +420,13 @@ impl<'n> nexus::Nexus<'n> {
             allowed_hosts: self.allowed_hosts(),
             label_version: Some(label_version_to_proto(self.label_version) as i32),
             bdev_size: Some(self.size_in_bytes()),
-            // ROX support in the io-engine is not yet wired; report `None` for now,
-            // consumers will populate this once the publish-time `read_only` flag lands.
-            read_only: None,
+            // Report the effective ROX state only while the nexus is
+            // currently shared; an unshared target has no meaningful
+            // read-only semantic since no I/O can flow.
+            read_only: match self.shared() {
+                Some(Protocol::Off) | None => None,
+                Some(_) => Some(self.read_only.load()),
+            },
         }
     }
 }
@@ -728,8 +732,13 @@ impl NexusRpc for NexusService {
                     });
                 }
 
+                // `read_only` is optional on the wire; treat "not set" as RWO
+                // for backwards compatibility with callers that predate the
+                // ROX field.
+                let read_only = args.read_only.unwrap_or(false);
+
                 let device_uri = nexus_lookup(&args.uuid)?
-                    .share_ext(share_protocol, key, args.allowed_hosts.clone())
+                    .share_ext(share_protocol, key, args.allowed_hosts.clone(), read_only)
                     .await?;
 
                 info!(

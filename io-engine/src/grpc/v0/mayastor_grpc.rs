@@ -1234,7 +1234,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 };
 
                 let device_uri = nexus_lookup(&args.uuid)?
-                    .share_ext(share_protocol, key, args.allowed_hosts.clone())
+                    // v0 does not carry a `read_only` field on its publish
+                    // request; hardcode RWO to preserve legacy semantics.
+                    .share_ext(share_protocol, key, args.allowed_hosts.clone(), false)
                     .await?;
 
                 info!(
