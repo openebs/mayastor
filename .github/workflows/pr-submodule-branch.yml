@@ -1,12 +1,14 @@
 name: Submodule Branch Check
 on:
   pull_request:
-    types: ['opened', 'edited', 'reopened', 'synchronize']
+    types: ['opened', 'reopened', 'synchronize']
   push:
     branches:
       - develop
       - 'release/**'
       - staging
+  merge_group:
+
 jobs:
   submodule-branch:
     runs-on: ubuntu-latest

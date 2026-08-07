@@ -1,21 +1,25 @@
 name: Lint Commit Messages
 on:
   pull_request:
-    types: ['opened', 'edited', 'reopened', 'synchronize']
+    types: ['opened', 'reopened', 'synchronize']
   push:
     branches:
       - staging
+  merge_group:
 
 jobs:
   commitlint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        if: ${{ github.event_name != 'merge_group' && !startsWith(github.head_ref, 'mergify/merge-queue/') }}
         with:
           fetch-depth: 0
       - name: Install CommitLint and Dependencies
+        if: ${{ github.event_name != 'merge_group' && !startsWith(github.head_ref, 'mergify/merge-queue/') }}
         run: npm install @commitlint/config-conventional @commitlint/cli
       - name: Lint Commits
+        if: ${{ github.event_name != 'merge_group' && !startsWith(github.head_ref, 'mergify/merge-queue/') }}
         run: |
           # Only run for PR's and simply succeed the bors staging branch
           if [ ! ${{ github.ref }} = "refs/heads/staging" ]; then
