@@ -33,7 +33,7 @@ jobs:
           signoff: true
           delete-branch: true
           branch: update-submodules/${{ github.ref_name }}
-          token: ${{ secrets.ORG_CI_GITHUB }}
+          token: ${{ secrets.CI_BOT_1_RAISE_PRS }}
 
       - name: Approve Pull Request by CI Bot 1
         if: ${{ steps.cpr.outputs.pull-request-number }}
