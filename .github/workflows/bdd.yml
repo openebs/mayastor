@@ -9,7 +9,11 @@ env:
 
 jobs:
   bdd-tests:
-    runs-on: cncf-ubuntu-16-64-x86
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [cncf-ubuntu-16-64-x86, cncf-ubuntu-16-64-arm]
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       id-token: write
@@ -28,11 +32,19 @@ jobs:
         run: |
           cat <<EOF | sudo tee -a /etc/nix/nix.conf
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-          trusted-users = root runner
+          trusted-users = root ubuntu
           EOF
 
       - name: Restart Nix daemon
         run: sudo systemctl restart nix-daemon
+
+      - name: Runner Info
+        run: |
+          lscpu
+          free -h
+          lsblk -fm
+          lsb_release -a
+          uname -a 
 
       - name: Pre-populate nix-shell
         run: |
@@ -95,7 +107,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure() || cancelled()
         with:
-          name: ci-report-bdd
+          name: ci-report-bdd-${{ matrix.runner }}
           path: ./ci-report/ci-report.tar.gz
 
       - name: Check Coredumps

@@ -56,4 +56,4 @@ jobs:
             ./scripts/release.sh --tag ${{ inputs.tag }} --registry ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.namespace }}
           elif [[ "${{ github.event_name }}" == "push" ]]; then
             ./scripts/release.sh
-          fi        
+          fi
