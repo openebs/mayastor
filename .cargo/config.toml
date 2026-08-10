@@ -5,6 +5,13 @@ rustflags = [
     "-C", "link-arg=-fuse-ld=lld",
 ]
 
+[target.aarch64-unknown-linux-gnu]
+rustflags = [
+    "-C", "target-cpu=armv8-a+crypto",
+    "-C", "link-arg=-llzma",
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
