@@ -135,7 +135,7 @@ jobs:
         if: always()
         run: nix-shell --run "./scripts/clean-cargo-tests.sh"
       # debugging
-      # - name: Setup tmate session
+      # - name: Setup tmate session
       #   if: ${{ failure() }}
       #   timeout-minutes: 240
       #   uses: mxschmitt/action-tmate@v3
