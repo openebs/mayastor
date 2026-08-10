@@ -576,6 +576,7 @@ async fn lvs_errors() {
                 let args = vec![DISKNAME1.into(), VG_NAME.into(), loop_dev.clone()];
                 run_script::run_script!(script, args, run_script::ScriptOptions::new()).ok();
                 common::detach_loopdev(&loop_dev);
+                common::delete_file(&[DISKNAME1.into()]);
             }
         }
     }
@@ -736,16 +737,19 @@ async fn lvs_stall() {
             if let Some(loop_dev) = self.loop_dev.take() {
                 let script = r#"
                     export LVM_SUPPRESS_FD_WARNINGS=1
-                    dmsetup resume $2/lvol1
-                    dmsetup resume $2/lvol2
-                    lvremove -f vg-1/lvol1
-                    lvremove -f vg-1/lvol2
-                    vgremove -f -y $2
-                    pvremove -f $3
+                    dmsetup resume $1/lvm-lv-aio
+                    dmsetup resume $1/lvm-lv-uring
+                    lvremove -f vg-1/lvm-lv-aio
+                    lvremove -f vg-1/lvm-lv-uring
+                    vgremove -f -y $1
+                    pvremove -f $2
                 "#;
-                let args = vec![DISKNAME2.into(), VG_NAME.into(), loop_dev.clone()];
-                run_script::run_script!(script, args, run_script::ScriptOptions::new()).ok();
+                let args = vec![VG_NAME.into(), loop_dev.clone()];
+                let x =
+                    run_script::run_script!(script, args, run_script::ScriptOptions::new()).ok();
+                tracing::info!("script result: {x:?}");
                 common::detach_loopdev(&loop_dev);
+                common::delete_file(&[DISKNAME1.into()]);
             }
         }
     }
@@ -765,10 +769,13 @@ async fn lvs_stall() {
     .unwrap();
 
     let vg_cln = vg_pool.clone();
+    let (s, r) = oneshot::channel();
     ms().spawn_detached(async move {
         stall_test(vg_cln, StallBdev::Aio).await;
+        _ = s.send(());
     });
     stall_test(vg_pool, StallBdev::Uring).await;
+    r.await.unwrap();
 }
 
 enum StallBdev {
