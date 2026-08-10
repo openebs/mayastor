@@ -2,8 +2,8 @@ use parking_lot::Mutex;
 use std::{cell::RefCell, marker::PhantomData, pin::Pin, time::Duration};
 
 use spdk_rs::{
-    BdevIo, BdevModule, BdevModuleBuild, BdevOps, IoChannel, IoDevice, IoType, Poller,
-    PollerBuilder, WithModuleInit,
+    Bdev, BdevDestruct, BdevDestructCompletion, BdevIo, BdevModule, BdevModuleBuild, BdevOps,
+    IoChannel, IoDevice, IoType, Poller, PollerBuilder, WithModuleInit,
 };
 
 const NULL_MODULE_NAME: &str = "NullNg";
@@ -54,12 +54,26 @@ struct NullIoDevice<'a> {
     _my_name: String,
     _smth: u64,
     next_chan_id: RefCell<i64>,
+    /// Handle to our own bdev, used to complete asynchronous destruction once
+    /// all I/O channels have been torn down.
+    bdev: RefCell<Option<Bdev<NullIoDevice<'a>>>>,
     _a: PhantomData<&'a ()>,
 }
 
 /// TODO
 impl<'a> IoDevice for NullIoDevice<'a> {
     type ChannelData = NullIoChannelData<'a>;
+
+    /// Completes the asynchronous bdev destruction. SPDK only invokes this
+    /// after every I/O channel has been destroyed, so deferring completion
+    /// here (instead of dropping synchronously in `destruct()`) prevents the
+    /// bdev / I/O-device memory from being freed ahead of this callback.
+    fn unregister_callback(self: Pin<&mut Self>) -> Option<BdevDestructCompletion> {
+        self.bdev
+            .borrow()
+            .as_ref()
+            .map(|bdev| unsafe { bdev.async_destruct_completion() })
+    }
 
     /// TODO
     fn io_channel_create(self: Pin<&mut Self>) -> Self::ChannelData {
@@ -81,8 +95,11 @@ impl<'a> BdevOps for NullIoDevice<'a> {
     type IoDev = Self;
 
     /// TODO
-    fn destruct(self: Pin<&mut Self>) {
+    fn destruct(self: Pin<&mut Self>) -> BdevDestruct {
         self.unregister_io_device();
+        // Completion is deferred to `IoDevice::unregister_callback`, which runs
+        // only once every I/O channel has been destroyed.
+        BdevDestruct::Async
     }
 
     /// TODO
@@ -117,6 +134,7 @@ impl NullIoDevice<'_> {
             _my_name: String::from(name),
             _smth: 789,
             next_chan_id: RefCell::new(10),
+            bdev: RefCell::new(None),
             _a: Default::default(),
         };
 
@@ -131,6 +149,9 @@ impl NullIoDevice<'_> {
             .build();
 
         bdev.data().register_io_device(Some(name));
+        // Store a handle to our own bdev so async destruction can be completed
+        // from the I/O device unregister callback.
+        *bdev.data().bdev.borrow_mut() = Some(bdev.clone());
 
         match bdev.register_bdev() {
             Ok(_) => info!("NullNg Bdev regustered"),

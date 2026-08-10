@@ -436,17 +436,23 @@ impl<'n> Nexus<'n> {
     pub(crate) async fn close_children(&self) {
         info!("{self:?}: closing {n} children...", n = self.children.len());
 
-        let mut failed = 0;
+        let mut errors = Vec::new();
         for child in self.children_iter() {
-            if child.close().await.is_err() {
-                failed += 1;
+            if let Err(error) = child.close().await {
+                errors.push(error);
             }
         }
 
-        if failed == 0 {
+        if errors.is_empty() {
             info!("{self:?}: all children closed");
         } else {
-            error!("{self:?}: failed to close some of the children");
+            let count = errors.len();
+            let errors = errors
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            error!(?errors, "{self:?}: failed to close {count} children");
         }
     }
 
