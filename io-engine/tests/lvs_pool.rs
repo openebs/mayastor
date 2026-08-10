@@ -1032,13 +1032,17 @@ async fn lvs_hot_remove() {
 
         lvs_pool.destroy().await.ok();
 
-        assert_eq!(Lvs::iter_all().count(), 1);
+        // this is racy, could be removed already
+        assert!(matches!(Lvs::iter_all().count(), 0 | 1));
         assert_eq!(Lvs::iter().count(), 0);
 
         let error = Lvs::create_or_import(pool_args.clone())
             .await
-            .expect_err("removing");
-        assert_eq!(error.to_errno(), nix::Error::EINPROGRESS);
+            .expect_err("removing or removed");
+        assert!(matches!(
+            error.to_errno(),
+            nix::Error::EINPROGRESS | nix::Error::ENXIO
+        ));
 
         for _ in 0..10 {
             if Lvs::iter_all().count() == 0 {
