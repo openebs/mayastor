@@ -47,6 +47,7 @@ fn ms() -> &'static MayastorTest<'static> {
                 io_stall_transition_threshold: IO_STALL_TRANSITION_THRESHOLD,
                 io_stall_transition_window: IO_STALL_TRANSITION_WINDOW.into(),
                 io_stall_deadline: IO_STALL_DEADLINE.into(),
+                handle_rescan_period: None,
             },
             // log_components: vec!["all".into()],
             ..Default::default()
@@ -1201,8 +1202,7 @@ async fn hot_detach_retach_(guard: TestHotRmGuard, share: bool, io: bool) {
     // We bork the device, leading to hot-removal
     drop(guard);
 
-    let error = lvs_pool.grow().await.expect_err("msg");
-    assert_eq!(error.to_errno(), nix::Error::EIO);
+    lvs_pool.rescan().expect("should rescan");
 
     assert_eq!(Lvs::iter_all().count(), 1);
 

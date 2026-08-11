@@ -60,6 +60,8 @@ pub enum Error {
     SnapshotNotSup {},
     #[snafu(display("Pool expansion is not currently supported for LVM volumes"))]
     GrowNotSup {},
+    #[snafu(display("Rescan is not currently supported for LVM"))]
+    RescanNotSup {},
     #[snafu(display("Reset error is not currently supported for LVM volumes"))]
     ResetErrNotSup {},
     #[snafu(display("Reset stall transition is not currently supported for LVM volumes"))]
@@ -103,6 +105,7 @@ impl ToErrno for Error {
             Error::SnapshotNotSup { .. } => Errno::ENOTSUP,
             Error::GrowNotSup { .. } => Errno::ENOTSUP,
             Error::ResetErrNotSup { .. } => Errno::ENOTSUP,
+            Error::RescanNotSup { .. } => Errno::ENOTSUP,
             Error::ResetStallTransitionNotSup { .. } => Errno::ENOTSUP,
             Error::Internal { .. } => Errno::EPIPE,
         }

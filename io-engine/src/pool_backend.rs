@@ -1,8 +1,9 @@
 use crate::{
     bdev::crypto::EncryptionKey,
-    core::{BdevStater, BdevStats, ToErrno},
+    core::{BdevStater, BdevStats, Reactors, ToErrno},
     replica_backend::ReplicaOps,
 };
+use futures::channel::oneshot;
 use nix::errno::Errno;
 use std::ops::Deref;
 
@@ -169,6 +170,12 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
     /// The pool will no longer be listable until it is imported again.
     async fn export(self: Box<Self>) -> Result<(), Error>;
 
+    /// Rescan the pool, refreshing the file handles (if any).
+    /// This can be used for 2 purposes:
+    /// 1. to detect any hot-removals without ongoing I/O
+    /// 2. to detect disk resize (we can then grow the pool)
+    fn rescan(&self) -> Result<(), Error>;
+
     /// Grows the given pool by filling the entire underlying device(s).
     async fn grow(&self) -> Result<(), Error>;
 
@@ -320,5 +327,70 @@ impl PoolFactory {
     /// Get the inner factory interface.
     pub fn as_factory(&self) -> &dyn IPoolFactory {
         self.0.deref()
+    }
+}
+
+async fn pool_rescanner_() {
+    // We typically would have to wait for the rescan to complete, or at least delay the next
+    // rescan until the previous one is done, but the rescan itself is a blocking operation and so
+    // We're sure it won't be executed concurrently.
+    //
+    // So we can just spawn it and mostly forget about it (we'll await the reactor down below).
+    Reactors::master().send_future(async move {
+        for factory in PoolFactory::factories() {
+            let pools = match factory.0.list(&ListPoolArgs::default()).await {
+                Ok(pools) => pools,
+                Err(e) => {
+                    tracing::error!("Failed to rescan pools: {e}");
+                    continue;
+                }
+            };
+
+            for pool in pools {
+                if let Err(e) = pool.rescan() {
+                    tracing::error!("Failed to rescan pool {}: {e}", pool.name());
+                }
+            }
+        }
+    });
+
+    // Wait for the reactor to process all the rescan requests before returning.
+    wait_reactor().await;
+}
+
+async fn wait_reactor() {
+    let (s, r) = oneshot::channel::<()>();
+    Reactors::master().send_future(async move {
+        s.send(()).ok();
+    });
+    r.await.ok();
+}
+
+/// Rescan all pools from all backends.
+///
+/// This is used to detect any changes in the underlying devices, such as size changes or
+/// devices being hot-removed.
+///
+/// Device removal is not always handled automatically by the pool device layer:
+///
+/// 1. PCIe processes hot-removal events and will trigger hot-removal of the underlying device and the pool
+///
+/// 2. AIO/URING devices need IO to be submitted to detect hot-removal, so if the device is not being used, it will not be detected as removed.
+///    Rescan on these devices inspects the file handles and will trigger a hot-removal event if the file handle is no longer valid.
+///
+/// # Note
+///
+/// Pools are not currently grown automatically, but this would expose a new size of the underlying device to the pool, if it's extended.
+///
+pub async fn pool_rescanner(period: humantime::Duration) {
+    tracing::info!(?period, "Pool handle rescanner is enabled");
+
+    let interval = period.into();
+    loop {
+        // we could use interval to ensure precise timing, but there's not much point in doing that
+        // also if the reactor is busy we don't want to keep pushing rescans...
+        tokio::time::sleep(interval).await;
+
+        pool_rescanner_().await;
     }
 }

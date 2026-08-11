@@ -136,6 +136,10 @@ impl PoolOps for VolumeGroup {
         Err(Error::GrowNotSup {}.into())
     }
 
+    fn rescan(&self) -> Result<(), crate::pool_backend::Error> {
+        Err(Error::RescanNotSup {}.into())
+    }
+
     async fn reset_errors(&self) -> Result<(), crate::pool_backend::Error> {
         Err(Error::ResetErrNotSup {}.into())
     }
