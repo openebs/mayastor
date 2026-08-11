@@ -152,10 +152,11 @@ pub async fn shutdown_nexuses() {
     let nexuses: Vec<<NexusIterMut<'_> as Iterator>::Item> = nexus_iter_mut().collect();
 
     for mut nexus in nexuses.into_iter() {
+        let nx = Event::event(&(*nexus), EventAction::Shutdown);
         // Destroy nexus and persist its state in the ETCd.
         match nexus.as_mut().destroy_ext(true).await {
             Ok(_) => {
-                Event::event(&(*nexus), EventAction::Shutdown).generate();
+                nx.generate();
             }
             Err(error) => {
                 error!(
