@@ -52,8 +52,8 @@ use crate::{
 use crate::core::{BdevStater, BdevStats, CoreError, IoCompletionStatus};
 use events_api::event::EventAction;
 use spdk_rs::{
-    libspdk::spdk_bdev_notify_blockcnt_change, BdevIo, BdevOps, ChannelTraverseStatus, IoChannel,
-    IoDevice, IoDeviceChannelTraverse, JsonWriteContext,
+    libspdk::spdk_bdev_notify_blockcnt_change, BdevDestruct, BdevDestructCompletion, BdevIo,
+    BdevOps, ChannelTraverseStatus, IoChannel, IoDevice, IoDeviceChannelTraverse, JsonWriteContext,
 };
 
 pub static NVME_MIN_CNTLID: u16 = 1;
@@ -1337,6 +1337,10 @@ impl Drop for Nexus<'_> {
 impl<'n> IoDevice for Nexus<'n> {
     type ChannelData = NexusChannel<'n>;
 
+    fn unregister_callback(self: Pin<&mut Self>) -> Option<BdevDestructCompletion> {
+        Some(unsafe { self.bdev().async_destruct_completion() })
+    }
+
     fn io_channel_create(self: Pin<&mut Self>) -> NexusChannel<'n> {
         NexusChannel::new(self)
     }
@@ -1359,14 +1363,15 @@ impl<'n> BdevOps for Nexus<'n> {
     type IoDev = Nexus<'n>;
 
     /// TODO
-    fn destruct(mut self: Pin<&mut Self>) {
+    fn destruct(mut self: Pin<&mut Self>) -> BdevDestruct {
         info!("{:?}: unregistering nexus bdev...", self);
 
-        // A closed operation might already be in progress calling unregister
-        // will trip an assertion within the external libraries
+        // Actually this should never happen because we shouldn't get 2 destruct calls
+        // for the same nexus, but just in case, we check the state here and if it's already closed.
         if *self.state.lock() == NexusState::Closed {
-            info!("{:?}: nexus already closed", self);
-            return;
+            tracing::error!("{:?}: nexus already closed", self);
+            debug_assert!(false, "BUG: nexus already closed");
+            return BdevDestruct::Async;
         }
 
         let open_children = self.children.iter().filter(|c| c.is_opened()).count();
@@ -1408,6 +1413,7 @@ impl<'n> BdevOps for Nexus<'n> {
         self.as_mut().set_state(NexusState::Closed);
 
         info!("{:?}: nexus bdev unregistered", self);
+        BdevDestruct::Async
     }
 
     /// Main entry point to submit IO to the underlying children this uses

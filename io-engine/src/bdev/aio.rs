@@ -176,7 +176,9 @@ impl CreateDestroy for Aio {
                     })?
                     .context(bdev_api::DestroyBdevFailed {
                         name: self.get_name(),
-                    })
+                    })?;
+                tracing::info!("{:?}: deleted", self);
+                Ok(())
             }
             None => Err(BdevError::BdevNotFound {
                 name: self.get_name(),
