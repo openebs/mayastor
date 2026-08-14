@@ -170,6 +170,7 @@ impl Protocol {
         match self {
             Protocol::Off => "off",
             Protocol::Nvmf => "nvmf",
+            Protocol::Ublk => "ublk",
         }
     }
     fn from_value(value: &str) -> Self {

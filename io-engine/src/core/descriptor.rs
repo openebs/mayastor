@@ -50,6 +50,20 @@ impl<T: BdevOps> DescriptorGuard<T> {
         }
     }
 
+    /// claim the bdev for exclusive access, when the descriptor is in read-only
+    /// the descriptor will implicitly be upgraded to read/write.
+    ///
+    /// Conversely, Preexisting writers will not be downgraded.
+    pub fn claim_v2(&self, name: &str) -> bool {
+        match BdevModule::find_by_name(name) {
+            Ok(m) => m.claim_bdev(&self.0.bdev(), &self.0).is_ok(),
+            Err(error) => {
+                error!("{error}");
+                false
+            }
+        }
+    }
+
     /// unclaim a bdev previously claimed by NEXUS_MODULE
     pub fn unclaim(&self) {
         match BdevModule::find_by_name(NEXUS_MODULE_NAME) {
@@ -60,6 +74,20 @@ impl<T: BdevOps> DescriptorGuard<T> {
             }
             Err(err) => {
                 error!("{}", err);
+            }
+        }
+    }
+
+    /// unclaim a bdev previously claimed by the given module name.
+    pub fn unclaim_v2(&self, name: &str) {
+        match BdevModule::find_by_name(name) {
+            Ok(m) => {
+                if let Err(err) = m.release_bdev(&self.0.bdev()) {
+                    error!("{}", err)
+                }
+            }
+            Err(error) => {
+                error!("{error}");
             }
         }
     }

@@ -15,6 +15,8 @@ use std::mem::zeroed;
 
 pub use registration::{registration_grpc::Registration, RegistrationSubsystem};
 
+pub use ublk::{Error as UblkError, UblkModule, UblkSubsystem};
+
 use crate::subsys::nvmf::Nvmf;
 
 pub(super) mod config;
@@ -23,6 +25,7 @@ mod nvmf;
 pub mod nvmx;
 /// Module for registration of the data-plane with control-plane
 pub mod registration;
+mod ublk;
 
 /// Register initial subsystems
 pub(crate) fn register_subsystem() {
@@ -38,6 +41,7 @@ pub(crate) fn register_subsystem() {
     }
     RegistrationSubsystem::register();
     nvmx::NvmxSubsystem::register();
+    ublk::UblkSubsystem::register();
 }
 
 /// Makes a subsystem serial number from a subsystem UUID or name.

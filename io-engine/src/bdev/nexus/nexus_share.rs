@@ -50,9 +50,16 @@ impl Share for Nexus<'_> {
                     .await?;
 
                 let name = self.name.clone();
+
+                // self.as_mut()
+                //     .pin_bdev_mut()
+                //     .share_nvmf(props)
+                //     .await
+                //     .context(nexus_err::ShareNvmfNexus { name })?;
+                let _props = props;
                 self.as_mut()
                     .pin_bdev_mut()
-                    .share_nvmf(props)
+                    .share_ublk()
                     .await
                     .context(nexus_err::ShareNvmfNexus { name })?;
 
@@ -60,7 +67,7 @@ impl Share for Nexus<'_> {
                 info!("{:?}: shared NVMF target as '{}'", self, uri);
                 uri
             }
-            Some(Protocol::Nvmf) => {
+            Some(Protocol::Ublk) | Some(Protocol::Nvmf) => {
                 let uri = self.share_uri().unwrap();
                 info!("{:?}: already shared as '{}'", self, uri);
                 uri
@@ -254,6 +261,9 @@ impl<'n> Nexus<'n> {
                 }
                 Ok(uri)
             }
+            Protocol::Ublk => {
+                todo!("add ublk to the protobuf api");
+            }
         }
     }
 
@@ -277,6 +287,9 @@ impl<'n> Nexus<'n> {
             }
             Some(NexusTarget::NexusNvmfTarget) => {
                 info!("{:?}: unsharing NVMF target...", self);
+            }
+            Some(NexusTarget::Ublk) => {
+                info!("{:?}: unsharing UBLK target...", self);
             }
             None => {
                 // Try unshare nexus bdev anyway, just in case it was shared
@@ -325,6 +338,7 @@ impl<'n> Nexus<'n> {
         match self.nexus_target {
             Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.as_uri()),
             Some(NexusTarget::NexusNvmfTarget) => self.share_uri(),
+            Some(NexusTarget::Ublk) => self.share_uri(),
             None => None,
         }
     }

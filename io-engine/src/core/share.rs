@@ -12,6 +12,7 @@ pub enum Protocol {
     Off,
     /// shared as NVMe-oF TCP
     Nvmf,
+    Ublk,
 }
 
 impl TryFrom<i32> for Protocol {
@@ -24,6 +25,7 @@ impl TryFrom<i32> for Protocol {
             // 2 was for iSCSI
             // the gRPC code does not validate enums so we have
             // to do it here
+            3 => Ok(Self::Nvmf),
             _ => Err(LvsError::ReplicaShareProtocol { value }),
         }
     }
@@ -34,6 +36,7 @@ impl Display for Protocol {
         let p = match self {
             Self::Off => "Not shared",
             Self::Nvmf => "NVMe-oF TCP",
+            Self::Ublk => "UBLK",
         };
         write!(f, "{p}")
     }
@@ -227,6 +230,10 @@ pub trait Share: std::fmt::Debug {
         props: Option<NvmfShareProps>,
     ) -> Result<Self::Output, Self::Error>;
     fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error>;
+
+    async fn share_ublk(self: Pin<&mut Self>) -> Result<Self::Output, Self::Error> {
+        todo!()
+    }
 
     async fn update_properties<P: Into<Option<UpdateProps>>>(
         self: Pin<&mut Self>,
