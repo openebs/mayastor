@@ -565,10 +565,24 @@ impl LogicalVolume {
     }
 
     /// Import the Logical Volume by loading it via an SPDK bdev using AIO.
-    /// todo: Allow using either aio or uring.
+    /// todo: Allow using uring as well (note: the uring bdev has no unmap
+    ///       support, so aio+fallocate is the only trim passthrough path).
     /// todo: Test performance.
     async fn import_bdev(&mut self) -> Result<(), Error> {
-        let disk_uri = format!("aio://{}?uuid={}", self.path, self.uuid());
+        let mut disk_uri = format!("aio://{}?uuid={}", self.path, self.uuid());
+
+        // Opt into fallocate-based UNMAP/WRITE_ZEROES passthrough when the
+        // backing device can actually honour it.
+        if crate::bdev::util::fallocate::supports_fallocate_punch_hole(&self.path) {
+            disk_uri.push_str("&fallocate=true");
+        } else {
+            info!(
+                "LV '{}': trim passthrough is disabled as '{}' does not \
+                support fallocate punch-hole",
+                self.uuid(),
+                self.path
+            );
+        }
 
         let allowed_hosts = self
             .property(&PropertyType::LvAllowedHosts)
