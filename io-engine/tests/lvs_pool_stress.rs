@@ -190,7 +190,10 @@ async fn lvol_snap_list() {
 
     // this could vary depending on the system where we're running, but this is large enough that
     // it should run on weaker systems as well as low enough to ensure we're testing the fix.
+    #[cfg(target_arch = "x86_64")]
     let max_dur = std::time::Duration::from_secs(3);
+    #[cfg(not(target_arch = "x86_64"))]
+    let max_dur = std::time::Duration::from_secs(8);
 
     let list_tm = std::time::Instant::now();
     ms.spawn(async move {

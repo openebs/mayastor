@@ -5,6 +5,13 @@ rustflags = [
     "-C", "link-arg=-fuse-ld=lld",
 ]
 
+[target.aarch64-unknown-linux-gnu]
+rustflags = [
+    "-C", "target-feature=+aes,+sha2",
+    "-C", "link-arg=-llzma",
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

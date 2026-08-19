@@ -26,7 +26,14 @@ env:
 
 jobs:
   image-build-push:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          # todo: once we support multi-arch builds
+          #- ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,4 +63,4 @@ jobs:
             ./scripts/release.sh --tag ${{ inputs.tag }} --registry ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.namespace }}
           elif [[ "${{ github.event_name }}" == "push" ]]; then
             ./scripts/release.sh
-          fi        
+          fi
