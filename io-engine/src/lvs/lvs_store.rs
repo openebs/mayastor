@@ -1162,7 +1162,11 @@ impl Lvs {
     /// return an iterator that filters out all bdevs that patch the pool
     /// signature
     pub fn lvols(&self) -> impl Iterator<Item = Lvol> {
-        super::lvol_iter::LvsLvolIter::new(self)
+        // Skip lvols which are being destroyed: their blob is closed and
+        // nulled before they are unlinked from the lvstore's list, so
+        // inspecting them (e.g. computing committed size) would dereference
+        // a null blob.
+        super::lvol_iter::LvsLvolIter::new(self).filter(|lvol| !lvol.is_deleting())
     }
 
     /// create a new lvol on this pool

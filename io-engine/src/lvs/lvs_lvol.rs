@@ -303,7 +303,11 @@ impl Lvol {
         if lvol.is_null() {
             return None;
         }
-        Some(Self::from_inner_ptr(lvol))
+        let lvol = Self::from_inner_ptr(lvol);
+        if lvol.is_deleting() {
+            return None;
+        }
+        Some(lvol)
     }
 
     /// Wipe the first 8MB if unmap is not supported on failure the operation
@@ -534,6 +538,25 @@ impl Lvol {
         };
         count
     }
+
+    /// Check if the lvol is deleting.
+    /// This is true if the blob is null, which happens when the lvol is being destroyed but yet
+    /// to be unlinked from the lvstore's list.
+    pub(crate) fn is_deleting(&self) -> bool {
+        self.blob_safe().is_err()
+    }
+    /// Inner variant of [`Self::blob`] that returns an error if the blob is null.
+    /// This one doesn't debug assert, so use it when you want to handle the error in debug mode.
+    fn blob_safe(&self) -> Result<*mut spdk_blob, LvsError> {
+        let blob = self.as_inner_ref().blob;
+        if blob.is_null() {
+            return Err(LvsError::Invalid {
+                source: BsError::LvolNotFound {},
+                msg: "lvol blob is null (lvol is being destroyed)".to_string(),
+            });
+        }
+        Ok(blob)
+    }
 }
 
 pub struct LvolPtpl {
@@ -654,6 +677,9 @@ pub trait LvsLvol: LogicalVolume + Share {
 
     /// Get BlobPtr from spdk_lvol.
     fn blob_checked(&self) -> *mut spdk_blob;
+
+    /// Get the BlobPtr from the spdk_lvol, returning an error if it is null.
+    fn blob(&self) -> Result<*mut spdk_blob, LvsError>;
 
     /// Wrapper function to destroy replica and its associated snapshot if
     /// replica is identified as last clone.
@@ -1053,6 +1079,20 @@ impl LvsLvol for Lvol {
     fn blob_checked(&self) -> *mut spdk_blob {
         let blob = self.as_inner_ref().blob;
         assert!(!blob.is_null());
+        blob
+    }
+
+    /// Get the BlobPtr from the spdk_lvol, returning an error if it is null.
+    ///
+    /// The blob can be null when the lvol is being destroyed:
+    /// it is closed and set to null (`lvol_close_blob_cb`) before
+    /// the lvol is unlinked from the lvstore's list (`lvol_delete_blob_cb`).
+    ///
+    /// Callers on the enumeration/stats path must use this variant and handle
+    /// the error gracefully.
+    fn blob(&self) -> Result<*mut spdk_blob, LvsError> {
+        let blob = self.blob_safe();
+        debug_assert!(blob.is_ok());
         blob
     }
 
