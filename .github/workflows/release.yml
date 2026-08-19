@@ -2,7 +2,7 @@ name: Release Tagging Workflow
 
 on:
   release:
-    types: [ created ]
+    types: [ published ]
 
 jobs:
   preflight-checks:
