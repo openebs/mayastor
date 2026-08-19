@@ -60,6 +60,11 @@ impl std::fmt::Debug for NvmeIoChannelInner<'_> {
 
 pub struct NvmeIoChannelInner<'a> {
     qpair: Option<QPair>,
+    // Whether `qpair` is currently registered with `poll_group`. Tracked so
+    // `remove_qpair()` only deregisters a qpair that was actually added -
+    // previously `reset()` dropped the qpair without removing it from the
+    // poll group first, leaving a dangling reference to the freed qpair.
+    qpair_in_poll_group: bool,
     poll_group: PollGroup,
     poller: Poller<'a>,
     io_stats_controller: IoStatsController,
@@ -100,10 +105,17 @@ impl NvmeIoChannelInner<'_> {
     }
 
     fn remove_qpair(&mut self) -> Option<QPair> {
-        if let Some(q) = &self.qpair {
-            trace!(qpair = ?q.as_ptr(), "removing qpair");
+        let qpair = self.qpair.take()?;
+
+        if self.qpair_in_poll_group {
+            trace!(qpair = ?qpair.as_ptr(), "removing qpair from poll group");
+            self.poll_group.remove_qpair(&qpair);
+            self.qpair_in_poll_group = false;
+        } else {
+            trace!(qpair = ?qpair.as_ptr(), "removing qpair (not yet in poll group)");
         }
-        self.qpair.take()
+
+        Some(qpair)
     }
 
     /// Reset channel, making it unusable till reinitialize() is called.
@@ -191,18 +203,25 @@ impl NvmeIoChannelInner<'_> {
             }
         };
 
-        // Add qpair to the poll group.
-        let mut rc = self.poll_group.add_qpair(&qpair);
+        // Add qpair to the poll group. Must happen before connecting: the
+        // RDMA transport wires up the qpair's shared-receive-queue
+        // association from the poll group at connect time (see
+        // nvme_rdma.c's `rqpair->srq = poller->srq`), so a qpair connected
+        // before joining a poll group ends up with no SRQ association and
+        // its completions are never reaped.
+        let rc = self.poll_group.add_qpair(&qpair);
         if rc != 0 {
             error!(?ctrlr_name, "failed to add qpair to poll group");
             return rc;
         }
+        self.qpair_in_poll_group = true;
 
         // Connect qpair.
-        rc = qpair.connect();
+        let rc = qpair.connect();
         if rc != 0 {
             error!("{} failed to connect qpair (errno={})", ctrlr_name, rc);
             self.poll_group.remove_qpair(&qpair);
+            self.qpair_in_poll_group = false;
             return rc;
         }
 
@@ -383,7 +402,8 @@ impl NvmeControllerIoChannel {
             }
         };
 
-        // Add qpair to poll group.
+        // Add qpair to poll group. Must happen before the qpair is
+        // connected - see the comment on `qpair_in_poll_group`.
         let rc = poll_group.add_qpair(&qpair);
         if rc != 0 {
             error!(?cname, ?rc, "failed to add qpair to poll group");
@@ -400,6 +420,7 @@ impl NvmeControllerIoChannel {
 
         let inner = Box::new(NvmeIoChannelInner {
             qpair: Some(qpair),
+            qpair_in_poll_group: true,
             poll_group,
             poller,
             io_stats_controller: IoStatsController::new(block_size),
@@ -426,6 +447,8 @@ impl NvmeControllerIoChannel {
             let ch = NvmeIoChannel::from_raw(ctx);
             let mut inner = unsafe { Box::from_raw(ch.inner) };
 
+            // `remove_qpair()` also deregisters the qpair from the poll
+            // group, if it was registered.
             let qpair = inner.remove_qpair();
 
             // Stop the poller and do extra handling for I/O qpair, as it needs
@@ -433,9 +456,8 @@ impl NvmeControllerIoChannel {
             // destruction.
             inner.poller.stop();
 
-            if let Some(qpair) = qpair {
-                inner.poll_group.remove_qpair(&qpair);
-            }
+            // `qpair` is dropped here, at the end of scope.
+            drop(qpair);
         }
 
         trace!(

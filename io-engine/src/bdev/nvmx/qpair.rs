@@ -63,12 +63,21 @@ impl Debug for QPair {
 
 impl Drop for QPair {
     fn drop(&mut self) {
+        // Only a qpair that has actually completed a connection has
+        // anything to disconnect. A qpair still `Disconnected` (never
+        // connected) or `Connecting` (async connect still in flight) has no
+        // transport-level connection established yet, so issuing a
+        // disconnect against it hits a state the transport doesn't expect.
+        let was_connected = self.state() == QPairState::Connected;
+
         unsafe {
             let qpair = self.as_ptr();
-            spdk_nvme_qpair_set_abort_dnr(qpair, true);
-            nvme_qpair_abort_all_queued_reqs(qpair);
-            nvme_transport_qpair_abort_reqs(qpair);
-            spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
+            if was_connected {
+                spdk_nvme_qpair_set_abort_dnr(qpair, true);
+                nvme_qpair_abort_all_queued_reqs(qpair);
+                nvme_transport_qpair_abort_reqs(qpair);
+                spdk_nvme_ctrlr_disconnect_io_qpair(qpair);
+            }
             spdk_nvme_ctrlr_free_io_qpair(qpair);
         }
 
@@ -164,8 +173,6 @@ impl QPair {
                 })),
             };
 
-            trace!(?qpair, "I/O qpair created for controller");
-
             Ok(qpair)
         }
     }
@@ -228,14 +235,15 @@ impl QPair {
         };
 
         let qpair = self.as_ptr();
-        recv.await.map_err(|_| {
+        let res = recv.await.map_err(|_| {
             // Receiver failure may be caused by qpair having been dropped,
             // so we cannot use `self` here.
             error!(?qpair, "I/O qpair connection canceled");
             CoreError::OpenBdev {
                 source: Errno::ECANCELED,
             }
-        })?
+        })?;
+        res
     }
 
     /// Starts a new async connection and returns a receiver for it.
@@ -366,6 +374,8 @@ impl Connection<'_> {
             probe: std::ptr::null_mut(),
         });
 
+        let self_ref = UnsafeRef::new(ctx.as_mut());
+
         // Start poller for the async connection.
         ctx.poller = Some(
             PollerBuilder::new()
@@ -381,6 +391,28 @@ impl Connection<'_> {
 
         // Context is now managed by the SPDK async connection and the poller.
         Box::leak(ctx);
+
+        // Drive the connect state machine's first step synchronously, right
+        // now, instead of waiting for the poller's first scheduled tick (up
+        // to 1ms later). `spdk_nvme_ctrlr_connect_io_qpair_async()` (called
+        // above via `ctrlr_connect_async()`) only allocates the probe
+        // context -- it does NOT call `nvme_transport_ctrlr_connect_qpair()`,
+        // the call that actually kicks off the RDMA transport connect and
+        // moves the qpair off the poll group's `disconnected_qpairs` list.
+        // That only happens on the first `INIT` step of
+        // `spdk_nvme_ctrlr_io_qpair_connect_poll_async()`, driven by
+        // `Connection::poll()` below. Until that first step runs, the qpair
+        // sits on `disconnected_qpairs` in `NVME_RDMA_QPAIR_STATE_INVALID`
+        // (confirmed via core dump). If the channel's own, much faster
+        // completion poller ticks during that window, it calls
+        // `nvme_rdma_ctrlr_disconnect_qpair_poll()` unconditionally on every
+        // qpair on that list, which hits SPDK's `assert(false)` on a qpair
+        // that never actually started connecting. Running the same poll
+        // callback the timer would run anyway, just synchronously and first,
+        // closes that window without touching poll-group registration
+        // ordering (which SPDK requires to happen before connect, for SRQ
+        // wiring).
+        Connection::poll_cb(&self_ref);
 
         Ok(receiver)
     }
@@ -432,7 +464,6 @@ impl Connection<'_> {
         match res {
             // Connection is complete, callback has been called and this
             // connection instance already dropped.
-            // Warning: does use `self` here.
             0 => Ok(false),
             // Connection is still in progress, keep polling.
             1 => Ok(true),

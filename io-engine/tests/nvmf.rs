@@ -265,7 +265,8 @@ async fn test_rdma_target() {
         .await
         .unwrap();
 
-    hdl.replica
+    let replica = hdl
+        .replica
         .create_replica(CreateReplicaRequest {
             name: repl_name(),
             uuid: repl_uuid(),
@@ -277,8 +278,11 @@ async fn test_rdma_target() {
         })
         .await
         .unwrap();
+    let repl_uri = replica.into_inner().uri;
+    let url = url::Url::parse(&repl_uri).unwrap();
+    assert!(url.scheme() == "nvmf+rdma+tcp");
 
-    let child0 = format!("bdev:///{}", repl_name());
+    let child0 = repl_uri;
     create_nexus(&mut hdl, vec![child0.clone()]).await;
     let device_uri = hdl
         .nexus
