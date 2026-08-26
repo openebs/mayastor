@@ -948,6 +948,11 @@ impl MayastorEnvironment {
         self.rdma
     }
 
+    /// Check if blobstore cluster unmap needs to be enabled.
+    pub fn bs_cluster_unmap(&self) -> bool {
+        self.bs_cluster_unmap
+    }
+
     /// Detects IP address for NVMF target by the interface specified in CLI
     /// arguments.
     fn detect_nvmf_tgt_iface_ip(iface: &str) -> Result<SIpAddr, String> {

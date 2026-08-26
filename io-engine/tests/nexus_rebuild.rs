@@ -544,3 +544,354 @@ async fn rebuild_across_mixed_cluster_sizes() {
         .await
         .is_ok());
 }
+
+/// Verifies that nexus rebuild propagates UNMAP semantics: when a region of the
+/// source is unmapped, after a rebuild the destination must also be
+/// (de)allocated to match the source — i.e. unmapped clusters must not be
+/// re-allocated on the destination during rebuild.
+///
+/// All replicas live in a single io-engine container to minimise the cost of
+/// docker compose setup/teardown.
+#[tokio::test]
+async fn rebuild_thin_unmap_propagates_to_dst() {
+    common::composer_init();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "1,2,3,4",
+                "--bs-cluster-unmap",
+                "-Fcolor,compact,host,nodate",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let hdl = conn.grpc_handle_shared("ms_0").await.unwrap();
+
+    use io_engine_tests::{
+        file_io::DataSize,
+        nexus::{test_trim_to_nexus, test_write_to_nexus},
+    };
+
+    const POOL_SIZE: u64 = 100;
+    const REPL_SIZE: u64 = 22;
+    // Use an explicit 1 MiB cluster size so that the test can write/unmap
+    // exactly one cluster at a time without relying on the pool default.
+    const CLUSTER_SIZE: u32 = 1024 * 1024;
+
+    let mut pool_0 = PoolBuilder::new(hdl.clone())
+        .with_name("pool0")
+        .with_new_uuid()
+        .with_malloc("mem0", POOL_SIZE)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool_0.create().await.unwrap();
+
+    let mut pool_1 = PoolBuilder::new(hdl.clone())
+        .with_name("pool1")
+        .with_new_uuid()
+        .with_malloc("mem1", POOL_SIZE)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool_1.create().await.unwrap();
+
+    let mut pool_2 = PoolBuilder::new(hdl.clone())
+        .with_name("pool2")
+        .with_new_uuid()
+        .with_malloc("mem2", POOL_SIZE)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool_2.create().await.unwrap();
+
+    let mut repl_0 = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool_0)
+        .with_name("r0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+    repl_0.create().await.unwrap();
+    repl_0.share().await.unwrap();
+
+    let mut repl_1 = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool_1)
+        .with_name("r1")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+    repl_1.create().await.unwrap();
+    repl_1.share().await.unwrap();
+
+    let mut repl_2 = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool_2)
+        .with_name("r2")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_thin(true);
+    repl_2.create().await.unwrap();
+    repl_2.share().await.unwrap();
+
+    let mut nex = NexusBuilder::new(hdl.clone())
+        .with_name("nexus0")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE)
+        .with_replica(&repl_0)
+        .with_replica(&repl_1);
+    nex.create().await.unwrap();
+    nex.publish().await.unwrap();
+
+    let cluster_bytes = CLUSTER_SIZE as u64;
+
+    // Write two full clusters worth of data (clusters 2 and 3, skipping
+    // cluster 0 which is reserved for the superblock / metadata).
+    test_write_to_nexus(
+        &nex,
+        DataSize::from_bytes(2 * cluster_bytes),
+        2,
+        DataSize::from_bytes(cluster_bytes),
+    )
+    .await
+    .unwrap();
+
+    // Confirm that each source replica has allocated some clusters.
+    let r0_before = repl_0.get_replica().await.unwrap().usage.unwrap();
+    let r1_before = repl_1.get_replica().await.unwrap().usage.unwrap();
+    assert!(
+        r0_before.num_allocated_clusters >= 2,
+        "Source replica 0 should have at least 2 allocated clusters after write, got {}",
+        r0_before.num_allocated_clusters
+    );
+    assert!(
+        r1_before.num_allocated_clusters >= 2,
+        "Source replica 1 should have at least 2 allocated clusters after write, got {}",
+        r1_before.num_allocated_clusters
+    );
+
+    // Unmap exactly one cluster (cluster 3) through the nexus. The nexus
+    // forwards the unmap to both source replicas; with --bs-cluster-unmap
+    // enabled the underlying blobstore releases the corresponding cluster.
+    test_trim_to_nexus(
+        &nex,
+        DataSize::from_bytes(3 * cluster_bytes),
+        DataSize::from_bytes(cluster_bytes),
+    )
+    .await
+    .unwrap();
+
+    // Wait briefly for the asynchronous cluster-release to settle.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Each source replica must now have one fewer allocated cluster.
+    let r0_after_trim = repl_0.get_replica().await.unwrap().usage.unwrap();
+    let r1_after_trim = repl_1.get_replica().await.unwrap().usage.unwrap();
+    assert_eq!(
+        r0_before.num_allocated_clusters,
+        r0_after_trim.num_allocated_clusters + 1,
+        "Source replica 0: expected one cluster released after unmap"
+    );
+    assert_eq!(
+        r1_before.num_allocated_clusters,
+        r1_after_trim.num_allocated_clusters + 1,
+        "Source replica 1: expected one cluster released after unmap"
+    );
+
+    // Add the destination replica. This triggers a nexus rebuild: the
+    // destination is synchronised with the sources. Unmapped clusters in the
+    // source must be unmapped (not allocated) in the destination.
+    nex.add_replica(&repl_2, false).await.unwrap();
+
+    nex.wait_children_online(Duration::from_secs(60))
+        .await
+        .unwrap();
+
+    // After rebuild the destination must match source allocation.
+    let r0_final = repl_0.get_replica().await.unwrap().usage.unwrap();
+    let r2_final = repl_2.get_replica().await.unwrap().usage.unwrap();
+    assert_eq!(
+        r0_final.num_allocated_clusters,
+        r2_final.num_allocated_clusters,
+        "After nexus rebuild destination cluster count ({}) must match source ({})",
+        r2_final.num_allocated_clusters,
+        r0_final.num_allocated_clusters,
+    );
+}
+
+/// Regression test for SPDK concurrent UNMAP issues.
+///
+/// Creates a 100 GiB thin volume on a 4 MiB-cluster pool, drives a very large
+/// number of concurrent cluster-sized UNMAPs through the nexus using fio
+/// (`rw=randtrim`, `bs=4M`, `iodepth=128`, `numjobs=8` => up to 1024 in-flight
+/// UNMAP commands sustained over a 20s window), then exports the pool and
+/// re-imports it from the same backing disk.
+///
+/// Concurrent UNMAPs at cluster boundaries used to corrupt blobstore
+/// metadata, which made the subsequent pool import fail. After the fix the
+/// re-import must succeed.
+#[tokio::test]
+async fn concurrent_unmap_export_and_pool_reimport() {
+    common::composer_init();
+
+    use io_engine_tests::{
+        compose::rpc::v1::pool::{ExportPoolRequest, ImportPoolRequest},
+        file_io::DataSize,
+        fio::{FioBuilder, FioJobBuilder},
+        nexus::test_fio_to_nexus_aio,
+    };
+
+    const POOL_NAME: &str = "pool_concurrent_unmap";
+    // 100 GiB thin volume, exposed over NVMf as the nexus device.
+    const REPL_SIZE_MB: u64 = 100 * 1024;
+    // 4 MiB cluster size (matches the LVS default) so that bs=4M trims are
+    // exactly one cluster each.
+    const CLUSTER_SIZE: u32 = 4 * 1024 * 1024;
+    // Sparse backing file with some headroom over the replica size for pool
+    // metadata.
+    const POOL_SIZE_MB: u64 = REPL_SIZE_MB + 1024;
+
+    // Range pre-written by the writer fio job and then trimmed by the
+    // randtrim job so that UNMAPs actually traverse allocated blobstore
+    // clusters (not no-ops on a fully-thin region).
+    const TRIM_RANGE_MB: u64 = 4 * 1024;
+
+    let pool_uuid = common::generate_uuid();
+    let disk_file = format!("/tmp/concurrent-unmap-reimport-{pool_uuid}.img");
+    let pool_bdev = format!("aio://{disk_file}?blk_size=512");
+
+    common::delete_file(&[disk_file.clone()]);
+    common::truncate_file_bytes(&disk_file, POOL_SIZE_MB * 1024 * 1024);
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .unwrap()
+        .add_container_bin(
+            "ms_0",
+            Binary::from_dbg("io-engine").with_args(vec![
+                "-l",
+                "1,2,3,4",
+                "--bs-cluster-unmap",
+                "-Fcolor,compact,host,nodate",
+            ]),
+        )
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    let conn = GrpcConnect::new(&test);
+    let hdl = conn.grpc_handle_shared("ms_0").await.unwrap();
+
+    let mut pool = PoolBuilder::new(hdl.clone())
+        .with_name(POOL_NAME)
+        .with_uuid(&pool_uuid)
+        .with_bdev(&pool_bdev)
+        .with_cluster_size(CLUSTER_SIZE);
+    pool.create().await.unwrap();
+
+    let mut repl = ReplicaBuilder::new(hdl.clone())
+        .with_pool(&pool)
+        .with_name("repl_concurrent_unmap")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE_MB)
+        .with_thin(true);
+    repl.create().await.unwrap();
+    repl.share().await.unwrap();
+
+    let mut nex = NexusBuilder::new(hdl.clone())
+        .with_name("nexus_concurrent_unmap")
+        .with_new_uuid()
+        .with_size_mb(REPL_SIZE_MB)
+        .with_replica(&repl);
+    nex.create().await.unwrap();
+    nex.publish().await.unwrap();
+
+    // Pre-allocate clusters in the trimmed range so that the subsequent
+    // randtrim phase exercises real blobstore cluster releases rather than
+    // hitting unallocated regions.
+    let writer = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::default()
+                .with_name("preallocate")
+                .with_rw("write")
+                .with_bs(DataSize::from_bytes(CLUSTER_SIZE as u64))
+                .with_iodepth(64)
+                .with_size(DataSize::from_mb(TRIM_RANGE_MB))
+                .build(),
+        )
+        .with_verbose_err(true)
+        .build();
+    test_fio_to_nexus_aio(&nex, writer).await.unwrap();
+
+    // Issue a very large number of concurrent cluster-sized UNMAPs.
+    // numjobs=8 * iodepth=128 = up to 1024 UNMAPs in flight at any moment,
+    // sustained for runtime seconds across the pre-allocated range.
+    let trimmer = FioBuilder::new()
+        .with_job(
+            FioJobBuilder::default()
+                .with_name("concurrent_unmap")
+                .with_rw("randtrim")
+                .with_bs(DataSize::from_bytes(CLUSTER_SIZE as u64))
+                .with_iodepth(128)
+                .with_numjobs(8)
+                .with_size(DataSize::from_mb(TRIM_RANGE_MB))
+                .with_runtime(20)
+                .build(),
+        )
+        .with_verbose_err(true)
+        .build();
+    let r_after_write = repl.get_replica().await.unwrap().usage.unwrap();
+    assert!(
+        r_after_write.num_allocated_clusters > 0,
+        "Pre-allocation phase did not allocate any clusters"
+    );
+
+    test_fio_to_nexus_aio(&nex, trimmer).await.unwrap();
+
+    // The randtrim phase must have actually released clusters at the
+    // blobstore layer; otherwise the test wouldn't be exercising the
+    // concurrent-UNMAP path it claims to.
+    let r_after_trim = repl.get_replica().await.unwrap().usage.unwrap();
+    assert!(
+        r_after_trim.num_allocated_clusters < r_after_write.num_allocated_clusters,
+        "Concurrent UNMAPs did not deallocate any clusters \
+         (allocated before trim: {}, after trim: {})",
+        r_after_write.num_allocated_clusters,
+        r_after_trim.num_allocated_clusters,
+    );
+
+    // Tear down the nexus and replica so the pool can be exported.
+    nex.shutdown().await.unwrap();
+    nex.destroy().await.unwrap();
+    repl.destroy().await.unwrap();
+
+    // Export the pool: this flushes and closes the on-disk blobstore.
+    hdl.lock()
+        .await
+        .pool
+        .export_pool(ExportPoolRequest {
+            name: POOL_NAME.to_string(),
+            uuid: Some(pool_uuid.clone()),
+        })
+        .await
+        .expect("Pool export must succeed after concurrent UNMAPs");
+
+    // Re-import the pool from the same backing disk. This is the failure
+    // mode the SPDK concurrent UNMAP bugs caused; it must succeed.
+    hdl.lock()
+        .await
+        .pool
+        .import_pool(ImportPoolRequest {
+            name: POOL_NAME.to_string(),
+            uuid: Some(pool_uuid.clone()),
+            disks: vec![pool_bdev.clone()],
+            pooltype: 0,
+            encryption: None,
+        })
+        .await
+        .expect("Pool re-import after concurrent UNMAPs must succeed");
+}

@@ -13,7 +13,9 @@ use super::{
     file_io::DataSize,
     fio::Fio,
     generate_uuid,
-    nvmf::{test_fio_to_nvmf, test_fio_to_nvmf_aio, test_write_to_nvmf, NvmfLocation},
+    nvmf::{
+        test_fio_to_nvmf, test_fio_to_nvmf_aio, test_trim_to_nvmf, test_write_to_nvmf, NvmfLocation,
+    },
     replica::ReplicaBuilder,
 };
 use io_engine::{
@@ -518,6 +520,16 @@ pub async fn test_write_to_nexus(
     buf_size: DataSize,
 ) -> std::io::Result<()> {
     test_write_to_nvmf(&nex.nvmf_location(), offset, count, buf_size).await
+}
+
+/// Issues an unmap (trim/discard) request covering `len` bytes starting at
+/// `offset` bytes on the nexus NVMf target.
+pub async fn test_trim_to_nexus(
+    nex: &NexusBuilder,
+    offset: DataSize,
+    len: DataSize,
+) -> std::io::Result<()> {
+    test_trim_to_nvmf(&nex.nvmf_location(), offset, len).await
 }
 
 /// TODO

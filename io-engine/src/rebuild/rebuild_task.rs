@@ -49,7 +49,16 @@ impl RebuildTask {
     }
 
     /// Copies one segment worth of data from source into destination.
-    /// Returns true if write transfer took place, false otherwise.
+    /// Returns true if a destination I/O (data write or discard) took place,
+    /// false otherwise.
+    ///
+    /// When the source segment reads as unallocated, no data is copied; instead
+    /// the destination segment is discarded (UNMAP, falling back to
+    /// WRITE_ZEROES) so that both replicas read identically. The data plane
+    /// has no reliable way to prove the destination is pristine — a freshly
+    /// added child may still carry historical content from a previous nexus,
+    /// snapshot, restore, or out-of-band write — so we never skip the
+    /// destination operation, regardless of full vs partial rebuild.
     pub(super) async fn copy_one(
         &mut self,
         offset_blk: u64,
@@ -62,10 +71,12 @@ impl RebuildTask {
             .read_src_segment(offset_blk, iovs, desc.options.read_opts)
             .await?
         {
-            // Segment is not allocated in the source, skip the write.
-            return Ok(false);
+            // Source segment is unallocated: discard the destination segment
+            // to keep the replicas in sync without copying data.
+            desc.discard_dst_segment(offset_blk).await?;
+        } else {
+            desc.write_dst_segment(offset_blk, iovs).await?;
         }
-        desc.write_dst_segment(offset_blk, iovs).await?;
 
         if !matches!(desc.options.verify_mode, RebuildVerifyMode::None) {
             desc.verify_segment(offset_blk, iovs).await?;

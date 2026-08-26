@@ -7,7 +7,7 @@ use crate::{
     bdev_api::bdev_get_name,
     core::{
         BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, CoreError, IoCompletionStatus,
-        ReadOptions, SegmentMap,
+        IoType, MayastorEnvironment, ReadOptions, SegmentMap,
     },
     rebuild::{
         rebuild_error::{BdevInvalidUri, NoCopyBuffer},
@@ -42,6 +42,12 @@ pub(super) struct RebuildDescriptor {
     #[allow(clippy::non_send_fields_in_send_ty)]
     pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
     pub(super) dst_handle: Box<dyn BlockDeviceHandle>,
+    /// Whether the global blob-store cluster-on-unmap feature is enabled. When
+    /// disabled, UNMAP at the lvol layer does not release clusters, so we
+    /// prefer WRITE_ZEROES to bring an unallocated source segment in sync with
+    /// the destination instead of issuing a no-op (from a reclaim standpoint)
+    /// UNMAP.
+    pub(super) bs_cluster_unmap: bool,
     /// Start time of this rebuild.
     pub(super) start_time: DateTime<Utc>,
 }
@@ -112,6 +118,7 @@ impl RebuildDescriptor {
             src_handle,
             dst_descriptor,
             dst_handle,
+            bs_cluster_unmap: MayastorEnvironment::global_or_default().bs_cluster_unmap(),
             start_time: Utc::now(),
         })
     }
@@ -200,6 +207,13 @@ impl RebuildDescriptor {
     /// Reads a rebuild segment at the given offset from the source replica.
     /// In the case the segment is not allocated on the source, returns false,
     /// and true otherwise.
+    ///
+    /// Note: an `Ok(false)` return does NOT mean the destination write can be
+    /// skipped. The data plane cannot prove that the destination region is
+    /// pristine (the underlying replica may be thick, may have been previously
+    /// written, snapshotted, restored, etc.), so the caller must still bring
+    /// the destination region into sync with the source by issuing a discard
+    /// (UNMAP, falling back to WRITE_ZEROES) — see [`Self::discard_dst_segment`].
     pub(super) async fn read_src_segment(
         &self,
         offset_blk: u64,
@@ -246,6 +260,56 @@ impl RebuildDescriptor {
                 source: err,
                 bdev: self.dst_uri.clone(),
             })
+    }
+
+    /// Discards the segment at the given offset on the destination replica,
+    /// bringing it in sync with an unallocated source segment.
+    ///
+    /// Selection logic:
+    /// - If the global blob-store cluster-on-unmap feature is enabled and the
+    ///   destination supports UNMAP, issue UNMAP (releases clusters on the
+    ///   underlying lvol while also zeroing reads).
+    /// - Otherwise, if the destination supports WRITE_ZEROES, use it. This
+    ///   covers both the "cluster-unmap disabled" case (where UNMAP wouldn't
+    ///   release space anyway) and the "device has no UNMAP" case.
+    /// - Otherwise, fail the rebuild — we cannot leave the destination holding
+    ///   arbitrary stale content while the source reads as unallocated, since
+    ///   that would silently diverge the replicas.
+    ///
+    /// Note: we have no in-band signal telling us whether the destination
+    /// region is already unmapped/zeroed, so the operation may be redundant in
+    /// the common create-time case. That's the (cheap) cost of getting a rule
+    /// that is impossible to get subtly wrong.
+    pub(super) async fn discard_dst_segment(
+        &self,
+        offset_blk: u64,
+    ) -> Result<(), RebuildError> {
+        let num_blocks = self.get_segment_size_blks(offset_blk);
+        let dst = self.dst_io_handle();
+        let dev = dst.get_device();
+
+        let supports_unmap = dev.io_type_supported(IoType::Unmap);
+        let supports_write_zeros = dev.io_type_supported(IoType::WriteZeros);
+
+        if self.bs_cluster_unmap && supports_unmap {
+            dst.unmap_blocks_async(offset_blk, num_blocks)
+                .await
+                .map_err(|err| RebuildError::DiscardIoFailed {
+                    source: err,
+                    bdev: self.dst_uri.clone(),
+                })
+        } else if supports_write_zeros {
+            dst.write_zeroes_blocks_async(offset_blk, num_blocks)
+                .await
+                .map_err(|err| RebuildError::DiscardIoFailed {
+                    source: err,
+                    bdev: self.dst_uri.clone(),
+                })
+        } else {
+            Err(RebuildError::DiscardNotSupported {
+                bdev: self.dst_uri.clone(),
+            })
+        }
     }
 
     /// Verify segment copy operation by reading destination, and comparing with

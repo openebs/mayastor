@@ -1,4 +1,7 @@
-use io_engine::core::{CoreError, UntypedBdevHandle};
+use io_engine::{
+    bdev::device_open,
+    core::{CoreError, UntypedBdevHandle},
+};
 
 pub async fn write_some(
     nexus_name: &str,
@@ -58,6 +61,18 @@ pub async fn write_zeroes_some(nexus_name: &str, offset: u64, len: u64) -> Resul
     let h = UntypedBdevHandle::open(nexus_name, true, false)?;
 
     h.write_zeroes_at(offset, len).await?;
+    Ok(())
+}
+
+pub async fn unmap_some(nexus_name: &str, offset: u64, len: u64) -> Result<(), CoreError> {
+    let desc = device_open(nexus_name, true)?;
+    let h = desc.into_handle()?;
+    let blk_len = h.get_device().block_len();
+    assert_eq!(offset % blk_len, 0, "Offset must be block aligned");
+    assert_eq!(len % blk_len, 0, "Length must be block aligned");
+
+    h.unmap_blocks_async(offset / blk_len, len / blk_len)
+        .await?;
     Ok(())
 }
 

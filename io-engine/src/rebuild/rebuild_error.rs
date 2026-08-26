@@ -36,6 +36,13 @@ pub enum RebuildError {
         bdev: String,
         verify_message: String,
     },
+    #[snafu(display(
+        "Destination bdev {bdev} supports neither UNMAP nor WRITE_ZEROES, \
+         cannot discard unallocated source segments"
+    ))]
+    DiscardNotSupported { bdev: String },
+    #[snafu(display("Discard (unmap/write-zeroes) IO failed for bdev {}", bdev))]
+    DiscardIoFailed { source: CoreError, bdev: String },
     #[snafu(display("Failed to find rebuild job {}", job))]
     JobNotFound { job: String },
     #[snafu(display("Missing rebuild destination {}", job))]

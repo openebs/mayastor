@@ -79,6 +79,42 @@ pub async fn test_fio_to_nvmf(nvmf: &NvmfLocation, mut fio: Fio) -> std::io::Res
     spawn_fio_task(&fio).await
 }
 
+/// Issues an unmap (trim/discard) request to an NVMf device at the given
+/// byte offset and length.  Connects to the NVMf target, locates the
+/// corresponding kernel NVMe block device and runs `blkdiscard` on it.
+pub async fn test_trim_to_nvmf(
+    nvmf: &NvmfLocation,
+    offset: DataSize,
+    len: DataSize,
+) -> std::io::Result<()> {
+    let _cg = NmveConnectGuard::connect_addr(&nvmf.addr, &nvmf.nqn);
+    let path = find_mayastor_nvme_device_path(&nvmf.serial)?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("Non-UTF-8 NVMe device path"))?;
+
+    let output = tokio::process::Command::new("blkdiscard")
+        .args([
+            "--offset",
+            &offset.bytes().to_string(),
+            "--length",
+            &len.bytes().to_string(),
+            path_str,
+        ])
+        .output()
+        .await?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "blkdiscard failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )))
+    }
+}
+
 /// TODO
 pub async fn test_fio_to_nvmf_aio(nvmf: &NvmfLocation, mut fio: Fio) -> std::io::Result<()> {
     let _cg = NmveConnectGuard::connect_addr(&nvmf.addr, &nvmf.nqn);

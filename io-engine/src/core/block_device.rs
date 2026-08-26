@@ -371,6 +371,33 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// Submits an unmap (deallocate) request to the block device.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::UnmapFailed` in the case of failure.
+    async fn unmap_blocks_async(
+        &self,
+        offset_blocks: u64,
+        num_blocks: u64,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<IoCompletionStatus>();
+
+        self.unmap_blocks(
+            offset_blocks,
+            num_blocks,
+            block_device_io_completion,
+            cb_arg(s),
+        )?;
+
+        match r.await.expect("Failed awaiting at unmap_blocks()") {
+            IoCompletionStatus::Success => Ok(()),
+            _ => Err(CoreError::UnmapFailed {
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
+
     /// TODO
     fn write_zeroes(
         &self,
@@ -379,6 +406,33 @@ pub trait BlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
+
+    /// Submits a write-zeroes request to the block device.
+    ///
+    /// Operation is performed asynchronously; I/O completion status is wrapped
+    /// into `CoreError::WriteZeroesFailed` in the case of failure.
+    async fn write_zeroes_blocks_async(
+        &self,
+        offset_blocks: u64,
+        num_blocks: u64,
+    ) -> Result<(), CoreError> {
+        let (s, r) = oneshot::channel::<IoCompletionStatus>();
+
+        self.write_zeroes(
+            offset_blocks,
+            num_blocks,
+            block_device_io_completion,
+            cb_arg(s),
+        )?;
+
+        match r.await.expect("Failed awaiting at write_zeroes()") {
+            IoCompletionStatus::Success => Ok(()),
+            _ => Err(CoreError::WriteZeroesFailed {
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
 
     // NVMe only.
 
