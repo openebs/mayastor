@@ -105,6 +105,9 @@ in
 {
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = ../../../Cargo.lock;
+    extraRegistries = {
+      "https://github.com/rust-lang/crates.io-index" = "https://static.crates.io/crates";
+    };
   };
   release = rustPlatform.buildRustPackage (buildProps // {
     cargoBuildFlags = "--bin io-engine --bin io-engine-client --bin casperf";
