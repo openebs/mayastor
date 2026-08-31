@@ -19,6 +19,7 @@ pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};
 pub use device_events::{
     DeviceEventDispatcher, DeviceEventListener, DeviceEventSink, DeviceEventType,
 };
+pub use device_health::{DeviceHealth, DeviceIdentity, NvmeErrorLogEntry, SmartAttribute};
 pub use device_monitor::{device_cmd_queue, device_monitor_loop, DeviceCommand};
 pub use env::{
     mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, NvmeCliArgs, PoolCliArgs, GLOBAL_RC,
@@ -55,6 +56,7 @@ mod bdev;
 mod block_device;
 mod descriptor;
 mod device_events;
+pub(crate) mod device_health;
 mod device_monitor;
 pub mod diagnostics;
 mod env;
@@ -183,6 +185,8 @@ pub enum CoreError {
     UnshareNvmf { source: NvmfError },
     #[snafu(display("the operation is invalid for this bdev: {source}"))]
     NotSupported { source: Errno },
+    #[snafu(display("failed to read device health via smartctl: {reason}"))]
+    SmartctlFailed { reason: String, source: Errno },
     #[snafu(display("failed to configure reactor: {source}"))]
     ReactorConfigureFailed { source: Errno },
     #[snafu(display("Failed to allocate DMA buffer of {size} bytes"))]
@@ -239,6 +243,7 @@ impl ToErrno for CoreError {
             Self::ShareNvmf { source } => source.to_errno(),
             Self::NvmeAdminFailed { source, .. } => *source,
             Self::NotSupported { source, .. } => *source,
+            Self::SmartctlFailed { source, .. } => *source,
             Self::ReactorConfigureFailed { source, .. } => *source,
             Self::DmaAllocationFailed { .. } => Errno::ENOMEM,
             Self::DeviceStatisticsFailed { source, .. } => *source,

@@ -91,6 +91,76 @@ impl From<ClearErrorRequest> for FindPoolArgs {
         Self::name_uuid(value.name, &value.uuid)
     }
 }
+impl From<GetPoolHealthRequest> for FindPoolArgs {
+    fn from(value: GetPoolHealthRequest) -> Self {
+        Self::name_uuid(value.name, &value.uuid)
+    }
+}
+
+impl From<crate::core::DeviceHealth> for DeviceHealth {
+    fn from(h: crate::core::DeviceHealth) -> Self {
+        Self {
+            critical_warning: h.critical_warning as u32,
+            healthy: h.is_healthy(),
+            temperature_celsius: h.temperature_celsius.map(|t| t as i32),
+            available_spare_percent: h.available_spare_percent.map(|v| v as u32),
+            available_spare_threshold_percent: h
+                .available_spare_threshold_percent
+                .map(|v| v as u32),
+            percentage_used: h.percentage_used.map(|v| v as u32),
+            data_units_read: h.data_units_read.map(|v| v as u64),
+            data_units_written: h.data_units_written.map(|v| v as u64),
+            host_reads: h.host_reads.map(|v| v as u64),
+            host_writes: h.host_writes.map(|v| v as u64),
+            controller_busy_minutes: h.controller_busy_minutes.map(|v| v as u64),
+            power_cycles: h.power_cycles.map(|v| v as u64),
+            power_on_hours: h.power_on_hours.map(|v| v as u64),
+            unsafe_shutdowns: h.unsafe_shutdowns.map(|v| v as u64),
+            media_errors: h.media_errors.map(|v| v as u64),
+            num_error_log_entries: h.num_error_log_entries.map(|v| v as u64),
+            identity: h.identity.map(DeviceIdentity::from),
+            smart_attributes: h
+                .smart_attributes
+                .into_iter()
+                .map(SmartAttribute::from)
+                .collect(),
+            // h.error_log_entries is intentionally not surfaced here yet --
+            // see the note above NvmeErrorLogEntry in core/device_health.rs.
+        }
+    }
+}
+
+impl From<crate::core::DeviceIdentity> for DeviceIdentity {
+    fn from(i: crate::core::DeviceIdentity) -> Self {
+        Self {
+            model: i.model,
+            model_family: i.model_family,
+            serial_number: i.serial_number,
+            firmware_revision: i.firmware_revision,
+            wwn: i.wwn,
+            capacity_bytes: i.capacity_bytes,
+            logical_sector_size: i.logical_sector_size,
+            physical_sector_size: i.physical_sector_size,
+            rotation_rate: i.rotation_rate,
+            form_factor: i.form_factor,
+            transport: i.transport,
+            link_speed: i.link_speed,
+        }
+    }
+}
+
+impl From<crate::core::SmartAttribute> for SmartAttribute {
+    fn from(a: crate::core::SmartAttribute) -> Self {
+        Self {
+            id: a.id as u32,
+            name: a.name,
+            value: a.value as u32,
+            worst: a.worst as u32,
+            threshold: a.threshold as u32,
+            raw_value: a.raw_value,
+        }
+    }
+}
 
 /// Helper routine to extract Encryption params from the Create or Import pool request.
 async fn util_fetch_secret_params(
@@ -394,6 +464,18 @@ pub(crate) struct PoolGrpc {
 impl PoolGrpc {
     fn new(pool: Box<dyn PoolOps>, _guard: ResourceLockGuard<'static>) -> Self {
         Self { pool, _guard }
+    }
+    /// The disk uri(s) backing this pool.
+    pub(crate) fn disks(&self) -> Vec<String> {
+        self.pool.disks()
+    }
+    /// Read SMART/health info for one of this pool's disks (as addressed by
+    /// `disks()`).
+    pub(crate) async fn read_device_health(
+        &self,
+        disk: &str,
+    ) -> Result<crate::core::DeviceHealth, crate::core::CoreError> {
+        self.pool.read_device_health(disk).await
     }
     pub(crate) async fn create_replica(
         &self,
@@ -814,6 +896,48 @@ impl PoolRpc for PoolService {
 
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
                     pool.export().await
+                })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn get_pool_health(
+        &self,
+        request: Request<GetPoolHealthRequest>,
+    ) -> GrpcResult<GetPoolHealthResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                crate::spdk_submit!(async move {
+                    info!("{:?}", request.get_ref());
+
+                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+
+                    // disks() allocates a fresh Vec<String> per call (it's
+                    // owned, not a reference) -- call it once rather than
+                    // once for the length and again for the loop.
+                    let uris = pool.disks();
+                    let mut disks = Vec::with_capacity(uris.len());
+                    for uri in uris {
+                        // Dispatch — plain kernel path (LVM) vs. registered bdev (LVS), and
+                        // within that smartctl vs. NVMe SMART log page for VFIO NVMe — is
+                        // entirely handled by the pool backend; see `PoolOps::read_device_health`.
+                        let result = pool
+                            .read_device_health(&uri)
+                            .await
+                            .map_err(|error| error.to_string());
+
+                        disks.push(DiskHealth {
+                            disk_uri: uri,
+                            supported: result.is_ok(),
+                            error: result.as_ref().err().cloned(),
+                            health: result.ok().map(DeviceHealth::from),
+                        });
+                    }
+
+                    Ok(GetPoolHealthResponse { disks })
                 })
             },
         )
