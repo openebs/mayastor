@@ -3,13 +3,15 @@
 //! runtime to do whatever it needs to do. The tokio threads are
 //! unaffinitized such that they do not run on any of our reactors.
 
+use super::Mthread;
 use crate::core::Reactor;
 use futures::{channel::oneshot, Future};
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use std::collections::HashSet;
 use tokio::task::JoinHandle;
-
-use super::Mthread;
-
+static UNAFFINITIZED_WORKERS: Lazy<Mutex<HashSet<libc::pid_t>>> =
+    Lazy::new(|| Mutex::new(HashSet::new()));
 /// spawn a future on the tokio runtime.
 pub fn spawn(f: impl Future<Output = ()> + Send + 'static) {
     RUNTIME.spawn(f);
@@ -46,6 +48,14 @@ where
     RUNTIME.spawn_blocking(f)
 }
 
+pub fn reapply_workers_unaffinity() {
+    let tids = UNAFFINITIZED_WORKERS.lock().clone();
+
+    for tid in tids {
+        Mthread::unaffinitize_tid(tid);
+    }
+}
+
 pub struct Runtime {
     rt: tokio::runtime::Runtime,
 }
@@ -53,9 +63,15 @@ pub struct Runtime {
 static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .worker_threads(5)
-        .max_blocking_threads(6)
-        .on_thread_start(Mthread::unaffinitize)
+        .worker_threads(6)
+        .max_blocking_threads(7)
+        .on_thread_start(|| {
+            let tid = unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t };
+
+            UNAFFINITIZED_WORKERS.lock().insert(tid);
+
+            Mthread::unaffinitize();
+        })
         .build()
         .unwrap();
 
