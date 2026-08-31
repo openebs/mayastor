@@ -436,12 +436,23 @@ async fn run_smartctl(path: &str) -> Result<DeviceHealth, CoreError> {
 fn parse_smartctl_identity(j: &Value) -> DeviceIdentity {
     let str_field = |ptr: &str| j.pointer(ptr).and_then(Value::as_str).map(str::to_string);
 
-    let wwn = j.pointer("/wwn").and_then(|w| {
-        let naa = w.get("naa").and_then(Value::as_u64)?;
-        let oui = w.get("oui").and_then(Value::as_u64)?;
-        let id = w.get("id").and_then(Value::as_u64)?;
-        Some(format!("{naa:x}{oui:06x}{id:010x}"))
-    });
+    let wwn = j
+        .pointer("/wwn")
+        .and_then(|w| {
+            let naa = w.get("naa").and_then(Value::as_u64)?;
+            let oui = w.get("oui").and_then(Value::as_u64)?;
+            let id = w.get("id").and_then(Value::as_u64)?;
+            Some(format!("{naa:x}{oui:06x}{id:010x}"))
+        })
+        .or_else(|| {
+            // Some SCSI devices (e.g. the scsi_debug test driver) report
+            // identity as a single logical_unit_id string instead of the
+            // structured naa/oui/id object above -- fall back to it,
+            // stripped of its "0x" prefix to match the other format.
+            j.pointer("/logical_unit_id")
+                .and_then(Value::as_str)
+                .map(|s| s.trim_start_matches("0x").to_string())
+        });
 
     DeviceIdentity {
         model: str_field("/model_name"),
@@ -749,6 +760,8 @@ mod tests {
         assert_eq!(id.transport, Some("ATA".to_string()));
         assert_eq!(id.link_speed, Some("6.0 Gb/s".to_string()));
 
+        assert_eq!(id.wwn, None);
+
         assert_eq!(h.smart_attributes.len(), 1);
         let attr = &h.smart_attributes[0];
         assert_eq!(attr.id, 5);
@@ -757,6 +770,48 @@ mod tests {
         assert_eq!(attr.worst, 100);
         assert_eq!(attr.threshold, 10);
         assert_eq!(attr.raw_value, 0);
+    }
+
+    #[test]
+    fn parses_structured_wwn() {
+        let (naa, oui, id_num) = (5u64, 20817u64, 12345678u64);
+        let j: Value = serde_json::from_str(&format!(
+            r#"{{"device": {{"name": "/dev/sda", "type": "sat"}},
+                "wwn": {{"naa": {naa}, "oui": {oui}, "id": {id_num}}}}}"#,
+        ))
+        .unwrap();
+        let id = parse_smartctl_identity(&j);
+        assert_eq!(
+            id.wwn,
+            Some(format!("{naa:x}{oui:06x}{id_num:010x}"))
+        );
+    }
+
+    #[test]
+    fn falls_back_to_logical_unit_id_when_wwn_absent() {
+        // Some SCSI devices (e.g. the scsi_debug test driver, confirmed
+        // live) report identity via a plain logical_unit_id string instead
+        // of the structured naa/oui/id object -- see
+        // parses_structured_wwn for that case.
+        let j: Value = serde_json::from_str(
+            r#"{"device": {"name": "/dev/sdb", "type": "scsi"},
+                "logical_unit_id": "0x3333333000006d60"}"#,
+        )
+        .unwrap();
+        let id = parse_smartctl_identity(&j);
+        assert_eq!(id.wwn, Some("3333333000006d60".to_string()));
+    }
+
+    #[test]
+    fn structured_wwn_takes_priority_over_logical_unit_id() {
+        let j: Value = serde_json::from_str(
+            r#"{"device": {"name": "/dev/sda", "type": "sat"},
+                "wwn": {"naa": 5, "oui": 20817, "id": 12345678},
+                "logical_unit_id": "0xdeadbeefdeadbeef"}"#,
+        )
+        .unwrap();
+        let id = parse_smartctl_identity(&j);
+        assert!(id.wwn.unwrap().starts_with('5'));
     }
 
     #[test]
