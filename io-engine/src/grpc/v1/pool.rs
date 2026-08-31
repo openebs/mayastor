@@ -915,9 +915,6 @@ impl PoolRpc for PoolService {
 
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
 
-                    // disks() allocates a fresh Vec<String> per call (it's
-                    // owned, not a reference) -- call it once rather than
-                    // once for the length and again for the loop.
                     let uris = pool.disks();
                     let mut disks = Vec::with_capacity(uris.len());
                     for uri in uris {
