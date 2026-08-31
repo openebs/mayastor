@@ -124,8 +124,11 @@ impl From<crate::core::DeviceHealth> for DeviceHealth {
                 .into_iter()
                 .map(SmartAttribute::from)
                 .collect(),
-            // h.error_log_entries is intentionally not surfaced here yet --
-            // see the note above NvmeErrorLogEntry in core/device_health.rs.
+            error_log_entries: h
+                .error_log_entries
+                .into_iter()
+                .map(NvmeErrorLogEntry::from)
+                .collect(),
         }
     }
 }
@@ -158,6 +161,19 @@ impl From<crate::core::SmartAttribute> for SmartAttribute {
             worst: a.worst as u32,
             threshold: a.threshold as u32,
             raw_value: a.raw_value,
+        }
+    }
+}
+
+impl From<crate::core::NvmeErrorLogEntry> for NvmeErrorLogEntry {
+    fn from(e: crate::core::NvmeErrorLogEntry) -> Self {
+        Self {
+            error_count: e.error_count,
+            submission_queue_id: e.submission_queue_id as u32,
+            command_id: e.command_id.map(|v| v as u32),
+            status_field: e.status_field as u32,
+            lba: e.lba,
+            namespace_id: e.namespace_id,
         }
     }
 }

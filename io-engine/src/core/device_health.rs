@@ -97,12 +97,9 @@ pub struct SmartAttribute {
 /// A single NVMe Error Information Log entry (Log Page Identifier 01h),
 /// decoded either from the raw 64-byte log entry (VFIO path) or from
 /// `smartctl`'s `nvme_error_information_log.table` (kernel path). Only
-/// non-empty slots are surfaced -- see [`parse_nvme_error_log`].
-///
-/// NOTE: not yet surfaced over `GetPoolHealth`'s gRPC response -- the proto
-/// message for it is still pending, so `DeviceHealth::error_log_entries` is
-/// currently internal-only (see `grpc/v1/pool.rs`'s `DeviceHealth` `From`
-/// impl). Fetching/decoding is fully implemented and unit-tested here.
+/// non-empty slots are surfaced -- see [`parse_nvme_error_log`]. Surfaced
+/// over `GetPoolHealth`'s gRPC response as `DeviceHealth::error_log_entries`
+/// (see `grpc/v1/pool.rs`'s `DeviceHealth`/`NvmeErrorLogEntry` `From` impls).
 #[derive(Debug, Clone, Default)]
 pub struct NvmeErrorLogEntry {
     /// Cumulative error counter for the controller (never zero for a valid
