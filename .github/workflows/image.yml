@@ -82,10 +82,16 @@ jobs:
         with:
           tag: ${{ env.TAG }}
           registry: ${{ needs.vars.outputs.registry }}
+          sbom: 'true'
 
   manifest-push:
     needs: [vars, image-build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Required for cosign to get an OIDC token for keyless signing.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -99,3 +105,4 @@ jobs:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
           ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          attest: 'true'
