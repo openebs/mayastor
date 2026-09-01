@@ -222,7 +222,7 @@ impl PoolBuilderRpc {
                 uuid: Some(self.uuid()),
             })
             .await
-            .map(|r| (r.into_inner()))
+            .map(|r| r.into_inner())
     }
 
     pub async fn get_pool(&self) -> Result<Pool, Status> {

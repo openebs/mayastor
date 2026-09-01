@@ -269,7 +269,7 @@ async fn nexus_partial_rebuild_io_fault() {
         .unwrap();
 
     // Check the replicas are identical now.
-    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+    validate_replicas(&[repl_0.clone(), repl_1.clone()]).await;
 
     // Validate that the rebuild did occur, and it was a partial one.
     let hist = nex_0.get_rebuild_history().await.unwrap();
@@ -319,7 +319,7 @@ async fn nexus_partial_rebuild_offline_online() {
     assert_eq!(children[0].state(), ChildState::Degraded);
     assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
 
-    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+    validate_replicas(&[repl_0.clone(), repl_1.clone()]).await;
 
     // We write 9 x 16-KiB buffers = 147456 bytes = 288 blocks = 2.25 rebuild
     // segments after previously written 10 x 16 KiB buffers.
@@ -340,7 +340,7 @@ async fn nexus_partial_rebuild_offline_online() {
         .await
         .unwrap();
 
-    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+    validate_replicas(&[repl_0.clone(), repl_1.clone()]).await;
 
     let hist = nex_0.get_rebuild_history().await.unwrap();
     assert_eq!(hist.len(), 1);
@@ -361,7 +361,7 @@ async fn nexus_partial_rebuild_offline_online() {
     assert_eq!(children[0].state(), ChildState::Degraded);
     assert_eq!(children[0].state_reason(), ChildStateReason::ByClient);
 
-    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+    validate_replicas(&[repl_0.clone(), repl_1.clone()]).await;
 
     test_write_to_nexus(
         &nex_0,
@@ -379,7 +379,7 @@ async fn nexus_partial_rebuild_offline_online() {
         .await
         .unwrap();
 
-    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+    validate_replicas(&[repl_0.clone(), repl_1.clone()]).await;
 
     let hist = nex_0.get_rebuild_history().await.unwrap();
     assert_eq!(hist.len(), 2);
@@ -644,5 +644,5 @@ async fn nexus_partial_rebuild_double_fault() {
     assert!(hist[0].blocks_transferred < hist[2].blocks_transferred);
 
     // Verify replicas.
-    validate_replicas(&vec![repl_0.clone(), repl_1.clone()]).await;
+    validate_replicas(&[repl_0.clone(), repl_1.clone()]).await;
 }

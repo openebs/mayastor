@@ -16,7 +16,12 @@ pub enum InjectIoDevice {
 
 impl From<&dyn BlockDevice> for InjectIoDevice {
     fn from(dev: &dyn BlockDevice) -> Self {
-        Self::BlockDevice(dev as *const _ as *mut dyn BlockDevice)
+        // Raw pointer casts of trait objects can no longer extend lifetimes,
+        // so transmute to erase the reference lifetime (this stores an
+        // unmanaged raw pointer that is used unsafely later).
+        Self::BlockDevice(unsafe {
+            std::mem::transmute::<*const dyn BlockDevice, *mut dyn BlockDevice>(dev)
+        })
     }
 }
 

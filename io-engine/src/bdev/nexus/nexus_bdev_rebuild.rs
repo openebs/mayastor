@@ -297,7 +297,7 @@ impl<'n> Nexus<'n> {
     }
 
     /// Return a mutex guard of the replica rebuild history.
-    pub fn rebuild_history_guard(&self) -> parking_lot::MutexGuard<Vec<HistoryRecord>> {
+    pub fn rebuild_history_guard(&self) -> parking_lot::MutexGuard<'_, Vec<HistoryRecord>> {
         self.rebuild_history.lock()
     }
 

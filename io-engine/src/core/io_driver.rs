@@ -15,18 +15,13 @@ use crate::{
 
 use spdk_rs::{DmaBuf, IoChannelGuard, Thread};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone)]
 pub enum IoType {
     /// perform random read operations
+    #[default]
     Read,
     /// perform random write operations
     Write,
-}
-
-impl Default for IoType {
-    fn default() -> Self {
-        Self::Read
-    }
 }
 
 #[derive(Debug)]

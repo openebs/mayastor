@@ -40,11 +40,11 @@ pub struct NVMeCtlrList<'a> {
 }
 
 impl<'a> NVMeCtlrList<'a> {
-    fn write_lock(&self) -> RwLockWriteGuard<HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
+    fn write_lock(&self) -> RwLockWriteGuard<'_, HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
         self.entries.write()
     }
 
-    fn read_lock(&self) -> RwLockReadGuard<HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
+    fn read_lock(&self) -> RwLockReadGuard<'_, HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
         self.entries.read()
     }
 

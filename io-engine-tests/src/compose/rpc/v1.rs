@@ -24,7 +24,7 @@ pub struct SharedRpcHandle {
 }
 
 impl SharedRpcHandle {
-    pub async fn lock(&self) -> HandleLockGuard<RpcHandle> {
+    pub async fn lock(&self) -> HandleLockGuard<'_, RpcHandle> {
         self.handle.lock().await
     }
 

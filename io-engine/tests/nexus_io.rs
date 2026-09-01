@@ -240,10 +240,10 @@ async fn nexus_io_multipath() {
     );
     let s = String::from_utf8(output_dis.stdout).unwrap();
     let v: Vec<&str> = s.split(' ').collect();
-    tracing::info!("nvme disconnected: {:?}", v);
+    tracing::info!("nvme disconnected: {v:?}");
     assert_eq!(v.len(), 4);
     assert_eq!(v[1], "disconnected");
-    assert_eq!(v[0], format!("NQN:{}", &nqn), "mismatched NQN disconnected");
+    assert_eq!(v[0], format!("NQN:{nqn}"), "mismatched NQN disconnected");
     assert_eq!(v[2], "2", "mismatched number of controllers disconnected");
 
     // Connect to remote replica to check key registered
@@ -962,10 +962,8 @@ async fn nexus_io_resv_preempt_tabled() {
         test_fn(&mut hdls, test_resv, resv_key, true).await;
     }
 
-    let mut resv_key = 0x1;
-    for test_resv in test_matrix {
-        test_fn(&mut hdls, test_resv, resv_key, true).await;
-        resv_key += 1;
+    for (resv_key, test_resv) in test_matrix.iter().enumerate() {
+        test_fn(&mut hdls, *test_resv, resv_key as u64 + 1, true).await;
     }
 
     let resv_key = 0x1;
@@ -973,10 +971,9 @@ async fn nexus_io_resv_preempt_tabled() {
         test_fn(&mut hdls, test_resv, resv_key, (resv_key % 2) == 1).await;
     }
 
-    let mut resv_key = 0x1;
-    for test_resv in test_matrix {
-        test_fn(&mut hdls, test_resv, resv_key, (resv_key % 2) == 1).await;
-        resv_key += 1;
+    for (resv_key, test_resv) in test_matrix.iter().enumerate() {
+        let resv_key: u64 = resv_key as u64 + 1;
+        test_fn(&mut hdls, *test_resv, resv_key, (resv_key % 2) == 1).await;
     }
 }
 
@@ -1310,7 +1307,7 @@ async fn nexus_io_freeze() {
                 &name,
                 32 * 1024 * 1024,
                 Some(NEXUS_UUID),
-                &[children.to_string()],
+                std::slice::from_ref(&children),
             )
             .await
             .unwrap();

@@ -385,7 +385,10 @@ impl WipeIterator {
         let mut chunks = total_bytes / chunk_size_bytes;
         let remainder = total_bytes % chunk_size_bytes;
         // must be aligned to block device
-        snafu::ensure!(remainder % block_len == 0, ChunkBlockSizeInvalid {});
+        snafu::ensure!(
+            remainder.is_multiple_of(block_len),
+            ChunkBlockSizeInvalid {}
+        );
         let extra_chunk_size_bytes = if remainder == 0 {
             None
         } else {

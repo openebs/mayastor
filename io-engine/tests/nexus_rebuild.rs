@@ -227,15 +227,15 @@ async fn rebuild_replica() {
         for child in 0..NUM_CHILDREN {
             NexusRebuildJob::lookup(&get_dev(child)).expect_err("Should not exist");
 
-            NexusRebuildJob::lookup_src(&get_dev(child))
+            let jobs = NexusRebuildJob::lookup_src(&get_dev(child))
                 .iter()
                 .inspect(|&job| {
-                    error!(
-                        "Job {:?} should be associated with src child {}",
-                        job, child
-                    );
+                    error!("Job {job:?} should be associated with src child {child}");
                 })
-                .any(|_| panic!("Should not have found any jobs!"));
+                .count();
+            if jobs > 0 {
+                panic!("Should not have found any jobs!");
+            }
         }
 
         let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN)).await;
@@ -250,16 +250,16 @@ async fn rebuild_replica() {
 
         for child in 0..NUM_CHILDREN {
             if get_dev(child) != src {
-                NexusRebuildJob::lookup_src(&get_dev(child))
+                let jobs = NexusRebuildJob::lookup_src(&get_dev(child))
                     .iter()
                     .filter(|s| s.dst_uri() != get_dev(child))
                     .inspect(|&job| {
-                        error!(
-                            "Job {:?} should be associated with src child {}",
-                            job, child
-                        );
+                        error!("Job {job:?} should be associated with src child {child}");
                     })
-                    .any(|_| panic!("Should not have found any jobs!"));
+                    .count();
+                if jobs > 0 {
+                    panic!("Should not have found any jobs!");
+                }
             }
         }
 

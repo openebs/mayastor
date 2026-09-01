@@ -1037,8 +1037,8 @@ impl<'c> NexusChild<'c> {
         }
 
         // TODO: Check device claiming scheme.
-        if self.device_descriptor.is_some() {
-            self.device_descriptor.as_ref().unwrap().unclaim();
+        if let Some(descriptor) = &self.device_descriptor {
+            descriptor.unclaim();
         }
 
         // Destruction raises a device removal event.

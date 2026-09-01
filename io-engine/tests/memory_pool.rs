@@ -116,7 +116,7 @@ async fn test_get() {
         // Free all elements before dropping the pool.
         // Memory pools panic if being dropped whilst having any live
         // allocations - should not happen now.
-        for (_, v) in used_addrs.iter() {
+        for v in used_addrs.values() {
             pool.put(*v);
         }
 

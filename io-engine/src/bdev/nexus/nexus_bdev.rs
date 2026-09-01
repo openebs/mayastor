@@ -616,14 +616,14 @@ impl<'n> Nexus<'n> {
     }
 
     /// TODO
-    pub fn children_iter(&self) -> std::slice::Iter<NexusChild<'n>> {
+    pub fn children_iter(&self) -> std::slice::Iter<'_, NexusChild<'n>> {
         self.children.iter()
     }
 
     /// TODO
     pub(super) unsafe fn children_iter_mut(
         self: Pin<&mut Self>,
-    ) -> std::slice::IterMut<NexusChild<'n>> {
+    ) -> std::slice::IterMut<'_, NexusChild<'n>> {
         self.unpin_mut().children.iter_mut()
     }
 

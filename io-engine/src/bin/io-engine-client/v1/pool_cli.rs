@@ -369,7 +369,7 @@ async fn destroy(mut ctx: Context, args: DestroyArgs) -> crate::Result<()> {
     match ctx.output {
         OutputFormat::Json => {}
         OutputFormat::Default => {
-            println!("pool: {} is deleted", &name);
+            println!("pool: {name} is deleted");
         }
     };
 
@@ -393,7 +393,7 @@ async fn export(mut ctx: Context, args: ExportArgs) -> crate::Result<()> {
     match ctx.output {
         OutputFormat::Json => {}
         OutputFormat::Default => {
-            println!("pool: {} is exported", &name);
+            println!("pool: {name} is exported");
         }
     };
 
