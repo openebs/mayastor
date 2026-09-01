@@ -50,7 +50,10 @@ fn pool_name() -> String {
     "tpool".to_string()
 }
 
-pub async fn create_nexus(h: &mut RpcHandle, children: Vec<String>) {
+pub async fn create_nexus(
+    h: &mut RpcHandle,
+    children: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     h.nexus
         .create_nexus(CreateNexusRequest {
             name: nexus_name(),
@@ -65,8 +68,8 @@ pub async fn create_nexus(h: &mut RpcHandle, children: Vec<String>) {
             resv_type: None,
             preempt_policy: 0,
         })
-        .await
-        .unwrap();
+        .await?;
+    Ok(())
 }
 
 #[common::spdk_test]
@@ -240,7 +243,14 @@ async fn test_rdma_target() {
         .add_container_bin(
             "ms_0",
             Binary::from_dbg("io-engine")
-                .with_args(vec!["-l", "1,2", "--enable-rdma", "-T", iface.as_str()])
+                .with_args(vec!["-l", "1", "--enable-rdma", "-T", iface.as_str()])
+                .with_privileged(Some(true)),
+        )
+        .add_container_bin(
+            "ms_1",
+            Binary::from_dbg("io-engine")
+                .with_args(vec!["-l", "2"])
+                .with_args(vec!["--grpc-port", "10125"])
                 .with_privileged(Some(true)),
         )
         .with_clean(true)
@@ -265,7 +275,8 @@ async fn test_rdma_target() {
         .await
         .unwrap();
 
-    hdl.replica
+    let replica = hdl
+        .replica
         .create_replica(CreateReplicaRequest {
             name: repl_name(),
             uuid: repl_uuid(),
@@ -277,9 +288,24 @@ async fn test_rdma_target() {
         })
         .await
         .unwrap();
+    let replica = replica.into_inner();
+    println!("Replica Uri: {:?}", replica.uri);
+    let url = url::Url::parse(&replica.uri).unwrap();
+    assert!(
+        url.scheme() == "nvmf+rdma+tcp",
+        "unexpected scheme: {}",
+        url
+    );
 
-    let child0 = format!("bdev:///{}", repl_name());
-    create_nexus(&mut hdl, vec![child0.clone()]).await;
+    let host = url.host_str().unwrap();
+    let nqn = format!("{NVME_NQN_PREFIX}:{}", replica.name);
+    let conn_status = nvme_connect(host, &nqn, "rdma", true);
+    assert!(conn_status.success());
+    nvme_disconnect_nqn(&nqn);
+
+    create_nexus(&mut hdl, vec![replica.uri.clone()])
+        .await
+        .unwrap();
     let device_uri = hdl
         .nexus
         .publish_nexus(PublishNexusRequest {
@@ -302,8 +328,55 @@ async fn test_rdma_target() {
     let nqn = format!("{NVME_NQN_PREFIX}:{}", nexus_name());
     let conn_status = nvme_connect(host, &nqn, "rdma", true);
     assert!(conn_status.success());
-
     nvme_disconnect_nqn(&nqn);
+
+    // Test TCP is still working with the same containers, but using ms_1 which is not configured for RDMA.
+
+    let host = url.host_str().unwrap();
+    let nqn = format!("{NVME_NQN_PREFIX}:{}", replica.name);
+    let conn_status = nvme_connect(host, &nqn, "tcp", true);
+    assert!(conn_status.success());
+    nvme_disconnect_nqn(&nqn);
+
+    let mut hdl = conn.grpc_handle_ext("ms_1", 10125).await.unwrap();
+    println!("ms_1 grpc endpoint {:?}", hdl.endpoint);
+
+    create_nexus(&mut hdl, vec![replica.uri])
+        .await
+        .expect("Create Nexus with replica TCP");
+
+    let controllers = hdl
+        .host
+        .list_nvme_controllers(())
+        .await
+        .expect("List NVMe controllers");
+    // todo: change api to expose transport type?
+    println!("NVMe controllers: {controllers:?}");
+
+    let device_uri = hdl
+        .nexus
+        .publish_nexus(PublishNexusRequest {
+            uuid: nexus_uuid(),
+            key: "".to_string(),
+            share: ShareProtocolNexus::NexusNvmf as i32,
+            ..Default::default()
+        })
+        .await
+        .expect("Failed to publish nexus")
+        .into_inner()
+        .nexus
+        .unwrap()
+        .device_uri;
+
+    let url = url::Url::parse(device_uri.as_str()).unwrap();
+    assert!(url.scheme() == "nvmf");
+
+    let host = url.host_str().unwrap();
+    let nqn = format!("{NVME_NQN_PREFIX}:{}", nexus_name());
+    let conn_status = nvme_connect(host, &nqn, "tcp", true);
+    assert!(conn_status.success());
+    nvme_disconnect_nqn(&nqn);
+
     // Explicitly destroy this test's containers so that rxe device can be
     // deleted.
     test.down().await;

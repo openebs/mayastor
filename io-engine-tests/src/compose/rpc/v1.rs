@@ -165,6 +165,20 @@ impl<'a> GrpcConnect<'a> {
         }
     }
 
+    /// return grpc handle to the container
+    pub async fn grpc_handle_ext(&self, name: &str, port: u16) -> Result<RpcHandle, String> {
+        match self.ct.containers().iter().find(|&c| c.0 == name) {
+            Some(container) => Ok(RpcHandle::connect(
+                container.0.clone(),
+                format!("{}:{}", container.1 .1, port)
+                    .parse::<std::net::SocketAddr>()
+                    .unwrap(),
+            )
+            .await?),
+            None => Err(format!("Container {name} not found!")),
+        }
+    }
+
     pub async fn grpc_handle_shared(&self, name: &str) -> Result<SharedRpcHandle, String> {
         self.grpc_handle(name).await.map(|rpc| {
             let name = rpc.name.clone();

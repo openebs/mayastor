@@ -11,13 +11,13 @@ use snafu::ResultExt;
 use spdk_rs::libspdk::{spdk_bdev, spdk_get_ticks_hz};
 
 use crate::{
-    bdev::{bdev_event_callback, nexus::NEXUS_MODULE_NAME},
+    bdev::bdev_event_callback,
     bdev_api::bdev_uri_eq,
     core::{
         block_device::BlockDeviceIoErrorStats,
         share::{NvmfShareProps, Protocol, Share, UpdateProps},
-        BlockDeviceIoStats, CoreError, DescriptorGuard, PtplProps, ShareNvmf, UnshareNvmf,
-        UnshareProps,
+        BlockDeviceIoStats, CoreError, DescriptorGuard, MayastorEnvironment, PtplProps, ShareNvmf,
+        UnshareNvmf, UnshareProps,
     },
     subsys::NvmfSubsystem,
     target::nvmf,
@@ -212,7 +212,6 @@ where
     ) -> Result<Self::Output, Self::Error> {
         let me = unsafe { self.get_unchecked_mut() };
         let props = NvmfShareProps::from(props);
-        let is_nexus_bdev = me.driver() == NEXUS_MODULE_NAME;
 
         let ptpl = props.ptpl().as_ref().map(|ptpl| ptpl.path());
 
@@ -233,7 +232,8 @@ where
             .await
             .context(ShareNvmf {})?;
 
-        subsystem.start(is_nexus_bdev).await.context(ShareNvmf {})
+        let rdma = MayastorEnvironment::global().rdma();
+        subsystem.start(rdma).await.context(ShareNvmf {})
     }
 
     fn create_ptpl(&self) -> Result<Option<PtplProps>, Self::Error> {

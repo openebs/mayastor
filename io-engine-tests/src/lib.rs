@@ -578,6 +578,7 @@ pub fn setup_rdma_rxe_device() -> String {
         .next()
         .unwrap()
         .to_owned();
+    println!("Test host IP address: {test_host_ip}");
 
     let ent = &run_command_args(
         "ip",
