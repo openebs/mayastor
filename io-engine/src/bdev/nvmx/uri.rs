@@ -203,7 +203,7 @@ pub(crate) struct NvmeControllerContext<'probe> {
 }
 
 impl NvmeControllerContext<'_> {
-    pub fn new(template: &NvmfDeviceTemplate) -> NvmeControllerContext {
+    pub fn new(template: &NvmfDeviceTemplate) -> NvmeControllerContext<'_> {
         let trid = controller::transport::Builder::new()
             .with_subnqn(&template.subnqn)
             .with_svcid(template.port.to_string())

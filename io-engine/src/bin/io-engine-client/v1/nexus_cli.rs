@@ -664,7 +664,7 @@ async fn nexus_remove(mut ctx: Context, args: RemoveArgs) -> crate::Result<()> {
             println!("{json}");
         }
         OutputFormat::Default => {
-            println!("Removed {} from specified nexus", &args.uri);
+            println!("Removed {} from specified nexus", args.uri);
         }
     };
 

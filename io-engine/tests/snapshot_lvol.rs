@@ -1552,7 +1552,7 @@ async fn test_snapshot_verify_restore_data() {
     restore_1.share().await.unwrap();
 
     // Check the original replica and restore clone is identical.
-    validate_replicas(&vec![repl_1.clone(), restore_1.clone()]).await;
+    validate_replicas(&[repl_1.clone(), restore_1.clone()]).await;
 }
 
 #[tokio::test]

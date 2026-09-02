@@ -26,6 +26,7 @@ use crate::{
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult},
 };
 
+#[allow(dead_code)]
 const DEFAULT_NVMF_PORT: u16 = 4420;
 
 #[derive(Debug)]
@@ -273,6 +274,7 @@ struct NvmeCreateContext {
 unsafe impl Send for NvmeCreateContext {}
 
 impl NvmeCreateContext {
+    #[allow(dead_code)]
     pub fn new(nvmf: &Nvmf) -> NvmeCreateContext {
         let port = format!("{}", nvmf.port);
         let protocol = "TCP";

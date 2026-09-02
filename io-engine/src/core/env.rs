@@ -824,14 +824,8 @@ impl MayastorEnvironment {
             args.push(CString::new("--single-file-segments").unwrap());
         }
 
-        if self.hugedir.is_some() {
-            args.push(
-                CString::new(format!(
-                    "--huge-dir={}",
-                    &self.hugedir.as_ref().unwrap().clone()
-                ))
-                .unwrap(),
-            )
+        if let Some(hugedir) = &self.hugedir {
+            args.push(CString::new(format!("--huge-dir={hugedir}")).unwrap())
         }
 
         if cfg!(target_os = "linux") {
@@ -864,11 +858,9 @@ impl MayastorEnvironment {
 
         // any additional parameters we want to pass down to the eal. These
         // arguments are not checked or validated.
-        if self.env_context.is_some() {
+        if let Some(env_contex) = &self.env_context {
             args.extend(
-                self.env_context
-                    .as_ref()
-                    .unwrap()
+                env_contex
                     .split_ascii_whitespace()
                     .map(|s| CString::new(s.to_string()).unwrap())
                     .collect::<Vec<_>>(),

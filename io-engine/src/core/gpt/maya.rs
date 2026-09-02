@@ -515,11 +515,11 @@ pub mod v2 {
             let size_bytes = (extent.end - extent.start + 1) * block_size;
             assert_eq!(size_bytes, 5 * 1024 * 1024);
             assert!(
-                size_bytes % (1024 * 1024) == 0,
+                size_bytes.is_multiple_of(1024 * 1024),
                 "size must be 1 MiB aligned"
             );
             assert!(
-                size_bytes % (4 * 1024 * 1024) != 0,
+                !size_bytes.is_multiple_of(4 * 1024 * 1024),
                 "size must not be a multiple of 4 MiB for a 13 MiB device"
             );
             assert_eq!(num_blocks - 1 - extent.end, void);

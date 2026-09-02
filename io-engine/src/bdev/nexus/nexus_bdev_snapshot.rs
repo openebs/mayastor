@@ -83,16 +83,17 @@ impl ReplicaSnapshotExecutor {
         let mut skipped_replicas = Vec::new();
 
         for r in &replicas {
-            let replica = match nexus_replicas.get(&r.replica_uuid) {
+            let r_uuid: &String = &r.replica_uuid;
+            let replica = match nexus_replicas.get(r_uuid) {
                 Some(c) => {
                     // Make sure target replica appers only once.
-                    if seen_replicas.contains(&r.replica_uuid) {
+                    if seen_replicas.contains(r_uuid) {
                         return Err(Error::FailedCreateSnapshot {
                             name: nexus.bdev_name(),
-                            reason: format!("Duplicated replica {}", &r.replica_uuid,),
+                            reason: format!("Duplicated replica {r_uuid}"),
                         });
                     }
-                    seen_replicas.insert(r.replica_uuid.to_string());
+                    seen_replicas.insert(r_uuid.to_string());
 
                     *c
                 }
@@ -100,9 +101,8 @@ impl ReplicaSnapshotExecutor {
                     return Err(Error::FailedCreateSnapshot {
                         name: nexus.bdev_name(),
                         reason: format!(
-                            "Nexus {}, does not contain replica with UUID {}",
+                            "Nexus {}, does not contain replica with UUID {r_uuid}",
                             nexus.bdev_name(),
-                            &r.replica_uuid,
                         ),
                     })
                 }
@@ -113,7 +113,7 @@ impl ReplicaSnapshotExecutor {
                 if !replica.is_healthy() {
                     return Err(Error::FailedCreateSnapshot {
                         name: nexus.bdev_name(),
-                        reason: format!("Replica {} is not healthy", &r.replica_uuid,),
+                        reason: format!("Replica {r_uuid} is not healthy"),
                     });
                 }
 
@@ -124,10 +124,7 @@ impl ReplicaSnapshotExecutor {
                     None => {
                         return Err(Error::FailedCreateSnapshot {
                             name: nexus.bdev_name(),
-                            reason: format!(
-                                "Snapshot UUID is missing for replica {}",
-                                &r.replica_uuid,
-                            ),
+                            reason: format!("Snapshot UUID is missing for replica {r_uuid}"),
                         })
                     }
                 };

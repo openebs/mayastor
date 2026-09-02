@@ -34,7 +34,7 @@ async fn nexus_rebuild_parallel() {
     // Create pool data file.
     for r in 0..R {
         let name = format!("/tmp/{DISK_NAME}_{r}");
-        common::delete_file(&[name.clone()]);
+        common::delete_file(std::slice::from_ref(&name));
         common::truncate_file_bytes(&name, DISK_SIZE);
     }
 
@@ -130,7 +130,7 @@ async fn nexus_rebuild_parallel() {
     // Delete test files.
     for r in 0..R {
         let name = format!("/tmp/{DISK_NAME}_{r}");
-        common::delete_file(&[name.clone()]);
+        common::delete_file(std::slice::from_ref(&name));
     }
 }
 

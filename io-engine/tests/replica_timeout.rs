@@ -83,7 +83,7 @@ async fn replica_stop_cont() {
     let c = child_uri.clone();
     mayastor
         .spawn(async move {
-            nexus_create(NXNAME, 1024 * 1024 * 50, None, &[c.clone()])
+            nexus_create(NXNAME, 1024 * 1024 * 50, None, std::slice::from_ref(&c))
                 .await
                 .unwrap();
             nexus_lookup_mut(NXNAME)

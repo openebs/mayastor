@@ -76,8 +76,7 @@ run_script = "0.11.0"
 derive_builder = "0.20.2"
 regex = "1.11.1"
 
-async-nats = { version = "0.37.0", default-features = false }
+async-nats = { version = "0.47.0", default-features = false, features = ["aws-lc-rs", "jetstream"] }
 
-k8s-openapi = { version = "0.22.0", features = ["v1_24"] }
-kube = { version = "0.94.2", features = ["derive", "runtime"] }
-
+k8s-openapi = { version = "0.24.0", default-features = false, features = ["v1_28", "schemars"] }
+kube = { version = "0.99.0", default-features = false, features = ["runtime", "derive", "client", "rustls-tls", "aws-lc-rs"] }

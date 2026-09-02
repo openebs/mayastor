@@ -498,7 +498,7 @@ impl GptEntry {
 
     /// Check if this partition size is multiple of the given number of blocks.
     pub fn is_multiple_of(&self, blocks: u64) -> bool {
-        self.size() % blocks == 0
+        self.size().is_multiple_of(blocks)
     }
 }
 

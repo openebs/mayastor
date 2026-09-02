@@ -1168,16 +1168,11 @@ pub(crate) mod transport {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     #[allow(clippy::upper_case_acronyms)]
     enum TransportId {
+        #[default]
         TCP = 0x3,
-    }
-
-    impl Default for TransportId {
-        fn default() -> Self {
-            Self::TCP
-        }
     }
 
     impl From<TransportId> for String {
@@ -1188,20 +1183,15 @@ pub(crate) mod transport {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     #[allow(dead_code)]
     pub(crate) enum AdressFamily {
+        #[default]
         NvmfAdrfamIpv4 = 0x1,
         NvmfAdrfamIpv6 = 0x2,
         NvmfAdrfamIb = 0x3,
         NvmfAdrfamFc = 0x4,
         NvmfAdrfamLoop = 0xfe,
-    }
-
-    impl Default for AdressFamily {
-        fn default() -> Self {
-            Self::NvmfAdrfamIpv4
-        }
     }
 
     #[derive(Default, Debug)]

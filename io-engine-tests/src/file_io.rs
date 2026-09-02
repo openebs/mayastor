@@ -210,7 +210,7 @@ pub async fn compare_files(
         for i in 0..na {
             if buf_a[i] != buf_b[i] {
                 return Err(Error::other(format!(
-                    "Miscompare at {pos}: {na:?} {va:#02x} != {nb:?} {vb:#02x}",
+                    "Miscompare at {pos}: {na:?} {va:#0x} != {nb:?} {vb:#0x}",
                     na = name_a,
                     va = buf_a[i],
                     nb = name_b,
