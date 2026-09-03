@@ -294,6 +294,19 @@ pub struct MayastorCliArgs {
     /// Enabled by default on debug builds.
     #[clap(long, env = "ENABLE_COREDUMP", num_args(0..=1))]
     pub enable_coredump: Option<Option<u64>>,
+    /// Policy governing how a nexus selects which child to read from. {n}
+    /// `round-robin` (default) rotates reads across all healthy children,
+    /// local or remote alike. {n}
+    /// `local-preferred` prefers a healthy local (same-node) replica for
+    /// reads, keeping read I/O off the network, and falls back to
+    /// round-robin over remote readers only when no local reader is
+    /// healthy.
+    #[clap(
+        long = "policy",
+        env = "NEXUS_READ_POLICY",
+        default_value_t = nexus::NexusReadPolicy::RoundRobin
+    )]
+    pub nexus_read_policy: nexus::NexusReadPolicy,
 
     /// [`PoolCliArgs`].
     #[clap(flatten)]
@@ -533,6 +546,7 @@ pub struct MayastorEnvironment {
     pub api_versions: Vec<ApiVersion>,
     skip_sig_handler: bool,
     enable_io_all_thrd_nexus_channels: bool,
+    pub nexus_read_policy: nexus::NexusReadPolicy,
     developer_delay: bool,
     interrupt_mode: bool,
     rdma: bool,
@@ -585,6 +599,7 @@ impl Default for MayastorEnvironment {
             api_versions: vec![ApiVersion::V0, ApiVersion::V1],
             skip_sig_handler: false,
             enable_io_all_thrd_nexus_channels: false,
+            nexus_read_policy: nexus::NexusReadPolicy::default(),
             developer_delay: false,
             interrupt_mode: false,
             rdma: false,
@@ -737,6 +752,7 @@ impl MayastorEnvironment {
             rdma: args.rdma,
             bs_cluster_unmap: args.bs_cluster_unmap,
             enable_io_all_thrd_nexus_channels: args.enable_io_all_thrd_nexus_channels,
+            nexus_read_policy: args.nexus_read_policy,
             pool_args: args.pool,
             traces: args.traces,
             nvme: args.nvme,
