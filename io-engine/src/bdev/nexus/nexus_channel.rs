@@ -7,16 +7,28 @@ use std::{
     sync::atomic::Ordering,
 };
 
-use super::{FaultReason, IOLogChannel, Nexus, NexusBio};
+use super::{FaultReason, IOLogChannel, Nexus, NexusBio, NexusReadPolicy};
 
-use crate::core::{BlockDeviceHandle, CoreError, Cores};
+use crate::core::{BlockDeviceHandle, CoreError, Cores, MayastorEnvironment};
 use spdk_rs::Thread;
 
 /// I/O channel, per core.
 #[repr(C)]
 pub struct NexusChannel<'n> {
     writers: Vec<Box<dyn BlockDeviceHandle>>,
+    /// Reader handles, with any local (same-node) readers kept at the front
+    /// of the vector and remote (e.g. NVMe-oF) readers after them. See
+    /// `local_reader_count`.
     readers: Vec<Box<dyn BlockDeviceHandle>>,
+    /// Number of entries at the front of `readers` that are local. When
+    /// non-zero, `select_reader()` rotates only over that local prefix so
+    /// reads stay off the network while a local copy is healthy.
+    local_reader_count: usize,
+    /// Nexus read policy in effect for this channel, snapshotted from
+    /// `MayastorEnvironment` when the channel was created. Kept on the
+    /// channel (rather than read from a global on every I/O) so
+    /// `select_reader()` stays off the shared-state path entirely.
+    read_policy: NexusReadPolicy,
     detached: Vec<Box<dyn BlockDeviceHandle>>,
     io_logs: Vec<IOLogChannel>,
     previous_reader: UnsafeCell<usize>,
@@ -37,12 +49,13 @@ impl Debug for NexusChannel<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{io} chan '{nex}' core:{core}({cur}) [R:{r} W:{w} D:{d} L:{l} C:{c}]",
+            "{io} chan '{nex}' core:{core}({cur}) [R:{r}(local:{lr}) W:{w} D:{d} L:{l} C:{c}]",
             io = if self.is_io_chan { "I/O" } else { "Aux" },
             nex = self.nexus.nexus_name(),
             core = self.core,
             cur = Cores::current(),
             r = self.readers.len(),
+            lr = self.local_reader_count,
             w = self.writers.len(),
             d = self.detached.len(),
             l = self.io_logs.len(),
@@ -122,6 +135,8 @@ impl<'n> NexusChannel<'n> {
         let mut res = Self {
             writers: Vec::new(),
             readers: Vec::new(),
+            local_reader_count: 0,
+            read_policy: MayastorEnvironment::global().nexus_read_policy,
             detached: Vec::new(),
             io_logs: nexus.io_log_channels(),
             previous_reader: UnsafeCell::new(0),
@@ -198,26 +213,53 @@ impl<'n> NexusChannel<'n> {
         self.io_logs.iter().for_each(f)
     }
 
-    /// Very simplistic routine to rotate between children for read operations
+    /// Rotates between children for read operations.
+    ///
+    /// Behaviour depends on the channel's [`NexusReadPolicy`]
+    /// (`--policy` / `NEXUS_READ_POLICY`), snapshotted from
+    /// `MayastorEnvironment` when the channel was created:
+    /// - `RoundRobin` (default): rotates across every healthy reader,
+    ///   local or remote alike. This preserves Mayastor's historical
+    ///   behaviour.
+    /// - `LocalPreferred`: when at least one healthy local (same-node)
+    ///   replica is present, reads are rotated only across the local
+    ///   reader(s), so read I/O never crosses the network while a local
+    ///   copy of the data is available. Reads only rotate across remote
+    ///   (e.g. NVMe-oF) readers when no local replica is currently
+    ///   healthy. This mirrors the local-preference already used when
+    ///   picking a rebuild source (see `Nexus::find_src_replica`).
+    ///
     /// note that the channels can be None during a reconfigure; this is usually
     /// not the case but a side effect of using the async. As we poll
     /// threads more often depending on what core we are on etc, we might be
     /// "awaiting' while the thread is already trying to submit IO.
     pub(crate) fn select_reader(&self) -> Option<&dyn BlockDeviceHandle> {
         if self.readers.is_empty() {
-            None
-        } else {
-            let idx = unsafe {
-                let idx = &mut *self.previous_reader.get();
-                if *idx < self.readers.len() - 1 {
-                    *idx += 1;
-                } else {
-                    *idx = 0;
-                }
-                *idx
-            };
-            Some(self.readers[idx].as_ref())
+            return None;
         }
+
+        // The local readers, if any, are always kept at the front of
+        // `readers` (see `connect_children()`). Under `LocalPreferred`,
+        // bounding the rotation to `local_reader_count` restricts it to
+        // just those; under `RoundRobin` (the default) we rotate over
+        // every reader, exactly as before this policy existed.
+        let pool_len =
+            if self.read_policy == NexusReadPolicy::LocalPreferred && self.local_reader_count > 0 {
+                self.local_reader_count
+            } else {
+                self.readers.len()
+            };
+
+        let idx = unsafe {
+            let idx = &mut *self.previous_reader.get();
+            if *idx < pool_len - 1 {
+                *idx += 1;
+            } else {
+                *idx = 0;
+            }
+            *idx
+        };
+        Some(self.readers[idx].as_ref())
     }
 
     /// Detaches a child device from this I/O channel, moving the device's
@@ -234,6 +276,9 @@ impl<'n> NexusChannel<'n> {
             .position(|c| c.get_device().device_name() == device_name)
         {
             let t = self.readers.remove(d);
+            if d < self.local_reader_count {
+                self.local_reader_count -= 1;
+            }
             self.detached.push(t);
         }
 
@@ -323,7 +368,13 @@ impl<'n> NexusChannel<'n> {
         // swap them out later
 
         let mut writers = Vec::new();
-        let mut readers = Vec::new();
+        // Local (same-node) and remote readers are collected separately so
+        // that local readers can be placed at the front of the combined
+        // `readers` vector; `select_reader()` prefers that local prefix
+        // whenever it's non-empty, keeping reads off the network while a
+        // local replica is healthy.
+        let mut local_readers = Vec::new();
+        let mut remote_readers = Vec::new();
 
         // iterate over all our children which are in the healthy state
         self.nexus()
@@ -332,7 +383,11 @@ impl<'n> NexusChannel<'n> {
             .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                 (Ok(w), Ok(r)) => {
                     writers.push(w);
-                    readers.push(r);
+                    if c.is_local().unwrap_or(false) {
+                        local_readers.push(r);
+                    } else {
+                        remote_readers.push(r);
+                    }
 
                     debug!("{self:?}: connecting child device : {c:?}");
                 }
@@ -343,7 +398,7 @@ impl<'n> NexusChannel<'n> {
             });
 
         // then add write-only children
-        if !readers.is_empty() {
+        if !local_readers.is_empty() || !remote_readers.is_empty() {
             self.nexus()
                 .children_iter()
                 .filter(|c| c.is_rebuilding())
@@ -365,8 +420,11 @@ impl<'n> NexusChannel<'n> {
                 });
         }
 
+        self.local_reader_count = local_readers.len();
+        local_readers.extend(remote_readers);
+
         self.writers = writers;
-        self.readers = readers;
+        self.readers = local_readers;
     }
 
     /// Reconnects all active I/O logs.
@@ -524,6 +582,11 @@ impl<'n> NexusChannel<'n> {
             }
         }
 
+        debug!(
+            "{me}: local readers: {n} of {t}",
+            n = self.local_reader_count,
+            t = self.readers.len()
+        );
         dbg_devs(&me, "readers", &self.readers);
         dbg_devs(&me, "writers", &self.writers);
         dbg_devs(&me, "detached", &self.detached);

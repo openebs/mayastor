@@ -183,3 +183,36 @@ pub static ENABLE_NEXUS_CHANNEL_DEBUG: AtomicBool = AtomicBool::new(false);
 /// Whether the nexus channel should have readers/writers configured.
 /// This must be set true ONLY from tests.
 pub static ENABLE_IO_ALL_THRD_NX_CHAN: AtomicBool = AtomicBool::new(false);
+
+/// Policy governing how a nexus channel picks which child to read from.
+/// Configured once at startup via `--policy` / `NEXUS_READ_POLICY` (see
+/// `MayastorCliArgs::nexus_read_policy`) and picked up by each
+/// `NexusChannel` from `MayastorEnvironment` when it is created (see
+/// `NexusChannel::new()`).
+#[derive(clap::ValueEnum, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum NexusReadPolicy {
+    /// Rotate reads across all healthy children, local or remote alike.
+    /// This is the default, preserving Mayastor's historical behaviour.
+    #[default]
+    RoundRobin,
+    /// Prefer a healthy local (same-node) replica for reads, keeping read
+    /// I/O off the network whenever a local copy of the data is available.
+    /// Falls back to rotating across remote readers only when no local
+    /// reader is currently healthy.
+    LocalPreferred,
+}
+
+impl std::fmt::Display for NexusReadPolicy {
+    /// Renders via the same kebab-case name clap uses for `--policy`
+    /// (`ValueEnum`), so the two never drift apart. Needed for
+    /// `#[clap(default_value_t = ..)]` on `nexus_read_policy`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            clap::ValueEnum::to_possible_value(self)
+                .expect("no skipped variants")
+                .get_name()
+        )
+    }
+}
