@@ -227,6 +227,64 @@ pub fn detach_loopdev(dev: &str) {
     assert!(output.status.success(), "{:#?}", output);
 }
 
+/// Load the `scsi_debug` kernel test-driver module, creating a real (though
+/// fully virtual, no backing disk) SCSI block device of the given size.
+/// Requires root -- shells out via `sudo`, same assumption CI's own kernel
+/// module setup already relies on (see `.github/workflows/unit-int.yml`).
+pub fn setup_scsi_debug_device(dev_size_mb: u32) -> String {
+    let output = Command::new("sudo")
+        .args([
+            "modprobe",
+            "scsi_debug",
+            &format!("dev_size_mb={dev_size_mb}"),
+        ])
+        .output()
+        .expect("failed exec modprobe scsi_debug");
+    assert!(output.status.success(), "{:#?}", output);
+
+    // Identify the /dev/sdX node scsi_debug just created by its fixed model
+    // string, rather than by name -- the name depends on what else is
+    // already attached. Poll briefly: the block device can appear a few
+    // milliseconds after modprobe returns.
+    for _ in 0..50 {
+        let output = Command::new("lsblk")
+            .args(["-d", "-n", "-o", "NAME,MODEL"])
+            .output()
+            .expect("failed exec lsblk");
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        if let Some(name) = stdout
+            .lines()
+            .find(|l| l.contains("scsi_debug"))
+            .and_then(|l| l.split_whitespace().next())
+        {
+            return format!("/dev/{name}");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("scsi_debug device did not appear after modprobe");
+}
+
+/// Unload the `scsi_debug` module (see [`setup_scsi_debug_device`]).
+///
+/// Retries briefly: something else transiently opening the device right
+/// after it's released (e.g. a udev probe) can make the module appear "in
+/// use" for a moment even with no real user left.
+pub fn teardown_scsi_debug_device() {
+    let mut output = None;
+    for _ in 0..20 {
+        let attempt = Command::new("sudo")
+            .args(["modprobe", "-r", "scsi_debug"])
+            .output()
+            .expect("failed exec modprobe -r scsi_debug");
+        if attempt.status.success() {
+            return;
+        }
+        output = Some(attempt);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("failed to unload scsi_debug: {:#?}", output.unwrap());
+}
+
 pub fn fscheck(device: &str) {
     let output = Command::new("fsck")
         .args([device, "-n"])

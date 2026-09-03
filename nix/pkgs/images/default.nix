@@ -15,6 +15,7 @@
 , io-engine-dev
 , pkgs
 , libspdk-fio
+, smartmontools
 , stdenv
 , utillinux
 , writeScriptBin
@@ -101,11 +102,11 @@ in
 let
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine";
-    copyToRoot = [ busybox io-engine-bins mctl ];
+    copyToRoot = [ busybox io-engine-bins mctl smartmontools ];
   });
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine-dev";
-    copyToRoot = [ busybox io-engine-dev ];
+    copyToRoot = [ busybox io-engine-dev smartmontools ];
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {

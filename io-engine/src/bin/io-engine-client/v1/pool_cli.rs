@@ -40,6 +40,8 @@ enum PoolCommands {
     ClearErrors(ClearErrorsArgs),
     /// Probes storage pool
     Probe(ProbeArgs),
+    /// Get SMART / health of the pool's disk(s)
+    GetHealth(GetHealthArgs),
 }
 
 #[derive(Debug, Args)]
@@ -92,6 +94,14 @@ struct DestroyArgs {
     uuid: Option<Uuid>,
     #[arg(short = 't', long = "type", default_value = "lvs")]
     pool_type: PoolType,
+}
+
+#[derive(Debug, Args)]
+struct GetHealthArgs {
+    /// Storage pool name
+    pool: String,
+    #[arg(short = 'u', long)]
+    uuid: Option<Uuid>,
 }
 
 #[derive(Debug, Args)]
@@ -169,6 +179,7 @@ pub async fn handler(ctx: Context, args: PoolArgs) -> crate::Result<()> {
         PoolCommands::List(args) => list(ctx, args).await,
         PoolCommands::ClearErrors(args) => clear_errors(ctx, args).await,
         PoolCommands::Probe(args) => probe(ctx, args).await,
+        PoolCommands::GetHealth(args) => get_health(ctx, args).await,
     }
 }
 
@@ -626,6 +637,37 @@ async fn probe(mut ctx: Context, args: ProbeArgs) -> crate::Result<()> {
             }),
             import: args.import,
             probes: None,
+        })
+        .await
+        .context(GrpcStatus)?
+        .into_inner();
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response)
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{response:#?}");
+        }
+    };
+
+    Ok(())
+}
+
+async fn get_health(mut ctx: Context, args: GetHealthArgs) -> crate::Result<()> {
+    let name = args.pool;
+    let response = ctx
+        .v1
+        .pool
+        .get_pool_health(v1rpc::pool::GetPoolHealthRequest {
+            name: name.clone(),
+            uuid: args.uuid.map(|u| u.to_string()),
         })
         .await
         .context(GrpcStatus)?
