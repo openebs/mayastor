@@ -42,6 +42,7 @@ let
         udev
         libnvme
         nvme-cli
+        smartmontools
         xfsprogs
         nixpkgs-fmt
         ublksrv
