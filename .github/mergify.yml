@@ -39,3 +39,11 @@ pull_request_rules:
         type: APPROVE
         message: "Automatically approved backport PR"
         bot_account: openebs-ci
+  - name: auto-approve dependabot PRs
+    conditions:
+      - author=dependabot[bot]
+    actions:
+      review:
+        type: APPROVE
+        message: "Automatically approved dependabot PR"
+        bot_account: openebs-ci
