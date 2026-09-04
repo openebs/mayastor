@@ -37,7 +37,7 @@ use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     constants::NVME_NQN_PREFIX,
     core::{
-        nic,
+        cgroup_cpuset, nic,
         nic::SIpAddr,
         reactor::{Reactor, ReactorState, Reactors},
         Cores, MayastorFeatures, Mthread,
@@ -192,6 +192,14 @@ pub struct MayastorCliArgs {
     /// List of cores to run on instead of using the core mask. {n}
     /// When specified it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
+    /// Derive the core list from the cgroup cpuset assigned by the
+    /// container runtime/kubelet, superseding -l and -m.
+    #[clap(
+        long = "cores-from-cgroup",
+        env = "CORES_FROM_CGROUP",
+        value_parser = delay_compat
+    )]
+    pub cores_from_cgroup: bool,
     #[clap(short = 'p')]
     /// Endpoint of the persistent store.
     pub ps_endpoint: Option<String>,
@@ -740,7 +748,14 @@ impl MayastorEnvironment {
             rpc_addr: args.rpc_address,
             hugedir: args.hugedir,
             env_context: args.env_context,
-            core_list: args.core_list,
+            core_list: if args.cores_from_cgroup {
+                cgroup_cpuset::cpuset_from_cgroup().or_else(|| {
+                    warn!("--cores-from-cgroup was set but the cgroup cpuset could not be determined; falling back to -l/-m");
+                    args.core_list
+                })
+            } else {
+                args.core_list
+            },
             bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
             nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
             nvmf_tgt_interface: args.nvmf_tgt_interface,
