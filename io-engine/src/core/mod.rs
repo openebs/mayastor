@@ -322,7 +322,10 @@ pub struct MayastorFeatures {
     /// says nothing about rdma being usable on this host, see
     /// [`NvmfTargetInfo`].
     pub rdma_capable_io_engine: bool,
-    /// Diskpool encryption capability.
+    /// When set to true, this io-engine runs in FIPS mode.
+    pub fips: bool,
+    /// Diskpool encryption capability. Never set when running in FIPS mode,
+    /// as the crypto module we use is not FIPS validated.
     pub diskpool_encryption: bool,
     /// Nexus label versioning capability.
     pub nexus_label_version: u32,
@@ -337,6 +340,16 @@ impl MayastorFeatures {
     /// Get this io-engine's rdma capability.
     pub fn rdma_capable_io_engine(&self) -> bool {
         self.rdma_capable_io_engine
+    }
+
+    /// Check if this io-engine runs in FIPS mode.
+    pub fn fips(&self) -> bool {
+        self.fips
+    }
+
+    /// Check if diskpool encryption is supported.
+    pub fn diskpool_encryption(&self) -> bool {
+        self.diskpool_encryption
     }
 
     /// Get nexus label versioning feature state.

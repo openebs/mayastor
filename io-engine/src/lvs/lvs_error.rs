@@ -201,6 +201,8 @@ pub enum LvsError {
     BdevNotExtended { name: String },
     #[snafu(display("failed to resize crypto bdev: {name}"))]
     CryptoBdevNotResized { name: String },
+    #[snafu(display("encryption is not supported: {msg}"))]
+    EncryptionUnsupported { msg: String },
 }
 
 /// Map CoreError to errno code.
@@ -251,6 +253,7 @@ impl ToErrno for LvsError {
             Self::BdevRescanFailed { source, .. } => source.to_errno(),
             Self::BdevNotExtended { .. } => Errno::EOPNOTSUPP,
             Self::CryptoBdevNotResized { .. } => Errno::EBUSY,
+            Self::EncryptionUnsupported { .. } => Errno::EOPNOTSUPP,
         }
     }
 }

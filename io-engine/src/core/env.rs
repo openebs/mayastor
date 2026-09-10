@@ -313,6 +313,14 @@ pub struct MayastorCliArgs {
         default_value_t = nexus::NexusReadPolicy::RoundRobin
     )]
     pub nexus_read_policy: nexus::NexusReadPolicy,
+    /// Run in FIPS mode. {n}
+    /// The SPDK crypto module which backs diskpool encryption is not FIPS
+    /// validated, so encryption is not supported in this mode: encrypted
+    /// pools can neither be created nor imported, and the diskpool
+    /// encryption capability is reported as unavailable to the
+    /// control-plane.
+    #[clap(long = "enable-fips", env = "ENABLE_FIPS", value_parser = delay_compat)]
+    pub fips: bool,
 
     /// [`PoolCliArgs`].
     #[clap(flatten)]
@@ -479,12 +487,17 @@ impl MayastorFeatures {
         let lvm = env::var("ENABLE_LVM").as_deref() == Ok("true");
         let snapshot_rebuild = env::var("ENABLE_SNAPSHOT_REBUILD").as_deref() == Ok("true");
         let rdma_capable_io_engine = env::var("ENABLE_RDMA").as_deref() == Ok("true");
-        let diskpool_encryption = env::var("ENABLE_DISKPOOL_ENCRYPTION").as_deref() == Ok("true");
+        let fips = env::var("ENABLE_FIPS").as_deref() == Ok("true");
+        // The crypto module which backs diskpool encryption is not FIPS
+        // validated, so encryption must not be offered in FIPS mode.
+        let diskpool_encryption =
+            !fips && env::var("ENABLE_DISKPOOL_ENCRYPTION").as_deref() == Ok("true");
         MayastorFeatures {
             asymmetric_namespace_access: ana,
             logical_volume_manager: lvm,
             snapshot_rebuild,
             rdma_capable_io_engine,
+            fips,
             diskpool_encryption,
             nexus_label_version: io_engine_api::v1::nexus::NexusLabelVersion::LabelV2 as u32,
         }
@@ -492,6 +505,28 @@ impl MayastorFeatures {
     /// Get all the supported and enabled features.
     pub fn get() -> Self {
         MAYASTOR_FEATURES.get_or_init(Self::init_features).clone()
+    }
+
+    /// Configures the feature switches which are derived from the cli args.
+    /// This must run before any feature is queried and before the environment
+    /// is initialized, as that is where pools from the pool config file are
+    /// imported from.
+    fn configure(args: &MayastorCliArgs) {
+        if args.fips {
+            env::set_var("ENABLE_FIPS", "true");
+            warn!(
+                "FIPS mode is enabled, diskpool encryption is not supported \
+                because the crypto module in use is not FIPS validated"
+            );
+            return;
+        }
+
+        // Use as-is basis for diskpool encryption since the spdk build is
+        // enabled --with-crypto.
+        // TODO: Once dpdk crypto modules are supported, we'll provide a switch
+        // later on to control the behaviour of choosing to use accel_sw based
+        // encryption if dpdk module(fips) isn't usable on platform.
+        env::set_var("ENABLE_DISKPOOL_ENCRYPTION", "true");
     }
 }
 
@@ -768,6 +803,8 @@ static MAYASTOR_DEFAULT_ENV: OnceCell<parking_lot::Mutex<MayastorEnvironment>> =
 
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
+        MayastorFeatures::configure(&args);
+
         Self {
             grpc_endpoint: Some(args.grpc_endpoint()),
             registration_endpoint: args.registration_endpoint,
