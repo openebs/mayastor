@@ -313,12 +313,16 @@ pub struct MayastorCliArgs {
         default_value_t = nexus::NexusReadPolicy::RoundRobin
     )]
     pub nexus_read_policy: nexus::NexusReadPolicy,
+
     /// Run in FIPS mode. {n}
     /// The SPDK crypto module which backs diskpool encryption is not FIPS
     /// validated, so encryption is not supported in this mode: encrypted
     /// pools can neither be created nor imported, and the diskpool
     /// encryption capability is reported as unavailable to the
-    /// control-plane.
+    /// control-plane. {n}
+    /// Our TLS by default builds a FIPS validated crypto module. {n}
+    /// At runtime we assert this to be true or otherwise refuse to continue and
+    /// startup fails with an error.
     #[clap(long = "enable-fips", env = "ENABLE_FIPS", value_parser = delay_compat)]
     pub fips: bool,
 
