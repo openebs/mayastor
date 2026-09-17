@@ -33,7 +33,8 @@ use crate::{
     bdev_api::{bdev_destroy, BdevError},
     core::{
         logical_volume::LogicalVolume, snapshot::LvolSnapshotOps, Bdev, IoType,
-        MayastorEnvironment, NvmfShareProps, Protocol, Reactors, Share, UnshareProps, UntypedBdev,
+        MayastorEnvironment, MayastorFeatures, NvmfShareProps, Protocol, Reactors, Share,
+        UnshareProps, UntypedBdev,
     },
     eventing::Event,
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
@@ -1315,6 +1316,16 @@ impl LvsBackendBdevs {
     async fn new(mut args: PoolArgs, create: bool) -> Result<Self, LvsError> {
         let disk = Lvs::parse_disk(&args.disks)?;
         let name = &args.name;
+        // The crypto module in use is not FIPS validated, so an encrypted pool
+        // must neither be created nor imported when in FIPS mode.
+        if args.crypto_vbdev_name.is_some() && !MayastorFeatures::get().diskpool_encryption() {
+            return Err(LvsError::EncryptionUnsupported {
+                msg: format!(
+                    "cannot {} encrypted lvs '{name}'",
+                    if create { "create" } else { "import" }
+                ),
+            });
+        }
         let enc = if args.crypto_vbdev_name.is_some() {
             "encrypted"
         } else {

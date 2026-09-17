@@ -46,6 +46,10 @@ let
         nixpkgs-fmt
         ublksrv
         jq
+        # aws-lc-rs fips
+        cmake
+        go
+        perl
       ];
 
       shellEnv = with pkgs; {

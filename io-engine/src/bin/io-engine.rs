@@ -110,13 +110,6 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         }
     }
 
-    // Use as-is basis for diskpool encryption since the spdk build is enabled
-    // --with-crypto.
-    // TODO: Once dpdk crypto modules are supported, we'll provide a switch
-    // later on to control the behaviour of choosing to use accel_sw based
-    // encryption if dpdk module(fips) isn't usable on platform.
-    env::set_var("ENABLE_DISKPOOL_ENCRYPTION", "true");
-
     unsafe {
         spdk_rs::libspdk::spdk_blob_enable_cluster_unmap(args.bs_cluster_unmap);
     }
@@ -267,6 +260,11 @@ fn hugepage_check() {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: MayastorCliArgs = clap::Parser::parse();
+
+    // Our TLS stacks must be on the FIPS validated crypto before anything
+    // gets a chance to build a config, which includes the logger below once
+    // it starts publishing events.
+    fips::init_if(args.fips)?;
 
     let log_format = args.log_format.unwrap_or_default();
 

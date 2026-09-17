@@ -105,6 +105,8 @@ udev = { workspace = true }
 url = { workspace = true }
 
 devinfo = { path = "../utils/dependencies/devinfo" }
+# Depending on this is what puts our tls stacks on the FIPS validated crypto.
+fips = { path = "../utils/dependencies/fips" }
 jsonrpc = { path = "../jsonrpc" }
 io-engine-api = { path = "../utils/dependencies/apis/io-engine" }
 spdk-rs = { path = "../spdk-rs" }

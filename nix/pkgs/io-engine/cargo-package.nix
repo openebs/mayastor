@@ -1,7 +1,9 @@
 { stdenv
 , clang
+, cmake
 , dockerTools
 , e2fsprogs
+, go
 , lib
 , libaio
 , libbsd
@@ -16,6 +18,7 @@
 , makeRustPlatform
 , numactl
 , openssl
+, perl
 , pkg-config
 , protobuf
 , sources
@@ -76,7 +79,13 @@ let
       protobuf
       llvmPackages.bintools
       llvmPackages.clang
+      # Needed to build aws-lc-fips-sys
+      cmake
+      go
+      perl
     ];
+    # cmake is for the aws-lc-fips-sys only
+    dontUseCmakeConfigure = true;
     buildInputs = [
       libaio
       libbsd

@@ -96,6 +96,10 @@ impl From<ClearErrorRequest> for FindPoolArgs {
 async fn util_fetch_secret_params(
     params: &PoolEncryptionParams,
 ) -> Result<Option<PoolEncKey>, Status> {
+    if !matches!(params, PoolEncryptionParams::NoEncryptionParams) {
+        crate::grpc::encryption_enabled()?;
+    }
+
     let enc_key = match params {
         PoolEncryptionParams::Create(enc_arg) => {
             match enc_arg.clone() {

@@ -269,3 +269,16 @@ fn lvm_enabled() -> Result<(), Status> {
     }
     Ok(())
 }
+
+fn encryption_enabled() -> Result<(), Status> {
+    let features = MayastorFeatures::get();
+    if !features.diskpool_encryption() {
+        return Err(Status::failed_precondition(if features.fips() {
+            "encryption is not supported in FIPS mode, \
+            the crypto module in use is not FIPS validated"
+        } else {
+            "encryption support not enabled"
+        }));
+    }
+    Ok(())
+}

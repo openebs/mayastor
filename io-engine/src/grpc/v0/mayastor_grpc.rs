@@ -275,6 +275,7 @@ impl From<LvsError> for tonic::Status {
             }
             LvsError::LvolShare { .. } => Status::internal(e.to_string()),
             LvsError::InvalidClusterSize { .. } => Status::invalid_argument(e.to_string()),
+            LvsError::EncryptionUnsupported { .. } => Status::failed_precondition(e.to_string()),
             LvsError::Export { .. }
             | LvsError::InvalidMetadataParam { .. }
             | LvsError::NotALvol { .. }
