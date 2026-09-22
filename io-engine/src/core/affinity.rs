@@ -18,6 +18,7 @@ pub fn start_monitor() {
     if std::env::var("KUBERNETES_SERVICE_HOST").is_err() {
         return;
     }
+    tracing::info!("Affinity monitoring started!");
     runtime::spawn_blocking(run);
 }
 
@@ -100,14 +101,18 @@ fn run() {
 ///
 /// kubelet writes `cpu_manager_state` (which triggers this reconcile) as soon
 /// as a Guaranteed pod is admitted/removed, but it applies the container's
-/// cgroup cpuset asynchronously, on its CPUManager reconcile period (default
-/// 5s). Measured apply latencies on the target cluster were ~5s (grow) and
-/// ~7-9s (shrink), so we must keep watching well past that; otherwise we miss
-/// the apply and leave the baseline stale, which then mis-triggers the next
-/// event. This is only a ceiling -- reconcile breaks the moment the change is
-/// observed, so it normally returns in ~5-9s and only approaches this bound if
-/// the apply never arrives (in which case we fall back to the current
-/// baseline).
+/// cgroup cpuset asynchronously, on its CPUManager reconcile period --
+/// `cpuManagerReconcilePeriod`, which defaults to 10s (it inherits
+/// `nodeStatusUpdateFrequency`). We must keep watching well past that;
+/// otherwise we miss the apply and leave the baseline stale, which then
+/// mis-triggers the next event.
+///
+/// This is only a ceiling -- reconcile breaks the moment the change is
+/// observed, and only approaches this bound if the apply never arrives (in
+/// which case we fall back to the current baseline). Measured over 9 events on
+/// a cluster at the 10s default, reconcile took 0.5-10.5s, so the ceiling
+/// leaves roughly 2x headroom. A cluster configured with a longer
+/// `cpuManagerReconcilePeriod` needs this raised to match.
 const RECONCILE_SETTLE_WINDOW: Duration = Duration::from_secs(20);
 /// Interval between cpuset re-checks within [`RECONCILE_SETTLE_WINDOW`].
 const RECONCILE_SETTLE_INTERVAL: Duration = Duration::from_millis(500);
@@ -117,10 +122,11 @@ fn reconcile() {
 
     // Wait for kubelet to actually apply the cgroup cpuset before restoring
     // affinity. kubelet writes cpu_manager_state (our trigger) up to its
-    // CPUManager reconcile period (~5s) *before* it applies the container cgroup
-    // cpuset, so poll refresh until it reports the cpuset changed -- then stop
-    // early. If nothing changes within the settle window (a same-value
-    // re-assert or a spurious event), stop anyway. Either way, fall through.
+    // CPUManager reconcile period (10s by default) *before* it applies the
+    // container cgroup cpuset, so poll refresh until it reports the cpuset
+    // changed -- then stop early. If nothing changes within the settle window
+    // (a same-value re-assert or a spurious event), stop anyway. Either way,
+    // fall through.
     let start = Instant::now();
     loop {
         if Mthread::refresh_base_cpuset() {

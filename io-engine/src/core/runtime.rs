@@ -72,6 +72,11 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 
             Mthread::unaffinitize();
         })
+        .on_thread_stop(|| {
+            let tid = unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t };
+
+            UNAFFINITIZED_WORKERS.lock().remove(&tid);
+        })
         .build()
         .unwrap();
 

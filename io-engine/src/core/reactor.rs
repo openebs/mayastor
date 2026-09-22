@@ -935,6 +935,13 @@ impl Reactor {
         }
     }
 
+    /// Restores this reactor's pin to its own core.
+    ///
+    /// Usually a no-op: the kernel keeps each thread's *requested* affinity in
+    /// `task_struct::user_cpus_ptr` and re-intersects it with the cpuset on
+    /// every change, so a pin that a cpuset shrink invalidated is restored by
+    /// the kernel as soon as the core is back in the set. This re-asserts it
+    /// for the cases that does not cover, and is cheap enough to do anyway.
     pub fn reapply_affinity(&self) {
         let tid = self.tid();
 
@@ -954,7 +961,21 @@ impl Reactor {
             );
 
             if rc != 0 {
-                tracing::warn!("Failed to repin reactor core={} tid={}", self.core(), tid);
+                // EINVAL means the core is no longer in the container's cpuset:
+                // CPUManager handed it to another workload, so the reactor
+                // cannot be repinned until it comes back, and is meanwhile
+                // floating over the whole cpuset. That is a provisioning
+                // problem (reactor cores overlapping the shared pool), not a
+                // transient error, so name it rather than logging a bare
+                // failure.
+                let error = std::io::Error::last_os_error();
+                tracing::warn!(
+                    core = self.core(),
+                    tid,
+                    %error,
+                    "failed to repin reactor; its core is no longer in the cpuset, \
+                     so it will float until the core is returned"
+                );
             }
         }
     }
