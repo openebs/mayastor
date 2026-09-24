@@ -918,9 +918,14 @@ impl PoolRpc for PoolService {
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let args = FindPoolArgs::from(request.into_inner());
+                    let pool = GrpcPoolFactory::finder(args.clone()).await?;
                     pool.grow().await?;
-                    Ok(Pool::async_from(pool.as_ops()).await)
+                    // Pool properties are read at lookup, so look the pool up
+                    // again to report the grown capacity. The pool above still
+                    // holds the lock, so use the factory directly.
+                    let grown = PoolFactory::find(args).await?;
+                    Ok(Pool::async_from(grown.as_ref()).await)
                 })
             },
         )

@@ -94,6 +94,9 @@ enum LvmSubCmd {
     /// Remove LVM label(s) from physical volume(s).
     #[strum(serialize = "pvremove")]
     PVRemove,
+    /// Resize physical volume(s) to use all of the underlying device.
+    #[strum(serialize = "pvresize")]
+    PVResize,
     /// Display information about volume groups.
     #[strum(serialize = "vgs")]
     VGList,
@@ -169,6 +172,10 @@ impl LvmCmd {
     /// Prepare a `Command` for `LvmSubCmd::PVRemove`.
     pub(super) fn pv_remove() -> Self {
         Self::new(LvmSubCmd::PVRemove.as_ref())
+    }
+    /// Prepare a `Command` for `LvmSubCmd::PVResize`.
+    pub(super) fn pv_resize() -> Self {
+        Self::new(LvmSubCmd::PVResize.as_ref())
     }
     /// Prepare a `Command` for `LvmSubCmd::VGCreate`.
     pub(super) fn vg_create() -> Self {
@@ -382,6 +389,32 @@ pub(super) mod de {
     {
         let s = String::deserialize(deserializer)?;
         T::from_str(&s).map_err(de::Error::custom)
+    }
+
+    /// Decode an optional decimal percentage reported as a string, which is
+    /// empty when not applicable, example: "12.34" or "".
+    pub(crate) fn opt_percent<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            return Ok(None);
+        }
+        s.parse::<f64>().map(Some).map_err(de::Error::custom)
+    }
+
+    /// Decode an optional number reported as a string, which is empty when
+    /// not applicable, example: "65536" or "".
+    pub(crate) fn opt_number<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            return Ok(None);
+        }
+        s.parse::<u64>().map(Some).map_err(de::Error::custom)
     }
 
     /// Decode a comma-separated string into a vector of strings.

@@ -132,6 +132,31 @@ impl DmSetup {
         Ok(())
     }
 
+    /// Make the kernel load the module for the given target, by creating a
+    /// probe device whose table names it.
+    ///
+    /// # NOTES
+    ///
+    /// The table is invalid on purpose, so the create fails once the module
+    /// is loaded. Errors from both steps are ignored.
+    pub async fn load_target(target: &str) {
+        let probe = format!("mayastor-{target}-probe");
+        super::cli::LvmCmd::dm_setup()
+            .arg("create")
+            .arg(&probe)
+            .arg("--table")
+            .arg(format!("0 8 {target}"))
+            .run()
+            .await
+            .ok();
+        super::cli::LvmCmd::dm_setup()
+            .arg("remove")
+            .arg(&probe)
+            .run()
+            .await
+            .ok();
+    }
+
     /// Get the [`DmState`] of the given device-mapper device path.
     pub async fn state(path: &str) -> Result<DmState, super::Error> {
         let output = super::cli::LvmCmd::dm_setup()
