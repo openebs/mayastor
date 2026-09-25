@@ -1350,6 +1350,13 @@ impl MayastorEnvironment {
         self.transport_caps = Self::detect_transport_caps();
         self = self.setup_static();
 
+        // Snapshot the process's baseline CPU affinity (the container cgroup
+        // cpuset) before any reactor pins itself to a single core. This is the
+        // seed used to place off-reactor worker threads; capturing it here,
+        // on the still-unpinned main thread, is what keeps those workers off
+        // the reactor cores. See spdk_rs::Thread::capture_base_cpuset.
+        Mthread::capture_base_cpuset();
+
         if option_env!("ASAN_ENABLE").unwrap_or_default() == "1" {
             print_asan_env();
         }
@@ -1428,6 +1435,20 @@ impl MayastorEnvironment {
 
             assert!(receiver.await.unwrap());
         });
+
+        // Tokio's worker threads are started before the reactors exist, so the
+        // `unaffinitize()` in their `on_thread_start` hook ran with an empty
+        // `Cores` list and an uncaptured base cpuset: it cleared nothing and
+        // left them free to run on the reactor cores. Only now, with the
+        // reactors pinned and the base cpuset captured, can the off-reactor
+        // mask be computed, so apply it once here.
+        //
+        // This must not be left to the cpuset monitor below: that only runs
+        // inside Kubernetes, and only reacts to cpuset *changes*, which on many
+        // clusters never happen.
+        crate::core::runtime::reapply_workers_unaffinity();
+
+        crate::core::start_affinity_monitor();
 
         // load any pools that need to be created
         if let Some(config) = pool_config {
