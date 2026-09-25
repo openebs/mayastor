@@ -92,6 +92,87 @@ impl From<ClearErrorRequest> for FindPoolArgs {
     }
 }
 
+impl From<crate::core::DeviceHealth> for DeviceHealth {
+    fn from(h: crate::core::DeviceHealth) -> Self {
+        Self {
+            critical_warning: h.critical_warning as u32,
+            healthy: h.is_healthy(),
+            temperature_celsius: h.temperature_celsius.map(|t| t as i32),
+            available_spare_percent: h.available_spare_percent.map(|v| v as u32),
+            available_spare_threshold_percent: h
+                .available_spare_threshold_percent
+                .map(|v| v as u32),
+            percentage_used: h.percentage_used.map(|v| v as u32),
+            data_units_read: h.data_units_read.map(|v| v as u64),
+            data_units_written: h.data_units_written.map(|v| v as u64),
+            host_reads: h.host_reads.map(|v| v as u64),
+            host_writes: h.host_writes.map(|v| v as u64),
+            controller_busy_minutes: h.controller_busy_minutes.map(|v| v as u64),
+            power_cycles: h.power_cycles.map(|v| v as u64),
+            power_on_hours: h.power_on_hours.map(|v| v as u64),
+            unsafe_shutdowns: h.unsafe_shutdowns.map(|v| v as u64),
+            media_errors: h.media_errors.map(|v| v as u64),
+            num_error_log_entries: h.num_error_log_entries.map(|v| v as u64),
+            identity: h.identity.map(DeviceIdentity::from),
+            smart_attributes: h
+                .smart_attributes
+                .into_iter()
+                .map(SmartAttribute::from)
+                .collect(),
+            error_log_entries: h
+                .error_log_entries
+                .into_iter()
+                .map(NvmeErrorLogEntry::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<crate::core::DeviceIdentity> for DeviceIdentity {
+    fn from(i: crate::core::DeviceIdentity) -> Self {
+        Self {
+            model: i.model,
+            model_family: i.model_family,
+            serial_number: i.serial_number,
+            firmware_revision: i.firmware_revision,
+            wwn: i.wwn,
+            capacity_bytes: i.capacity_bytes,
+            logical_sector_size: i.logical_sector_size,
+            physical_sector_size: i.physical_sector_size,
+            rotation_rate: i.rotation_rate,
+            form_factor: i.form_factor,
+            transport: i.transport,
+            link_speed: i.link_speed,
+        }
+    }
+}
+
+impl From<crate::core::SmartAttribute> for SmartAttribute {
+    fn from(a: crate::core::SmartAttribute) -> Self {
+        Self {
+            id: a.id as u32,
+            name: a.name,
+            value: a.value as u32,
+            worst: a.worst as u32,
+            threshold: a.threshold as u32,
+            raw_value: a.raw_value,
+        }
+    }
+}
+
+impl From<crate::core::NvmeErrorLogEntry> for NvmeErrorLogEntry {
+    fn from(e: crate::core::NvmeErrorLogEntry) -> Self {
+        Self {
+            error_count: e.error_count,
+            submission_queue_id: e.submission_queue_id as u32,
+            command_id: e.command_id.map(|v| v as u32),
+            status_field: e.status_field as u32,
+            lba: e.lba,
+            namespace_id: e.namespace_id,
+        }
+    }
+}
+
 /// Helper routine to extract Encryption params from the Create or Import pool request.
 async fn util_fetch_secret_params(
     params: &PoolEncryptionParams,
@@ -818,6 +899,81 @@ impl PoolRpc for PoolService {
 
                     let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
                     pool.export().await
+                })
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn list_pools_smart(
+        &self,
+        request: Request<ListPoolsSmartOptions>,
+    ) -> GrpcResult<ListPoolsSmartResponse> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                crate::spdk_submit!(async move {
+                    debug!("{:?}", request.get_ref());
+
+                    let args = request.into_inner();
+                    let pool_type = args.pooltype.as_ref().map(|v| v.value);
+                    let pool_type = match pool_type {
+                        None => None,
+                        Some(pool_type) => Some(
+                            PoolType::try_from(pool_type)
+                                .map_err(|_| Status::invalid_argument("Unknown pool type"))?,
+                        ),
+                    };
+
+                    let list_args = ListPoolArgs {
+                        name: args.name,
+                        backend: pool_type.map(Into::into),
+                        uuid: args.uuid,
+                    };
+                    let mut pools = Vec::new();
+
+                    for factory in GrpcPoolFactory::factories() {
+                        if list_args.backend.is_some()
+                            && list_args.backend != Some(factory.backend())
+                        {
+                            continue;
+                        }
+                        match factory.list_ops(&list_args).await {
+                            Ok(found) => {
+                                for pool in found {
+                                    let uris = pool.disks();
+                                    let mut disks = Vec::with_capacity(uris.len());
+                                    for uri in uris {
+                                        let result = pool
+                                            .read_device_health(&uri)
+                                            .await
+                                            .map_err(|error| error.to_string());
+
+                                        disks.push(DiskHealth {
+                                            disk_uri: uri,
+                                            supported: result.is_ok(),
+                                            error: result.as_ref().err().cloned(),
+                                            health: result.ok().map(DeviceHealth::from),
+                                        });
+                                    }
+                                    pools.push(PoolSmart {
+                                        name: pool.name().to_string(),
+                                        uuid: pool.uuid(),
+                                        disks,
+                                    });
+                                }
+                            }
+                            Err(error) => {
+                                let backend = factory.0.as_factory().backend();
+                                tracing::error!(
+                                    "Failed to list pool health of type {backend:?}, error: {error}"
+                                );
+                            }
+                        }
+                    }
+
+                    Ok(ListPoolsSmartResponse { pools })
                 })
             },
         )

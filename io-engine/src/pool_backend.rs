@@ -1,6 +1,6 @@
 use crate::{
     bdev::crypto::EncryptionKey,
-    core::{BdevStater, BdevStats, Reactors, ToErrno},
+    core::{BdevStater, BdevStats, CoreError, DeviceHealth, Reactors, ToErrno},
     replica_backend::ReplicaOps,
 };
 use futures::channel::oneshot;
@@ -184,6 +184,17 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
 
     /// Reset stall transitions for the pool.
     async fn reset_stall_transitions(&self) -> Result<(), Error>;
+
+    /// Read SMART/health info for one of this pool's disks, addressed by the
+    /// URI/path as returned by `disks()`. The default implementation reads
+    /// the disk as a plain kernel device path via smartctl -- correct for
+    /// any backend (e.g. LVM) whose `disks()` are plain paths, since those
+    /// are never registered as SPDK bdevs. A backend whose `disks()` are
+    /// bdev URIs instead (e.g. LVS) overrides this to resolve the disk to
+    /// its registered bdev and query it directly.
+    async fn read_device_health(&self, disk: &str) -> Result<DeviceHealth, CoreError> {
+        crate::core::device_health::read_device_health(disk).await
+    }
 }
 
 /// Interface for a pool factory which can be used for various
