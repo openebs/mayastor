@@ -1,11 +1,16 @@
 use super::{
     cli::{de, CmnQueryArgs, LvmCmd},
     error::Error,
+    options::{LvmPoolOpts, THIN_POOL_LV},
 };
 use crate::{
     bdev::PtplFileOps,
     core::Protocol,
-    lvm::{dm_setup::DmSetup, property::Property, LogicalVolume},
+    lvm::{
+        dm_setup::DmSetup,
+        property::{Property, PropertyType},
+        LogicalVolume,
+    },
     pool_backend::PoolArgs,
 };
 use serde::Deserialize;
@@ -84,6 +89,10 @@ pub struct VolumeGroup {
     /// volume group in bytes.
     #[serde(deserialize_with = "de::number_from_string", rename = "vg_free")]
     free: u64,
+    /// Corresponds to the vg_extent_size field in json output, the size of
+    /// the physical extents in bytes.
+    #[serde(deserialize_with = "de::number_from_string", rename = "vg_extent_size")]
+    extent_size: u64,
     /// Corresponds to the vg_tags field in json output, the tags set in the
     /// volume group.
     #[serde(deserialize_with = "de::comma_separated", rename = "vg_tags")]
@@ -91,6 +100,130 @@ pub struct VolumeGroup {
     /// The physical vol disks used by the volume group.
     #[serde(deserialize_with = "de::comma_separated", rename = "pv_name")]
     disks: Vec<String>,
+    /// Our thin pool, if the volume group has one. Loaded at list time.
+    #[serde(skip)]
+    thinpool: Option<ThinPool>,
+    /// The total size of our replicas. Loaded at list time.
+    #[serde(skip)]
+    committed: u64,
+}
+
+/// A row of the lvs report used to load pool level state.
+#[derive(Debug, Deserialize)]
+pub(super) struct PoolLv {
+    vg_name: String,
+    lv_name: String,
+    #[serde(deserialize_with = "de::number_from_string")]
+    lv_size: u64,
+    /// The first character is the volume type, 't' for a thin pool.
+    lv_attr: String,
+    #[serde(deserialize_with = "de::comma_separated")]
+    lv_tags: Vec<Property>,
+    #[serde(deserialize_with = "de::opt_number")]
+    chunk_size: Option<u64>,
+    #[serde(deserialize_with = "de::opt_percent")]
+    data_percent: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PoolLvs {
+    lv: Vec<PoolLv>,
+}
+
+impl PoolLv {
+    /// List the logical volumes of the given volume groups, optionally
+    /// filtered by an lvs selection.
+    pub(super) async fn list(
+        vg_names: &[String],
+        select: Option<&str>,
+    ) -> Result<Vec<Self>, Error> {
+        if vg_names.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut cmd = LvmCmd::lv_list().args([
+            "--units=b",
+            "--nosuffix",
+            "-q",
+            "--report-format=json",
+            "--options=vg_name,lv_name,lv_size,lv_attr,lv_tags,chunk_size,data_percent",
+        ]);
+        if let Some(select) = select {
+            cmd = cmd.arg(format!("--select={select}"));
+        }
+        let report: PoolLvs = cmd.args(vg_names).report().await?;
+        Ok(report.lv)
+    }
+}
+
+/// Our thin pool, as reported by lvs.
+#[derive(Debug, Clone)]
+pub(super) struct ThinPool {
+    /// Size of the thin pool data in bytes.
+    size: u64,
+    /// The chunk size in bytes.
+    chunk: u64,
+    /// Percentage of the data which is mapped, None while inactive.
+    data_percent: Option<f64>,
+}
+
+impl ThinPool {
+    /// Find our thin pool of the given volume group in the lvs rows.
+    pub(super) fn find(lvs: &[PoolLv], vg_name: &str) -> Option<Self> {
+        lvs.iter()
+            .find(|lv| {
+                lv.vg_name == vg_name && lv.lv_name == THIN_POOL_LV && lv.lv_attr.starts_with('t')
+            })
+            .map(|lv| Self {
+                size: lv.lv_size,
+                chunk: lv.chunk_size.unwrap_or_default(),
+                data_percent: lv.data_percent,
+            })
+    }
+
+    /// The chunk size in bytes.
+    pub(super) fn chunk(&self) -> u64 {
+        self.chunk
+    }
+
+    /// Bytes of the thin pool data which are mapped. An inactive thin pool
+    /// reports no usage, so all of it is counted.
+    fn used(&self) -> u64 {
+        match self.data_percent {
+            Some(percent) => ((self.size as f64) * percent / 100.0) as u64,
+            None => self.size,
+        }
+    }
+
+    /// Check this thin pool against the requested options. lvcreate rounds
+    /// the size up to whole extents, and possibly to whole chunks.
+    fn check(&self, opts: &LvmPoolOpts, extent_size: u64) -> Result<(), Error> {
+        let Some(size) = opts.thinpool() else {
+            return Ok(());
+        };
+        let min = round_up(size, extent_size);
+        let max = round_up(size, extent_size.max(self.chunk));
+        let size_ok = (min..=max).contains(&self.size);
+        let chunk_ok = opts.chunk().is_none_or(|chunk| chunk == self.chunk);
+        if size_ok && chunk_ok {
+            return Ok(());
+        }
+        Err(Error::InvalidOption {
+            error: format!(
+                "'{}' does not match the existing thin pool of {}b with {}b chunks",
+                opts.query(),
+                self.size,
+                self.chunk
+            ),
+        })
+    }
+}
+
+/// Round the value up to a multiple of the unit.
+fn round_up(value: u64, unit: u64) -> u64 {
+    if unit == 0 {
+        return value;
+    }
+    value.div_ceil(unit).saturating_mul(unit)
 }
 
 impl VolumeGroup {
@@ -108,7 +241,7 @@ impl VolumeGroup {
             "--units=b",
             "--nosuffix",
             "-q",
-            "--options=vg_name,vg_uuid,vg_size,vg_free,vg_tags,pv_name",
+            "--options=vg_name,vg_uuid,vg_size,vg_free,vg_extent_size,vg_tags,pv_name",
             "--report-format=json",
         ];
         let select = QueryArgs::query_args(opts)?;
@@ -118,7 +251,7 @@ impl VolumeGroup {
         }
         let report: VolGroups = LvmCmd::vg_list().args(args.as_slice()).report().await?;
 
-        let vgs = report
+        let mut vgs = report
             .vg
             .into_iter()
             // todo: not needed as we did the select?
@@ -133,13 +266,33 @@ impl VolumeGroup {
                 acc
             });
 
+        let names: Vec<String> = vgs.iter().map(|vg| vg.name.clone()).collect();
+        let lvs = PoolLv::list(&names, None).await?;
+        vgs.iter_mut().for_each(|vg| vg.load_lvs(&lvs));
         Ok(vgs)
+    }
+
+    /// Load the thin pool and the size of our replicas from the lvs rows.
+    fn load_lvs(&mut self, lvs: &[PoolLv]) {
+        self.thinpool = ThinPool::find(lvs, &self.name);
+        // Replicas and clones carry their name as a tag, snapshots do not.
+        self.committed = lvs
+            .iter()
+            .filter(|lv| lv.vg_name == self.name)
+            .filter(|lv| {
+                lv.lv_tags
+                    .iter()
+                    .any(|tag| tag.type_() == PropertyType::LvName)
+            })
+            .map(|lv| lv.lv_size)
+            .sum();
     }
 
     /// Import a volume group with the name provided or create one with the name
     /// and disks provided currently only import is supported.
     pub async fn create(args: PoolArgs) -> Result<VolumeGroup, Error> {
         tracing::info!(?args, "Creating/Importing LVM Volume Group");
+        let opts = LvmPoolOpts::try_from_disks(&args.disks)?;
         match VolumeGroup::lookup(CmnQueryArgs::any().named(&args.name)).await {
             Ok(_) => {
                 let vg = Self::import_inner(args).await?;
@@ -147,7 +300,7 @@ impl VolumeGroup {
                 Ok(vg)
             }
             Err(Error::NotFound { .. }) => {
-                LvmCmd::pv_create().args(&args.disks).run().await?;
+                LvmCmd::pv_create().args(opts.devices()).run().await?;
 
                 // A broken vg as a result of improper cleanup during tests
                 let edm_e = format!("/dev/{}: already exists in filesystem", args.name);
@@ -155,7 +308,11 @@ impl VolumeGroup {
                     LvmCmd::vg_create()
                         .arg(&args.name)
                         .tag_if(!args.no_spdk, Property::Lvm)
-                        .args(&args.disks)
+                        .tag_if(
+                            !opts.query().is_empty(),
+                            Property::VgOpts(opts.query().to_string()),
+                        )
+                        .args(opts.devices())
                 };
                 match cmd().run().await {
                     Err(Error::LvmBinErr { error, command }) if error.starts_with(&edm_e) => {
@@ -171,6 +328,12 @@ impl VolumeGroup {
                     }
                     _else => _else,
                 }?;
+                if let Err(error) = Self::create_thinpool(&args.name, &opts).await {
+                    // The volume group was created here, so do not leave a pool
+                    // without the thin pool it was asked for.
+                    Self::rollback_create(&args.name, opts.devices()).await;
+                    return Err(error);
+                }
                 info!(name = args.name, "LVM VolumeGroup created successfully");
                 let lookup = CmnQueryArgs::ours_if(!args.no_spdk)
                     .named(&args.name)
@@ -179,6 +342,69 @@ impl VolumeGroup {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Undo a partially created volume group, best effort.
+    async fn rollback_create(vg_name: &str, devices: &[String]) {
+        if let Err(error) = LvmCmd::vg_remove()
+            .arg(format!("--select=vg_name={vg_name}"))
+            .arg("-y")
+            .run()
+            .await
+        {
+            warn!(vg_name, %error, "Failed to remove partially created volume group");
+            return;
+        }
+        if let Err(error) = LvmCmd::pv_remove().args(devices).run().await {
+            warn!(vg_name, %error, "Failed to remove physical volumes");
+        }
+    }
+
+    /// Create the volume group's thin pool if requested and not present.
+    /// A thin pool which is present must match the requested options.
+    async fn ensure_thinpool(&self, opts: &LvmPoolOpts) -> Result<(), Error> {
+        match &self.thinpool {
+            Some(thinpool) => thinpool.check(opts, self.extent_size),
+            None => Self::create_thinpool(self.name(), opts).await,
+        }
+    }
+
+    /// Create the volume group's thin pool, if requested.
+    async fn create_thinpool(vg_name: &str, opts: &LvmPoolOpts) -> Result<(), Error> {
+        let Some(size) = opts.thinpool() else {
+            return Ok(());
+        };
+        // Without a metadata spare lvcreate never has to deactivate one, which
+        // intermittently fails and asks for manual intervention.
+        let cmd = || {
+            let cmd = LvmCmd::lv_create()
+                .arg(format!("-L{size}b"))
+                .args(["-T", &format!("{vg_name}/{THIN_POOL_LV}")])
+                .args(["--poolmetadataspare", "n"]);
+            match opts.chunk() {
+                Some(chunk) => cmd.arg(format!("--chunksize={chunk}b")),
+                None => cmd,
+            }
+        };
+        let no_target = "Required device-mapper target";
+        let mut result = cmd().run().await;
+        if matches!(&result, Err(Error::LvmBinErr { error, .. }) if error.contains(no_target)) {
+            // When a table names a target, the kernel loads its module with the
+            // host's modprobe, which also works from inside the container.
+            DmSetup::load_target("thin-pool").await;
+            result = cmd().run().await;
+        }
+        match result {
+            Err(Error::LvmBinErr { error, .. }) if error.contains("insufficient free space") => {
+                Err(Error::NoSpace { error })
+            }
+            Err(Error::LvmBinErr { error, .. }) if error.contains(no_target) => {
+                Err(Error::NoThinPoolTarget {})
+            }
+            _else => _else,
+        }?;
+        info!(vg_name, "LVM thin pool created");
+        Ok(())
     }
 
     /// Creates a [`LogicalVolume`] from this [`VolumeGroup`].
@@ -194,10 +420,16 @@ impl VolumeGroup {
         Ok(())
     }
     pub async fn list_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
-        let query = super::QueryArgs::new()
+        LogicalVolume::list(&self.lvs_query()).await
+    }
+    /// List our logical volumes without importing them.
+    pub(super) async fn fetch_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
+        LogicalVolume::fetch(&self.lvs_query()).await
+    }
+    fn lvs_query(&self) -> super::QueryArgs {
+        super::QueryArgs::new()
             .with_lv(CmnQueryArgs::ours())
-            .with_vg(CmnQueryArgs::ours().uuid(self.uuid()).named(self.name()));
-        LogicalVolume::list(&query).await
+            .with_vg(CmnQueryArgs::ours().uuid(self.uuid()).named(self.name()))
     }
     async fn list_foreign_lvs(&self) -> Result<Vec<LogicalVolume>, Error> {
         let query = super::QueryArgs::new()
@@ -223,6 +455,7 @@ impl VolumeGroup {
     /// as a Pool.
     async fn import_inner(args: PoolArgs) -> Result<VolumeGroup, Error> {
         tracing::info!(?args, "Importing LVM Volume Group");
+        let opts = LvmPoolOpts::try_from_disks(&args.disks)?;
         let name = &args.name;
         let mut vg = Self::lookup(CmnQueryArgs::any().named(name)).await?;
 
@@ -230,11 +463,32 @@ impl VolumeGroup {
             return Err(Error::VgUuidSet {});
         }
 
-        if vg.disks != args.disks {
+        if &vg.disks != opts.devices() {
             return Err(Error::DisksMismatch {
                 args: args.disks,
                 vg: vg.disks,
             });
+        }
+        vg.ensure_thinpool(&opts).await?;
+        if !opts.query().is_empty() {
+            let opts_tag = Property::VgOpts(opts.query().to_string());
+            if !vg.tags.contains(&opts_tag) {
+                // Replace the tag instead of adding a second one, which would
+                // leave the persisted options ambiguous.
+                let stale: Vec<_> = vg
+                    .tags
+                    .iter()
+                    .filter(|tag| tag.type_() == PropertyType::VgOpts)
+                    .cloned()
+                    .collect();
+                let mut cmd = LvmCmd::vg_change(name);
+                for tag in stale {
+                    cmd = cmd.untag(tag);
+                }
+                cmd.tag(opts_tag.clone()).run().await?;
+                vg.tags.retain(|tag| tag.type_() != PropertyType::VgOpts);
+                vg.tags.push(opts_tag);
+            }
         }
 
         if args.no_spdk {
@@ -301,6 +555,16 @@ impl VolumeGroup {
         Ok(())
     }
 
+    /// Take in any extra space which the volume group's disks have gained,
+    /// for example after the backing device was expanded.
+    pub(crate) async fn resize_pvs(&self) -> Result<(), Error> {
+        // The raw pv paths, not disks(), which echoes back the create time
+        // entries complete with their options query.
+        LvmCmd::pv_resize().args(&self.disks).run().await?;
+        info!(name = self.name(), "LVM physical volumes resized");
+        Ok(())
+    }
+
     /// Exports the volume group by unloading all logical volumes and finally
     /// removing our tag from it.
     pub(crate) async fn export(&mut self) -> Result<(), Error> {
@@ -343,13 +607,19 @@ impl VolumeGroup {
         let eexists =
             format!("Logical Volume \"{uuid}\" already exists in volume group \"{vg_name}\"");
 
-        if args.thin {
-            return Err(Error::ThinProv {});
-        }
+        let cmd = if args.thin {
+            if !self.has_thinpool() {
+                return Err(Error::NoThinPool {});
+            }
+            LvmCmd::lv_create()
+                .arg(format!("-V{}b", args.size))
+                .args(["--thinpool", THIN_POOL_LV])
+        } else {
+            LvmCmd::lv_create().arg(format!("-L{}b", args.size))
+        };
 
         let entity_id = args.entity_id.clone().unwrap_or_default();
-        match LvmCmd::lv_create()
-            .arg(format!("-L{}b", args.size))
+        match cmd
             .args(["-n", uuid])
             .tag(Property::LvName(args.name.to_string()))
             .tag(Property::LvShare(share))
@@ -389,7 +659,29 @@ impl VolumeGroup {
 
     /// Get the volume group disks.
     pub(crate) fn disks(&self) -> Vec<String> {
-        self.disks.clone()
+        match self.opts() {
+            // Echo back the disks entries as given at create time, with the
+            // persisted options query restored, so spec/actual comparisons
+            // stay stable.
+            Ok(opts) => opts.disks(),
+            Err(_) => self.disks.clone(),
+        }
+    }
+
+    /// The pool options, rebuilt from the persisted volume group tag.
+    pub(super) fn opts(&self) -> Result<LvmPoolOpts, Error> {
+        let query = self
+            .tags
+            .iter()
+            .find(|tag| tag.type_() == PropertyType::VgOpts)
+            .and_then(|tag| tag.clone().VgOpts())
+            .unwrap_or_default();
+        LvmPoolOpts::try_from_query(self.disks.clone(), &query)
+    }
+
+    /// Whether this volume group carries our thin pool.
+    pub(super) fn has_thinpool(&self) -> bool {
+        self.thinpool.is_some()
     }
 
     /// Get the volume group capacity.
@@ -397,9 +689,9 @@ impl VolumeGroup {
         self.size
     }
 
-    /// Get the volume group committed bytes.
+    /// Get the volume group committed bytes, the total size of our replicas.
     pub(crate) fn committed(&self) -> u64 {
-        self.size
+        self.committed
     }
 
     /// Get the volume group cluster size.
@@ -407,14 +699,15 @@ impl VolumeGroup {
         4 * 1024 * 1024
     }
 
-    /// Get the volume group available capacity.
-    pub(crate) fn available(&self) -> u64 {
-        self.free
-    }
-
     /// Get the volume group used capacity.
+    /// The thin pool takes its full size out of the volume group, but only
+    /// its mapped data is in use.
     pub(crate) fn used(&self) -> u64 {
-        self.capacity() - self.available()
+        let allocated = self.size.saturating_sub(self.free);
+        match &self.thinpool {
+            None => allocated,
+            Some(thinpool) => allocated.saturating_sub(thinpool.size) + thinpool.used(),
+        }
     }
 
     /// Check if the volume group matches the list options.
@@ -484,5 +777,139 @@ impl PtplFileOps for VgPtpl {
 
     fn subpath(&self) -> std::path::PathBuf {
         std::path::PathBuf::from("pool/vg/").join(&self.name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MIB: u64 = 1024 * 1024;
+
+    fn opts(query: &str) -> LvmPoolOpts {
+        LvmPoolOpts::try_from_disks(&[format!("disk0?{query}")]).unwrap()
+    }
+
+    fn thinpool(size: u64, chunk: u64) -> ThinPool {
+        ThinPool {
+            size,
+            chunk,
+            data_percent: Some(0.0),
+        }
+    }
+
+    fn pool_lv(name: &str, size: u64, attr: &str, tags: &str, percent: &str) -> PoolLv {
+        serde_json::from_value(serde_json::json!({
+            "vg_name": "vg",
+            "lv_name": name,
+            "lv_size": size.to_string(),
+            "lv_attr": attr,
+            "lv_tags": tags,
+            "chunk_size": if attr.starts_with('t') { "131072" } else { "0" },
+            "data_percent": percent,
+        }))
+        .unwrap()
+    }
+
+    fn volume_group(size: u64, free: u64) -> VolumeGroup {
+        serde_json::from_value(serde_json::json!({
+            "vg_name": "vg",
+            "vg_uuid": "vg-uuid",
+            "vg_size": size.to_string(),
+            "vg_free": free.to_string(),
+            "vg_extent_size": (4 * MIB).to_string(),
+            "vg_tags": "mayastor",
+            "pv_name": "disk0",
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn round_up_to_unit() {
+        assert_eq!(round_up(0, 4), 0);
+        assert_eq!(round_up(1, 4), 4);
+        assert_eq!(round_up(8, 4), 8);
+        assert_eq!(round_up(9, 0), 9);
+    }
+
+    #[test]
+    fn thinpool_check() {
+        let extent = 4 * MIB;
+        let pool = thinpool(64 * MIB, 128 * 1024);
+        assert!(pool
+            .check(&opts("thinpool=64m&thinpoolchunk=128k"), extent)
+            .is_ok());
+        assert!(pool.check(&opts("thinpool=64m"), extent).is_ok());
+        // lvcreate rounds the size up to whole extents
+        assert!(pool.check(&opts("thinpool=62m"), extent).is_ok());
+        assert!(pool.check(&opts("thinpool=60m"), extent).is_err());
+        assert!(pool.check(&opts("thinpool=65m"), extent).is_err());
+        assert!(pool
+            .check(&opts("thinpool=64m&thinpoolchunk=64k"), extent)
+            .is_err());
+        // no thin pool requested, so nothing to compare
+        let plain = LvmPoolOpts::try_from_disks(&["disk0".to_string()]).unwrap();
+        assert!(pool.check(&plain, extent).is_ok());
+        // a chunk larger than the extent may round the size up further
+        let pool = thinpool(16 * MIB, 8 * MIB);
+        assert!(pool.check(&opts("thinpool=10m"), extent).is_ok());
+        assert!(pool.check(&opts("thinpool=12m"), extent).is_ok());
+        assert!(pool.check(&opts("thinpool=4m"), extent).is_err());
+    }
+
+    #[test]
+    fn thinpool_accounting() {
+        let lvs = vec![
+            pool_lv(THIN_POOL_LV, 512 * MIB, "twi-aotz--", "", "25.00"),
+            pool_lv(
+                "r1",
+                64 * MIB,
+                "Vwi-aotz--",
+                "mayastor,mayastor.lv.name=r1",
+                "10.00",
+            ),
+            pool_lv(
+                "r2",
+                32 * MIB,
+                "-wi-ao----",
+                "mayastor,mayastor.lv.name=r2",
+                "",
+            ),
+            pool_lv(
+                "c1",
+                64 * MIB,
+                "Vwi-aotz--",
+                "mayastor,mayastor.lv.name=c1,mayastor.lv.snapshot_uuid=s1",
+                "0.00",
+            ),
+            pool_lv(
+                "s1",
+                64 * MIB,
+                "Vwi---tz-k",
+                "mayastor,mayastor.snap.name=s1,mayastor.snap.parent_id=r1",
+                "",
+            ),
+            pool_lv("user", 16 * MIB, "-wi-a-----", "", ""),
+        ];
+        let mut vg = volume_group(1024 * MIB, 256 * MIB);
+        vg.load_lvs(&lvs);
+        assert!(vg.has_thinpool());
+        assert_eq!(vg.thinpool.as_ref().map(ThinPool::chunk), Some(128 * 1024));
+        // replicas and clones only
+        assert_eq!(vg.committed(), 160 * MIB);
+        // 768m allocated, of which the thin pool's 512m is only 25% mapped
+        assert_eq!(vg.used(), 256 * MIB + 128 * MIB);
+
+        // an inactive thin pool is counted as fully used
+        let lvs = vec![pool_lv(THIN_POOL_LV, 512 * MIB, "twi---tz--", "", "")];
+        vg.load_lvs(&lvs);
+        assert_eq!(vg.used(), 768 * MIB);
+
+        // not a thin pool, whatever its name
+        let lvs = vec![pool_lv(THIN_POOL_LV, 512 * MIB, "-wi-a-----", "", "")];
+        vg.load_lvs(&lvs);
+        assert!(!vg.has_thinpool());
+        assert_eq!(vg.committed(), 0);
+        assert_eq!(vg.used(), 768 * MIB);
     }
 }

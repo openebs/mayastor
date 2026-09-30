@@ -39,6 +39,8 @@ ansible-hosts
 /test/python/registration_pb2_grpc.py
 /test/python/snapshot_pb2.py
 /test/python/snapshot_pb2_grpc.py
+/test/python/stats_pb2.py
+/test/python/stats_pb2_grpc.py
 /test/python/venv/*
 /package.json
 /*-xunit-report.xml

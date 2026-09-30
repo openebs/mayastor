@@ -1,8 +1,18 @@
-use super::{cli::de, error::Error, vg_pool::VolumeGroup, CmnQueryArgs};
+use super::{
+    cli::de,
+    error::Error,
+    options::THIN_POOL_LV,
+    vg_pool::{PoolLv, ThinPool, VolumeGroup},
+    CmnQueryArgs,
+};
 use crate::{
     bdev::PtplFileOps,
     bdev_api::{bdev_create, BdevError},
-    core::{NvmfShareProps, Protocol, PtplProps, Share, UnshareProps, UntypedBdev, UpdateProps},
+    core::{
+        snapshot::ISnapshotDescriptor, BdevStater, BlockDeviceIoStats, CloneParams, CoreError,
+        NvmfShareProps, Protocol, PtplProps, Share, SnapshotParams, UnshareProps, UntypedBdev,
+        UpdateProps,
+    },
     lvm::{
         cli::LvmCmd,
         dm_setup::{DmSetup, DmState, DmTable},
@@ -11,10 +21,17 @@ use crate::{
     pool_backend::PoolBackend,
 };
 
+use parking_lot::Mutex;
 use std::{
+    collections::HashMap,
     ops::{Deref, DerefMut},
     pin::Pin,
+    sync::LazyLock,
 };
+
+/// Imported volumes by uuid. bdev_as_replica is synchronous, so it finds a
+/// bdev's volume here instead of asking lvm.
+static IMPORTED: LazyLock<Mutex<HashMap<String, LogicalVolume>>> = LazyLock::new(Default::default);
 
 /// Different list options for a logical volume.
 #[derive(Default, Debug)]
@@ -115,6 +132,16 @@ pub struct LogicalVolume {
     #[serde(rename = "vg_tags")]
     #[serde(deserialize_with = "de::comma_separated")]
     vg_tags: Vec<Property>,
+    /// The LV attribute string. Its first character is the volume type, one
+    /// of '-' linear (thick), 'V' thin volume, 't' thin pool or 'e' metadata.
+    #[serde(rename = "lv_attr")]
+    attr: String,
+    /// Percentage of a thin volume which is mapped, None for a thick volume.
+    #[serde(deserialize_with = "de::opt_percent")]
+    data_percent: Option<f64>,
+    /// The chunk size of its thin pool, for a thin volume.
+    #[serde(skip)]
+    thin_chunk: Option<u64>,
 
     #[serde(skip)]
     runtime: RunLogicalVolume,
@@ -139,6 +166,9 @@ pub struct RunLogicalVolume {
     /// When modifying the properties, we may fail to update the LVM LV tags.
     /// In such case, set the dirty flag.
     tags_dirty: bool,
+    /// Number of clones created from this volume when it is a snapshot.
+    /// Filled in at query time, because descriptors are built synchronously.
+    snap_clones: u64,
 }
 
 /// Runtime settings for the LogicalVolume.
@@ -227,6 +257,7 @@ impl LogicalVolume {
         snafu::ensure!(lvol.name().as_deref() == Some(&args.name), error);
         snafu::ensure!(lvol.uuid() == args.uuid, error);
         snafu::ensure!(lvol.size() == args.size, error);
+        snafu::ensure!(lvol.thin() == args.thin, error);
         snafu::ensure!(lvol.entity_id() == args.entity_id.as_ref(), error);
         snafu::ensure!(lvol.share_proto().unwrap_or_default() == share, error);
 
@@ -343,10 +374,12 @@ impl LogicalVolume {
     }
 
     /// Fetch logical volumes using the provided options as query criteria.
-    async fn fetch(opts: &QueryArgs) -> Result<Vec<LogicalVolume>, Error> {
+    /// Unlike [`Self::list`], nothing is imported.
+    /// Our thin pool is internal to the backend and is never listed.
+    pub(super) async fn fetch(opts: &QueryArgs) -> Result<Vec<LogicalVolume>, Error> {
         let mut args = vec![
             "--report-format=json",
-            "--options=lv_name,lv_uuid,lv_size,lv_path,lv_tags,vg_name,vg_uuid,vg_tags,vg_extent_size",
+            "--options=lv_name,lv_uuid,lv_size,lv_path,lv_tags,vg_name,vg_uuid,vg_tags,vg_extent_size,lv_attr,data_percent",
             "--units=b",
             "--nosuffix",
             "-q",
@@ -360,15 +393,40 @@ impl LogicalVolume {
         let mut report: LogicalVolumeList =
             LvmCmd::lv_list().args(args.as_slice()).report().await?;
 
+        report.lv.retain(|lv| lv.lv_name != THIN_POOL_LV);
+        Self::load_thin_chunks(&mut report.lv).await?;
         report.lv.iter_mut().for_each(|lv| lv.import_attrs());
 
         Ok(report.lv)
     }
 
+    /// Set the chunk size of our thin pool on each thin volume.
+    async fn load_thin_chunks(lvs: &mut [LogicalVolume]) -> Result<(), Error> {
+        let mut vg_names: Vec<String> = lvs
+            .iter()
+            .filter(|lv| lv.thin())
+            .map(|lv| lv.vg_name.clone())
+            .collect();
+        vg_names.sort();
+        vg_names.dedup();
+        let select = format!("lv_name={THIN_POOL_LV}");
+        let thinpools = PoolLv::list(&vg_names, Some(&select)).await?;
+        for lv in lvs.iter_mut().filter(|lv| lv.thin()) {
+            lv.thin_chunk = ThinPool::find(&thinpools, &lv.vg_name).map(|pool| pool.chunk());
+        }
+        Ok(())
+    }
+
     /// Destroy the logical volume.
     /// This unloads the lvol from the Bdev module first and then proceeds to
     /// remove the lv from the parent volume group.
+    /// A volume which still has snapshots is refused.
     pub(crate) async fn destroy(mut self) -> Result<(), Error> {
+        if !self.is_snap() && !self.snapshots().await?.is_empty() {
+            return Err(Error::HasLiveSnapshots {
+                volume: self.uuid().to_string(),
+            });
+        }
         self.export_bdev().await?;
         let ptpl = self.ptpl();
         self.remove().await?;
@@ -376,13 +434,191 @@ impl LogicalVolume {
         Ok(())
     }
 
+    /// List this volume's snapshots, the volumes tagged with our uuid as their
+    /// parent.
+    pub(super) async fn snapshots(&self) -> Result<Vec<LogicalVolume>, Error> {
+        let query = QueryArgs::new().with_lv(CmnQueryArgs::any()).with_vg(
+            CmnQueryArgs::any()
+                .uuid(self.vg_uuid())
+                .named(self.vg_name()),
+        );
+        let uuid = self.uuid();
+        Ok(Self::fetch(&query)
+            .await?
+            .into_iter()
+            .filter(|lv| lv.snap_parent_id().as_deref() == Some(uuid))
+            .collect())
+    }
+
+    /// Count the clones of the given snapshot among the volumes.
+    pub(super) fn count_clones(volumes: &[LogicalVolume], snapshot_uuid: &str) -> u64 {
+        volumes
+            .iter()
+            .filter(|lv| lv.snapshot_uuid_prop().as_deref() == Some(snapshot_uuid))
+            .count() as u64
+    }
+
+    /// Count the clones of this snapshot within its volume group.
+    pub(super) async fn clone_count(&self) -> Result<u64, Error> {
+        let query = QueryArgs::new().with_lv(CmnQueryArgs::ours()).with_vg(
+            CmnQueryArgs::any()
+                .uuid(self.vg_uuid())
+                .named(self.vg_name()),
+        );
+        let volumes = Self::fetch(&query).await?;
+        Ok(Self::count_clones(&volumes, self.uuid()))
+    }
+
+    /// Take a snapshot of this thin volume.
+    /// The same lvcreate that makes the snapshot also stores the parameters as
+    /// its tags, so a snapshot never exists without them.
+    /// The snapshot is metadata-only. It is left inactive and never gets a
+    /// bdev.
+    pub(super) async fn snapshot(&self, params: SnapshotParams) -> Result<LogicalVolume, Error> {
+        if !self.thin() {
+            return Err(Error::SnapshotThick {
+                volume: self.uuid().to_string(),
+            });
+        }
+        let (Some(snap_uuid), Some(snap_name)) = (params.snapshot_uuid(), params.name()) else {
+            return Err(Error::Internal {
+                error: "snapshot parameters require a name and a uuid".to_string(),
+            });
+        };
+        let create_time = snap_create_time(params.create_time());
+        let entity_id = params.entity_id().unwrap_or_default();
+        let txn_id = params.txn_id().unwrap_or_default();
+        super::is_valid_tag_value("snapshot name", &snap_name)?;
+        super::is_valid_tag_value("entity id", &entity_id)?;
+        super::is_valid_tag_value("transaction id", &txn_id)?;
+        let eexists = format!(
+            "Logical Volume \"{snap_uuid}\" already exists in volume group \"{}\"",
+            self.vg_name
+        );
+
+        let create = LvmCmd::lv_create()
+            .args(["-s", &format!("{}/{}", self.vg_name, self.lv_name)])
+            .args(["-n", &snap_uuid])
+            .tag(Property::SnapName(snap_name))
+            .tag(Property::SnapParentId(self.uuid().to_string()))
+            .tag_if(!entity_id.is_empty(), Property::SnapEntityId(entity_id))
+            .tag_if(!txn_id.is_empty(), Property::SnapTxnId(txn_id))
+            .tag(Property::SnapCreateTime(create_time))
+            .tag_if(self.ours(), Property::Lvm);
+        match create.run().await {
+            Err(Error::LvmBinErr { error, .. }) if error.starts_with(&eexists) => {
+                Err(Error::Exists { error })
+            }
+            _else => _else,
+        }?;
+
+        let query = QueryArgs::new()
+            .with_lv(CmnQueryArgs::any().uuid(&snap_uuid))
+            .with_vg(
+                CmnQueryArgs::any()
+                    .uuid(self.vg_uuid())
+                    .named(self.vg_name()),
+            );
+        let mut snaps = Self::fetch(&query).await?;
+        snaps.pop().ok_or_else(|| Error::Internal {
+            error: format!("snapshot {snap_uuid} not found after it was created"),
+        })
+    }
+
+    /// Create a writable clone of this snapshot.
+    /// The clone is a thin snapshot of the snapshot, activated and tagged as a
+    /// regular replica, plus a tag naming this snapshot as its source.
+    pub(super) async fn clone_snap(&self, params: CloneParams) -> Result<LogicalVolume, Error> {
+        let (Some(clone_uuid), Some(clone_name)) = (params.clone_uuid(), params.clone_name())
+        else {
+            return Err(Error::Internal {
+                error: "clone parameters require a name and a uuid".to_string(),
+            });
+        };
+
+        super::is_valid_tag_value("clone name", &clone_name)?;
+        let eexists = format!(
+            "Logical Volume \"{clone_uuid}\" already exists in volume group \"{}\"",
+            self.vg_name
+        );
+        let query = QueryArgs::new()
+            .with_lv(CmnQueryArgs::any().uuid(&clone_uuid))
+            .with_vg(
+                CmnQueryArgs::any()
+                    .uuid(self.vg_uuid())
+                    .named(self.vg_name()),
+            );
+
+        let create = LvmCmd::lv_create()
+            .args(["-s", &format!("{}/{}", self.vg_name, self.lv_name)])
+            .args(["-n", &clone_uuid])
+            .args(["--setactivationskip", "n"])
+            .args(["--activate", "y"])
+            .tag(Property::LvName(clone_name))
+            .tag(Property::LvShare(Protocol::Off))
+            .tag(Property::LvSnapshotUuid(self.uuid().to_string()))
+            .tag_if(self.ours(), Property::Lvm);
+        match create.run().await {
+            Ok(()) => {}
+            // A clone of this snapshot with the same uuid is a retried create.
+            Err(Error::LvmBinErr { error, .. }) if error.starts_with(&eexists) => {
+                return match Self::lookup(&query).await {
+                    Ok(clone) if clone.snapshot_uuid_prop().as_deref() == Some(self.uuid()) => {
+                        Ok(clone)
+                    }
+                    _ => Err(Error::Exists { error }),
+                };
+            }
+            Err(error) => return Err(error),
+        }
+
+        match Self::lookup(&query).await {
+            Ok(clone) => Ok(clone),
+            Err(error) => {
+                // Do not leave a clone behind which the caller never got.
+                let path = format!("{}/{clone_uuid}", self.vg_name);
+                if let Err(error) = LvmCmd::lv_remove().arg(&path).arg("-y").run().await {
+                    warn!(path, %error, "Failed to remove the clone after its lookup failed");
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Rebuild the snapshot parameters persisted as tags on this snapshot.
+    pub(super) fn snap_params(&self) -> SnapshotParams {
+        SnapshotParams::new(
+            self.property(&PropertyType::SnapEntityId)
+                .and_then(|p| p.SnapEntityId()),
+            self.snap_parent_id(),
+            self.property(&PropertyType::SnapTxnId)
+                .and_then(|p| p.SnapTxnId()),
+            self.property(&PropertyType::SnapName)
+                .and_then(|p| p.SnapName()),
+            Some(self.lv_name.clone()),
+            self.property(&PropertyType::SnapCreateTime)
+                .and_then(|p| p.SnapCreateTime()),
+            false,
+        )
+    }
+
+    /// The number of clones of this snapshot, as counted at query time.
+    pub(super) fn snap_clones(&self) -> u64 {
+        self.snap_clones
+    }
+    /// Record the number of clones of this snapshot.
+    pub(super) fn set_snap_clones(&mut self, clones: u64) {
+        self.snap_clones = clones;
+    }
+
     /// Import the Logical Volume.
     /// This is a required step after creating the LV, which adds the name and
     /// the share protocol as property tags.
     /// The LV is then imported as an spdk BDEV, which allows it to be shared
     /// via nvmf or open locally (ex: by the nexus).
+    /// Snapshots are metadata-only and never get a bdev.
     pub(crate) async fn import(&mut self) -> Result<(), Error> {
-        if !self.ours() || !self.vg_ours() {
+        if !self.ours() || !self.vg_ours() || self.is_snap() {
             return Ok(());
         }
         self.import_bdev().await
@@ -409,6 +645,7 @@ impl LogicalVolume {
     /// The bdev is unshared (if shared) and closed, allowing the logical volume
     /// to be closed and/or destroyed.
     pub(super) async fn export_bdev(&mut self) -> Result<(), Error> {
+        IMPORTED.lock().remove(self.uuid());
         let Ok(bdev) = self.bdev_opts() else {
             // Nothing to do if the bdev was not setup...
             return Ok(());
@@ -591,7 +828,15 @@ impl LogicalVolume {
             Ok(BdevOpts::from(bdev))
         })?;
         self.bdev = bdev.into();
+        IMPORTED
+            .lock()
+            .insert(self.uuid().to_string(), self.clone());
         Ok(())
+    }
+
+    /// The imported volume with the given uuid, as it was when imported.
+    pub(super) fn imported(uuid: &str) -> Option<LogicalVolume> {
+        IMPORTED.lock().get(uuid).cloned()
     }
     fn bdev_mut(&mut self) -> Result<&mut BdevOpts, Error> {
         let Some(bdev) = self.bdev.as_mut() else {
@@ -613,17 +858,52 @@ impl LogicalVolume {
         Ok(uri)
     }
 
+    /// The io stats of the lv's SPDK bdev.
+    /// A volume without a bdev here has had no io through this node, so it
+    /// reports zeroes. The tick rate is still set, as callers divide by it.
+    pub(crate) async fn bdev_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
+        match self.lv_bdev() {
+            None => Ok(BlockDeviceIoStats {
+                tick_rate: self.tick_rate(),
+                ..Default::default()
+            }),
+            Some(bdev) => bdev.stats_async().await,
+        }
+    }
+
+    /// Reset the io stats of the lv's SPDK bdev.
+    pub(crate) async fn reset_bdev_stats(&self) -> Result<(), CoreError> {
+        match self.lv_bdev() {
+            None => Ok(()),
+            Some(bdev) => bdev.reset_stats().await,
+        }
+    }
+
+    /// The lv's SPDK bdev, if one is set up. The bdev is created with the lv's
+    /// uuid, so this works on volumes which were fetched without importing.
+    fn lv_bdev(&self) -> Option<UntypedBdev> {
+        UntypedBdev::lookup_by_uuid_str(self.uuid())
+    }
+
     fn import_attrs(&mut self) {
         self.name = self
             .property(&PropertyType::LvName)
-            .and_then(|p| p.LvName());
+            .and_then(|p| p.LvName())
+            .or_else(|| {
+                self.property(&PropertyType::SnapName)
+                    .and_then(|p| p.SnapName())
+            });
         self.share = self
             .property(&PropertyType::LvShare)
             .and_then(|p| p.LvShare())
             .unwrap_or_default();
         self.entity_id = self
             .property(&PropertyType::LvEntityId)
-            .and_then(|p| p.LvEntityId());
+            .and_then(|p| p.LvEntityId())
+            .or_else(|| {
+                self.property(&PropertyType::SnapEntityId)
+                    .and_then(|p| p.SnapEntityId())
+            });
         self.tags_dirty = false;
         tracing::trace!("{self:?}");
     }
@@ -649,11 +929,6 @@ impl LogicalVolume {
     pub(crate) fn vg_uuid(&self) -> &str {
         &self.vg_uuid
     }
-    /// Get the extent size of the volume group where this logical volume
-    /// resides.
-    pub(crate) fn extent_size(&self) -> u64 {
-        self.vg_extent_size
-    }
     /// The "apparent" size of the Logical Volume.
     /// If the SPDK Bdev is not open, then it's just the lv size.
     /// If it's open, then it's the smallest between the bdev and the lv.
@@ -665,7 +940,44 @@ impl LogicalVolume {
     }
     /// Check the lv is thin provisioned (otherwise it's thick).
     pub(crate) fn thin(&self) -> bool {
-        false
+        self.attr.starts_with('V')
+    }
+    /// Bytes mapped in the backing store. A thin volume works this out from
+    /// its data_percent. A thick volume is always fully allocated.
+    pub(crate) fn allocated_bytes(&self) -> u64 {
+        if !self.thin() {
+            return self.size;
+        }
+        match self.data_percent {
+            Some(percent) => ((self.size as f64) * percent / 100.0) as u64,
+            // Our snapshots are inactive thin volumes, and inactive thin
+            // volumes report no data_percent.
+            None => 0,
+        }
+    }
+    /// The allocation granularity of this volume. That is the chunk size of
+    /// its thin pool for a thin volume, and the volume group extent size for
+    /// a thick volume or when the chunk size is unknown.
+    pub(crate) fn allocation_unit(&self) -> u64 {
+        match self.thin_chunk {
+            Some(chunk) if self.thin() && chunk > 0 => chunk,
+            _ => self.vg_extent_size,
+        }
+    }
+    /// The uuid of the replica this volume is a snapshot of, when it is one.
+    pub(super) fn snap_parent_id(&self) -> Option<String> {
+        self.property(&PropertyType::SnapParentId)
+            .and_then(|p| p.SnapParentId())
+    }
+    /// Check whether this volume is one of our snapshots.
+    pub(super) fn is_snap(&self) -> bool {
+        self.snap_parent_id().is_some()
+    }
+    /// The uuid of the snapshot this volume was cloned from, when it is a
+    /// clone.
+    pub(super) fn snapshot_uuid_prop(&self) -> Option<String> {
+        self.property(&PropertyType::LvSnapshotUuid)
+            .and_then(|p| p.LvSnapshotUuid())
     }
     /// LV's are created with name=replica uuid, so we have to "swap" here.
     pub(crate) fn uuid(&self) -> &str {
@@ -825,6 +1137,16 @@ impl LogicalVolume {
     }
 }
 
+/// The snapshot create time to store as a tag. Tag values cannot contain
+/// spaces, so it is stored as RFC 3339, which the gRPC layer parses back.
+/// The caller's time is used when it parses, otherwise the current time.
+fn snap_create_time(requested: Option<String>) -> String {
+    requested
+        .and_then(|time| time.parse::<chrono::DateTime<chrono::Utc>>().ok())
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339()
+}
+
 pub struct LvolPtpl {
     vg: super::vg_pool::VgPtpl,
     uuid: String,
@@ -900,7 +1222,7 @@ impl crate::core::LogicalVolume for LogicalVolume {
     }
 
     fn is_read_only(&self) -> bool {
-        false
+        self.is_snap()
     }
 
     fn size(&self) -> u64 {
@@ -912,14 +1234,14 @@ impl crate::core::LogicalVolume for LogicalVolume {
     }
 
     fn allocated(&self) -> u64 {
-        self.size()
+        self.allocated_bytes()
     }
 
     fn usage(&self) -> crate::core::logical_volume::LvolSpaceUsage {
         crate::core::logical_volume::LvolSpaceUsage {
             capacity_bytes: self.size(),
             allocated_bytes: self.allocated(),
-            cluster_size: self.extent_size(),
+            cluster_size: self.allocation_unit(),
             // todo: missing this information
             num_clusters: 0,
             num_allocated_clusters: 0,
@@ -930,11 +1252,11 @@ impl crate::core::LogicalVolume for LogicalVolume {
     }
 
     fn is_snapshot(&self) -> bool {
-        false
+        self.is_snap()
     }
 
     fn is_clone(&self) -> bool {
-        false
+        self.snapshot_uuid_prop().is_some()
     }
 
     fn backend(&self) -> PoolBackend {
@@ -942,7 +1264,7 @@ impl crate::core::LogicalVolume for LogicalVolume {
     }
 
     fn snapshot_uuid(&self) -> Option<String> {
-        None
+        self.snapshot_uuid_prop()
     }
 
     fn share_protocol(&self) -> Protocol {
@@ -1013,5 +1335,84 @@ impl Share for LogicalVolume {
     }
     fn bdev_uri_original(&self) -> Option<url::Url> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn volume(name: &str, attr: &str, tags: &str) -> LogicalVolume {
+        let mut lv: LogicalVolume = serde_json::from_value(serde_json::json!({
+            "lv_uuid": format!("{name}-lv-uuid"),
+            "lv_name": name,
+            "vg_name": "vg",
+            "vg_uuid": "vg-uuid",
+            "vg_extent_size": "4194304",
+            "lv_path": format!("vg/{name}"),
+            "lv_size": "33554432",
+            "lv_tags": tags,
+            "vg_tags": "mayastor",
+            "lv_attr": attr,
+            "data_percent": "",
+        }))
+        .unwrap();
+        lv.import_attrs();
+        lv
+    }
+
+    #[test]
+    fn clone_counting() {
+        let volumes = vec![
+            volume("r1", "Vwi-aotz--", "mayastor,mayastor.lv.name=r1"),
+            volume(
+                "s1",
+                "Vwi---tz-k",
+                "mayastor,mayastor.snap.name=s1,mayastor.snap.parent_id=r1",
+            ),
+            volume(
+                "c1",
+                "Vwi-aotz--",
+                "mayastor,mayastor.lv.name=c1,mayastor.lv.snapshot_uuid=s1",
+            ),
+            volume(
+                "c2",
+                "Vwi-aotz--",
+                "mayastor,mayastor.lv.name=c2,mayastor.lv.snapshot_uuid=s1",
+            ),
+        ];
+        assert_eq!(LogicalVolume::count_clones(&volumes, "s1"), 2);
+        assert_eq!(LogicalVolume::count_clones(&volumes, "r1"), 0);
+        assert_eq!(LogicalVolume::count_clones(&[], "s1"), 0);
+    }
+
+    #[test]
+    fn allocation_unit() {
+        let mut thin = volume("r1", "Vwi-aotz--", "mayastor");
+        assert_eq!(thin.allocation_unit(), 4194304);
+        thin.thin_chunk = Some(131072);
+        assert_eq!(thin.allocation_unit(), 131072);
+        let mut thick = volume("r2", "-wi-ao----", "mayastor");
+        thick.thin_chunk = Some(131072);
+        assert_eq!(thick.allocation_unit(), 4194304);
+    }
+
+    #[test]
+    fn create_time() {
+        let parse = |time: &str| time.parse::<chrono::DateTime<chrono::Utc>>().unwrap();
+        assert_eq!(
+            snap_create_time(Some("2024-01-02T03:04:05Z".to_string())),
+            "2024-01-02T03:04:05+00:00"
+        );
+        // the format callers get from Utc::now().to_string()
+        let time = snap_create_time(Some("2024-01-02 03:04:05.5 UTC".to_string()));
+        assert_eq!(parse(&time), parse("2024-01-02T03:04:05.5Z"));
+        assert!(!time.contains(' '));
+        for requested in [None, Some("yesterday".to_string())] {
+            let before = chrono::Utc::now();
+            let time = parse(&snap_create_time(requested));
+            assert!(time >= before - chrono::Duration::seconds(1));
+            assert!(time <= chrono::Utc::now());
+        }
     }
 }

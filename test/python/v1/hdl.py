@@ -15,6 +15,7 @@ import pool_pb2_grpc as pool_rpc
 import replica_pb2_grpc as replica_rpc
 import snapshot_pb2_grpc as snapshot_rpc
 import host_pb2_grpc as host_rpc
+import stats_pb2_grpc as stats_rpc
 from pytest_testconfig import config
 from functools import partial
 import mayastor_pb2 as pb
@@ -37,6 +38,7 @@ class MayastorHandle(object):
         self.replica_rpc = replica_rpc.ReplicaRpcStub(self.channel)
         self.snapshot_rpc = snapshot_rpc.SnapshotRpcStub(self.channel)
         self.host_rpc = host_rpc.HostRpcStub(self.channel)
+        self.stats_rpc = stats_rpc.StatsRpcStub(self.channel)
         self.nexus_rpc = nexus_rpc.NexusRpcStub(self.channel)
         self._readiness_check()
 
