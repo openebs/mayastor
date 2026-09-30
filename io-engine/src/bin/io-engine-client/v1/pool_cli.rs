@@ -40,6 +40,8 @@ enum PoolCommands {
     ClearErrors(ClearErrorsArgs),
     /// Probes storage pool
     Probe(ProbeArgs),
+    /// List SMART info of pool disk(s)
+    ListSmart(ListSmartArgs),
 }
 
 #[derive(Debug, Args)]
@@ -92,6 +94,17 @@ struct DestroyArgs {
     uuid: Option<Uuid>,
     #[arg(short = 't', long = "type", default_value = "lvs")]
     pool_type: PoolType,
+}
+
+#[derive(Debug, Args)]
+struct ListSmartArgs {
+    /// Storage pool name (optional; lists all pools if omitted)
+    #[arg(short = 'n', long)]
+    name: Option<String>,
+    #[arg(short = 'u', long)]
+    uuid: Option<Uuid>,
+    #[arg(short = 't', long = "type")]
+    pool_type: Option<PoolType>,
 }
 
 #[derive(Debug, Args)]
@@ -169,6 +182,7 @@ pub async fn handler(ctx: Context, args: PoolArgs) -> crate::Result<()> {
         PoolCommands::List(args) => list(ctx, args).await,
         PoolCommands::ClearErrors(args) => clear_errors(ctx, args).await,
         PoolCommands::Probe(args) => probe(ctx, args).await,
+        PoolCommands::ListSmart(args) => list_smart(ctx, args).await,
     }
 }
 
@@ -626,6 +640,39 @@ async fn probe(mut ctx: Context, args: ProbeArgs) -> crate::Result<()> {
             }),
             import: args.import,
             probes: None,
+        })
+        .await
+        .context(GrpcStatus)?
+        .into_inner();
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response)
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{response:#?}");
+        }
+    };
+
+    Ok(())
+}
+
+async fn list_smart(mut ctx: Context, args: ListSmartArgs) -> crate::Result<()> {
+    let response = ctx
+        .v1
+        .pool
+        .list_pools_smart(v1rpc::pool::ListPoolsSmartOptions {
+            name: args.name,
+            uuid: args.uuid.map(|u| u.to_string()),
+            pooltype: args.pool_type.map(|t| v1rpc::pool::PoolTypeValue {
+                value: v1rpc::pool::PoolType::from(t) as i32,
+            }),
         })
         .await
         .context(GrpcStatus)?

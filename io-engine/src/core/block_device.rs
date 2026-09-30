@@ -92,6 +92,19 @@ pub trait BlockDevice {
 
     /// Register device event listener.
     fn add_event_listener(&self, listener: DeviceEventSink) -> Result<(), CoreError>;
+
+    /// Return device SMART / health information.
+    ///
+    /// Generic across device types and transports, without modifying SPDK:
+    /// kernel-backed disks (aio/uring — SAS, SATA, and NVMe used without VFIO)
+    /// are read via smartctl on their `/dev` node, while VFIO-bound NVMe is
+    /// read via a SMART/Health Get Log Page admin command. Backends that can't
+    /// provide it return `NotSupported` (the default).
+    async fn device_health(&self) -> Result<crate::core::DeviceHealth, CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::ENXIO,
+        })
+    }
 }
 
 /// Core trait that represents a descriptor for an opened block device.
