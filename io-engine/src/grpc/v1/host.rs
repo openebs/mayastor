@@ -103,7 +103,7 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
             rdma_capable_io_engine: Some(f.rdma_capable_io_engine),
             diskpool_encryption: Some(f.diskpool_encryption),
             nexus_label_version: f.nexus_label_version,
-            grpc_tls: None,
+            grpc_tls: Some(f.grpc_tls),
         }
     }
 }
