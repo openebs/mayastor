@@ -257,6 +257,13 @@ pub fn file_tls_connect_lazy(endpoint: &Endpoint, tls: &TlsConfig) -> Result<Cha
 ///
 /// The `endpoint` must carry an `http` scheme: when TLS is used the handshake
 /// is driven by a custom connector, so tonic's own TLS logic is bypassed.
+///
+/// # Panics
+///
+/// For the TLS variants the returned channel is built with
+/// [`Endpoint::connect_with_connector_lazy`], which eagerly constructs a
+/// pooled hyper client that spawns a background task via [`tokio::spawn`].
+/// This must therefore be called from within a Tokio runtime context.
 pub fn registration_channel(
     endpoint: &Endpoint,
     tls: Option<&GrpcServerTls>,
