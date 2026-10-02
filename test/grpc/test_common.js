@@ -9,8 +9,9 @@ const find = require('find-process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { exec, spawn } = require('child_process');
+const { exec, execFileSync, spawn } = require('child_process');
 const { createClient } = require('grpc-kit');
+const grpc = require('grpc');
 const sudo = require('./sudo');
 
 const SOCK = '/tmp/mayastor_test.sock';
@@ -29,6 +30,66 @@ const myIp = getMyIp() || LOCALHOST;
 const grpcEndpoint = myIp + ':' + testPort;
 // started processes indexed by the program name
 let procs = {};
+
+// TLS material used to exercise the io-engine gRPC server's file-backed mutual
+// TLS. The server presents SERVER_CERT/SERVER_KEY and verifies clients against
+// CA_CERT; the test clients present CLIENT_CERT/CLIENT_KEY and verify the
+// server against CA_CERT.
+const TLS_DIR = '/tmp/mayastor_test_tls';
+const CA_KEY = path.join(TLS_DIR, 'ca.key');
+const CA_CERT = path.join(TLS_DIR, 'ca.crt');
+const SERVER_KEY = path.join(TLS_DIR, 'server.key');
+const SERVER_CSR = path.join(TLS_DIR, 'server.csr');
+const SERVER_CERT = path.join(TLS_DIR, 'server.crt');
+const CLIENT_KEY = path.join(TLS_DIR, 'client.key');
+const CLIENT_CSR = path.join(TLS_DIR, 'client.csr');
+const CLIENT_CERT = path.join(TLS_DIR, 'client.crt');
+
+// Generate a throwaway CA, an io-engine server certificate whose SAN covers the
+// gRPC endpoint, and a client certificate, so the test clients and the server
+// can mutually authenticate over TLS. The material is regenerated on every run
+// as the endpoint IP may change.
+function generateTlsCerts () {
+  fs.mkdirSync(TLS_DIR, { recursive: true });
+  const extFile = path.join(TLS_DIR, 'server.ext');
+  fs.writeFileSync(extFile, `subjectAltName=IP:${myIp},IP:127.0.0.1,DNS:localhost\n`);
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', CA_KEY, '-out', CA_CERT,
+    '-subj', '/CN=mayastor-test-ca', '-days', '3650'
+  ]);
+  execFileSync('openssl', [
+    'req', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', SERVER_KEY, '-out', SERVER_CSR,
+    '-subj', '/CN=mayastor-test'
+  ]);
+  execFileSync('openssl', [
+    'x509', '-req', '-in', SERVER_CSR,
+    '-CA', CA_CERT, '-CAkey', CA_KEY, '-CAcreateserial',
+    '-out', SERVER_CERT, '-days', '3650', '-extfile', extFile
+  ]);
+  execFileSync('openssl', [
+    'req', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', CLIENT_KEY, '-out', CLIENT_CSR,
+    '-subj', '/CN=mayastor-test-client'
+  ]);
+  execFileSync('openssl', [
+    'x509', '-req', '-in', CLIENT_CSR,
+    '-CA', CA_CERT, '-CAkey', CA_KEY, '-CAcreateserial',
+    '-out', CLIENT_CERT, '-days', '3650'
+  ]);
+}
+generateTlsCerts();
+
+// SSL client credentials that present the client certificate and verify the
+// io-engine server certificate against the generated test CA (mutual TLS).
+function grpcClientCredentials () {
+  return grpc.credentials.createSsl(
+    fs.readFileSync(CA_CERT),
+    fs.readFileSync(CLIENT_KEY),
+    fs.readFileSync(CLIENT_CERT)
+  );
+}
 
 // Construct path to a rust binary in target/debug/... dir.
 function getCmdPath (name) {
@@ -186,7 +247,10 @@ function startMayastor (config, args, env, suffix) {
     _.assign(
       {
         MY_POD_IP: getMyIp(),
-        MAYASTOR_DELAY: '1'
+        MAYASTOR_DELAY: '1',
+        GRPC_TLS_CERT_FILE: SERVER_CERT,
+        GRPC_TLS_KEY_FILE: SERVER_KEY,
+        GRPC_TLS_CA_FILE: CA_CERT
       },
       env
     ),
@@ -326,7 +390,8 @@ function createGrpcClient (serviceName = 'Mayastor', endpoint = grpcEndpoint) {
         oneofs: true
       }
     },
-    endpoint
+    endpoint,
+    grpcClientCredentials()
   );
   if (!client) {
     throw new Error('Failed to initialize grpc client');
@@ -446,6 +511,7 @@ module.exports = {
   getMyIp,
   getCmdPath,
   createGrpcClient,
+  grpcClientCredentials,
   callGrpcMethod,
   createBdevs,
   NVME,

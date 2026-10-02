@@ -135,6 +135,7 @@ impl<'a> MayastorTest<'a> {
                 env.grpc_endpoint.unwrap(),
                 env.rpc_addr,
                 env.api_versions,
+                None,
             )
             .await
             .ok();

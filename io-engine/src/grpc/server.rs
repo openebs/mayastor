@@ -54,6 +54,7 @@ impl MayastorGrpcServer {
         endpoint: std::net::SocketAddr,
         rpc_addr: String,
         api_versions: Vec<ApiVersion>,
+        tls: Option<super::tls::GrpcServerTls>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut rcv_chan = Box::pin(Self::get_or_init().rcv_chan.clone());
 
@@ -65,15 +66,7 @@ impl MayastorGrpcServer {
         let enable_v0 = api_versions.contains(&ApiVersion::V0).then_some(true);
         let enable_v1 = api_versions.contains(&ApiVersion::V1).then_some(true);
 
-        let incoming =
-            tonic::transport::server::TcpIncoming::new(endpoint, true, None).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::AddrInUse,
-                    format!("Failed to bind gRPC socket to {endpoint}: {e}"),
-                )
-            })?;
-        info!("{api_versions:?} gRPC server configured at address {endpoint}");
-        let svc = Server::builder()
+        let router = Server::builder()
             .add_optional_service(
                 enable_v1.map(|_| v1::bdev::BdevRpcServer::new(BdevService::new())),
             )
@@ -101,7 +94,7 @@ impl MayastorGrpcServer {
                     node_name,
                     node_nqn,
                     endpoint,
-                    api_versions,
+                    api_versions.clone(),
                 ))
             }))
             .add_optional_service(
@@ -119,8 +112,42 @@ impl MayastorGrpcServer {
             .add_optional_service(
                 enable_v0.map(|_| JsonRpcServer::new(JsonRpcSvc::new(address.clone()))),
             )
-            .add_optional_service(enable_v0.map(|_| BdevRpcServer::new(BdevSvc::new())))
-            .serve_with_incoming(incoming);
+            .add_optional_service(enable_v0.map(|_| BdevRpcServer::new(BdevSvc::new())));
+
+        info!(
+            "{api_versions:?} gRPC server configured at address {endpoint} (tls: {})",
+            tls.is_some()
+        );
+
+        let box_err = |error: String| -> Box<dyn std::error::Error + Send + Sync> { error.into() };
+
+        // The transport is fixed by configuration: with TLS disabled the server
+        // serves plaintext, and with TLS enabled it serves TLS exclusively.
+        let svc = match tls {
+            None => {
+                let incoming = tonic::transport::server::TcpIncoming::bind(endpoint)
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::AddrInUse,
+                            format!("Failed to bind gRPC socket to {endpoint}: {e}"),
+                        )
+                    })?
+                    .with_nodelay(Some(true));
+                router.serve_with_incoming(incoming).boxed()
+            }
+            Some(super::tls::GrpcServerTls::Auto) => {
+                let config = super::tls::auto_server_config(vec!["localhost".to_string()])
+                    .map_err(box_err)?;
+                let incoming = super::tls::incoming_with_server_config(endpoint, config)
+                    .await
+                    .map_err(box_err)?;
+                router.serve_with_incoming(incoming).boxed()
+            }
+            Some(super::tls::GrpcServerTls::Files(tls)) => {
+                let incoming = super::tls::incoming(endpoint, tls).await.map_err(box_err)?;
+                router.serve_with_incoming(incoming).boxed()
+            }
+        };
 
         select! {
             result = svc.fuse() => {

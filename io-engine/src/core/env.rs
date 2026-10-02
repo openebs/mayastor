@@ -652,6 +652,8 @@ pub struct MayastorEnvironment {
     pub node_name: String,
     pub node_nqn: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
+    /// TLS configuration for the gRPC server, if any.
+    grpc_tls: Option<grpc::tls::GrpcServerTls>,
     pub registration_endpoint: Option<Uri>,
     ps_endpoint: Option<String>,
     ps_timeout: Duration,
@@ -712,6 +714,7 @@ impl Default for MayastorEnvironment {
             node_name: "mayastor-node".into(),
             node_nqn: None,
             grpc_endpoint: None,
+            grpc_tls: None,
             registration_endpoint: None,
             ps_endpoint: None,
             ps_timeout: Duration::from_secs(10),
@@ -877,8 +880,11 @@ impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         MayastorFeatures::configure(&args);
 
+        let grpc_tls = args.grpc_tls().expect("invalid gRPC TLS configuration");
+
         Self {
             grpc_endpoint: Some(args.grpc_endpoint()),
+            grpc_tls,
             registration_endpoint: args.registration_endpoint,
             ps_endpoint: args.ps_endpoint,
             ps_timeout: args.ps_timeout,
@@ -1549,6 +1555,7 @@ impl MayastorEnvironment {
         let ps_timeout = self.ps_timeout;
         let ps_retries = self.ps_retries;
         let grpc_endpoint = self.grpc_endpoint;
+        let grpc_tls = self.grpc_tls.clone();
         let rpc_addr = self.rpc_addr.clone();
         let api_versions = self.api_versions.clone();
         let ms = self.init();
@@ -1583,6 +1590,7 @@ impl MayastorEnvironment {
                     grpc_endpoint,
                     rpc_addr,
                     api_versions,
+                    grpc_tls,
                 )));
             }
             futures.push(Box::pin(subsys::Registration::run()));

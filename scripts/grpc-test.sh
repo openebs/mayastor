@@ -16,6 +16,11 @@ set -euxo pipefail
 export PATH="$PATH:${HOME}/.cargo/bin"
 export npm_config_jobs=$(nproc)
 
+# The gRPC tests manage their own TLS: the suites spawn the io-engine with a
+# freshly generated server certificate and the clients verify it. Clear any
+# ambient TLS settings so they can't conflict with that per-test configuration.
+unset GRPC_TLS GRPC_AUTO_TLS GRPC_TLS_CERT_FILE GRPC_TLS_KEY_FILE GRPC_TLS_CA_FILE
+
 cargo build --bins --features=io-engine-testing
 cd "$(dirname "$0")/../test/grpc"
 npm install --legacy-peer-deps

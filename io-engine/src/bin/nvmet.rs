@@ -45,6 +45,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             grpc_endpoint,
             rpc_address,
             api_versions,
+            None,
         )
         .boxed_local()];
 
