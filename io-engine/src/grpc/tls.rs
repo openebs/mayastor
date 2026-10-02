@@ -221,11 +221,19 @@ pub fn auto_tls_connect_lazy(endpoint: &Endpoint) -> Channel {
 /// for mutual TLS when configured. The endpoint must use an `http` scheme so
 /// tonic does not apply its own TLS logic; the handshake is performed by the
 /// custom connector.
+///
+/// The TLS material is reloaded automatically when the certificate files rotate
+/// on disk, so reconnections pick up the latest certificates.
 pub fn file_tls_connect_lazy(endpoint: &Endpoint, tls: &TlsConfig) -> Result<Channel, String> {
-    let config = Arc::new(file_client_config(tls)?);
-    let connector = TlsConnector::from(config);
+    let reloadable = Reloadable::new(
+        tls.clone(),
+        "grpc-tls-client-cert-watcher",
+        file_client_config,
+    )?;
     let connector = tower::service_fn(move |uri: http::Uri| {
-        let connector = connector.clone();
+        // Build the connector from the current config per connection, so a
+        // reconnect after rotation uses the latest certificates.
+        let connector = TlsConnector::from(reloadable.get());
         async move {
             let host = uri.host().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "gRPC endpoint has no host")
@@ -521,8 +529,10 @@ pub async fn incoming(
     let listener = tokio::net::TcpListener::bind(socket)
         .await
         .map_err(|error| format!("failed to bind gRPC socket to {socket}: {error}"))?;
-    let tls = ReloadableServerTls::new(tls)?;
-    Ok(accepted_incoming(listener, move || tls.acceptor()))
+    let tls = Reloadable::new(tls, "grpc-tls-cert-watcher", build_rustls_server_config)?;
+    Ok(accepted_incoming(listener, move || {
+        TlsAcceptor::from(tls.get())
+    }))
 }
 
 /// Bind a TCP listener that serves gRPC over TLS exclusively, using an in-memory
@@ -538,45 +548,57 @@ pub async fn incoming_with_server_config(
     Ok(accepted_incoming(listener, move || acceptor.clone()))
 }
 
-/// A rustls server configuration that is rebuilt when its file-backed TLS
-/// material changes on disk.
-#[derive(Clone)]
-struct ReloadableServerTls {
-    current: Arc<RwLock<Arc<rustls::ServerConfig>>>,
+/// A rustls configuration that is rebuilt when its file-backed TLS material
+/// changes on disk.
+///
+/// This backs both the server ([`rustls::ServerConfig`]) and the registration
+/// client ([`rustls::ClientConfig`]); the `build` function supplies the
+/// config-specific construction from the current certificate files. The latest
+/// config is read via [`Reloadable::get`] each time a connection is
+/// established, so new/reconnecting connections use rotated certificates.
+struct Reloadable<T> {
+    current: Arc<RwLock<Arc<T>>>,
 }
 
-struct ServerState {
+struct ReloadState<T> {
     tls: TlsConfig,
     fingerprint: Vec<std::time::SystemTime>,
-    current: Arc<RwLock<Arc<rustls::ServerConfig>>>,
+    current: Arc<RwLock<Arc<T>>>,
+    build: fn(&TlsConfig) -> Result<T, String>,
 }
 
-impl ReloadableServerTls {
-    fn new(tls: TlsConfig) -> Result<Self, String> {
-        let current = Arc::new(RwLock::new(Arc::new(build_rustls_server_config(&tls)?)));
+impl<T: Send + Sync + 'static> Reloadable<T> {
+    /// Build the initial config and spawn a watcher that rebuilds it whenever
+    /// the certificate files rotate on disk.
+    fn new(
+        tls: TlsConfig,
+        watcher_name: &str,
+        build: fn(&TlsConfig) -> Result<T, String>,
+    ) -> Result<Self, String> {
+        let current = Arc::new(RwLock::new(Arc::new(build(&tls)?)));
         let targets = tls.watch_targets();
         let paths = tls.paths();
-        let state = Arc::new(RwLock::new(ServerState {
+        let state = Arc::new(RwLock::new(ReloadState {
             fingerprint: tls.fingerprint().unwrap_or_default(),
             tls,
             current: current.clone(),
+            build,
         }));
-        spawn_watcher("grpc-tls-cert-watcher", targets, move || {
+        spawn_watcher(watcher_name, targets, move || {
             Self::reload_logged(&state, &paths)
         });
         Ok(Self { current })
     }
 
-    fn acceptor(&self) -> TlsAcceptor {
-        TlsAcceptor::from(
-            self.current
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
-        )
+    /// The current config, cloned cheaply (it is behind an [`Arc`]).
+    fn get(&self) -> Arc<T> {
+        self.current
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
-    fn reload(state: &Arc<RwLock<ServerState>>) -> Result<bool, String> {
+    fn reload(state: &Arc<RwLock<ReloadState<T>>>) -> Result<bool, String> {
         let state_guard = state.read().unwrap_or_else(PoisonError::into_inner);
         let fingerprint = state_guard
             .tls
@@ -585,7 +607,7 @@ impl ReloadableServerTls {
         if fingerprint == state_guard.fingerprint {
             return Ok(false);
         }
-        let config = Arc::new(build_rustls_server_config(&state_guard.tls)?);
+        let config = Arc::new((state_guard.build)(&state_guard.tls)?);
         *state_guard
             .current
             .write()
@@ -598,7 +620,7 @@ impl ReloadableServerTls {
         Ok(true)
     }
 
-    fn reload_logged(state: &Arc<RwLock<ServerState>>, targets: &[PathBuf]) {
+    fn reload_logged(state: &Arc<RwLock<ReloadState<T>>>, targets: &[PathBuf]) {
         match Self::reload(state) {
             Ok(true) => tracing::info!(?targets, "Reloaded gRPC TLS certificates"),
             Ok(false) => {}
