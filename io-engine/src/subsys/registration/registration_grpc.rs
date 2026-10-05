@@ -134,10 +134,6 @@ impl Registration {
             .timeout(config.hb_timeout_sec)
             .http2_keep_alive_interval(HTTP_KEEP_ALIVE_INTERVAL)
             .keep_alive_timeout(HTTP_KEEP_ALIVE_TIMEOUT);
-        // Build the channel here. This runs inside the Tokio runtime (the
-        // registration is initialised from within the runtime thread), so the
-        // TLS connector's background task may be spawned; a missing or malformed
-        // certificate file is surfaced as a hard start-up error.
         let channel = crate::grpc::tls::registration_channel(&endpoint, grpc_tls.as_ref())?;
         Ok(Self {
             config,

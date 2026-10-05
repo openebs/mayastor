@@ -257,8 +257,7 @@ pub fn file_tls_connect_lazy(endpoint: &Endpoint, tls: &TlsConfig) -> Result<Cha
 ///
 /// - No TLS: a plaintext channel.
 /// - [`GrpcServerTls::Auto`]: an auto-TLS channel (certificate verification
-///   bypassed), matching the ephemeral self-signed certificate the io-engine
-///   serves.
+///   bypassed), matching the ephemeral self-signed certificate the io-engine serves.
 /// - [`GrpcServerTls::Files`]: a file-backed TLS channel, verifying the server
 ///   against the configured CA (or the system roots) and presenting the client
 ///   certificate for mutual TLS when configured.

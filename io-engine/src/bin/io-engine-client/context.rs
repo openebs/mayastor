@@ -2,8 +2,9 @@ use crate::{BdevClient, JsonClient, MayaClient};
 use byte_unit::Byte;
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery, Scheme, Uri};
+use io_engine::grpc::tls::{GrpcServerTls, TlsConfig};
 use snafu::{Backtrace, ResultExt, Snafu};
-use std::{cmp::max, str::FromStr};
+use std::{cmp::max, path::PathBuf, str::FromStr};
 use tonic::transport::Endpoint;
 
 #[derive(Debug, Snafu)]
@@ -29,6 +30,88 @@ pub enum Error {
         source: http::uri::InvalidUri,
         backtrace: Backtrace,
     },
+    #[snafu(display("Invalid TLS configuration: {message}"))]
+    InvalidTls { message: String },
+}
+
+/// TLS connection options for the gRPC client.
+#[derive(clap::Args, Debug, Clone)]
+pub(crate) struct TlsArgs {
+    /// Connect over TLS, defaulting to an ephemeral, unverified server {n}
+    /// certificate (auto-TLS). Supplying the certificate files below overrides
+    /// this with file-backed (optionally mutual) TLS.
+    #[arg(
+        long = "grpc-tls",
+        env = "GRPC_TLS",
+        global = true,
+        help_heading = "TLS Options"
+    )]
+    tls: bool,
+    /// Connect over TLS using an ephemeral, unverified server certificate {n}
+    /// (auto-TLS). Matches a server started with `--grpc-auto-tls`.
+    #[arg(
+        long = "grpc-auto-tls",
+        env = "GRPC_AUTO_TLS",
+        global = true,
+        conflicts_with_all = ["tls_cert", "tls_key", "tls_ca"],
+        help_heading = "TLS Options"
+    )]
+    auto_tls: bool,
+    /// Path to the client TLS certificate chain for mutual TLS. {n}
+    /// Must be provided together with the private key.
+    #[arg(
+        long = "grpc-tls-cert-file",
+        env = "GRPC_TLS_CERT_FILE",
+        value_name = "FILE",
+        requires = "tls_key",
+        global = true,
+        help_heading = "TLS Options"
+    )]
+    tls_cert: Option<PathBuf>,
+    /// Path to the client TLS private key for mutual TLS. {n}
+    /// Must be provided together with the certificate.
+    #[arg(
+        long = "grpc-tls-key-file",
+        env = "GRPC_TLS_KEY_FILE",
+        value_name = "FILE",
+        requires = "tls_cert",
+        global = true,
+        help_heading = "TLS Options"
+    )]
+    tls_key: Option<PathBuf>,
+    /// Path to the CA bundle used to verify the gRPC server certificate.
+    #[arg(
+        long = "grpc-tls-ca-file",
+        env = "GRPC_TLS_CA_FILE",
+        value_name = "FILE",
+        global = true,
+        help_heading = "TLS Options"
+    )]
+    tls_ca: Option<PathBuf>,
+}
+
+impl TlsArgs {
+    /// Resolve the TLS configuration selected on the command line, if any.
+    fn resolve(&self) -> Result<Option<GrpcServerTls>, Error> {
+        if self.auto_tls {
+            return Ok(Some(GrpcServerTls::Auto));
+        }
+        let tls = TlsConfig::new(
+            self.tls_ca.clone(),
+            self.tls_cert.clone(),
+            self.tls_key.clone(),
+        )
+        .map_err(|message| Error::InvalidTls { message })?;
+        if tls.enabled() {
+            return Ok(Some(GrpcServerTls::Files(tls)));
+        }
+        // `--tls` enables TLS without any certificate files, defaulting to an
+        // ephemeral self-signed certificate (auto-TLS).
+        if self.tls {
+            return Ok(Some(GrpcServerTls::Auto));
+        }
+        Ok(None)
+    }
 }
 
 /// Output format for CLI commands.
@@ -59,7 +142,7 @@ pub(crate) enum Units {
 mod v1 {
     use super::Error;
     use io_engine_api::v1::*;
-    use tonic::transport::{Channel, Endpoint};
+    use tonic::transport::Channel;
 
     pub type BdevRpcClient = bdev::BdevRpcClient<Channel>;
     pub type JsonRpcClient = json::JsonRpcClient<Channel>;
@@ -86,17 +169,17 @@ mod v1 {
     }
 
     impl Context {
-        pub async fn new(h: Endpoint) -> Result<Self, Error> {
-            let bdev = BdevRpcClient::connect(h.clone()).await.unwrap();
-            let json = JsonRpcClient::connect(h.clone()).await.unwrap();
-            let pool = PoolRpcClient::connect(h.clone()).await.unwrap();
-            let replica = ReplicaRpcClient::connect(h.clone()).await.unwrap();
-            let host = HostRpcClient::connect(h.clone()).await.unwrap();
-            let nexus = NexusRpcClient::connect(h.clone()).await.unwrap();
-            let snapshot = SnapshotRpcClient::connect(h.clone()).await.unwrap();
-            let snapshot_rebuild = SnapshotRebuildRpcClient::connect(h.clone()).await.unwrap();
-            let test = TestRpcClient::connect(h.clone()).await.unwrap();
-            let stats = StatsRpcClient::connect(h).await.unwrap();
+        pub async fn new(h: Channel) -> Result<Self, Error> {
+            let bdev = BdevRpcClient::new(h.clone());
+            let json = JsonRpcClient::new(h.clone());
+            let pool = PoolRpcClient::new(h.clone());
+            let replica = ReplicaRpcClient::new(h.clone());
+            let host = HostRpcClient::new(h.clone());
+            let nexus = NexusRpcClient::new(h.clone());
+            let snapshot = SnapshotRpcClient::new(h.clone());
+            let snapshot_rebuild = SnapshotRebuildRpcClient::new(h.clone());
+            let test = TestRpcClient::new(h.clone());
+            let stats = StatsRpcClient::new(h);
 
             Ok(Self {
                 bdev,
@@ -127,6 +210,7 @@ pub struct Context {
 impl Context {
     pub(crate) async fn new(
         bind: &str,
+        tls: &TlsArgs,
         quiet: bool,
         verbose: u8,
         units: Units,
@@ -161,10 +245,16 @@ impl Context {
         if verbosity > 1 {
             println!("Connecting to {:?}", host.uri());
         }
-        let client = MayaClient::connect(host.clone()).await.unwrap();
-        let bdev = BdevClient::connect(host.clone()).await.unwrap();
-        let json = JsonClient::connect(host.clone()).await.unwrap();
-        let v1 = v1::Context::new(host).await.unwrap();
+        // Build the channel for the selected transport: plaintext, auto-TLS
+        // (ephemeral, unverified server certificate) or file-backed TLS
+        // (verifying the server against the configured CA and presenting the
+        // client certificate for mutual TLS when provided).
+        let channel = io_engine::grpc::tls::registration_channel(&host, tls.resolve()?.as_ref())
+            .map_err(|message| Error::InvalidTls { message })?;
+        let client = MayaClient::new(channel.clone());
+        let bdev = BdevClient::new(channel.clone());
+        let json = JsonClient::new(channel.clone());
+        let v1 = v1::Context::new(channel).await.unwrap();
         Ok(Context {
             client,
             bdev,

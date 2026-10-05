@@ -35,6 +35,8 @@ struct Opts {
         help_heading = "Global Options"
     )]
     bind: String,
+    #[command(flatten)]
+    tls: context::TlsArgs,
     #[arg(
         short = 'q',
         long,
@@ -87,6 +89,7 @@ pub(super) async fn main_() -> crate::Result<()> {
 
     let ctx = context::Context::new(
         &opts.bind,
+        &opts.tls,
         opts.quiet,
         opts.verbose,
         opts.units,
