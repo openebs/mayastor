@@ -38,7 +38,7 @@ use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     constants::NVME_NQN_PREFIX,
     core::{
-        cgroup_cpuset, nic,
+        cpuset, nic,
         nic::SIpAddr,
         reactor::{Reactor, ReactorState, Reactors},
         Cores, MayastorFeatures, Mthread, NvmfTargetInfo, TransportCaps,
@@ -193,14 +193,16 @@ pub struct MayastorCliArgs {
     /// List of cores to run on instead of using the core mask. {n}
     /// When specified it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
-    /// Derive the core list from the cgroup cpuset assigned by the
-    /// container runtime/kubelet, superseding -l and -m.
+    /// Derive the reactor cores from the CPU set granted to this process
+    /// (the kubelet CPU manager's allocation) instead of using -l/-m.
+    /// If -l is also given, only its number of cores is used and it must
+    /// match the size of the cpuset, otherwise startup is refused.
     #[clap(
-        long = "cores-from-cgroup",
-        env = "CORES_FROM_CGROUP",
+        long = "cores-from-cpuset",
+        env = "CORES_FROM_CPUSET",
         value_parser = delay_compat
     )]
-    pub cores_from_cgroup: bool,
+    pub cores_from_cpuset: bool,
     #[clap(short = 'p')]
     /// Endpoint of the persistent store.
     pub ps_endpoint: Option<String>,
@@ -842,11 +844,20 @@ impl MayastorEnvironment {
             rpc_addr: args.rpc_address,
             hugedir: args.hugedir,
             env_context: args.env_context,
-            core_list: if args.cores_from_cgroup {
-                cgroup_cpuset::cpuset_from_cgroup().or_else(|| {
-                    warn!("--cores-from-cgroup was set but the cgroup cpuset could not be determined; falling back to -l/-m");
-                    args.core_list
-                })
+            core_list: if args.cores_from_cpuset {
+                match cpuset::core_list(args.core_list.as_deref()) {
+                    Ok(list) => {
+                        info!("Deriving reactor cores from the container cpuset: {}", list);
+                        Some(list)
+                    }
+                    Err(error) => panic!(
+                        "--cores-from-cpuset was set but the reactor cores could not be \
+                         derived from the container cpuset: {}. Refusing to start \
+                         rather than falling back to -l/-m, which may not match the \
+                         cores the CPU manager granted.",
+                        error
+                    ),
+                }
             } else {
                 args.core_list
             },
