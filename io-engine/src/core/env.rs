@@ -194,7 +194,7 @@ pub struct MayastorCliArgs {
     /// When specified it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
     /// Derive the reactor cores from the CPU set granted to this process
-    /// (the kubelet CPU manager's allocation) instead of using -l/-m.
+    /// (the kubelet CPU manager's allocation) instead of using -l/-m. {n}
     /// If -l is also given, only its number of cores is used and it must
     /// match the size of the cpuset, otherwise startup is refused.
     #[clap(
@@ -847,12 +847,12 @@ impl MayastorEnvironment {
             core_list: if args.cores_from_cpuset {
                 match cpuset::core_list(args.core_list.as_deref()) {
                     Ok(list) => {
-                        info!("Deriving reactor cores from the container cpuset: {}", list);
+                        info!("Deriving reactor cores from the cpuset: {list}");
                         Some(list)
                     }
                     Err(error) => panic!(
                         "--cores-from-cpuset was set but the reactor cores could not be \
-                         derived from the container cpuset: {}. Refusing to start \
+                         derived from the cpuset: {}. Refusing to start \
                          rather than falling back to -l/-m, which may not match the \
                          cores the CPU manager granted.",
                         error

@@ -25,7 +25,7 @@ fn select_cores(set: &libc::cpu_set_t, requested: Option<&str>) -> io::Result<St
         let expected = count_cores(requested)?;
         if cores.len() != expected {
             return Err(invalid(format!(
-                "the container cpuset holds {} cores ({}) but {} were requested \
+                "the cpuset holds {} cores ({}) but {} were requested \
                  with -l; the pod must be QoS class Guaranteed with an integer \
                  CPU request equal to the requested core count, otherwise the \
                  cpuset is the shared pool or has a different size",
