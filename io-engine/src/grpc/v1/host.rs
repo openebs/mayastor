@@ -104,6 +104,7 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
             diskpool_encryption: Some(f.diskpool_encryption),
             nexus_label_version: f.nexus_label_version,
             grpc_tls: Some(f.grpc_tls),
+            fips: Some(f.fips),
         }
     }
 }
