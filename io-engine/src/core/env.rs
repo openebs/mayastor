@@ -147,6 +147,16 @@ pub struct MayastorCliArgs {
     #[clap(short = 'R')]
     /// Registration grpc endpoint
     pub registration_endpoint: Option<Uri>,
+    /// Registration heartbeat interval (how often the register message is sent). {n}
+    /// Accepts a humantime duration, e.g. "5s", "500ms", "1s 500ms". {n}
+    /// Takes precedence over the legacy MAYASTOR_HB_INTERVAL_SEC (whole seconds).
+    #[clap(long = "hb-interval", env = "MAYASTOR_HB_INTERVAL")]
+    pub hb_interval: Option<humantime::Duration>,
+    /// Registration heartbeat timeout (how long to wait to send a register {n}
+    /// message before timing out). Accepts a humantime duration, e.g. "5s". {n}
+    /// Takes precedence over the legacy MAYASTOR_HB_TIMEOUT_SEC (whole seconds).
+    #[clap(long = "hb-timeout", env = "MAYASTOR_HB_TIMEOUT")]
+    pub hb_timeout: Option<humantime::Duration>,
     /// Path to the TLS server certificate chain for the gRPC server. {n}
     /// Must be provided together with the private key.
     #[clap(

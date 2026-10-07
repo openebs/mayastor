@@ -53,6 +53,8 @@ fn start_tokio_runtime(args: &MayastorCliArgs) -> Result<(), Box<dyn std::error:
     let node_name = grpc::node_name(&args.node_name);
     let node_nqn = args.make_hostnqn();
     let grpc_tls = args.grpc_tls()?;
+    let hb_interval = args.hb_interval.map(Into::into);
+    let hb_timeout = args.hb_timeout.map(Into::into);
 
     let ps_endpoint = args.ps_endpoint.clone();
     let ps_timeout = args.ps_timeout;
@@ -177,6 +179,8 @@ fn start_tokio_runtime(args: &MayastorCliArgs) -> Result<(), Box<dyn std::error:
                     registration_addr,
                     api_versions,
                     grpc_tls,
+                    hb_interval,
+                    hb_timeout,
                 ) {
                     error!("Failed to initialise the registration client: {error}");
                     signal_hook::low_level::raise(signal_hook::consts::SIGUSR1)

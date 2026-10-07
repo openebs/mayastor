@@ -75,6 +75,7 @@ pub struct Registration {
 static GRPC_REGISTRATION: OnceCell<Registration> = OnceCell::new();
 impl Registration {
     /// Initialise the global registration instance
+    #[allow(clippy::too_many_arguments)]
     pub fn init(
         node: &str,
         node_nqn: &Option<String>,
@@ -82,6 +83,8 @@ impl Registration {
         registration_addr: Uri,
         api_versions: Vec<ApiVersion>,
         grpc_tls: Option<crate::grpc::tls::GrpcServerTls>,
+        hb_interval: Option<Duration>,
+        hb_timeout: Option<Duration>,
     ) -> Result<(), String> {
         GRPC_REGISTRATION.get_or_try_init(|| {
             Registration::new(
@@ -91,12 +94,15 @@ impl Registration {
                 registration_addr,
                 api_versions,
                 grpc_tls,
+                hb_interval,
+                hb_timeout,
             )
         })?;
         Ok(())
     }
 
     /// Create a new registration instance
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node: &str,
         node_nqn: &Option<String>,
@@ -104,6 +110,8 @@ impl Registration {
         registration_addr: Uri,
         api_versions: Vec<ApiVersion>,
         grpc_tls: Option<crate::grpc::tls::GrpcServerTls>,
+        hb_interval: Option<Duration>,
+        hb_timeout: Option<Duration>,
     ) -> Result<Self, String> {
         let (msg_sender, msg_receiver) = async_channel::unbounded::<()>();
         let config = Configuration {
@@ -111,14 +119,18 @@ impl Registration {
             node: node.to_owned(),
             node_nqn: node_nqn.to_owned(),
             grpc_endpoint: grpc_endpoint.to_owned(),
-            hb_interval_sec: match env::var("MAYASTOR_HB_INTERVAL_SEC").map(|v| v.parse::<u64>()) {
-                Ok(Ok(num)) => Duration::from_secs(num),
-                _ => HB_INTERVAL_SEC,
-            },
-            hb_timeout_sec: match env::var("MAYASTOR_HB_TIMEOUT_SEC").map(|v| v.parse::<u64>()) {
-                Ok(Ok(num)) => Duration::from_secs(num),
-                _ => HB_TIMEOUT_SEC,
-            },
+            hb_interval_sec: hb_interval.unwrap_or_else(|| {
+                match env::var("MAYASTOR_HB_INTERVAL_SEC").map(|v| v.parse::<u64>()) {
+                    Ok(Ok(num)) => Duration::from_secs(num),
+                    _ => HB_INTERVAL_SEC,
+                }
+            }),
+            hb_timeout_sec: hb_timeout.unwrap_or_else(|| {
+                match env::var("MAYASTOR_HB_TIMEOUT_SEC").map(|v| v.parse::<u64>()) {
+                    Ok(Ok(num)) => Duration::from_secs(num),
+                    _ => HB_TIMEOUT_SEC,
+                }
+            }),
             instance_uuid: uuid::Uuid::new_v4(),
         };
         // When connecting over TLS the handshake is performed by a custom
