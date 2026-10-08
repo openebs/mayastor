@@ -94,6 +94,13 @@ impl_properties! {
     LvShare,           crate::core::Protocol,   "mayastor.lv.share",
     LvAllowedHosts,    Vec<String>,             "mayastor.lv.allowed_hosts",
     LvEntityId,        String,                  "mayastor.lv.entity_id",
+    LvSnapshotUuid,    String,                  "mayastor.lv.snapshot_uuid",
+    VgOpts,            String,                  "mayastor.vg.opts",
+    SnapName,          String,                  "mayastor.snap.name",
+    SnapEntityId,      String,                  "mayastor.snap.entity_id",
+    SnapParentId,      String,                  "mayastor.snap.parent_id",
+    SnapTxnId,         String,                  "mayastor.snap.txn_id",
+    SnapCreateTime,    String,                  "mayastor.snap.create_time",
 }
 
 impl Property {
@@ -105,6 +112,13 @@ impl Property {
             Property::LvShare(protocol) => Some(protocol.value_str().to_owned()),
             Property::LvAllowedHosts(hosts) => Some(hosts.join(",").to_owned()),
             Property::LvEntityId(entity_id) => Some(entity_id.to_owned()),
+            Property::LvSnapshotUuid(uuid) => Some(uuid.to_owned()),
+            Property::VgOpts(opts) => Some(opts.to_owned()),
+            Property::SnapName(name) => Some(name.to_owned()),
+            Property::SnapEntityId(entity_id) => Some(entity_id.to_owned()),
+            Property::SnapParentId(parent_id) => Some(parent_id.to_owned()),
+            Property::SnapTxnId(txn_id) => Some(txn_id.to_owned()),
+            Property::SnapCreateTime(time) => Some(time.to_owned()),
             Property::Unknown(_, value) => Some(value.to_owned()),
         }
     }
@@ -148,19 +162,28 @@ impl Property {
                     .collect::<Vec<_>>(),
             )),
             PropertyType::LvEntityId => Some(Self::LvEntityId(value.to_owned())),
+            PropertyType::LvSnapshotUuid => Some(Self::LvSnapshotUuid(value.to_owned())),
+            PropertyType::VgOpts => Some(Self::VgOpts(value.to_owned())),
+            PropertyType::SnapName => Some(Self::SnapName(value.to_owned())),
+            PropertyType::SnapEntityId => Some(Self::SnapEntityId(value.to_owned())),
+            PropertyType::SnapParentId => Some(Self::SnapParentId(value.to_owned())),
+            PropertyType::SnapTxnId => Some(Self::SnapTxnId(value.to_owned())),
+            PropertyType::SnapCreateTime => Some(Self::SnapCreateTime(value.to_owned())),
             _ => None,
         }
     }
 
     /// Builds a property from the given tag, which should be in
     /// the following format: key=value
+    /// The value may itself contain '=', as pool options do, so the tag is
+    /// only split on the first one.
     /// If the pair is not valid then nothing is returned.
     pub(super) fn new(tag: &str) -> Self {
-        if let [key, value] = tag.split('=').collect::<Vec<_>>()[..] {
-            Self::new_known(key, value)
-                .unwrap_or(Property::Unknown(key.to_string(), value.to_string()))
-        } else {
-            Self::new_known(tag, "").unwrap_or(Property::Unknown(tag.to_string(), "".to_string()))
+        match tag.split_once('=') {
+            Some((key, value)) => Self::new_known(key, value)
+                .unwrap_or_else(|| Property::Unknown(key.to_string(), value.to_string())),
+            None => Self::new_known(tag, "")
+                .unwrap_or_else(|| Property::Unknown(tag.to_string(), "".to_string())),
         }
     }
 }
