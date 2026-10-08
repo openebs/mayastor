@@ -45,13 +45,16 @@ macro_rules! print_feature {
 }
 
 io_engine::CPS_INIT!();
-fn start_tokio_runtime(args: &MayastorCliArgs) {
+fn start_tokio_runtime(args: &MayastorCliArgs) -> Result<(), Box<dyn std::error::Error>> {
     let grpc_socket_addr = args.grpc_endpoint();
     let registration_addr = args.registration_endpoint.clone();
     let rpc_address = args.rpc_address.clone();
     let api_versions = args.api_versions.clone();
     let node_name = grpc::node_name(&args.node_name);
     let node_nqn = args.make_hostnqn();
+    let grpc_tls = args.grpc_tls()?;
+    let hb_interval = args.hb_interval.map(Into::into);
+    let hb_timeout = args.hb_timeout.map(Into::into);
 
     let ps_endpoint = args.ps_endpoint.clone();
     let ps_timeout = args.ps_timeout;
@@ -162,19 +165,28 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                     grpc_socket_addr,
                     rpc_address,
                     api_versions.clone(),
+                    grpc_tls.clone(),
                 )
                 .boxed(),
             );
 
             if let Some(registration_addr) = registration_addr {
-                Registration::init(
+                if let Err(error) = Registration::init(
                     &node_name,
                     &node_nqn,
                     // todo: handle scope ids?
                     &grpc_socket_addr.to_string(),
                     registration_addr,
                     api_versions,
-                );
+                    grpc_tls,
+                    hb_interval,
+                    hb_timeout,
+                ) {
+                    error!("Failed to initialise the registration client: {error}");
+                    signal_hook::low_level::raise(signal_hook::consts::SIGUSR1)
+                        .expect("failed to raise internal error");
+                    return;
+                }
                 futures.push(Registration::run().boxed());
             }
 
@@ -186,6 +198,8 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             };
         });
     });
+
+    Ok(())
 }
 
 fn hugepage_get_nr(hugepage_path: &Path) -> (u32, u32) {
@@ -291,6 +305,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("{}", fmt_package_info!());
 
+    let fips_schemes = fips::supported_signature_schemes();
+    if fips::enabled() {
+        info!(
+            schemes = ?fips_schemes,
+            "FIPS mode is enabled: the linked crypto module is FIPS validated"
+        );
+    } else {
+        info!(
+            schemes = ?fips_schemes,
+            "FIPS mode is disabled: the linked crypto module is not FIPS validated"
+        );
+    }
+
     if let Err(error) = Prctl::set_io_flusher() {
         error!(%error, "Failed to set PR_SET_IO_FLUSHER (CAP_SYS_RESOURCE is required)");
     } else {
@@ -346,7 +373,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("kernel nvme initiator multipath support: {}", nvme_mp);
 
     let ms = MayastorEnvironment::new(args.clone()).init();
-    start_tokio_runtime(&args);
+    start_tokio_runtime(&args)?;
 
     Reactors::current().init_running();
     Reactors::current().poll_reactor();

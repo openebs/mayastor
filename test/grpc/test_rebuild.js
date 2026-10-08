@@ -65,7 +65,7 @@ function createGrpcClient () {
 
   const client = new mayastor.Mayastor(
     common.grpcEndpoint,
-    grpc.credentials.createInsecure()
+    common.grpcClientCredentials()
   );
   grpcPromise.promisifyAll(client);
   return client;

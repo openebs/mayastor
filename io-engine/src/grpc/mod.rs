@@ -49,6 +49,7 @@ impl From<CoreError> for tonic::Status {
 
 pub mod controller_grpc;
 mod server;
+pub mod tls;
 pub mod v0 {
     pub mod bdev_grpc;
     pub mod json_grpc;

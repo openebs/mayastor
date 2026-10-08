@@ -75,60 +75,84 @@ pub struct Registration {
 static GRPC_REGISTRATION: OnceCell<Registration> = OnceCell::new();
 impl Registration {
     /// Initialise the global registration instance
+    #[allow(clippy::too_many_arguments)]
     pub fn init(
         node: &str,
         node_nqn: &Option<String>,
         grpc_endpoint: &str,
         registration_addr: Uri,
         api_versions: Vec<ApiVersion>,
-    ) {
-        GRPC_REGISTRATION.get_or_init(|| {
+        grpc_tls: Option<crate::grpc::tls::GrpcServerTls>,
+        hb_interval: Option<Duration>,
+        hb_timeout: Option<Duration>,
+    ) -> Result<(), String> {
+        GRPC_REGISTRATION.get_or_try_init(|| {
             Registration::new(
                 node,
                 node_nqn,
                 grpc_endpoint,
                 registration_addr,
                 api_versions,
+                grpc_tls,
+                hb_interval,
+                hb_timeout,
             )
-        });
+        })?;
+        Ok(())
     }
 
     /// Create a new registration instance
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node: &str,
         node_nqn: &Option<String>,
         grpc_endpoint: &str,
         registration_addr: Uri,
         api_versions: Vec<ApiVersion>,
-    ) -> Self {
+        grpc_tls: Option<crate::grpc::tls::GrpcServerTls>,
+        hb_interval: Option<Duration>,
+        hb_timeout: Option<Duration>,
+    ) -> Result<Self, String> {
         let (msg_sender, msg_receiver) = async_channel::unbounded::<()>();
         let config = Configuration {
             api_versions,
             node: node.to_owned(),
             node_nqn: node_nqn.to_owned(),
             grpc_endpoint: grpc_endpoint.to_owned(),
-            hb_interval_sec: match env::var("MAYASTOR_HB_INTERVAL_SEC").map(|v| v.parse::<u64>()) {
-                Ok(Ok(num)) => Duration::from_secs(num),
-                _ => HB_INTERVAL_SEC,
-            },
-            hb_timeout_sec: match env::var("MAYASTOR_HB_TIMEOUT_SEC").map(|v| v.parse::<u64>()) {
-                Ok(Ok(num)) => Duration::from_secs(num),
-                _ => HB_TIMEOUT_SEC,
-            },
+            hb_interval_sec: hb_interval.unwrap_or_else(|| {
+                match env::var("MAYASTOR_HB_INTERVAL_SEC").map(|v| v.parse::<u64>()) {
+                    Ok(Ok(num)) => Duration::from_secs(num),
+                    _ => HB_INTERVAL_SEC,
+                }
+            }),
+            hb_timeout_sec: hb_timeout.unwrap_or_else(|| {
+                match env::var("MAYASTOR_HB_TIMEOUT_SEC").map(|v| v.parse::<u64>()) {
+                    Ok(Ok(num)) => Duration::from_secs(num),
+                    _ => HB_TIMEOUT_SEC,
+                }
+            }),
             instance_uuid: uuid::Uuid::new_v4(),
+        };
+        // When connecting over TLS the handshake is performed by a custom
+        // connector, so the endpoint must carry an `http` scheme to stop tonic
+        // from applying (and rejecting) its own TLS logic.
+        let registration_addr = if grpc_tls.is_some() {
+            force_http_scheme(registration_addr)?
+        } else {
+            registration_addr
         };
         let endpoint = tonic::transport::Endpoint::from(registration_addr)
             .connect_timeout(config.hb_timeout_sec)
             .timeout(config.hb_timeout_sec)
             .http2_keep_alive_interval(HTTP_KEEP_ALIVE_INTERVAL)
             .keep_alive_timeout(HTTP_KEEP_ALIVE_TIMEOUT);
-        let channel = endpoint.connect_lazy();
-        Self {
+        let channel = crate::grpc::tls::registration_channel(&endpoint, grpc_tls.as_ref())?;
+        Ok(Self {
             config,
             client: registration_client::RegistrationClient::new(channel),
             rcv_chan: msg_receiver,
             fini_chan: msg_sender,
-        }
+        })
     }
 
     /// Get the instance uuid.
@@ -251,4 +275,20 @@ impl From<ApiVersion> for io_engine_api::v1::registration::ApiVersion {
             ApiVersion::V1 => Self::V1,
         }
     }
+}
+
+/// Rewrite the endpoint's scheme to `http`.
+///
+/// When TLS is enabled the handshake is driven by a custom connector, so the
+/// endpoint itself must carry an `http` scheme to prevent tonic from applying
+/// (and rejecting) its own TLS logic.
+fn force_http_scheme(uri: Uri) -> Result<Uri, String> {
+    let mut parts = uri.into_parts();
+    parts.scheme = Some(http::uri::Scheme::HTTP);
+    // `Uri::from_parts` requires a path-and-query once a scheme/authority is
+    // set; default to the root path when the original endpoint had none.
+    if parts.path_and_query.is_none() {
+        parts.path_and_query = Some(http::uri::PathAndQuery::from_static("/"));
+    }
+    Uri::from_parts(parts).map_err(|error| format!("invalid http registration endpoint: {error}"))
 }

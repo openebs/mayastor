@@ -147,6 +147,50 @@ pub struct MayastorCliArgs {
     #[clap(short = 'R')]
     /// Registration grpc endpoint
     pub registration_endpoint: Option<Uri>,
+    /// Registration heartbeat interval (how often the register message is sent). {n}
+    /// Accepts a humantime duration, e.g. "5s", "500ms", "1s 500ms". {n}
+    /// Takes precedence over the legacy MAYASTOR_HB_INTERVAL_SEC (whole seconds).
+    #[clap(long = "hb-interval", env = "MAYASTOR_HB_INTERVAL")]
+    pub hb_interval: Option<humantime::Duration>,
+    /// Registration heartbeat timeout (how long to wait to send a register {n}
+    /// message before timing out). Accepts a humantime duration, e.g. "5s". {n}
+    /// Takes precedence over the legacy MAYASTOR_HB_TIMEOUT_SEC (whole seconds).
+    #[clap(long = "hb-timeout", env = "MAYASTOR_HB_TIMEOUT")]
+    pub hb_timeout: Option<humantime::Duration>,
+    /// Path to the TLS server certificate chain for the gRPC server. {n}
+    /// Must be provided together with the private key.
+    #[clap(
+        long = "grpc-tls-cert-file",
+        env = "GRPC_TLS_CERT_FILE",
+        requires = "grpc_tls_key_file"
+    )]
+    pub grpc_tls_cert_file: Option<std::path::PathBuf>,
+    /// Path to the TLS server private key for the gRPC server. {n}
+    /// Must be provided together with the certificate.
+    #[clap(
+        long = "grpc-tls-key-file",
+        env = "GRPC_TLS_KEY_FILE",
+        requires = "grpc_tls_cert_file"
+    )]
+    pub grpc_tls_key_file: Option<std::path::PathBuf>,
+    /// Path to the CA bundle used to authenticate gRPC clients (mutual TLS).
+    #[clap(long = "grpc-tls-ca-file", env = "GRPC_TLS_CA_FILE")]
+    pub grpc_tls_ca_file: Option<std::path::PathBuf>,
+    /// Serve the gRPC server over TLS, defaulting to an ephemeral self-signed {n}
+    /// certificate (auto-TLS). Supplying the certificate files below overrides
+    /// this with file-backed TLS.
+    #[clap(long = "grpc-tls", env = "GRPC_TLS", value_parser = delay_compat)]
+    pub grpc_tls: bool,
+    /// Serve the gRPC server with an ephemeral self-signed TLS certificate. {n}
+    /// The listener still accepts plaintext clients on the same port, so a
+    /// rolling upgrade from a plaintext control-plane keeps working.
+    #[clap(
+        long = "grpc-auto-tls",
+        env = "GRPC_AUTO_TLS",
+        conflicts_with_all = ["grpc_tls_cert_file", "grpc_tls_key_file", "grpc_tls_ca_file"],
+        value_parser = delay_compat
+    )]
+    pub grpc_auto_tls: bool,
     #[clap(long, short = 'L')]
     /// Enable logging for SPDK sub-components.
     pub log_components: Vec<String>,
@@ -496,6 +540,7 @@ impl MayastorFeatures {
         // validated, so encryption must not be offered in FIPS mode.
         let diskpool_encryption =
             !fips && env::var("ENABLE_DISKPOOL_ENCRYPTION").as_deref() == Ok("true");
+        let grpc_tls = env::var("GRPC_SERVER_TLS").as_deref() == Ok("true");
         MayastorFeatures {
             asymmetric_namespace_access: ana,
             logical_volume_manager: lvm,
@@ -504,6 +549,7 @@ impl MayastorFeatures {
             fips,
             diskpool_encryption,
             nexus_label_version: io_engine_api::v1::nexus::NexusLabelVersion::LabelV2 as u32,
+            grpc_tls,
         }
     }
     /// Get all the supported and enabled features.
@@ -516,6 +562,9 @@ impl MayastorFeatures {
     /// is initialized, as that is where pools from the pool config file are
     /// imported from.
     fn configure(args: &MayastorCliArgs) {
+        if args.grpc_tls_enabled() {
+            env::set_var("GRPC_SERVER_TLS", "true");
+        }
         if args.fips {
             env::set_var("ENABLE_FIPS", "true");
             warn!(
@@ -556,6 +605,35 @@ impl MayastorCliArgs {
             std::net::SocketAddr::new(self.grpc_ip.ip(), self.grpc_port)
         }
     }
+
+    /// Whether the gRPC server should serve TLS connections.
+    pub fn grpc_tls_enabled(&self) -> bool {
+        self.grpc_auto_tls || self.grpc_tls || self.grpc_tls_cert_file.is_some()
+    }
+
+    /// The TLS configuration for the gRPC server, if any.
+    ///
+    /// Returns [`GrpcServerTls::Auto`] for an ephemeral self-signed
+    /// certificate, or [`GrpcServerTls::Files`] for file-backed certificates.
+    pub fn grpc_tls(&self) -> Result<Option<grpc::tls::GrpcServerTls>, String> {
+        if self.grpc_auto_tls {
+            return Ok(Some(grpc::tls::GrpcServerTls::Auto));
+        }
+        let tls = grpc::tls::TlsConfig::new(
+            self.grpc_tls_ca_file.clone(),
+            self.grpc_tls_cert_file.clone(),
+            self.grpc_tls_key_file.clone(),
+        )?;
+        if tls.enabled() {
+            return Ok(Some(grpc::tls::GrpcServerTls::Files(tls)));
+        }
+        // `--grpc-tls` enables TLS without any certificate files, defaulting to
+        // an ephemeral self-signed certificate (auto-TLS).
+        if self.grpc_tls {
+            return Ok(Some(grpc::tls::GrpcServerTls::Auto));
+        }
+        Ok(None)
+    }
 }
 
 /// Global exit code of the program, initially set to -1 to capture double
@@ -584,6 +662,8 @@ pub struct MayastorEnvironment {
     pub node_name: String,
     pub node_nqn: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
+    /// TLS configuration for the gRPC server, if any.
+    grpc_tls: Option<grpc::tls::GrpcServerTls>,
     pub registration_endpoint: Option<Uri>,
     ps_endpoint: Option<String>,
     ps_timeout: Duration,
@@ -644,6 +724,7 @@ impl Default for MayastorEnvironment {
             node_name: "mayastor-node".into(),
             node_nqn: None,
             grpc_endpoint: None,
+            grpc_tls: None,
             registration_endpoint: None,
             ps_endpoint: None,
             ps_timeout: Duration::from_secs(10),
@@ -809,8 +890,11 @@ impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         MayastorFeatures::configure(&args);
 
+        let grpc_tls = args.grpc_tls().expect("invalid gRPC TLS configuration");
+
         Self {
             grpc_endpoint: Some(args.grpc_endpoint()),
+            grpc_tls,
             registration_endpoint: args.registration_endpoint,
             ps_endpoint: args.ps_endpoint,
             ps_timeout: args.ps_timeout,
@@ -1481,6 +1565,7 @@ impl MayastorEnvironment {
         let ps_timeout = self.ps_timeout;
         let ps_retries = self.ps_retries;
         let grpc_endpoint = self.grpc_endpoint;
+        let grpc_tls = self.grpc_tls.clone();
         let rpc_addr = self.rpc_addr.clone();
         let api_versions = self.api_versions.clone();
         let ms = self.init();
@@ -1515,6 +1600,7 @@ impl MayastorEnvironment {
                     grpc_endpoint,
                     rpc_addr,
                     api_versions,
+                    grpc_tls,
                 )));
             }
             futures.push(Box::pin(subsys::Registration::run()));

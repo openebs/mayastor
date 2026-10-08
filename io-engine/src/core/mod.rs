@@ -337,6 +337,9 @@ pub struct MayastorFeatures {
     pub diskpool_encryption: bool,
     /// Nexus label versioning capability.
     pub nexus_label_version: u32,
+    /// When set to true, the gRPC server serves TLS connections and the
+    /// control-plane should connect to it over TLS.
+    pub grpc_tls: bool,
 }
 
 impl MayastorFeatures {
@@ -363,6 +366,11 @@ impl MayastorFeatures {
     /// Get nexus label versioning feature state.
     pub fn nexus_label_version(&self) -> u32 {
         self.nexus_label_version
+    }
+
+    /// Check if the gRPC server serves TLS connections.
+    pub fn grpc_tls(&self) -> bool {
+        self.grpc_tls
     }
 }
 
