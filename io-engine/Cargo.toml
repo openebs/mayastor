@@ -77,13 +77,7 @@ either = "1.13.0"
 sha2 = "0.10.8"
 signal-hook = "0.3.17"
 crc = "1.8.1"
-inotify = "0.11"
-tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs"] }
-rustls-pemfile = "2.2.0"
-rustls-native-certs = "0.8.3"
-rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
-hyper-util = { version = "0.1.10", features = ["tokio"] }
-tower = { version = "0.5", features = ["util"] }
+inotify = { workspace = true }
 
 chrono = { workspace = true }
 colored_json = { workspace = true }
@@ -98,7 +92,6 @@ parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-rustls = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 snafu = { workspace = true }
@@ -115,6 +108,7 @@ url = { workspace = true }
 devinfo = { path = "../utils/dependencies/devinfo" }
 # Depending on this is what puts our tls stacks on the FIPS validated crypto.
 fips = { path = "../utils/dependencies/fips" }
+grpc-tls = { path = "../utils/dependencies/grpc-tls" }
 jsonrpc = { path = "../jsonrpc" }
 io-engine-api = { path = "../utils/dependencies/apis/io-engine" }
 spdk-rs = { path = "../spdk-rs" }

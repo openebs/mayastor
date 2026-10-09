@@ -135,16 +135,10 @@ impl MayastorGrpcServer {
                     .with_nodelay(Some(true));
                 router.serve_with_incoming(incoming).boxed()
             }
-            Some(super::tls::GrpcServerTls::Auto) => {
-                let config = super::tls::auto_server_config(vec!["localhost".to_string()])
-                    .map_err(box_err)?;
-                let incoming = super::tls::incoming_with_server_config(endpoint, config)
+            Some(tls) => {
+                let incoming = super::tls::incoming(endpoint, &tls)
                     .await
                     .map_err(box_err)?;
-                router.serve_with_incoming(incoming).boxed()
-            }
-            Some(super::tls::GrpcServerTls::Files(tls)) => {
-                let incoming = super::tls::incoming(endpoint, tls).await.map_err(box_err)?;
                 router.serve_with_incoming(incoming).boxed()
             }
         };

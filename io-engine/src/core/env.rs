@@ -182,8 +182,8 @@ pub struct MayastorCliArgs {
     #[clap(long = "grpc-tls", env = "GRPC_TLS", value_parser = delay_compat)]
     pub grpc_tls: bool,
     /// Serve the gRPC server with an ephemeral self-signed TLS certificate. {n}
-    /// The listener still accepts plaintext clients on the same port, so a
-    /// rolling upgrade from a plaintext control-plane keeps working.
+    /// The server then serves TLS exclusively; the control-plane learns the
+    /// transport from the registration and dials it accordingly.
     #[clap(
         long = "grpc-auto-tls",
         env = "GRPC_AUTO_TLS",
@@ -623,7 +623,8 @@ impl MayastorCliArgs {
             self.grpc_tls_ca_file.clone(),
             self.grpc_tls_cert_file.clone(),
             self.grpc_tls_key_file.clone(),
-        )?;
+        )
+        .map_err(|error| error.to_string())?;
         if tls.enabled() {
             return Ok(Some(grpc::tls::GrpcServerTls::Files(tls)));
         }

@@ -692,6 +692,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cert-watcher"
+version = "0.1.0"
+dependencies = [
+ "inotify",
+ "tracing",
+]
+
+[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1623,6 +1631,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "grpc-tls"
+version = "0.1.0"
+dependencies = [
+ "cert-watcher",
+ "fips",
+ "futures",
+ "http",
+ "hyper-util",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs 0.8.3",
+ "rustls-pemfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tonic",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2104,10 +2134,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cc00ea907cab49550b7da656f80ebb97be1b997d931fbcd28d39734e17ce592"
 dependencies = [
  "bitflags 2.6.0",
- "futures-util",
  "inotify-sys",
  "libc",
- "tokio",
 ]
 
 [[package]]
@@ -2148,10 +2176,10 @@ dependencies = [
  "function_name",
  "futures",
  "gettid",
+ "grpc-tls",
  "hex",
  "http",
  "humantime",
- "hyper-util",
  "inotify",
  "io-engine-api",
  "io-engine-tests",
@@ -2172,13 +2200,9 @@ dependencies = [
  "prettytable-rs",
  "prost",
  "rand",
- "rcgen",
  "regex",
  "rstack",
  "run_script",
- "rustls",
- "rustls-native-certs 0.8.3",
- "rustls-pemfile",
  "secret-provider",
  "serde",
  "serde_json",
@@ -2191,10 +2215,8 @@ dependencies = [
  "strum_macros",
  "sysfs",
  "tokio",
- "tokio-rustls",
  "tokio-stream",
  "tonic",
- "tower",
  "tracing",
  "tracing-core",
  "tracing-filter",

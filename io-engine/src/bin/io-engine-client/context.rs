@@ -101,7 +101,9 @@ impl TlsArgs {
             self.tls_cert.clone(),
             self.tls_key.clone(),
         )
-        .map_err(|message| Error::InvalidTls { message })?;
+        .map_err(|error| Error::InvalidTls {
+            message: error.to_string(),
+        })?;
         if tls.enabled() {
             return Ok(Some(GrpcServerTls::Files(tls)));
         }
