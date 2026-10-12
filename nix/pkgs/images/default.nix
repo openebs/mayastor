@@ -54,6 +54,8 @@ let
     extraCommands = ''
       mkdir tmp
       mkdir -p var/tmp
+      mkdir -p licenses
+      cp --no-preserve=mode ${../../../LICENSE} licenses/LICENSE
     '';
   };
   clientImageProps = {
@@ -64,6 +66,8 @@ let
     extraCommands = ''
       mkdir tmp
       mkdir -p var/tmp
+      mkdir -p licenses
+      cp --no-preserve=mode ${../../../LICENSE} licenses/LICENSE
     '';
   };
   spdk_fio_engine = runCommand "spdk_fio_engine" { } ''
