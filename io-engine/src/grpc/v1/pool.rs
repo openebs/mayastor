@@ -92,38 +92,68 @@ impl From<ClearErrorRequest> for FindPoolArgs {
     }
 }
 
-impl From<crate::core::DeviceHealth> for DeviceHealth {
-    fn from(h: crate::core::DeviceHealth) -> Self {
+impl From<crate::core::SmartData> for SmartData {
+    fn from(d: crate::core::SmartData) -> Self {
         Self {
-            critical_warning: h.critical_warning as u32,
-            healthy: h.is_healthy(),
-            temperature_celsius: h.temperature_celsius.map(|t| t as i32),
-            available_spare_percent: h.available_spare_percent.map(|v| v as u32),
-            available_spare_threshold_percent: h
+            smart_status_passed: d.smart_status_passed,
+            temperature_celsius: d.temperature_celsius.map(|t| t as i32),
+            power_on_hours: d.power_on_hours.map(|v| v as u64),
+            power_cycles: d.power_cycles.map(|v| v as u64),
+            identity: d.identity.map(DeviceIdentity::from),
+            available_spare_percent: d.available_spare_percent.map(|v| v as u32),
+            available_spare_threshold_percent: d
                 .available_spare_threshold_percent
                 .map(|v| v as u32),
-            percentage_used: h.percentage_used.map(|v| v as u32),
-            data_units_read: h.data_units_read.map(|v| v as u64),
-            data_units_written: h.data_units_written.map(|v| v as u64),
-            host_reads: h.host_reads.map(|v| v as u64),
-            host_writes: h.host_writes.map(|v| v as u64),
-            controller_busy_minutes: h.controller_busy_minutes.map(|v| v as u64),
-            power_cycles: h.power_cycles.map(|v| v as u64),
-            power_on_hours: h.power_on_hours.map(|v| v as u64),
-            unsafe_shutdowns: h.unsafe_shutdowns.map(|v| v as u64),
-            media_errors: h.media_errors.map(|v| v as u64),
-            num_error_log_entries: h.num_error_log_entries.map(|v| v as u64),
-            identity: h.identity.map(DeviceIdentity::from),
-            smart_attributes: h
-                .smart_attributes
-                .into_iter()
-                .map(SmartAttribute::from)
-                .collect(),
-            error_log_entries: h
+            percentage_used: d.percentage_used.map(|v| v as u32),
+            protocol: d.protocol.map(smart_data::Protocol::from),
+        }
+    }
+}
+
+impl From<crate::core::SmartProtocol> for smart_data::Protocol {
+    fn from(p: crate::core::SmartProtocol) -> Self {
+        match p {
+            crate::core::SmartProtocol::Nvme(n) => Self::Nvme(n.into()),
+            crate::core::SmartProtocol::Ata(a) => Self::Ata(a.into()),
+        }
+    }
+}
+
+impl From<crate::core::NvmeSmart> for NvmeSmart {
+    fn from(n: crate::core::NvmeSmart) -> Self {
+        Self {
+            critical_warning: n.critical_warning as u32,
+            temperature_celsius: n.temperature_celsius.map(|t| t as i32),
+            available_spare_percent: n.available_spare_percent.map(|v| v as u32),
+            available_spare_threshold_percent: n
+                .available_spare_threshold_percent
+                .map(|v| v as u32),
+            percentage_used: n.percentage_used.map(|v| v as u32),
+            data_units_read: n.data_units_read.map(|v| v as u64),
+            data_units_written: n.data_units_written.map(|v| v as u64),
+            host_reads: n.host_reads.map(|v| v as u64),
+            host_writes: n.host_writes.map(|v| v as u64),
+            controller_busy_minutes: n.controller_busy_minutes.map(|v| v as u64),
+            power_cycles: n.power_cycles.map(|v| v as u64),
+            power_on_hours: n.power_on_hours.map(|v| v as u64),
+            unsafe_shutdowns: n.unsafe_shutdowns.map(|v| v as u64),
+            media_errors: n.media_errors.map(|v| v as u64),
+            num_error_log_entries: n.num_error_log_entries.map(|v| v as u64),
+            warning_temp_time: n.warning_temp_time,
+            critical_comp_time: n.critical_comp_time,
+            error_log_entries: n
                 .error_log_entries
                 .into_iter()
                 .map(NvmeErrorLogEntry::from)
                 .collect(),
+        }
+    }
+}
+
+impl From<crate::core::AtaSmart> for AtaSmart {
+    fn from(a: crate::core::AtaSmart) -> Self {
+        Self {
+            attributes: a.attributes.into_iter().map(SmartAttribute::from).collect(),
         }
     }
 }
@@ -946,15 +976,15 @@ impl PoolRpc for PoolService {
                                     let mut disks = Vec::with_capacity(uris.len());
                                     for uri in uris {
                                         let result = pool
-                                            .read_device_health(&uri)
+                                            .read_smart_data(&uri)
                                             .await
                                             .map_err(|error| error.to_string());
 
-                                        disks.push(DiskHealth {
+                                        disks.push(DiskSmart {
                                             disk_uri: uri,
                                             supported: result.is_ok(),
                                             error: result.as_ref().err().cloned(),
-                                            health: result.ok().map(DeviceHealth::from),
+                                            smart: result.ok().map(SmartData::from),
                                         });
                                     }
                                     pools.push(PoolSmart {

@@ -1,8 +1,8 @@
 use crate::{
     bdev::PtplFileOps,
     core::{
-        snapshot::SnapshotDescriptor, Bdev, CloneParams, DeviceHealth, LogicalVolume, Protocol,
-        PtplProps, Share, SnapshotParams, UpdateProps,
+        snapshot::SnapshotDescriptor, Bdev, CloneParams, LogicalVolume, Protocol, PtplProps, Share,
+        SmartData, SnapshotParams, UpdateProps,
     },
     pool_backend::{
         Error, FindPoolArgs, IPoolFactory, IPoolProps, ListPoolArgs, PoolArgs, PoolBackend,
@@ -190,7 +190,7 @@ impl PoolOps for Lvs {
         Ok(())
     }
 
-    async fn read_device_health(&self, disk: &str) -> Result<DeviceHealth, CoreError> {
+    async fn read_smart_data(&self, disk: &str) -> Result<SmartData, CoreError> {
         // LVS pools report their disks as bdev URIs (see `disks()` below),
         // not plain kernel paths -- resolve to the registered bdev and ask
         // it for its health directly, rather than reading the URI as a path.
@@ -198,7 +198,7 @@ impl PoolOps for Lvs {
             name: disk.to_string(),
         })?;
         let dev = crate::bdev::device_lookup(&name).ok_or(CoreError::BdevNotFound { name })?;
-        dev.device_health().await
+        dev.smart_data().await
     }
 }
 

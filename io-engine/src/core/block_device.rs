@@ -100,7 +100,7 @@ pub trait BlockDevice {
     /// are read via smartctl on their `/dev` node, while VFIO-bound NVMe is
     /// read via a SMART/Health Get Log Page admin command. Backends that can't
     /// provide it return `NotSupported` (the default).
-    async fn device_health(&self) -> Result<crate::core::DeviceHealth, CoreError> {
+    async fn smart_data(&self) -> Result<crate::core::SmartData, CoreError> {
         Err(CoreError::NotSupported {
             source: Errno::ENXIO,
         })

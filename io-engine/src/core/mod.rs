@@ -19,7 +19,6 @@ pub use descriptor::{DescriptorGuard, UntypedDescriptorGuard};
 pub use device_events::{
     DeviceEventDispatcher, DeviceEventListener, DeviceEventSink, DeviceEventType,
 };
-pub use device_health::{DeviceHealth, DeviceIdentity, NvmeErrorLogEntry, SmartAttribute};
 pub use device_monitor::{device_cmd_queue, device_monitor_loop, DeviceCommand};
 pub use env::{
     mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, NvmeCliArgs, PoolCliArgs, RdmaState,
@@ -30,6 +29,10 @@ pub use io_device::IoDevice;
 pub use logical_volume::LogicalVolume;
 pub use nic::SIpAddr;
 pub use reactor::{reactor_monitor_loop, Reactor, ReactorState, Reactors, REACTOR_LIST};
+pub use smart::{
+    AtaSmart, DeviceIdentity, NvmeErrorLogEntry, NvmeSmart, SmartAttribute, SmartData,
+    SmartProtocol,
+};
 
 pub use lock::{
     ProtectedSubsystems, ResourceLockGuard, ResourceLockManager, ResourceLockManagerConfig,
@@ -57,7 +60,6 @@ mod bdev;
 mod block_device;
 mod descriptor;
 mod device_events;
-pub(crate) mod device_health;
 mod device_monitor;
 pub mod diagnostics;
 mod env;
@@ -74,6 +76,7 @@ mod reactor;
 pub mod runtime;
 pub mod segment_map;
 mod share;
+pub(crate) mod smart;
 pub mod snapshot;
 pub(crate) mod thread;
 pub(crate) mod wiper;
