@@ -39,6 +39,33 @@ let
     ./git-org-name.sh ${sourcer.git-src} --case lower --remote origin > $out
   '')}";
 
+  vendor = "OpenEBS";
+  maintainer = "OpenEBS Authors (https://github.com/openebs/community)";
+  # `release` identifies a build of a given `version`. Nothing here
+  # distinguishes one rebuild of a version from another, so it is fixed rather
+  # than threaded through from a build argument nothing would ever set.
+  release = "1";
+  descriptions = {
+    io-engine = "Mayastor I/O engine - the data plane: an SPDK-based target serving NVMe-oF volumes.";
+    io-engine-client = "Mayastor I/O engine client - gRPC command line client for the Mayastor data plane.";
+    casperf = "Mayastor casperf - SPDK-based latency and throughput measurement tool for Mayastor devices.";
+    fio-spdk = "Mayastor fio-spdk - fio with the SPDK NVMe engine preloaded, for benchmarking Mayastor volumes.";
+  };
+  # A debug image holds the same component as its release counterpart, so it
+  # takes that component's description. Only io-engine publishes under a
+  # distinct `-dev` name; the other debug variants reuse the release name.
+  mkLabels = name:
+    let
+      base = lib.removeSuffix "-dev" name;
+      description = descriptions.${base}
+        + lib.optionalString (base != name) " Debug build.";
+    in
+    {
+      inherit vendor maintainer release version description;
+      name = "${img_prefix}-${name}";
+      summary = description;
+    };
+
   # common props for all io-engine images
   ioEngineImageProps = {
     tag = version;
@@ -107,35 +134,40 @@ let
   mayastor-io-engine = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine";
     copyToRoot = [ busybox io-engine-bins mctl smartmontools ];
+    config = ioEngineImageProps.config // { Labels = mkLabels "io-engine"; };
   });
   mayastor-io-engine-dev = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine-dev";
     copyToRoot = [ busybox io-engine-dev smartmontools ];
+    config = ioEngineImageProps.config // { Labels = mkLabels "io-engine-dev"; };
   });
 
   mayastor-io-engine-client = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine-client";
     copyToRoot = [ busybox io-engine ];
-    config = { Entrypoint = [ "/bin/io-engine-client" ]; };
+    config = { Entrypoint = [ "/bin/io-engine-client" ]; Labels = mkLabels "io-engine-client"; };
   });
   mayastor-io-engine-client-dev = dockerTools.buildImage (ioEngineImageProps // {
     name = "${repo-org}/${img_prefix}-io-engine-client";
     copyToRoot = [ busybox io-engine-dev ];
-    config = { Entrypoint = [ "/bin/io-engine-client" ]; };
+    config = { Entrypoint = [ "/bin/io-engine-client" ]; Labels = mkLabels "io-engine-client"; };
   });
 
   mayastor-casperf = dockerTools.buildImage (clientImageProps // {
     name = "${repo-org}/${img_prefix}-casperf";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf ];
+    config = clientImageProps.config // { Labels = mkLabels "casperf"; };
   });
   mayastor-casperf-dev = dockerTools.buildImage (clientImageProps // {
     name = "${repo-org}/${img_prefix}-casperf";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini casperf-dev ];
+    config = clientImageProps.config // { Labels = mkLabels "casperf"; };
   });
 
   mayastor-fio-spdk = dockerTools.buildImage (clientImageProps // {
     name = "${repo-org}/${img_prefix}-fio-spdk";
     copyToRoot = clientImageProps.copyToRoot ++ [ tini fio_wrapper ];
+    config = clientImageProps.config // { Labels = mkLabels "fio-spdk"; };
   });
 in
 {
