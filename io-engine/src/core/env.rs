@@ -38,7 +38,7 @@ use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     constants::NVME_NQN_PREFIX,
     core::{
-        nic,
+        cpuset, nic,
         nic::SIpAddr,
         reactor::{Reactor, ReactorState, Reactors},
         Cores, MayastorFeatures, Mthread, NvmfTargetInfo, TransportCaps,
@@ -237,6 +237,16 @@ pub struct MayastorCliArgs {
     /// List of cores to run on instead of using the core mask. {n}
     /// When specified it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
+    #[clap(
+        long = "cores-from-cpuset",
+        conflicts_with_all = ["core_list", "reactor_mask"]
+    )]
+    /// Derive the reactor cores from the CPU set granted to this process
+    /// (the kubelet CPU manager's allocation) instead of using -l/-m. {n}
+    /// Every core of the set is used, so the pod must hold exclusive cores
+    /// (QoS class Guaranteed with an integer CPU request). Conflicts with
+    /// -l and -m, and with eal_opts.core_list in the mayastor config.
+    pub cores_from_cpuset: bool,
     #[clap(short = 'p')]
     /// Endpoint of the persistent store.
     pub ps_endpoint: Option<String>,
@@ -697,6 +707,7 @@ pub struct MayastorEnvironment {
     unlink_hugepage: bool,
     log_component: Vec<String>,
     core_list: Option<String>,
+    cores_from_cpuset: bool,
     bdev_io_ctx_pool_size: u64,
     nvme_ctl_io_ctx_pool_size: u64,
     nvmf_tgt_interface: Option<String>,
@@ -757,6 +768,7 @@ impl Default for MayastorEnvironment {
             unlink_hugepage: true,
             log_component: vec![],
             core_list: None,
+            cores_from_cpuset: false,
             bdev_io_ctx_pool_size: 65535,
             nvme_ctl_io_ctx_pool_size: 65535,
             nvmf_tgt_interface: None,
@@ -919,7 +931,22 @@ impl MayastorEnvironment {
             rpc_addr: args.rpc_address,
             hugedir: args.hugedir,
             env_context: args.env_context,
-            core_list: args.core_list,
+            core_list: if args.cores_from_cpuset {
+                match cpuset::core_list() {
+                    Ok(list) => {
+                        info!("Deriving reactor cores from the container cpuset: {}", list);
+                        Some(list)
+                    }
+                    Err(error) => panic!(
+                        "--cores-from-cpuset was set but the reactor cores \
+                         could not be derived from the container cpuset: {}",
+                        error
+                    ),
+                }
+            } else {
+                args.core_list
+            },
+            cores_from_cpuset: args.cores_from_cpuset,
             bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
             nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
             nvmf_tgt_interface: args.nvmf_tgt_interface,
@@ -1358,6 +1385,12 @@ impl MayastorEnvironment {
             self.reactor_mask = mask.clone();
         }
         if cfg.eal_opts.core_list.is_some() {
+            if self.cores_from_cpuset {
+                panic!(
+                    "eal_opts.core_list in the mayastor config conflicts with \
+                     --cores-from-cpuset; remove one of them"
+                );
+            }
             self.core_list = cfg.eal_opts.core_list.clone();
         }
         if let Some(delay) = cfg.eal_opts.developer_delay {
