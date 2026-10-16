@@ -1,0 +1,113 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-147-generic",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "--all",
+      "/dev/nvme0n1"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1792061487,
+    "asctime": "Thu Oct 15 10:51:27 2026 UTC"
+  },
+  "device": {
+    "name": "/dev/nvme0n1",
+    "info_name": "/dev/nvme0n1",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_name": "Dell Express Flash NVMe P4800X 375GB SFF",
+  "serial_number": "REDACTED",
+  "firmware_version": "E201DP35",
+  "nvme_pci_vendor": {
+    "id": 32902,
+    "subsystem_id": 4136
+  },
+  "nvme_ieee_oui_identifier": 6083300,
+  "nvme_controller_id": 0,
+  "nvme_version": {
+    "string": "<1.2",
+    "value": 0
+  },
+  "nvme_number_of_namespaces": 1,
+  "nvme_namespaces": [
+    {
+      "id": 1,
+      "size": {
+        "blocks": 732585168,
+        "bytes": 375083606016
+      },
+      "capacity": {
+        "blocks": 732585168,
+        "bytes": 375083606016
+      },
+      "utilization": {
+        "blocks": 732585168,
+        "bytes": 375083606016
+      },
+      "formatted_lba_size": 512,
+      "eui64": {
+        "oui": 6083300,
+        "ext_id": 0
+      }
+    }
+  ],
+  "user_capacity": {
+    "blocks": 732585168,
+    "bytes": 375083606016
+  },
+  "logical_block_size": 512,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true,
+    "nvme": {
+      "value": 0
+    }
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 0,
+    "temperature": 38,
+    "available_spare": 100,
+    "available_spare_threshold": 0,
+    "percentage_used": 0,
+    "data_units_read": 594770183,
+    "data_units_written": 844447061,
+    "host_reads": 68682906748,
+    "host_writes": 94025498720,
+    "controller_busy_time": 8382,
+    "power_cycles": 800,
+    "power_on_hours": 34634,
+    "unsafe_shutdowns": 199,
+    "media_errors": 0,
+    "num_err_log_entries": 0
+  },
+  "temperature": {
+    "current": 38
+  },
+  "power_cycle_count": 800,
+  "power_on_time": {
+    "hours": 34634
+  },
+  "nvme_error_information_log": {
+    "size": 64,
+    "read": 16,
+    "unread": 0
+  }
+}

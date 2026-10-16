@@ -1,6 +1,6 @@
 use crate::{
     bdev::crypto::EncryptionKey,
-    core::{BdevStater, BdevStats, CoreError, DeviceHealth, Reactors, ToErrno},
+    core::{BdevStater, BdevStats, CoreError, Reactors, SmartData, ToErrno},
     replica_backend::ReplicaOps,
 };
 use futures::channel::oneshot;
@@ -192,8 +192,8 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
     /// are never registered as SPDK bdevs. A backend whose `disks()` are
     /// bdev URIs instead (e.g. LVS) overrides this to resolve the disk to
     /// its registered bdev and query it directly.
-    async fn read_device_health(&self, disk: &str) -> Result<DeviceHealth, CoreError> {
-        crate::core::device_health::read_device_health(disk).await
+    async fn read_smart_data(&self, disk: &str) -> Result<SmartData, CoreError> {
+        crate::core::smart::read_smart_data(disk).await
     }
 }
 

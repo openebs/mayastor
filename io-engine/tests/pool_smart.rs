@@ -3,15 +3,15 @@
 //! device to at least check it runs without panic?").
 //!
 //! Exercises the real dispatch path end to end via the `ListPoolsSMART` gRPC
-//! call -- `list_pools_smart` handler -> `PoolOps::read_device_health` ->
-//! `Lvs`'s bdev-resolving override -> `device_health()` -> `smartctl` --
+//! call -- `list_pools_smart` handler -> `PoolOps::read_smart_data` ->
+//! `Lvs`'s bdev-resolving override -> `smart_data()` -> `smartctl` --
 //! against pools backed by real (if virtual) kernel block devices, confirming
 //! the gRPC response is well-formed and completes gracefully on two device
 //! classes:
 //! - a loop device (`losetup`) -- unsupported by smartctl, exercises the
-//!   error path (DiskHealth::supported == false).
+//!   error path (DiskSmart::supported == false).
 //! - a `scsi_debug` device -- exercises the SCSI-flavoured success path,
-//!   including the `logical_unit_id` WWN fallback (see `device_health.rs`).
+//!   including the `logical_unit_id` WWN fallback (see `smart.rs`).
 
 use common::MayastorTest;
 use io_engine::{
@@ -187,11 +187,11 @@ async fn pool_smart_on_scsi_debug_device_does_not_panic() {
 
     let disk = &pool_smart.disks[0];
     if disk.supported {
-        let health = disk
-            .health
+        let smart = disk
+            .smart
             .as_ref()
-            .expect("supported disk should have health");
-        let identity = health
+            .expect("supported disk should have SMART data");
+        let identity = smart
             .identity
             .as_ref()
             .expect("scsi_debug reports identity");

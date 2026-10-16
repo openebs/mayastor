@@ -24,9 +24,9 @@ use spdk_rs::{
 use crate::core::{
     mempool::MemoryPool, Bdev, BdevHandle, BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle,
     BlockDeviceIoStats, CoreError, DeviceEventDispatcher, DeviceEventSink, DeviceEventType,
-    DeviceHealth, DeviceIoController, IoCompletionCallback, IoCompletionCallbackArg,
-    IoCompletionStatus, NvmeStatus, ReadOptions, SnapshotParams, ToErrno, UntypedBdev,
-    UntypedBdevHandle, UntypedDescriptorGuard,
+    DeviceIoController, IoCompletionCallback, IoCompletionCallbackArg, IoCompletionStatus,
+    NvmeStatus, ReadOptions, SmartData, SnapshotParams, ToErrno, UntypedBdev, UntypedBdevHandle,
+    UntypedDescriptorGuard,
 };
 
 #[cfg(feature = "fault-injection")]
@@ -133,7 +133,7 @@ impl BlockDevice for SpdkBlockDevice {
         Ok(())
     }
 
-    async fn device_health(&self) -> Result<DeviceHealth, CoreError> {
+    async fn smart_data(&self) -> Result<SmartData, CoreError> {
         let driver = self.driver_name();
         let name = self.device_name();
 
@@ -144,7 +144,7 @@ impl BlockDevice for SpdkBlockDevice {
         // regular file path, not a `/dev` node -- there's no physical disk to
         // query, so they fall through to the generic NotSupported below.
         if (driver == "aio" || driver == "uring") && name.starts_with("/dev/") {
-            return crate::core::device_health::read_device_health(&name).await;
+            return crate::core::smart::read_smart_data(&name).await;
         }
 
         // VFIO-bound NVMe (pcie:// -> SPDK nvme bdev) has no /dev node; read the
@@ -162,24 +162,27 @@ impl BlockDevice for SpdkBlockDevice {
         // A short/garbled log page is a decode failure, not a missing
         // device (we already know the device exists -- we just read from
         // it) -- report EIO rather than ENXIO.
-        let mut health = DeviceHealth::from_nvme_smart(buf.as_slice())
+        let mut smart = SmartData::from_nvme_smart(buf.as_slice())
             .ok_or(CoreError::NotSupported { source: Errno::EIO })?;
 
         // The SMART log only reports how many error-log entries exist;
         // fetch the entries themselves (Log Page 01h) when there are any.
-        if let Some(count) = health.num_error_log_entries {
+        let num_error_log_entries = smart.nvme().and_then(|n| n.num_error_log_entries);
+        if let Some(count) = num_error_log_entries {
             if count > 0 {
                 const MAX_ENTRIES: u32 = 16;
                 let max_entries = count.min(MAX_ENTRIES as u128) as u32;
-                let entry_size = crate::core::device_health::NVME_ERROR_LOG_ENTRY_SIZE as u64;
+                let entry_size = crate::core::smart::NVME_ERROR_LOG_ENTRY_SIZE as u64;
                 let mut err_buf = DmaBuf::new((max_entries as u64) * entry_size, self.alignment())
                     .map_err(|_| CoreError::DmaAllocationFailed {
                         size: (max_entries as u64) * entry_size,
                     })?;
                 match hdl.nvme_get_error_log(&mut err_buf, max_entries).await {
                     Ok(()) => {
-                        health.error_log_entries =
-                            crate::core::device_health::parse_nvme_error_log(err_buf.as_slice());
+                        if let Some(nvme) = smart.nvme_mut() {
+                            nvme.error_log_entries =
+                                crate::core::smart::parse_nvme_error_log(err_buf.as_slice());
+                        }
                     }
                     Err(error) => {
                         warn!("failed to read NVMe error log for '{name}': {error}");
@@ -188,10 +191,10 @@ impl BlockDevice for SpdkBlockDevice {
             }
         }
 
-        // Identity is static for the device's lifetime, unlike the health
+        // Identity is static for the device's lifetime, unlike the SMART
         // counters above -- fetch the Identify Controller admin command
         // only once per device and reuse it on every subsequent poll.
-        health.identity = match crate::core::device_health::cached_nvme_identity(&name) {
+        smart.identity = match crate::core::smart::cached_nvme_identity(&name) {
             Some(mut identity) => {
                 // Capacity/sector size can change if the namespace is
                 // resized after identity was cached; refresh them from the
@@ -205,11 +208,9 @@ impl BlockDevice for SpdkBlockDevice {
                 let mut ident_buf = DmaBuf::new(4096, self.alignment())
                     .map_err(|_| CoreError::DmaAllocationFailed { size: 4096 })?;
                 let identity = match hdl.nvme_identify_ctrlr(&mut ident_buf).await {
-                    Ok(()) => crate::core::device_health::identity_from_nvme_identify(
-                        ident_buf.as_slice(),
-                    ),
+                    Ok(()) => crate::core::smart::identity_from_nvme_identify(ident_buf.as_slice()),
                     Err(error) => {
-                        // Health itself already succeeded; don't fail the whole call just
+                        // SMART data itself already succeeded; don't fail the whole call just
                         // because identity didn't, but don't swallow it silently either.
                         warn!("failed to identify NVMe controller for '{name}': {error}");
                         None
@@ -223,13 +224,13 @@ impl BlockDevice for SpdkBlockDevice {
                     identity
                 });
                 if let Some(identity) = identity.clone() {
-                    crate::core::device_health::cache_nvme_identity(&name, identity);
+                    crate::core::smart::cache_nvme_identity(&name, identity);
                 }
                 identity
             }
         };
 
-        Ok(health)
+        Ok(smart)
     }
 }
 
@@ -796,7 +797,7 @@ pub fn bdev_event_callback<T: BdevOps>(event: spdk_rs::BdevEvent, bdev: spdk_rs:
             // Drop any cached VFIO NVMe identity for this device name -- it
             // must not be served to a different physical device that later
             // reuses the same bdev name (e.g. the pool recreated).
-            crate::core::device_health::evict_nvme_identity(dev.name());
+            crate::core::smart::evict_nvme_identity(dev.name());
             DeviceEventType::DeviceRemoved
         }
         spdk_rs::BdevEvent::Resize => {

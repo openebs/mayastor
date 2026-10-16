@@ -1,0 +1,312 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      5
+    ],
+    "pre_release": false,
+    "platform_info": "x86_64-linux-6.18.45",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "--all",
+      "-l",
+      "devstat",
+      "/dev/nvme2n1"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1792088350,
+    "asctime": "Thu Oct 15 19:19:10 2026 BST"
+  },
+  "device": {
+    "name": "/dev/nvme2n1",
+    "info_name": "/dev/nvme2n1",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_name": "Samsung SSD 970 EVO Plus 500GB",
+  "serial_number": "REDACTED",
+  "firmware_version": "2B2QEXM7",
+  "nvme_pci_vendor": {
+    "id": 5197,
+    "subsystem_id": 5197
+  },
+  "nvme_ieee_oui_identifier": 9528,
+  "nvme_total_capacity": 500107862016,
+  "nvme_unallocated_capacity": 0,
+  "nvme_controller_id": 4,
+  "nvme_version": {
+    "string": "1.3",
+    "value": 66304
+  },
+  "nvme_number_of_namespaces": 1,
+  "nvme_namespaces": [
+    {
+      "id": 1,
+      "size": {
+        "blocks": 976773168,
+        "bytes": 500107862016
+      },
+      "capacity": {
+        "blocks": 976773168,
+        "bytes": 500107862016
+      },
+      "utilization": {
+        "blocks": 311370184,
+        "bytes": 159421534208
+      },
+      "formatted_lba_size": 512,
+      "eui64": {
+        "oui": 9528,
+        "ext_id": 0
+      },
+      "features": {
+        "value": 0,
+        "thin_provisioning": false,
+        "na_fields": false,
+        "dealloc_or_unwritten_block_error": false,
+        "uid_reuse": false,
+        "np_fields": false,
+        "other": 0
+      },
+      "lba_formats": [
+        {
+          "formatted": true,
+          "data_bytes": 512,
+          "metadata_bytes": 0,
+          "relative_performance": 0
+        }
+      ]
+    }
+  ],
+  "user_capacity": {
+    "blocks": 976773168,
+    "bytes": 500107862016
+  },
+  "logical_block_size": 512,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "nvme_firmware_update_capabilities": {
+    "value": 22,
+    "slots": 3,
+    "first_slot_is_read_only": false,
+    "activiation_without_reset": true,
+    "multiple_update_detection": false,
+    "other": 0
+  },
+  "nvme_optional_admin_commands": {
+    "value": 23,
+    "security_send_receive": true,
+    "format_nvm": true,
+    "firmware_download": true,
+    "namespace_management": false,
+    "self_test": true,
+    "directives": false,
+    "mi_send_receive": false,
+    "virtualization_management": false,
+    "doorbell_buffer_config": false,
+    "get_lba_status": false,
+    "command_and_feature_lockdown": false,
+    "other": 0
+  },
+  "nvme_optional_nvm_commands": {
+    "value": 95,
+    "compare": true,
+    "write_uncorrectable": true,
+    "dataset_management": true,
+    "write_zeroes": true,
+    "save_select_feature_nonzero": true,
+    "reservations": false,
+    "timestamp": true,
+    "verify": false,
+    "copy": false,
+    "other": 0
+  },
+  "nvme_log_page_attributes": {
+    "value": 3,
+    "smart_health_per_namespace": true,
+    "commands_effects_log": true,
+    "extended_get_log_page_cmd": false,
+    "telemetry_log": false,
+    "persistent_event_log": false,
+    "supported_log_pages_log": false,
+    "telemetry_data_area_4": false,
+    "other": 0
+  },
+  "nvme_maximum_data_transfer_pages": 512,
+  "nvme_composite_temperature_threshold": {
+    "warning": 85,
+    "critical": 85
+  },
+  "temperature": {
+    "op_limit_max": 85,
+    "critical_limit_max": 85,
+    "current": 42
+  },
+  "nvme_power_states": [
+    {
+      "non_operational_state": false,
+      "relative_read_latency": 0,
+      "relative_read_throughput": 0,
+      "relative_write_latency": 0,
+      "relative_write_throughput": 0,
+      "entry_latency_us": 0,
+      "exit_latency_us": 0,
+      "max_power": {
+        "value": 780,
+        "scale": 2,
+        "units_per_watt": 100
+      }
+    },
+    {
+      "non_operational_state": false,
+      "relative_read_latency": 1,
+      "relative_read_throughput": 1,
+      "relative_write_latency": 1,
+      "relative_write_throughput": 1,
+      "entry_latency_us": 0,
+      "exit_latency_us": 0,
+      "max_power": {
+        "value": 600,
+        "scale": 2,
+        "units_per_watt": 100
+      }
+    },
+    {
+      "non_operational_state": false,
+      "relative_read_latency": 2,
+      "relative_read_throughput": 2,
+      "relative_write_latency": 2,
+      "relative_write_throughput": 2,
+      "entry_latency_us": 0,
+      "exit_latency_us": 0,
+      "max_power": {
+        "value": 340,
+        "scale": 2,
+        "units_per_watt": 100
+      }
+    },
+    {
+      "non_operational_state": true,
+      "relative_read_latency": 3,
+      "relative_read_throughput": 3,
+      "relative_write_latency": 3,
+      "relative_write_throughput": 3,
+      "entry_latency_us": 210,
+      "exit_latency_us": 1200,
+      "max_power": {
+        "value": 700,
+        "scale": 1,
+        "units_per_watt": 10000
+      }
+    },
+    {
+      "non_operational_state": true,
+      "relative_read_latency": 4,
+      "relative_read_throughput": 4,
+      "relative_write_latency": 4,
+      "relative_write_throughput": 4,
+      "entry_latency_us": 2000,
+      "exit_latency_us": 8000,
+      "max_power": {
+        "value": 100,
+        "scale": 1,
+        "units_per_watt": 10000
+      }
+    }
+  ],
+  "smart_status": {
+    "passed": true,
+    "nvme": {
+      "value": 0
+    }
+  },
+  "nvme_smart_health_information_log": {
+    "nsid": 1,
+    "critical_warning": 0,
+    "temperature": 42,
+    "available_spare": 100,
+    "available_spare_threshold": 10,
+    "percentage_used": 43,
+    "data_units_read": 122488427,
+    "data_units_written": 678247827,
+    "host_reads": 4615917444,
+    "host_writes": 11797257812,
+    "controller_busy_time": 15559,
+    "power_cycles": 1526,
+    "power_on_hours": 6950,
+    "unsafe_shutdowns": 212,
+    "media_errors": 0,
+    "num_err_log_entries": 2848,
+    "warning_temp_time": 0,
+    "critical_comp_time": 0,
+    "temperature_sensors": [
+      42,
+      43
+    ]
+  },
+  "spare_available": {
+    "current_percent": 100,
+    "threshold_percent": 10
+  },
+  "endurance_used": {
+    "current_percent": 43
+  },
+  "power_cycle_count": 1526,
+  "power_on_time": {
+    "hours": 6950
+  },
+  "nvme_error_information_log": {
+    "size": 64,
+    "read": 16,
+    "unread": 0,
+    "table": [
+      {
+        "error_count": 2848,
+        "submission_queue_id": 0,
+        "command_id": 6,
+        "status_field": {
+          "value": 8194,
+          "do_not_retry": false,
+          "status_code_type": 0,
+          "status_code": 2,
+          "string": "Invalid Field in Command"
+        },
+        "phase_tag": false,
+        "lba": {
+          "value": 0
+        },
+        "nsid": 0
+      }
+    ]
+  },
+  "nvme_self_test_log": {
+    "nsid": -1,
+    "current_self_test_operation": {
+      "value": 0,
+      "string": "No self-test in progress"
+    },
+    "table": [
+      {
+        "self_test_code": {
+          "value": 1,
+          "string": "Short"
+        },
+        "self_test_result": {
+          "value": 0,
+          "string": "Completed without error"
+        },
+        "power_on_hours": 6450
+      }
+    ]
+  }
+}
