@@ -57,6 +57,9 @@ struct CreateArgs {
     cluster_size: Option<Byte>,
     #[arg(long = "max-expansion")]
     max_expansion: Option<String>,
+    /// Thin pool to create in an lvm pool, with the cluster size as its chunk size
+    #[arg(long = "thin-pool-size", value_parser = parse_byte)]
+    thin_pool_size: Option<Byte>,
     #[arg(short = 't', long = "type", default_value = "lvs")]
     pool_type: PoolType,
     #[arg(short = 'c', long, requires = "encryption_key")]
@@ -253,6 +256,9 @@ async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
             md_args: Some(v1rpc::pool::PoolMetadataArgs {
                 md_resv_ratio: None,
                 max_expansion,
+            }),
+            lvm: args.thin_pool_size.map(|size| v1rpc::pool::LvmPoolArgs {
+                thin_pool_size: Some(size.as_u64()),
             }),
             encryption: enc_msg,
         })

@@ -214,6 +214,7 @@ impl Lvs {
             uuid: None,
             cluster_size: None,
             md_args: None,
+            lvm: None,
             backend: PoolBackend::Lvs,
             enc_key: self.key.clone(),
             // XXX: Is this path ever exercised apart from test, or casperf perhaps?

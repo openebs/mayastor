@@ -17,6 +17,8 @@ pub struct PoolArgs {
     pub uuid: Option<String>,
     pub cluster_size: Option<u32>,
     pub md_args: Option<PoolMetadataArgs>,
+    /// Options only the Lvm backend has.
+    pub lvm: Option<LvmPoolArgs>,
     pub backend: PoolBackend,
     pub enc_key: Option<EncryptionKey>,
     pub crypto_vbdev_name: Option<String>,
@@ -40,6 +42,13 @@ impl PoolArgs {
 #[derive(Clone, Debug, Default)]
 pub struct PoolMetadataArgs {
     pub max_expansion: Option<String>,
+}
+
+/// Pool options of the Lvm backend.
+#[derive(Clone, Debug, Default)]
+pub struct LvmPoolArgs {
+    /// Size in bytes of the thin pool to create in the volume group.
+    pub thin_pool_size: Option<u64>,
 }
 
 /// PoolBackend is the type of pool underneath Lvs, Lvm, etc
@@ -177,7 +186,7 @@ pub trait PoolOps: IPoolProps + BdevStater<Stats = BdevStats> + std::fmt::Debug 
     fn rescan(&self) -> Result<(), Error>;
 
     /// Grows the given pool by filling the entire underlying device(s).
-    async fn grow(&self) -> Result<(), Error>;
+    async fn grow(&mut self) -> Result<(), Error>;
 
     /// Reset the error stats of the pool disks.
     async fn reset_errors(&self) -> Result<(), Error>;
