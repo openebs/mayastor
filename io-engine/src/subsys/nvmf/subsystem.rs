@@ -759,7 +759,8 @@ impl NvmfSubsystem {
     async fn add_listener(&self, transport: NvmfTgtTransport) -> Result<(), Error> {
         extern "C" fn listen_cb(arg: *mut c_void, status: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-            s.send(status).unwrap();
+            // the requester might be gone: a panic must not unwind across this C callback
+            let _ = s.send(status);
         }
 
         let cfg = Config::get();
@@ -797,7 +798,8 @@ impl NvmfSubsystem {
             status: i32,
         ) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-            s.send(status).unwrap();
+            // the requester might be gone: a panic must not unwind across this C callback
+            let _ = s.send(status);
         }
 
         info!(?self, "Subsystem {op} in progress...");
@@ -821,17 +823,18 @@ impl NvmfSubsystem {
                     self.nqn_str()
                 );
 
-                crate::sleep::mayastor_sleep(std::time::Duration::from_millis(100))
-                    .await
-                    .unwrap();
+                let _ = crate::sleep::mayastor_sleep(std::time::Duration::from_millis(100)).await;
             };
 
             match rc {
-                0 => r.await.unwrap().to_result(|e| Error::Subsystem {
-                    source: Errno::from_raw(e),
-                    nqn: self.get_nqn(),
-                    msg: format!("{op} failed"),
-                }),
+                0 => r
+                    .await
+                    .unwrap_or(-libc::ECANCELED)
+                    .to_result(|e| Error::Subsystem {
+                        source: Errno::from_raw(e),
+                        nqn: self.get_nqn(),
+                        msg: format!("{op} failed"),
+                    }),
                 // this can't happen anymore, SPDK handles transitions in a q
                 libc::EBUSY => Err(Error::SubsystemBusy {
                     nqn: self.get_nqn(),
@@ -972,7 +975,8 @@ impl NvmfSubsystem {
     pub async fn set_ana_state(&self, ana_state: u32) -> Result<(), Error> {
         extern "C" fn set_ana_state_cb(arg: *mut c_void, status: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
-            s.send(status).unwrap();
+            // the requester might be gone: a panic must not unwind across this C callback
+            let _ = s.send(status);
         }
 
         // setting ANA state can only be done when subsystem is shared, meaning
