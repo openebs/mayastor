@@ -105,6 +105,7 @@ impl From<MayastorFeatures> for host_rpc::MayastorFeatures {
             nexus_label_version: f.nexus_label_version,
             grpc_tls: Some(f.grpc_tls),
             fips: Some(f.fips),
+            nexus_io_pause: Some(f.nexus_io_pause),
         }
     }
 }

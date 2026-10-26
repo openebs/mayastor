@@ -340,6 +340,8 @@ pub struct MayastorFeatures {
     /// When set to true, the gRPC server serves TLS connections and the
     /// control-plane should connect to it over TLS.
     pub grpc_tls: bool,
+    /// Support for holding the nexus I/O paused via PauseNexusIo/ResumeNexusIo.
+    pub nexus_io_pause: bool,
 }
 
 impl MayastorFeatures {

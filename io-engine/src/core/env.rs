@@ -550,6 +550,7 @@ impl MayastorFeatures {
             diskpool_encryption,
             nexus_label_version: io_engine_api::v1::nexus::NexusLabelVersion::LabelV2 as u32,
             grpc_tls,
+            nexus_io_pause: true,
         }
     }
     /// Get all the supported and enabled features.

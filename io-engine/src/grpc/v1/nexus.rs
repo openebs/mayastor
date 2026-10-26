@@ -992,6 +992,66 @@ impl NexusRpc for NexusService {
     }
 
     #[named]
+    async fn pause_nexus_io(
+        &self,
+        request: Request<PauseNexusIoRequest>,
+    ) -> GrpcResult<PauseNexusIoResponse> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        self.serialized(ctx, args.nexus_uuid.clone(), false, async move {
+            info!("{:?}", args);
+            // a missing or negative lease is rejected as a zero lease
+            let lease = args
+                .lease
+                .and_then(|lease| std::time::Duration::try_from(lease).ok())
+                .unwrap_or_default();
+            // an unset or zero timeout waits until the pause completes
+            let timeout = args
+                .timeout
+                .and_then(|timeout| std::time::Duration::try_from(timeout).ok())
+                .filter(|timeout| !timeout.is_zero());
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&args.nexus_uuid)?
+                    .hold_io_pause(&args.holder_id, lease, args.renew_only, timeout)
+                    .await?;
+                Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(|n| Response::new(PauseNexusIoResponse { nexus: Some(n) }))
+        })
+        .await
+    }
+
+    #[named]
+    async fn resume_nexus_io(
+        &self,
+        request: Request<ResumeNexusIoRequest>,
+    ) -> GrpcResult<ResumeNexusIoResponse> {
+        let ctx = GrpcClientContext::new(&request, function_name!());
+        let args = request.into_inner();
+
+        self.serialized(ctx, args.nexus_uuid.clone(), false, async move {
+            info!("{:?}", args);
+            let rx = rpc_submit::<_, _, nexus::Error>(async move {
+                nexus_lookup(&args.nexus_uuid)?
+                    .release_io_hold(&args.holder_id)
+                    .await?;
+                Ok(nexus_lookup(&args.nexus_uuid)?.into_grpc().await)
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(|n| Response::new(ResumeNexusIoResponse { nexus: Some(n) }))
+        })
+        .await
+    }
+
+    #[named]
     async fn get_rebuild_state(
         &self,
         request: Request<RebuildStateRequest>,
