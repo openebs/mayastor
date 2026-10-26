@@ -14,6 +14,7 @@ mod nexus_bdev_snapshot;
 mod nexus_channel;
 mod nexus_child;
 mod nexus_io;
+mod nexus_io_hold;
 mod nexus_io_log;
 mod nexus_io_subsystem;
 mod nexus_iter;

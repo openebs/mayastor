@@ -6,7 +6,7 @@
 
 use std::{
     cmp::min,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     marker::PhantomPinned,
@@ -78,6 +78,7 @@ pub enum NexusOperation {
     ReplicaFault,
     NexusResize,
     NexusSnapshot,
+    NexusIoPause,
 }
 
 /// TODO
@@ -263,6 +264,8 @@ pub struct Nexus<'n> {
     pub(crate) read_only: AtomicCell<bool>,
     /// Last child I/O error.
     pub(super) last_error: IoCompletionStatus,
+    /// Holders of a nexus I/O pause and when their lease expires.
+    pub(super) io_holds: parking_lot::Mutex<HashMap<String, super::nexus_io_hold::IoHold>>,
     /// Prevent auto-Unpin.
     _pin: PhantomPinned,
 }
@@ -403,6 +406,7 @@ impl<'n> Nexus<'n> {
             shutdown_requested: AtomicCell::new(false),
             read_only: AtomicCell::new(false),
             last_error: IoCompletionStatus::Success,
+            io_holds: parking_lot::Mutex::new(HashMap::new()),
             _pin: Default::default(),
         };
 
@@ -951,8 +955,13 @@ impl<'n> Nexus<'n> {
     }
 
     /// Returns a mutable reference to Nexus I/O.
-    fn io_subsystem_mut(self: Pin<&mut Self>) -> &mut NexusIoSubsystem<'n> {
-        unsafe { self.get_unchecked_mut().io_subsystem.as_mut().unwrap() }
+    fn io_subsystem_mut(self: Pin<&mut Self>) -> Result<&mut NexusIoSubsystem<'n>, Error> {
+        let name = self.name.clone();
+        unsafe { self.get_unchecked_mut().io_subsystem.as_mut() }.ok_or(
+            Error::OperationNotAllowed {
+                reason: format!("nexus {name} has no I/O subsystem"),
+            },
+        )
     }
 
     /// Get the subsystem pause state.
@@ -964,6 +973,46 @@ impl<'n> Nexus<'n> {
     /// Note: in order to handle concurrent resumes properly, this function must
     /// be called only from the master core.
     pub async fn resume(self: Pin<&mut Self>) -> Result<(), Error> {
+        let name = self.name.clone();
+        let result = self.resume_once().await;
+        if let Err(Error::SubsysNvmf { .. }) = &result {
+            // the subsystem could not be resumed and is still paused: keep trying
+            Self::retry_resume(name);
+        }
+        result
+    }
+
+    /// Retry resuming the I/O whose resume failed until it succeeds, or until the nexus is gone,
+    /// so that a failed resume doesn't leave the nexus paused.
+    fn retry_resume(name: String) {
+        const MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+        Reactors::master().send_future(async move {
+            let mut delay = std::time::Duration::from_secs(1);
+            loop {
+                let _ = crate::sleep::mayastor_sleep(delay).await;
+                let Some(nexus) = super::nexus_lookup_mut(&name) else {
+                    return;
+                };
+                match nexus.resume_once().await {
+                    Err(error @ Error::SubsysNvmf { .. }) => {
+                        error!("{error}: failed to resume the I/O of nexus {name}, retrying");
+                        delay = std::cmp::min(delay * 2, MAX_DELAY);
+                    }
+                    Err(error) => {
+                        error!("{error}: giving up resuming the I/O of nexus {name}");
+                        return;
+                    }
+                    Ok(()) => {
+                        info!("Resumed the I/O of nexus {name} after a failed resume");
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Resumes I/O to the Bdev, once.
+    async fn resume_once(self: Pin<&mut Self>) -> Result<(), Error> {
         // If we are faulted then rather than failing all IO back to the
         // initiator we can instead leave the subsystem frozen, and wait
         // for the control-plane to do something about this.
@@ -979,7 +1028,7 @@ impl<'n> Nexus<'n> {
             _ => false,
         };
         let evt = Event::event(self.deref(), EventAction::SubsystemResume);
-        self.io_subsystem_mut().resume(freeze).await.inspect(|_| {
+        self.io_subsystem_mut()?.resume(freeze).await.inspect(|_| {
             evt.generate();
         })
     }
@@ -1140,7 +1189,10 @@ impl<'n> Nexus<'n> {
         )
         .generate();
         let start_time = std::time::Instant::now();
-        let result = self.as_mut().io_subsystem_mut().suspend().await;
+        let result = match self.as_mut().io_subsystem_mut() {
+            Ok(io_subsystem) => io_subsystem.suspend().await,
+            Err(error) => Err(error),
+        };
         match result {
             Ok(_) => {
                 EventWithMeta::event(
@@ -1186,6 +1238,13 @@ impl<'n> Nexus<'n> {
 
     /// set ANA state of the NVMe subsystem
     pub async fn set_ana_state(&self, ana_state: NvmeAnaState) -> Result<(), Error> {
+        // Changing the ANA state pauses and resumes the subsystem directly, which would
+        // let I/O through underneath a held pause.
+        if self.io_held() {
+            return Err(Error::OperationNotAllowed {
+                reason: "Nexus I/O is held paused".to_string(),
+            });
+        }
         if let Some(Protocol::Nvmf) = self.shared() {
             if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
                 subsystem.pause().await?;

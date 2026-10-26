@@ -165,6 +165,21 @@ pub enum Error {
     SubsysNvmf { e: String },
     #[snafu(display("Operation not allowed: {}", reason))]
     OperationNotAllowed { reason: String },
+    #[snafu(display("Nexus {} I/O is not held paused by '{}'", name, holder))]
+    IoHoldNotFound { name: String, holder: String },
+    #[snafu(display("Nexus {} I/O pause by '{}' is already in progress", name, holder))]
+    IoHoldInProgress { name: String, holder: String },
+    #[snafu(display(
+        "Nexus {} I/O did not drain within {:?}, the pause by '{}' was cancelled",
+        name,
+        timeout,
+        holder
+    ))]
+    IoHoldTimedOut {
+        name: String,
+        holder: String,
+        timeout: std::time::Duration,
+    },
     #[snafu(display("Invalid value for nvme reservation: {}", reservation))]
     InvalidReservation { reservation: u8 },
     #[snafu(display("failed to update share properties {}", name))]
@@ -205,6 +220,9 @@ impl From<Error> for tonic::Status {
             Error::ChildTooSmall { .. } => Status::invalid_argument(e.to_string()),
             Error::OpenChild { .. } => Status::invalid_argument(e.to_string()),
             Error::OperationNotAllowed { .. } => Status::failed_precondition(e.to_string()),
+            Error::IoHoldNotFound { .. } => Status::not_found(e.to_string()),
+            Error::IoHoldInProgress { .. } => Status::aborted(e.to_string()),
+            Error::IoHoldTimedOut { .. } => Status::deadline_exceeded(e.to_string()),
             Error::RemoveLastChild { .. } => Status::failed_precondition(e.to_string()),
             Error::RemoveLastHealthyChild { .. } => Status::failed_precondition(e.to_string()),
             Error::ChildNotFound { .. } => Status::not_found(e.to_string()),
@@ -289,7 +307,9 @@ impl ToErrno for Error {
             | Error::InvalidArguments { .. }
             | Error::InvalidReservation { .. } => Errno::EINVAL,
 
-            Error::NexusInitialising { .. } => Errno::EBUSY,
+            Error::NexusInitialising { .. } | Error::IoHoldInProgress { .. } => Errno::EBUSY,
+            Error::IoHoldNotFound { .. } => Errno::ENOENT,
+            Error::IoHoldTimedOut { .. } => Errno::ETIMEDOUT,
 
             Error::AlreadyShared { .. }
             | Error::ReadOnlyChangeNotAllowed { .. }

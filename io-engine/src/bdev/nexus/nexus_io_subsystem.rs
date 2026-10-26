@@ -94,11 +94,11 @@ impl<'n> NexusIoSubsystem<'n> {
     /// Note: in order to handle concurrent pauses properly, this function must
     /// be called only from the master core.
     pub(super) async fn suspend(&mut self) -> Result<(), Error> {
-        assert_eq!(
-            Cores::current(),
-            Cores::first(),
-            "NexusIoSubsystem::suspend() must called on the first core"
-        );
+        if Cores::current() != Cores::first() {
+            return Err(Error::OperationNotAllowed {
+                reason: "NexusIoSubsystem::suspend() must be called on the first core".into(),
+            });
+        }
 
         trace!("{self:?}: pausing I/O...");
 
@@ -110,12 +110,12 @@ impl<'n> NexusIoSubsystem<'n> {
             match state {
                 Ok(NexusPauseState::Unpaused) => {
                     // Pause subsystem. The only acceptable counter transition
-                    // is: 0 -> 1.
-                    assert_eq!(
-                        self.pause_cnt.fetch_add(1, Ordering::SeqCst),
-                        0,
-                        "Corrupted subsystem pause counter"
-                    );
+                    // is: 0 -> 1. A pause can't be in effect while unpaused, so a
+                    // corrupted counter is reset rather than trusted.
+                    let count = self.pause_cnt.swap(1, Ordering::SeqCst);
+                    if count != 0 {
+                        error!("{self:?}: corrupted subsystem pause counter {count}, reset");
+                    }
 
                     if let Some(Protocol::Nvmf) = self.bdev.shared() {
                         if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
@@ -135,16 +135,27 @@ impl<'n> NexusIoSubsystem<'n> {
                                     warn!("{self:?}: subsystem '{nqn}' not paused: {error}")
                                 }
                                 Err(error) => {
-                                    panic!("Failed to pause subsystem '{}: {}", nqn, error)
+                                    // undo the pause and let any waiter retry
+                                    error!("{self:?}: failed to pause subsystem '{nqn}': {error}");
+                                    self.pause_cnt.store(0, Ordering::SeqCst);
+                                    self.pause_state.store(NexusPauseState::Unpaused);
+                                    self.wake_waiter();
+                                    return Err(Error::SubsysNvmf {
+                                        e: format!("failed to pause subsystem '{nqn}': {error}"),
+                                    });
                                 }
                             }
                         }
                     }
 
                     // Mark subsystem as paused after it has been paused.
-                    self.pause_state
+                    if let Err(state) = self
+                        .pause_state
                         .compare_exchange(NexusPauseState::Pausing, NexusPauseState::Paused)
-                        .expect("Failed to mark subsystem as Paused");
+                    {
+                        error!("{self:?}: unexpected state {state:?} whilst pausing, marking as Paused");
+                        self.pause_state.store(NexusPauseState::Paused);
+                    }
                     break;
                 }
                 // Subsystem is already paused, increment number of paused.
@@ -169,16 +180,16 @@ impl<'n> NexusIoSubsystem<'n> {
                     trace!("{self:?}: nexus completed state transition, retrying pause operation");
                 }
                 state => {
-                    panic!("Corrupted I/O subsystem state: {:?}", state);
+                    error!("{self:?}: corrupted I/O subsystem state: {state:?}");
+                    return Err(Error::OperationNotAllowed {
+                        reason: format!("corrupted I/O subsystem state: {state:?}"),
+                    });
                 }
             }
         }
 
         // Resume one waiter in case there are any.
-        if let Some(w) = self.pause_waiters.pop_front() {
-            trace!("{self:?}: resuming the first pause waiter");
-            w.send(0).expect("I/O subsystem pause waiter disappeared");
-        }
+        self.wake_waiter();
 
         trace!("{self:?}: I/O paused");
         Ok(())
@@ -194,11 +205,11 @@ impl<'n> NexusIoSubsystem<'n> {
     /// The subsystem is only truly resumed when the last pause is undone, which may happen after
     /// this function completes.
     pub(super) async fn resume(&mut self, freeze: bool) -> Result<(), Error> {
-        assert_eq!(
-            Cores::current(),
-            Cores::first(),
-            "NexusIoSubsystem::resume() must called on the first core"
-        );
+        if Cores::current() != Cores::first() {
+            return Err(Error::OperationNotAllowed {
+                reason: "NexusIoSubsystem::resume() must be called on the first core".into(),
+            });
+        }
 
         trace!("{self:?}: resuming I/O...");
 
@@ -216,11 +227,9 @@ impl<'n> NexusIoSubsystem<'n> {
 
                     let nex = format!("{self:?}");
 
-                    debug_assert_eq!(
-                        state,
-                        NexusPauseState::Unpausing,
-                        "{nex}: resuming whilst pausing ??"
-                    );
+                    if state == NexusPauseState::Pausing {
+                        warn!("{nex}: resuming whilst pausing");
+                    }
 
                     let (s, r) = oneshot::channel::<i32>();
                     self.pause_waiters.push_back(s);
@@ -234,7 +243,17 @@ impl<'n> NexusIoSubsystem<'n> {
                 // Unpause the subsystem, taking into account the overall number
                 // of pauses, or leave it frozen.
                 NexusPauseState::Paused | NexusPauseState::Frozen => {
-                    let v = self.pause_cnt.fetch_sub(1, Ordering::SeqCst);
+                    let Ok(v) =
+                        self.pause_cnt
+                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                                count.checked_sub(1)
+                            })
+                    else {
+                        error!("{self:?}: resume without a matching pause");
+                        return Err(Error::OperationNotAllowed {
+                            reason: "resume without a matching pause".into(),
+                        });
+                    };
 
                     if v != 1 {
                         break;
@@ -264,7 +283,14 @@ impl<'n> NexusIoSubsystem<'n> {
                                     warn!("{self:?}: subsystem '{nqn}' not resumed: {error}");
                                 }
                                 Err(error) => {
-                                    panic!("Failed to resume subsystem '{}: {}", nqn, error)
+                                    // still paused: restore the pause so it can be retried
+                                    error!("{self:?}: failed to resume subsystem '{nqn}': {error}");
+                                    self.pause_cnt.store(1, Ordering::SeqCst);
+                                    self.pause_state.store(NexusPauseState::Paused);
+                                    self.wake_waiter();
+                                    return Err(Error::SubsysNvmf {
+                                        e: format!("failed to resume subsystem '{nqn}': {error}"),
+                                    });
                                 }
                             }
                         }
@@ -277,13 +303,19 @@ impl<'n> NexusIoSubsystem<'n> {
         }
 
         // Resume one waiter in case there are any.
-        if !self.pause_waiters.is_empty() {
-            trace!("{self:?}: resuming the first resume waiter");
-            let w = self.pause_waiters.pop_front().unwrap();
-            w.send(0).expect("I/O subsystem resume waiter disappeared");
-        }
+        self.wake_waiter();
 
         trace!("{self:?}: I/O resumed");
         Ok(())
+    }
+
+    /// Wake up the first waiter which is still waiting, if any.
+    fn wake_waiter(&mut self) {
+        while let Some(waiter) = self.pause_waiters.pop_front() {
+            if waiter.send(0).is_ok() {
+                trace!("{self:?}: resumed the first waiter");
+                break;
+            }
+        }
     }
 }
