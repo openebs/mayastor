@@ -81,6 +81,13 @@ let
         # Prevent Rust tooling to fallback to potentially incompatible host clang compiler
         export CLANG_PATH="$NIX_CC_FOR_TARGET/bin/clang"
 
+        # Looks like vscode with the nix plugin is running commands in different shells without setting the temp variables
+        # Since nix-shell by default nests the temp variables, we need to set them here
+        if [ "$VSCODE_CLI" = "1" ] || [ -n "$VSCODE_CWD" ]; then
+          export TMPDIR=/tmp
+          export TMP=/tmp
+        fi
+
         mkdir -p "$SRCDIR/.vscode"
         cat > "$SRCDIR/.vscode/settings.json" <<EOF
         {
