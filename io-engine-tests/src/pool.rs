@@ -206,6 +206,7 @@ impl PoolBuilderRpc {
                 disks: vec![self.bdev.as_ref().unwrap().clone()],
                 cluster_size: self.cluster_size,
                 md_args: None,
+                lvm: None,
                 encryption: None,
             })
             .await
@@ -279,6 +280,7 @@ impl PoolBuilderLocal {
             disks: vec![self.bdev.as_ref().unwrap().clone()],
             cluster_size: self.cluster_size,
             md_args: None,
+            lvm: None,
             backend: Default::default(),
             enc_key: None,
             crypto_vbdev_name: None,

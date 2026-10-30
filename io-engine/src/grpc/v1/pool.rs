@@ -384,6 +384,12 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
                 })?;
             }
         }
+        if args.lvm.is_some() && backend != PoolType::Lvm {
+            return Err(LvsError::Invalid {
+                source: BsError::InvalidArgument {},
+                msg: format!("lvm pool options given for a {backend:?} pool"),
+            });
+        }
 
         Ok(Self {
             name: args.name.clone(),
@@ -391,6 +397,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             uuid: args.uuid.clone(),
             cluster_size: args.cluster_size,
             md_args: args.md_args.map(|md| md.into()),
+            lvm: args.lvm.map(|lvm| lvm.into()),
             backend: backend.into(),
             enc_key: None,
             crypto_vbdev_name: None,
@@ -402,6 +409,19 @@ impl From<PoolMetadataArgs> for pool_backend::PoolMetadataArgs {
     fn from(params: PoolMetadataArgs) -> Self {
         Self {
             max_expansion: params.max_expansion,
+        }
+    }
+}
+impl From<LvmPoolArgs> for pool_backend::LvmPoolArgs {
+    fn from(params: LvmPoolArgs) -> Self {
+        use lvm_pool_args::ThinPool;
+        use pool_backend::ThinPoolSize;
+        Self {
+            thin_pool: params.thin_pool.map(|thin_pool| match thin_pool {
+                ThinPool::ThinPoolSize(bytes) => ThinPoolSize::Bytes(bytes),
+                ThinPool::ThinPoolFreePercent(percent) => ThinPoolSize::FreePercent(percent),
+                ThinPool::ThinPoolVgPercent(percent) => ThinPoolSize::VgPercent(percent),
+            }),
         }
     }
 }
@@ -477,6 +497,7 @@ impl TryFrom<ImportPoolRequest> for PoolArgs {
             uuid: args.uuid.clone(),
             cluster_size: None,
             md_args: None,
+            lvm: None,
             backend: backend.into(),
             enc_key,
             crypto_vbdev_name: args
@@ -559,7 +580,7 @@ impl PoolGrpc {
         self.pool.export().await?;
         Ok(())
     }
-    async fn grow(&self) -> Result<(), tonic::Status> {
+    async fn grow(&mut self) -> Result<(), tonic::Status> {
         self.pool.grow().await?;
         Ok(())
     }
@@ -1104,7 +1125,7 @@ impl PoolRpc for PoolService {
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let mut pool = GrpcPoolFactory::finder(request.into_inner()).await?;
                     pool.grow().await?;
                     Ok(Pool::async_from(pool.as_ops()).await)
                 })
