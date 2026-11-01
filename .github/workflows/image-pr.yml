@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: cachix/install-nix-action@v31.11.1
+      - uses: cachix/install-nix-action@v31.11.3
       - name: Test building the release images
         # SBOMs are generated here too so a break in the SBOM path is caught
         # pre-merge rather than on the develop push. Nothing is signed, since
