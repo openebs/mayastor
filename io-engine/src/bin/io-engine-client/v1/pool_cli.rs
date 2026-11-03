@@ -15,6 +15,25 @@ fn parse_byte(s: &str) -> Result<Byte, String> {
     Byte::parse_str(s, true).map_err(|e| e.to_string())
 }
 
+/// Parse a thin pool size: bytes, or a percentage as lvcreate takes it, N%FREE or N%VG. Like
+/// lvcreate, the suffix is case-insensitive and can be shortened, as in N%F.
+fn parse_thin_pool(s: &str) -> Result<v1rpc::pool::lvm_pool_args::ThinPool, String> {
+    use v1rpc::pool::lvm_pool_args::ThinPool;
+    let Some((value, of)) = s.split_once('%') else {
+        return parse_byte(s).map(|size| ThinPool::ThinPoolSize(size.as_u64()));
+    };
+    let percent = value
+        .parse::<u32>()
+        .map_err(|_| format!("'{s}' is not a whole percentage"))?;
+    let of = of.to_ascii_uppercase();
+    match of.as_str() {
+        "" => Err(format!("'{s}' needs %FREE or %VG")),
+        of if "FREE".starts_with(of) => Ok(ThinPool::ThinPoolFreePercent(percent)),
+        of if "VG".starts_with(of) => Ok(ThinPool::ThinPoolVgPercent(percent)),
+        _ => Err(format!("'{s}' is not a percentage of FREE or VG")),
+    }
+}
+
 #[derive(Debug, Args)]
 #[command(subcommand_required = true, arg_required_else_help = true)]
 pub struct PoolArgs {
@@ -57,6 +76,10 @@ struct CreateArgs {
     cluster_size: Option<Byte>,
     #[arg(long = "max-expansion")]
     max_expansion: Option<String>,
+    /// Thin pool to create in an lvm pool, in bytes or as N%FREE or N%VG of the volume group,
+    /// with the cluster size as its chunk size
+    #[arg(long = "thin-pool-size", value_parser = parse_thin_pool)]
+    thin_pool_size: Option<v1rpc::pool::lvm_pool_args::ThinPool>,
     #[arg(short = 't', long = "type", default_value = "lvs")]
     pool_type: PoolType,
     #[arg(short = 'c', long, requires = "encryption_key")]
@@ -254,6 +277,11 @@ async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
                 md_resv_ratio: None,
                 max_expansion,
             }),
+            lvm: args
+                .thin_pool_size
+                .map(|thin_pool| v1rpc::pool::LvmPoolArgs {
+                    thin_pool: Some(thin_pool),
+                }),
             encryption: enc_msg,
         })
         .await
@@ -711,5 +739,41 @@ fn pool_status_to_str(idx: i32) -> &'static str {
         v1rpc::pool::PoolAlertStatus::Attention => "attention",
         v1rpc::pool::PoolAlertStatus::Warning => "warning",
         v1rpc::pool::PoolAlertStatus::Critical => "critical",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use v1rpc::pool::lvm_pool_args::ThinPool;
+
+    #[test]
+    fn thin_pool_size() {
+        assert_eq!(parse_thin_pool("2GiB"), Ok(ThinPool::ThinPoolSize(2 << 30)));
+        for s in ["100%FREE", "100%free", "100%F", "100%fr"] {
+            assert_eq!(
+                parse_thin_pool(s),
+                Ok(ThinPool::ThinPoolFreePercent(100)),
+                "{s}"
+            );
+        }
+        for s in ["50%VG", "50%vg", "50%V"] {
+            assert_eq!(
+                parse_thin_pool(s),
+                Ok(ThinPool::ThinPoolVgPercent(50)),
+                "{s}"
+            );
+        }
+        for s in [
+            "%FREE",
+            "50.5%FREE",
+            "-5%VG",
+            "50%",
+            "50%PVS",
+            "50%FREEX",
+            "2Gx",
+        ] {
+            assert!(parse_thin_pool(s).is_err(), "{}", s);
+        }
     }
 }

@@ -270,6 +270,7 @@ async fn test_rdma_target() {
             disks: vec!["malloc:///disk0?size_mb=100".into()],
             cluster_size: None,
             md_args: None,
+            lvm: None,
             encryption: None,
         })
         .await

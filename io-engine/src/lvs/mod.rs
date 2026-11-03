@@ -161,7 +161,7 @@ impl PoolOps for Lvs {
         Ok(())
     }
 
-    async fn grow(&self) -> Result<(), crate::pool_backend::Error> {
+    async fn grow(&mut self) -> Result<(), crate::pool_backend::Error> {
         (*self).grow().await?;
         Ok(())
     }
