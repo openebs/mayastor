@@ -67,6 +67,7 @@ async fn lvs_replica_destroy_committed_race() {
             cluster_size: None,
             md_args: None,
             encryption: None,
+            lvm: None,
         })
         .await
         .unwrap();

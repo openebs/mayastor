@@ -428,7 +428,13 @@ impl SnapshotRpc for SnapshotService {
                 info!("{:?}", args);
                 crate::spdk_submit!(async move {
                     let pool = match &args.pool {
-                        Some(pool) => Some(GrpcReplicaFactory::pool_finder(pool).await?),
+                        Some(pool) => Some(
+                            GrpcReplicaFactory::pool_finder(
+                                pool,
+                                crate::pool_information::PoolOperation::SnapshotDestroy,
+                            )
+                            .await?,
+                        ),
                         None => None,
                     };
                     let probe = FindSnapshotArgs::new(args.snapshot_uuid);

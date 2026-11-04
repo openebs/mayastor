@@ -2,15 +2,14 @@ use crate::{
     core::{
         logical_volume::LvolSpaceUsage,
         wiper::{WipeMethod, Wiper},
-        Bdev, NvmfShareProps, ProtectedSubsystems, Protocol, ResourceLockManager, ToErrno,
-        UpdateProps,
+        Bdev, NvmfShareProps, Protocol, ToErrno, UpdateProps,
     },
     grpc::{
-        acquire_subsystem_lock,
-        v1::pool::{GrpcPoolFactory, PoolGrpc, PoolIdProbe},
+        v1::pool::{acquire_pool_lock, GrpcPoolFactory, PoolGrpc, PoolIdProbe},
         GrpcClientContext, GrpcResult, RWLock, RWSerializer,
     },
     pool_backend::{FindPoolArgs, PoolBackend},
+    pool_information::PoolOperation,
     replica_backend::{
         FindReplicaArgs, IReplicaFactory, ListCloneArgs, ListReplicaArgs, ListSnapshotArgs,
         ReplicaFactory, ReplicaOps,
@@ -198,14 +197,19 @@ impl GrpcReplicaFactory {
         let replica = ReplicaFactory::find(args).await?;
         Ok(ReplicaGrpc::new(replica))
     }
-    pub(crate) async fn pool_finder<I: Into<FindPoolArgs>>(args: I) -> Result<PoolGrpc, Status> {
-        GrpcPoolFactory::finder(args).await.map_err(|error| {
-            if error.code() == tonic::Code::NotFound {
-                Status::failed_precondition(error.to_string())
-            } else {
-                error
-            }
-        })
+    pub(crate) async fn pool_finder<I: Into<FindPoolArgs>>(
+        args: I,
+        operation: PoolOperation,
+    ) -> Result<PoolGrpc, Status> {
+        GrpcPoolFactory::finder(args, operation)
+            .await
+            .map_err(|error| {
+                if error.code() == tonic::Code::NotFound {
+                    Status::failed_precondition(error.to_string())
+                } else {
+                    error
+                }
+            })
     }
     pub(crate) async fn list(&self, args: &ListReplicaArgs) -> Result<Vec<Replica>, Status> {
         let replicas = self.as_factory().list(args).await?;
@@ -264,9 +268,7 @@ impl ReplicaGrpc {
     }
     async fn share(&mut self, args: ShareReplicaRequest) -> Result<(), Status> {
         let pool_name = self.replica.pool_name();
-        let pool_subsystem =
-            ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
-        let _lock_guard = acquire_subsystem_lock(pool_subsystem, Some(&pool_name)).await?;
+        let _lock_guard = acquire_pool_lock(&pool_name, PoolOperation::ReplicaShare).await?;
 
         let protocol = Protocol::try_from(args.share)?;
         // if we are already shared with the same protocol
@@ -289,9 +291,7 @@ impl ReplicaGrpc {
     }
     async fn unshare(&mut self) -> Result<(), Status> {
         let pool_name = self.replica.pool_name();
-        let pool_subsystem =
-            ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
-        let _lock_guard = acquire_subsystem_lock(pool_subsystem, Some(&pool_name)).await?;
+        let _lock_guard = acquire_pool_lock(&pool_name, PoolOperation::ReplicaUnshare).await?;
 
         if self.replica.shared().is_some() {
             self.replica.unshare(None).await?;
@@ -350,9 +350,11 @@ impl ReplicaRpc for ReplicaService {
 
                     let args = request.into_inner();
 
-                    let pool =
-                        GrpcReplicaFactory::pool_finder(FindPoolArgs::uuid_or_name(&args.pooluuid))
-                            .await?;
+                    let pool = GrpcReplicaFactory::pool_finder(
+                        FindPoolArgs::uuid_or_name(&args.pooluuid),
+                        PoolOperation::ReplicaCreate,
+                    )
+                    .await?;
                     pool.create_replica(args).await
                 })
             },
@@ -370,7 +372,10 @@ impl ReplicaRpc for ReplicaService {
                     let args = request.into_inner();
 
                     let pool = match &args.pool {
-                        Some(pool) => Some(GrpcReplicaFactory::pool_finder(pool).await?),
+                        Some(pool) => Some(
+                            GrpcReplicaFactory::pool_finder(pool, PoolOperation::ReplicaDestroy)
+                                .await?,
+                        ),
                         None => None,
                     };
                     let probe = FindReplicaArgs::new(&args.uuid);

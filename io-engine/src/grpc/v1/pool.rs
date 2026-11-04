@@ -11,7 +11,9 @@ use crate::{
         self, FindPoolArgs, IPoolFactory, ListPoolArgs, PoolArgs, PoolBackend, PoolFactory,
         PoolOps, ReplicaArgs,
     },
-    pool_information::pool_info_read,
+    pool_information::{
+        pool_info_read, pool_operation, PoolOperation as PoolOp, PoolOperationGuard,
+    },
 };
 use ::function_name::named;
 use futures::FutureExt;
@@ -502,12 +504,15 @@ pub(crate) struct PoolGrpc {
     //  particular replica, we don't have access to the pool name until
     //  we've found the replica, at which point something else might be
     //  trying to delete the pool for example...
-    _guard: ResourceLockGuard<'static>,
+    /// Also carries the record of what we're doing to the pool, reported to anyone probing
+    /// it for as long as we hold the lock - which is for as long as the work actually runs,
+    /// the request which started it may well have been cancelled by then.
+    _guard: PoolLockGuard<'static>,
     pool: Box<dyn PoolOps>,
 }
 
 impl PoolGrpc {
-    fn new(pool: Box<dyn PoolOps>, _guard: ResourceLockGuard<'static>) -> Self {
+    fn new(pool: Box<dyn PoolOps>, _guard: PoolLockGuard<'static>) -> Self {
         Self { pool, _guard }
     }
     pub(crate) async fn create_replica(
@@ -770,6 +775,32 @@ impl PoolService {
             client_context: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
+    fn operation(pool: &str) -> Option<PoolOperation> {
+        let pool_subsystem =
+            ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
+        if !pool_subsystem.is_resource_locked(pool) {
+            return None;
+        }
+        pool_operation(pool).map(PoolOperation::from)
+    }
+}
+
+impl From<PoolOp> for PoolOperation {
+    fn from(operation: PoolOp) -> Self {
+        match operation {
+            PoolOp::Create => Self::Create,
+            PoolOp::Import => Self::Import,
+            PoolOp::Destroy => Self::Destroy,
+            PoolOp::Grow => Self::Grow,
+            PoolOp::Export => Self::Export,
+            PoolOp::ClearErrors => Self::ClearPoolErrors,
+            PoolOp::ReplicaCreate => Self::ReplicaCreate,
+            PoolOp::ReplicaDestroy => Self::ReplicaDestroy,
+            PoolOp::SnapshotDestroy => Self::SnapshotDestroy,
+            PoolOp::ReplicaShare => Self::ReplicaShare,
+            PoolOp::ReplicaUnshare => Self::ReplicaUnshare,
+        }
+    }
 }
 
 impl PoolBackend {
@@ -780,6 +811,37 @@ impl PoolBackend {
             PoolBackend::Lvm => crate::grpc::lvm_enabled(),
         }
     }
+}
+
+/// A pool's resource lock, together with the record of what is being done to the pool whilst
+/// it is held.
+/// # NOTE
+/// The operation is declared before the lock on purpose: fields drop in declaration order, so
+/// the record is torn down whilst the lock is still held. Were it the other way around, the
+/// next acquirer could take the lock and record its own operation before this one was torn
+/// down, and the teardown would then wipe it.
+pub(crate) struct PoolLockGuard<'a> {
+    _operation: PoolOperationGuard,
+    _lock: ResourceLockGuard<'a>,
+}
+
+/// Acquire the pool's resource lock and record what we're about to do with it.
+/// # NOTE
+/// The record is taken only once the lock is actually held, so an attempt which is aborted
+/// because something else holds it is never reported as being in progress. It then lives for
+/// exactly as long as the lock, which is the only thing that tracks the work itself: the
+/// request which started it may be cancelled long before the work on the reactor finishes.
+pub(crate) async fn acquire_pool_lock(
+    pool: &str,
+    operation: PoolOp,
+) -> Result<PoolLockGuard<'static>, Status> {
+    let pool_subsystem =
+        ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
+    let _lock = acquire_subsystem_lock(pool_subsystem, Some(pool)).await?;
+    Ok(PoolLockGuard {
+        _operation: PoolOperationGuard::new(pool.to_string(), operation),
+        _lock,
+    })
 }
 
 /// A pool factory with the various types of specific impls.
@@ -797,11 +859,14 @@ impl GrpcPoolFactory {
     }
 
     /// Probe backends for the given name and/or uuid and return the right one.
-    pub(crate) async fn finder<I: Into<FindPoolArgs>>(args: I) -> Result<PoolGrpc, Status> {
+    /// `operation` is what we're about to do with it, reported to anyone probing the pool
+    /// for as long as we hold its lock.
+    pub(crate) async fn finder<I: Into<FindPoolArgs>>(
+        args: I,
+        operation: PoolOp,
+    ) -> Result<PoolGrpc, Status> {
         let pool = PoolFactory::find(args).await?;
-        let pool_subsystem =
-            ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
-        let lock_guard = acquire_subsystem_lock(pool_subsystem, Some(pool.name())).await?;
+        let lock_guard = acquire_pool_lock(pool.name(), operation).await?;
         Ok(PoolGrpc::new(pool, lock_guard))
     }
     async fn list(&self, args: &ListPoolArgs) -> Result<Vec<Pool>, Status> {
@@ -843,11 +908,9 @@ impl GrpcPoolFactory {
         }
     }
     async fn create(&self, args: PoolArgs) -> Result<Pool, Status> {
-        let pool_subsystem =
-            ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
         // todo: missing lock by uuid as well, need to ensure also we don't
         //  clash with a pool with != name but same uuid
-        let _lock_guard = acquire_subsystem_lock(pool_subsystem, Some(&args.name)).await?;
+        let _guard = acquire_pool_lock(&args.name, PoolOp::Create).await?;
 
         let finder = FindPoolArgs::from(&args);
         for factory in Self::factories() {
@@ -858,9 +921,7 @@ impl GrpcPoolFactory {
         Ok(pool.async_into().await)
     }
     async fn import(&self, args: PoolArgs) -> Result<Pool, Status> {
-        let pool_subsystem =
-            ResourceLockManager::get_instance().get_subsystem(ProtectedSubsystems::POOL);
-        let _lock_guard = acquire_subsystem_lock(pool_subsystem, Some(&args.name)).await?;
+        let _guard = acquire_pool_lock(&args.name, PoolOp::Import).await?;
 
         let finder = FindPoolArgs::from(&args);
         for factory in Self::factories() {
@@ -911,7 +972,8 @@ impl PoolRpc for PoolService {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
 
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let pool =
+                        GrpcPoolFactory::finder(request.into_inner(), PoolOp::Destroy).await?;
                     pool.destroy().await
                 })
             },
@@ -927,7 +989,8 @@ impl PoolRpc for PoolService {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
 
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let pool =
+                        GrpcPoolFactory::finder(request.into_inner(), PoolOp::Export).await?;
                     pool.export().await
                 })
             },
@@ -940,6 +1003,7 @@ impl PoolRpc for PoolService {
         &self,
         request: Request<ListPoolsSmartOptions>,
     ) -> GrpcResult<ListPoolsSmartResponse> {
+        // Not scoped to a single pool unless asked for, so reported against every one of them.
         self.locked(
             GrpcClientContext::new(&request, function_name!()),
             async move {
@@ -1104,7 +1168,7 @@ impl PoolRpc for PoolService {
             async move {
                 crate::spdk_submit!(async move {
                     info!("{:?}", request.get_ref());
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let pool = GrpcPoolFactory::finder(request.into_inner(), PoolOp::Grow).await?;
                     pool.grow().await?;
                     Ok(Pool::async_from(pool.as_ops()).await)
                 })
@@ -1126,7 +1190,8 @@ impl PoolRpc for PoolService {
                             source: BsError::InvalidArgument {},
                             msg: format!("invalid clear arg provided: {}", req.clear),
                         })?;
-                    let pool = GrpcPoolFactory::finder(request.into_inner()).await?;
+                    let pool =
+                        GrpcPoolFactory::finder(request.into_inner(), PoolOp::ClearErrors).await?;
                     pool.clear_errors(clear_error).await?;
                     Ok(Pool::async_from(pool.as_ops()).await)
                 })
@@ -1194,8 +1259,8 @@ impl PoolRpc for PoolService {
             probed: None,
             metadata: None,
             errors,
-            service_busy: None,
-            in_progress: None,
+            service_busy: Some(self.client_context.try_read().is_err()),
+            in_progress: Self::operation(&request.name).map(i32::from),
         }))
     }
 }

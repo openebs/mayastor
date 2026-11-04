@@ -83,6 +83,15 @@ impl ResourceSubsystem {
         let mutex_id = hasher.finish() as usize % self.object_locks.len();
         acquire_lock(&self.object_locks[mutex_id], wait_timeout, try_lock).await
     }
+
+    /// Is the subsystem resource ID.
+    pub fn is_resource_locked<T: AsRef<str>>(&self, id: T) -> bool {
+        // Calculate hash of the object to get the mutex index.
+        let mut hasher = DefaultHasher::new();
+        id.as_ref().hash(&mut hasher);
+        let mutex_id = hasher.finish() as usize % self.object_locks.len();
+        self.object_locks[mutex_id].try_lock().is_none()
+    }
 }
 
 /// Structure that holds per-lock statistics.
