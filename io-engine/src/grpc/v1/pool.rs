@@ -1194,6 +1194,8 @@ impl PoolRpc for PoolService {
             probed: None,
             metadata: None,
             errors,
+            service_busy: None,
+            in_progress: None,
         }))
     }
 }
