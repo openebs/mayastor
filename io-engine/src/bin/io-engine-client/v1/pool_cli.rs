@@ -255,6 +255,7 @@ async fn create(mut ctx: Context, args: CreateArgs) -> crate::Result<()> {
                 max_expansion,
             }),
             encryption: enc_msg,
+            lvm: None,
         })
         .await
         .context(GrpcStatus)?;

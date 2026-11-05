@@ -88,7 +88,13 @@ impl TestRpc for TestService {
                         info!("{:?}", args);
                         crate::spdk_submit!(async move {
                             let pool = match args.pool {
-                                Some(pool) => Some(GrpcReplicaFactory::pool_finder(pool).await?),
+                                Some(pool) => Some(
+                                    GrpcReplicaFactory::pool_finder(
+                                        pool,
+                                        crate::pool_information::PoolOperation::ReplicaDestroy,
+                                    )
+                                    .await?,
+                                ),
                                 None => None,
                             };
                             let args = FindReplicaArgs::new(&args.uuid);

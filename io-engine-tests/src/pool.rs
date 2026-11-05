@@ -207,6 +207,7 @@ impl PoolBuilderRpc {
                 cluster_size: self.cluster_size,
                 md_args: None,
                 encryption: None,
+                lvm: None,
             })
             .await
             .map(|r| r.into_inner())
