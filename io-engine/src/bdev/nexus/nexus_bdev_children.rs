@@ -407,6 +407,11 @@ impl<'n> Nexus<'n> {
                 name: nexus_name.clone(),
             })?;
 
+        // Register event listener for onlined child.
+        // This must be done before any failure path which closes the child, as
+        // closing waits for the device removal event to unplug the child.
+        child.set_event_listener(self.get_event_sink());
+
         // Acquire reservations.
         if let Err(e) = child.reservation_acquire(&self.nvme_params).await {
             child.close().await.ok();
@@ -416,9 +421,6 @@ impl<'n> Nexus<'n> {
                 name: nexus_name.clone(),
             });
         }
-
-        // Register event listener for onlined child.
-        child.set_event_listener(self.get_event_sink());
 
         // Start rebuild.
         if let Err(e) = self.start_rebuild(child_uri).await {
