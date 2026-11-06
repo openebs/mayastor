@@ -376,6 +376,13 @@ pub fn find_all_nics() -> Vec<Interface> {
     // every ip entry of the same interface.
     for nic in &mut nics {
         nic.mac = macs.get(&nic.name).copied();
+        tracing::info!(
+            "{}: inet {} inet6 {} mac {}",
+            nic.name,
+            nic.inet,
+            nic.inet6,
+            fmt_opt(&nic.mac)
+        );
     }
 
     nics
