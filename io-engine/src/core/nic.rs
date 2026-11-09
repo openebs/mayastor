@@ -451,7 +451,10 @@ mod tests {
 
         assert!(
             nics.iter().any(|n| n.name == name && n.mac == Some(mac)),
-            "Interface '{name}' with mac {mac} not found in {nics:?}"
+            "Interface '{}' with mac {} not found in {:?}",
+            name,
+            mac,
+            nics
         );
     }
 }
