@@ -36,7 +36,7 @@ jobs:
           token: ${{ secrets.CI_BOT_1_RAISE_PRS }}
 
       - name: Approve Pull Request by CI Bot 1
-        if: ${{ steps.cpr.outputs.pull-request-number }}
+        if: ${{ steps.cpr.outputs.pull-request-operation == 'created' }}
         run: |
           gh pr review ${{ steps.cpr.outputs.pull-request-number }} --approve
         env:
