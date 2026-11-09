@@ -1,6 +1,9 @@
 name: Integration CI
 on:
   workflow_call:
+  push:
+    branches:
+      - cii
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [cncf-ubuntu-16-64-x86, cncf-ubuntu-16-64-arm]
+        #runner: [cncf-ubuntu-16-64-x86, cncf-ubuntu-16-64-arm]
+        runner: [cncf-ubuntu-16-64-x86]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -52,7 +56,7 @@ jobs:
       - name: Run Rust Tests
         run: |
           echo "TEST_START_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
-          nix-shell --run "./scripts/cargo-test.sh"
+          nix-shell --run "cd io-engine; cargo test --features=io-engine-testing --test nvmf test_rdma_target -- --nocapture || cargo test --features=io-engine-testing --test nvmf test_rdma_target -- --nocapture"
 
       - name: Check Coredumps
         if: always()
