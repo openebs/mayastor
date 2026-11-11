@@ -14,14 +14,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
-      - uses: cachix/install-nix-action@v31.11.3
-      - name: Pre-populate nix-shell
-        run: |
-          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' spdk-rs/nix/sources.json -r)
-          echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
-          nix-shell --run "echo" shell.nix
-      - name: Handle Rust dependencies caching
-        uses: Swatinem/rust-cache@v2
+      - name: Setup Nix Environment
+        uses: ./utils/dependencies/.github/actions/setup-nix
+        with:
+          nix-sources: spdk-rs/nix/sources.json
+          pre-fetch-nix: ./shell.nix
+          github-access-token: ${{ secrets.GITHUB_TOKEN }}
+          rust-cache: true
       - name: Lint rust code
         run: |
           nix-shell --run "FMT_OPTS=--check ./scripts/rust-style.sh"

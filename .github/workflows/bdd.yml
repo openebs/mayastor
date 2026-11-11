@@ -24,53 +24,23 @@ jobs:
           fetch-depth: 0
           submodules: 'recursive'
 
-      - uses: cachix/install-nix-action@v31.11.3
+      - name: Setup Nix Environment
+        uses: ./utils/dependencies/.github/actions/setup-nix
         with:
-          github_access_token: ''
-
-      - name: Inject github token to nix config
-        run: |
-          cat <<EOF | sudo tee -a /etc/nix/nix.conf
-          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-          trusted-users = root ubuntu
-          EOF
-
-      - name: Restart Nix daemon
-        run: sudo systemctl restart nix-daemon
-
-      - name: Runner Info
-        run: |
-          lscpu
-          free -h
-          lsblk -fm
-          lsb_release -a
-          uname -a 
-
-      - name: Pre-populate nix-shell
-        run: |
-          export NIX_PATH=nixpkgs=$(jq '.nixpkgs.url' spdk-rs/nix/sources.json -r)
-          echo "NIX_PATH=$NIX_PATH" >> $GITHUB_ENV
-          nix-shell --run "echo" shell.nix
-
-      - name: Handle Rust dependencies caching
-        uses: Swatinem/rust-cache@v2
+          nix-sources: spdk-rs/nix/sources.json
+          pre-fetch-nix: ./shell.nix
+          github-access-token: ${{ secrets.GITHUB_TOKEN }}
+          hide-cachix-token: true
+          rust-cache: true
 
       - name: Build binaries
         run: nix-shell --run "cargo build --bins --features=io-engine-testing"
 
       - name: Setup Test Pre-Requisites
         run: |
-          sudo sysctl -w vm.nr_hugepages=2560
-          sudo debconf-communicate <<< "set man-db/auto-update false" || true
-          sudo dpkg-reconfigure man-db || true
+          # gdb is for the coredump check
+          sudo ./utils/dependencies/scripts/prereq.sh --nvme-tcp --module nbd --module nvme_rdma --package gdb --hugepages 2560
           ulimit -c unlimited
-          sudo apt-get update
-          sudo apt-get install linux-modules-extra-$(uname -r)
-          for module in nvme_tcp nbd nvme_rdma; do
-            sudo modprobe $module
-          done
-          # for the coredump check
-          sudo apt-get install gdb
           # Check if nvme config is valid, otherwise apply it
           sudo ./scripts/nvme-conf.sh --check --apply --overwrite
 

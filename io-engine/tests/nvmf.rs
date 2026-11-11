@@ -232,7 +232,6 @@ async fn nvmf_set_target_interface() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_rdma_target() {
     common::composer_init();
 
