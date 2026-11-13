@@ -58,6 +58,7 @@ use spdk_rs::libspdk::SPDK_NVME_SC_CAPACITY_EXCEEDED;
 mod affinity;
 mod bdev;
 mod block_device;
+mod cpuset;
 mod descriptor;
 mod device_events;
 mod device_monitor;
