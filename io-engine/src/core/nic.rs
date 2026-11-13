@@ -2,6 +2,7 @@ use core::default::Default;
 use nix::ifaddrs::getifaddrs;
 
 use std::{
+    collections::HashMap,
     fmt,
     fmt::{Debug, Display, Formatter},
     net::{Ipv4Addr, Ipv6Addr},
@@ -337,6 +338,7 @@ impl fmt::Display for Interface {
 /// Lists all network interfaces found on the system.
 pub fn find_all_nics() -> Vec<Interface> {
     let mut nics = vec![];
+    let mut macs = HashMap::new();
 
     for addr in getifaddrs().unwrap() {
         let mut nic = Interface::new(&addr.interface_name);
@@ -351,8 +353,8 @@ pub fn find_all_nics() -> Vec<Interface> {
                 }
                 nic.inet6.addr = Some((*sock).into());
             }
-            if let Some(link) = sock.as_link_addr() {
-                nic.mac = link.addr().map(MacAddr::new);
+            if let Some(mac) = sock.as_link_addr().and_then(|link| link.addr()) {
+                macs.insert(addr.interface_name.clone(), MacAddr::new(mac));
             }
         }
 
@@ -368,6 +370,19 @@ pub fn find_all_nics() -> Vec<Interface> {
         if nic.inet.addr.is_some() || nic.inet6.addr.is_some() {
             nics.push(nic);
         }
+    }
+
+    // The link-layer address comes in its own entry, without any ip, so add it to
+    // every ip entry of the same interface.
+    for nic in &mut nics {
+        nic.mac = macs.get(&nic.name).copied();
+        tracing::info!(
+            "{}: inet {} inet6 {} mac {}",
+            nic.name,
+            nic.inet,
+            nic.inet6,
+            fmt_opt(&nic.mac)
+        );
     }
 
     nics
@@ -411,5 +426,35 @@ pub fn parse_ip_subnet(addr_str: &str) -> Result<(std::net::IpAddr, u128), Strin
 
             Ok((std::net::IpAddr::V6(Ipv6Addr::from(subnet)), mask))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mac of an interface with an ip must be reported, otherwise the nvmf
+    /// target interface can't be matched by mac.
+    #[test]
+    fn find_nic_by_mac() {
+        let nics = find_all_nics();
+        let link = getifaddrs()
+            .unwrap()
+            .filter_map(|a| {
+                let mac = a.address?.as_link_addr()?.addr()?;
+                Some((a.interface_name, MacAddr::new(mac)))
+            })
+            .find(|(name, _)| nics.iter().any(|n| &n.name == name));
+        let Some((name, mac)) = link else {
+            return;
+        };
+
+        assert!(
+            nics.iter().any(|n| n.name == name && n.mac == Some(mac)),
+            "Interface '{}' with mac {} not found in {:?}",
+            name,
+            mac,
+            nics
+        );
     }
 }
