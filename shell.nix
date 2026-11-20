@@ -17,8 +17,6 @@ let
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
 
   nix-file = "\\$" + "{workspaceFolder}/shell.nix";
-  # Not `pwd`: this shell can be entered from anywhere, and everything reading SRCDIR
-  # wants the root of this working tree.
   src-root = toString ./.;
   nix-spdk-path = if spdk-path != null then " --argstr spdk-path $(realpath ${toString spdk-path})" else "";
 
@@ -73,8 +71,6 @@ let
         NIX_SPDK = spdk;
         NIX_SPDK_PATH = toString spdk-path;
 
-        # A constant, so it belongs with the environment rather than with the hook.
-        # Needed absolute by the docker-compose files.
         SRCDIR = src-root;
       };
 
