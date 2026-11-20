@@ -17,9 +17,11 @@ let
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
 
   nix-file = "\\$" + "{workspaceFolder}/shell.nix";
+  src-root = toString ./.;
   nix-spdk-path = if spdk-path != null then " --argstr spdk-path $(realpath ${toString spdk-path})" else "";
 
   shellAttrs = import ./spdk-rs/nix/shell {
+    inherit src-root;
     inherit rust;
     inherit spdk;
     inherit spdk-path;
@@ -68,12 +70,11 @@ let
         NIX_RUST = rust;
         NIX_SPDK = spdk;
         NIX_SPDK_PATH = toString spdk-path;
+
+        SRCDIR = src-root;
       };
 
       shellHook = ''
-        # SRCDIR is needed by docker-compose files as it requires absolute paths
-        export SRCDIR=`pwd`
-
         export PATH="$(pwd)/target/debug:$PATH:$(pwd)/scripts/nix-sudo"
 
         export IO_ENGINE_DIR="$RUST_TARGET_DEBUG"
