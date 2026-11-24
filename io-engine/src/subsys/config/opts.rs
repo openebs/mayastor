@@ -10,9 +10,11 @@ use spdk_rs::{
     libspdk::{
         spdk_bdev_get_opts, spdk_bdev_nvme_get_opts, spdk_bdev_nvme_opts, spdk_bdev_nvme_set_opts,
         spdk_bdev_opts, spdk_bdev_set_opts, spdk_iobuf_get_opts, spdk_iobuf_opts,
-        spdk_iobuf_set_opts, spdk_nvmf_target_opts, spdk_nvmf_transport_opts,
-        spdk_sock_impl_get_opts, spdk_sock_impl_opts, spdk_sock_impl_set_opts, NVMF_DEFAULT_KAS,
-        NVMF_DEFAULT_MIN_KATO,
+        spdk_iobuf_set_opts, spdk_nvme_cdata_fuses, spdk_nvme_cdata_oncs, spdk_nvmf_target_opts,
+        spdk_nvmf_transport_opts, spdk_nvmf_transport_opts__bindgen_ty_1, spdk_sock_impl_get_opts,
+        spdk_sock_impl_opts, spdk_sock_impl_set_opts, NVMF_DEFAULT_KAS, NVMF_DEFAULT_MIN_KATO,
+        SPDK_BDEV_NVME_MULTIPATH_POLICY_ACTIVE_PASSIVE,
+        SPDK_BDEV_NVME_MULTIPATH_SELECTOR_ROUND_ROBIN, SPDK_NVMF_SUBSYSTEM_DUP_HOST_POLICY_ALLOW,
     },
     struct_size_init,
 };
@@ -133,6 +135,7 @@ impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
                 discovery_filter: 0,
                 dhchap_digests: 0,
                 dhchap_dhgroups: 0,
+                dup_host_policy: SPDK_NVMF_SUBSYSTEM_DUP_HOST_POLICY_ALLOW,
             },
             size
         );
@@ -322,7 +325,9 @@ impl From<NvmfTransportOpts> for spdk_nvmf_transport_opts {
                 io_unit_size: o.io_unit_size,
                 max_aq_depth: o.max_aq_depth,
                 num_shared_buffers: o.num_shared_buf,
-                buf_cache_size: o.buf_cache_size,
+                __bindgen_anon_1: spdk_nvmf_transport_opts__bindgen_ty_1 {
+                    buf_cache_size: o.buf_cache_size,
+                },
                 dif_insert_or_strip: o.dif_insert_or_strip,
                 // todo: add disable_command_passthru in NvmfTransportOpts when needed.
                 disable_command_passthru: false,
@@ -338,6 +343,12 @@ impl From<NvmfTransportOpts> for spdk_nvmf_transport_opts {
                 // todo: add min_kato and kas in NvmfTransportOpts when needed.
                 min_kato: NVMF_DEFAULT_MIN_KATO,
                 kas: NVMF_DEFAULT_KAS as u16,
+                // Enable all ONCS and FUSES features (SPDK default).
+                oncs: spdk_nvme_cdata_oncs { raw: u16::MAX },
+                fuses: unsafe { std::mem::transmute::<u16, spdk_nvme_cdata_fuses>(u16::MAX) },
+                reserved82: Default::default(),
+                // Keep the SPDK default for the large buffer cache.
+                iobuf_large_cache_size: u32::MAX,
             },
             opts_size
         )
@@ -528,6 +539,11 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
             rdma_umr_per_io: false,
             reserved121: Default::default(),
             tcp_connect_timeout_ms: 0,
+            enable_flush: false,
+            multipath_policy: SPDK_BDEV_NVME_MULTIPATH_POLICY_ACTIVE_PASSIVE as u8,
+            multipath_selector: SPDK_BDEV_NVME_MULTIPATH_SELECTOR_ROUND_ROBIN as u8,
+            reserved131: Default::default(),
+            multipath_min_io: 1,
         }
     }
 }
