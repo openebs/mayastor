@@ -294,7 +294,7 @@ pub struct MayastorCliArgs {
     /// This must be set true ONLY from tests. This option can be removed once
     /// dynamic reconfiguration of nexus channels can handle async-qpair
     /// connect. {n}
-    /// Details in [`NexusChannel::new`].
+    /// Details in `NexusChannel::new`.
     #[clap(long = "enable-io-all-thrd-nexus-channels", hide = true)]
     pub enable_io_all_thrd_nexus_channels: bool,
     /// Events message-bus endpoint url.
@@ -374,7 +374,7 @@ pub struct MayastorCliArgs {
     #[clap(flatten)]
     pub pool: PoolCliArgs,
 
-    /// [`SpdkTracingArgs`].
+    /// `SpdkTracingArgs`.
     #[clap(flatten)]
     pub traces: SpdkTracingArgs,
 
@@ -613,8 +613,8 @@ impl MayastorCliArgs {
 
     /// The TLS configuration for the gRPC server, if any.
     ///
-    /// Returns [`GrpcServerTls::Auto`] for an ephemeral self-signed
-    /// certificate, or [`GrpcServerTls::Files`] for file-backed certificates.
+    /// Returns [`Auto`](grpc::tls::GrpcServerTls::Auto) for an ephemeral self-signed
+    /// certificate, or [`Files`](grpc::tls::GrpcServerTls::Files) for file-backed certificates.
     pub fn grpc_tls(&self) -> Result<Option<grpc::tls::GrpcServerTls>, String> {
         if self.grpc_auto_tls {
             return Ok(Some(grpc::tls::GrpcServerTls::Auto));

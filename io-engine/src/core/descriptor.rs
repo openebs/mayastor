@@ -11,7 +11,7 @@ use crate::{
     core::{Bdev, BdevHandle, CoreError},
 };
 
-/// RAII Wrapper for spdk_rs::BdevDesc<T>.
+/// RAII Wrapper for spdk_rs::`BdevDesc<T>`.
 /// When this structure is dropped, the descriptor is closed.
 pub struct DescriptorGuard<T: BdevOps>(BdevDesc<T>, Option<Thread>);
 

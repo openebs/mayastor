@@ -43,7 +43,7 @@ use crate::core::{runtime, CoreError, Reactor};
 
 /// Static device identity/inventory data. Unlike [`SmartData`]'s counters,
 /// this never changes for the device's lifetime, so callers should fetch it
-/// once and cache it (see [`cached_nvme_identity`] for the VFIO path) rather
+/// once and cache it (see `cached_nvme_identity` for the VFIO path) rather
 /// than re-reading it on every SMART poll. `Option` fields are unset when a
 /// given device or transport does not report them.
 #[derive(Debug, Default, Clone)]
@@ -97,7 +97,7 @@ pub struct SmartAttribute {
 /// A single NVMe Error Information Log entry (Log Page Identifier 01h),
 /// decoded either from the raw 64-byte log entry (VFIO path) or from
 /// `smartctl`'s `nvme_error_information_log.table` (kernel path). Only
-/// non-empty slots are surfaced -- see [`parse_nvme_error_log`]. Surfaced
+/// non-empty slots are surfaced -- see `parse_nvme_error_log`. Surfaced
 /// over `ListPoolsSMART`'s gRPC response as `NvmeSmart::error_log_entries`
 /// (see `grpc/v1/pool.rs`'s `NvmeSmart`/`NvmeErrorLogEntry` `From` impls).
 #[derive(Debug, Clone, Default)]
@@ -230,7 +230,7 @@ pub struct NvmeSmart {
     /// Minutes the composite temperature has been at or above the critical threshold.
     pub critical_comp_time: Option<u32>,
     /// Most recent NVMe Error Information Log entries, bounded to a small
-    /// window (see [`parse_nvme_error_log`]); empty when the device didn't
+    /// window (see `parse_nvme_error_log`); empty when the device didn't
     /// report any errors, or for transports this isn't decoded for.
     pub error_log_entries: Vec<NvmeErrorLogEntry>,
 }

@@ -342,7 +342,7 @@ fn get_partitions(
 }
 
 /// Return a list of block devices on the current host.
-/// The <all> parameter controls whether to return list containing
+/// The `all` parameter controls whether to return list containing
 /// all matching devices, or just those deemed to be available.
 pub async fn list_block_devices(all: bool) -> Result<Vec<BlockDevice>, Error> {
     let mounts = get_mounts()?;

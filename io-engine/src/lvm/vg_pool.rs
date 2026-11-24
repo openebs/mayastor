@@ -181,7 +181,7 @@ impl VolumeGroup {
         }
     }
 
-    /// Creates a [`LogicalVolume`] from this [`VolumeGroup`].
+    /// Creates a `LogicalVolume` from this [`VolumeGroup`].
     pub async fn create_lvol(
         &self,
         args: crate::pool_backend::ReplicaArgs,
