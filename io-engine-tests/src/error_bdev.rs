@@ -20,6 +20,7 @@ pub fn create_error_bdev(error_device: &str, backing_device: &str) {
             false,
             false,
             std::ptr::null_mut(),
+            false,
         )
     };
     assert_eq!(retval, 0);
@@ -42,6 +43,8 @@ pub fn inject_error(error_device: &str, op: u32, mode: u32, count: u32) {
     let opts = vbdev_error_inject_opts {
         io_type: op,
         error_type: mode,
+        nvme_sct: 0,
+        nvme_sc: 0,
         error_num: count,
         corrupt_offset: 0,
         corrupt_value: 0,

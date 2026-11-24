@@ -25,6 +25,7 @@ use spdk_rs::{
         create_crypto_opts_by_name, delete_crypto_disk, spdk_accel_assign_opc,
         spdk_accel_crypto_key, spdk_accel_crypto_key_create, spdk_accel_crypto_key_create_param,
         spdk_accel_crypto_key_destroy, spdk_accel_crypto_key_get,
+        SPDK_ACCEL_DPDK_CRYPTODEV_DRIVER_AESNI_MB,
     },
 };
 use std::{
@@ -199,31 +200,6 @@ impl From<v1rpc::common::Cipher> for Cipher {
     }
 }
 
-/// Driver types for dpdk_cryptodev module. We won't be using any other
-/// than aesni-mb.
-#[derive(Debug, Default)]
-enum AccelDpdkCryptodevDriverType {
-    #[default]
-    AccelDpdkCryptodevAesniMb,
-    _AccelDpdkCryptodevQat,
-    _AccelDpdkCryptodevMlx5Pci,
-    _AccelDpdkCryptodevUadk,
-    _AccelDpdkCryptodevLast,
-}
-
-impl Display for AccelDpdkCryptodevDriverType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let drv = match self {
-            Self::AccelDpdkCryptodevAesniMb => "crypto_aesni_mb",
-            Self::_AccelDpdkCryptodevQat => "crypto_qat",
-            Self::_AccelDpdkCryptodevMlx5Pci => "mlx5_pci",
-            Self::_AccelDpdkCryptodevUadk => "crypto_uadk",
-            Self::_AccelDpdkCryptodevLast => "crypto_driver_invalid",
-        };
-        write!(f, "{drv}")
-    }
-}
-
 // This function enables the dpdk_cryptodev module with aesni_mb driver in spdk,
 // and assigns the encrypt and decrypt operation to it, which by default are assigned to
 // software module initially.
@@ -232,12 +208,7 @@ pub fn enable_dpdk_cryptodev_accel_module() -> Result<(), CoreError> {
     info!("Enabling accel dpdk_cryptodev module");
     unsafe {
         accel_dpdk_cryptodev_enable();
-        let setdrv_ret = accel_dpdk_cryptodev_set_driver(
-            AccelDpdkCryptodevDriverType::AccelDpdkCryptodevAesniMb
-                .to_string()
-                .into_cstring()
-                .as_ptr(),
-        );
+        let setdrv_ret = accel_dpdk_cryptodev_set_driver(SPDK_ACCEL_DPDK_CRYPTODEV_DRIVER_AESNI_MB);
         if setdrv_ret != 0 {
             return Err(CoreError::InitCryptoModule {
                 reason: format!("Unsupported driver: {setdrv_ret:?}"),

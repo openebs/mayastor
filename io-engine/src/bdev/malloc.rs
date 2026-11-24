@@ -216,6 +216,7 @@ impl CreateDestroy for Malloc {
                 dif_type: SPDK_DIF_DISABLE,
                 dif_is_head_of_md: false,
                 dif_pi_format: 0,
+                numa_id: -1, // SPDK_ENV_NUMA_ID_ANY
             };
 
             create_malloc_disk(&mut bdev, &opts)
