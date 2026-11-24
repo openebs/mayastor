@@ -259,9 +259,10 @@ async fn nexus_io_multipath() {
         v["ptpls"], 0,
         "should have Persist Through Power Loss State as 0"
     );
-    assert_eq!(
+    // SPDK >= 26.05 reports the real controller ID (it used to report 0xffff).
+    assert_ne!(
         v["regctlext"][0]["cntlid"], 0xffff,
-        "should have dynamic controller ID"
+        "should report the real controller ID"
     );
     assert_eq!(
         v["regctlext"][0]["rcsts"], 0,
@@ -398,9 +399,10 @@ async fn nexus_io_resv_acquire() {
         v["ptpls"], 0,
         "should have Persist Through Power Loss State as 0"
     );
-    assert_eq!(
+    // SPDK >= 26.05 reports the real controller ID (it used to report 0xffff).
+    assert_ne!(
         v["regctlext"][0]["cntlid"], 0xffff,
-        "should have dynamic controller ID"
+        "should report the real controller ID"
     );
     assert_eq!(
         v["regctlext"][0]["rcsts"], 1,
@@ -447,9 +449,10 @@ async fn nexus_io_resv_acquire() {
         v2["ptpls"], 0,
         "should have Persist Through Power Loss State as 0"
     );
-    assert_eq!(
+    // SPDK >= 26.05 reports the real controller ID (it used to report 0xffff).
+    assert_ne!(
         v2["regctlext"][1]["cntlid"], 0xffff,
-        "should have dynamic controller ID"
+        "should report the real controller ID"
     );
     assert_eq!(
         v2["regctlext"][1]["rcsts"].as_u64().unwrap() & 0x1,
@@ -593,9 +596,10 @@ async fn nexus_io_resv_preempt() {
         v["ptpls"], 0,
         "should have Persist Through Power Loss State as 0"
     );
-    assert_eq!(
+    // SPDK >= 26.05 reports the real controller ID (it used to report 0xffff).
+    assert_ne!(
         v["regctlext"][0]["cntlid"], 0xffff,
-        "should have dynamic controller ID"
+        "should report the real controller ID"
     );
     assert_eq!(
         v["regctlext"][0]["rcsts"], 1,
@@ -639,9 +643,10 @@ async fn nexus_io_resv_preempt() {
         v2["ptpls"], 1,
         "should have Persist Through Power Loss State enabled"
     );
-    assert_eq!(
+    // SPDK >= 26.05 reports the real controller ID (it used to report 0xffff).
+    assert_ne!(
         v2["regctlext"][0]["cntlid"], 0xffff,
-        "should have dynamic controller ID"
+        "should report the real controller ID"
     );
     assert_eq!(
         v2["regctlext"][0]["rcsts"].as_u64().unwrap() & 0x1,
@@ -739,6 +744,8 @@ async fn nexus_io_resv_preempt() {
         v2["ptpls"], 1,
         "should have Persist Through Power Loss State enabled"
     );
+    // Registrants restored from the persisted reservation state have no
+    // controller ID yet, so they are still reported as 0xffff.
     assert_eq!(
         v2["regctlext"][0]["cntlid"], 0xffff,
         "should have dynamic controller ID"
@@ -899,7 +906,11 @@ async fn nexus_io_resv_preempt_tabled() {
         let registrants = v["regctl"].as_u64().unwrap() as usize;
         for i in 0..registrants {
             let entry = &v["regctlext"][i];
-            assert_eq!(entry["cntlid"], 0xffff, "should have dynamic controller ID");
+            // SPDK >= 26.05 reports the real controller ID (it used to report 0xffff).
+            assert_ne!(
+                entry["cntlid"], 0xffff,
+                "should report the real controller ID"
+            );
             if entry["rcsts"] == 1 && !shared {
                 reserved = true;
 
