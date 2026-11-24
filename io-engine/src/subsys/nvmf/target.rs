@@ -11,8 +11,8 @@ use spdk_rs::libspdk::{
     spdk_env_get_core_count, spdk_nvmf_listen_opts, spdk_nvmf_listen_opts_init,
     spdk_nvmf_poll_group_destroy, spdk_nvmf_subsystem_create, spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_target_opts, spdk_nvmf_tgt, spdk_nvmf_tgt_create, spdk_nvmf_tgt_destroy,
-    spdk_nvmf_tgt_listen_ext, spdk_nvmf_tgt_stop_listen, spdk_subsystem_fini_next,
-    spdk_subsystem_init_next, SPDK_NVMF_DISCOVERY_NQN, SPDK_NVMF_SUBTYPE_DISCOVERY,
+    spdk_nvmf_tgt_listen_ext, spdk_subsystem_fini_next, spdk_subsystem_init_next,
+    SPDK_NVMF_DISCOVERY_NQN, SPDK_NVMF_SUBTYPE_DISCOVERY,
 };
 
 use crate::{
@@ -426,39 +426,7 @@ impl Target {
             }
         }
 
-        // TODO: properly fix use-after-free on spdk_nvmf_tgt_stop_listen call.
-        if option_env!("ASAN_ENABLE").unwrap_or_default() == "1" {
-            warn!(
-                "Compiled with Address Sanitizer enabled: \
-                  won't stop listening targets as it causes \
-                  use-after-free error"
-            );
-        } else {
-            let cfg = Config::get();
-            let trid_nexus =
-                TransportId::new(cfg.nexus_opts.nvmf_nexus_port, NvmfTgtTransport::Tcp);
-            let trid_replica =
-                TransportId::new(cfg.nexus_opts.nvmf_replica_port, NvmfTgtTransport::Tcp);
-            let mut trid_vec = vec![trid_nexus, trid_replica];
-            // todo: handle by fetching current listeners dynamically here.
-            // Since this is shutdown path we're good this way for
-            // now.
-            if self.rdma {
-                trid_vec.push(TransportId::new(
-                    cfg.nexus_opts.nvmf_nexus_port,
-                    NvmfTgtTransport::Rdma,
-                ));
-                trid_vec.push(TransportId::new(
-                    cfg.nexus_opts.nvmf_replica_port,
-                    NvmfTgtTransport::Rdma,
-                ));
-            }
-
-            for trid in trid_vec {
-                unsafe { spdk_nvmf_tgt_stop_listen(self.tgt.as_ptr(), trid.as_ptr()) };
-            }
-        }
-
+        // Transport listeners are stopped by spdk_nvmf_tgt_destroy().
         unsafe { spdk_nvmf_tgt_destroy(self.tgt.as_ptr(), Some(destroy_cb), std::ptr::null_mut()) }
     }
 

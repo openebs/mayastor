@@ -105,10 +105,10 @@ impl Debug for NvmfSubsystem {
                 .field("id", &self.0.as_ref().id)
                 .field("subtype", &self.subtype().to_string())
                 .field("subnqn", &self.0.as_ref().subnqn.as_str().to_string())
-                .field("sn", &self.0.as_ref().sn.as_str().to_string())
-                .field("mn", &self.0.as_ref().mn.as_str().to_string())
+                .field("sn", &self.0.as_ref().opts.sn.as_str().to_string())
+                .field("mn", &self.0.as_ref().opts.mn.as_str().to_string())
                 .field("allow_any_host", &self.0.as_ref().allow_any_host)
-                .field("ana_reporting", &self.0.as_ref().flags.ana_reporting())
+                .field("ana_reporting", &self.0.as_ref().opts.ana_reporting)
                 .field("listeners", &self.listeners_to_vec())
                 .finish()
         }
@@ -710,6 +710,7 @@ impl NvmfSubsystem {
                 host_cstr.as_ptr(),
                 Some(done_cb),
                 cb_arg(s),
+                0,
             );
         }
 
@@ -1120,7 +1121,7 @@ impl NvmfSubsystem {
 
     pub fn subtype(&self) -> SubType {
         unsafe {
-            match self.0.as_ref().subtype {
+            match self.0.as_ref().opts.type_ {
                 SPDK_NVMF_SUBTYPE_DISCOVERY => SubType::Discovery,
                 SPDK_NVMF_SUBTYPE_NVME => SubType::Nvme,
                 _ => panic!("unknown NVMe subtype"),
