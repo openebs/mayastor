@@ -1006,11 +1006,33 @@ impl NvmfSubsystem {
         Ok(())
     }
 
-    /// destroy all subsystems associated with our target, subsystems must be in
-    /// stopped state
+    /// Destroy all non-discovery subsystems associated with our target,
+    /// subsystems must be in stopped state.
+    ///
+    /// This must happen before `spdk_nvmf_tgt_destroy()`: that call stops the
+    /// transport listener once per remaining subsystem, and the first stop
+    /// releases the listener (clearing its `trid` in every other subsystem
+    /// that shares it), tripping an assertion in SPDK 26.05 for the next
+    /// subsystem. Destroying a subsystem only unlinks its listeners, so by
+    /// the time the target is destroyed only the discovery subsystem is left.
     pub fn destroy_all() {
         Reactors::master().send_future(async {
-            // NvmfSubsystem::first().iter().for_each(|s| s.destroy());
+            // Collect first: destroying a subsystem invalidates its `next` link.
+            let subsystems: Vec<_> = NvmfSubsystem::first()
+                .map(|s| s.into_iter().collect())
+                .unwrap_or_default();
+
+            for s in subsystems {
+                if matches!(s.subtype(), SubType::Discovery) {
+                    continue;
+                }
+                let nqn = s.get_nqn();
+                let rc = unsafe { s.shutdown_unsafe() };
+                if rc != 0 && rc != -libc::EINPROGRESS {
+                    warn!("Failed to destroy subsystem '{nqn}' at shutdown: {rc}");
+                }
+            }
+
             NVMF_TGT.with(|t| {
                 let mut tgt = t.borrow_mut();
                 tgt.next_state()
